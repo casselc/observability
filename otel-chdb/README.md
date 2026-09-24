@@ -43,7 +43,7 @@ The same tests pass on both builds.
 ### The fork
 
 [`patches/0001-chdb-go-binary-safe-streaming-insert.patch`](patches/0001-chdb-go-binary-safe-streaming-insert.patch)
-(about 250 lines of code and tests) binds `chdb_query_n` and the
+(about 310 lines, plus 130 of tests) binds `chdb_query_n` and the
 `chdb_stream_insert_n` family. It exposes them as a second interface,
 `ChdbInsertConn`, the same way chdb-go already exposes its admin API, so
 existing implementations of `ChdbConn` keep compiling. It also adds three

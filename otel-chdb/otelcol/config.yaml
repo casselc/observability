@@ -1,0 +1,52 @@
+# OTLP/HTTP and gRPC in; traces and logs into chDB at ./data/chdb, through a
+# persistent sending queue, so a crash loses nothing the receiver acknowledged.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+      grpc:
+        endpoint: 127.0.0.1:4317
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+extensions:
+  file_storage/queue:
+    directory: ./data/queue
+    create_directory: true
+
+exporters:
+  chdb:
+    path: ./data/chdb
+    database: otel
+    ttl: 72h
+    insert_format: rowbinary
+    # One connection per queue consumer, so batches insert in parallel.
+    connections: 2
+    sending_queue:
+      storage: file_storage/queue
+      num_consumers: 2
+      sizer: items
+      batch:
+        flush_timeout: 1s
+        min_size: 5000
+        max_size: 20000
+
+service:
+  extensions: [file_storage/queue]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [chdb]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [chdb]

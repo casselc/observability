@@ -2,7 +2,8 @@
 // exporter writing to a real ClickHouse server, through the same collector
 // API (factory, exporterhelper, ConsumeTraces/ConsumeLogs) and the same data.
 //
-// Run it with run-compare.sh, which starts the server. Without
+// Run it with run-compare.sh: the chdb cases first with no server running,
+// then the clickhouse cases against a server it starts. Without
 // CLICKHOUSE_ENDPOINT the clickhouse cases are skipped.
 package bench
 
@@ -85,14 +86,15 @@ var variants = []variant{
 	clickhouseVariant(true),
 }
 
-// cpu returns user+system CPU consumed so far by this process and, when
-// CLICKHOUSE_PID is set, by the server: an in-process store spends its CPU
-// here, a server spends it there, and the machine pays for both.
-func cpu() time.Duration {
+// cpu returns user+system CPU consumed so far by this process and, with
+// server set, by the ClickHouse server (CLICKHOUSE_PID) too: an in-process
+// store spends its CPU here, a server spends it there, and the machine pays
+// for both.
+func cpu(server bool) time.Duration {
 	var ru syscall.Rusage
 	syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
 	d := time.Duration(ru.Utime.Nano() + ru.Stime.Nano())
-	if pid := os.Getenv("CLICKHOUSE_PID"); pid != "" {
+	if pid := os.Getenv("CLICKHOUSE_PID"); server && pid != "" {
 		if b, err := os.ReadFile("/proc/" + pid + "/stat"); err == nil {
 			f := strings.Fields(string(b[strings.LastIndexByte(string(b), ')')+2:]))
 			ut, _ := strconv.ParseInt(f[11], 10, 64) // utime, field 14
@@ -142,7 +144,7 @@ func BenchmarkExporters(b *testing.B) {
 						b.Fatal(err)
 					}
 					b.ReportAllocs()
-					c0, t0 := cpu(), time.Now()
+					c0, t0 := cpu(v.ch), time.Now()
 					b.ResetTimer()
 					for i := 0; i < b.N; i++ {
 						if err := consume(); err != nil {
@@ -150,7 +152,7 @@ func BenchmarkExporters(b *testing.B) {
 						}
 					}
 					b.StopTimer()
-					el, used := time.Since(t0), cpu()-c0
+					el, used := time.Since(t0), cpu(v.ch)-c0
 					rows := float64(b.N * batch)
 					b.ReportMetric(rows/el.Seconds(), "rows/s")
 					b.ReportMetric(float64(used.Nanoseconds())/rows, "cpu-ns/row")

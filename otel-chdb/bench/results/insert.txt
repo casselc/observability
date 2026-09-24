@@ -1,0 +1,55 @@
+goos: linux
+goarch: amd64
+pkg: github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkInsert/traces/batch=100/rowbinary/staged-4         	     145	    258543 ns/row	      3868 rows/s	   31350 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=100/rowbinary/direct-4         	     157	    218716 ns/row	      4572 rows/s	   15777 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=100/rowbinary/buffered-4       	     511	     67806 ns/row	     14748 rows/s	    4469 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=100/json/staged-4              	     130	    282308 ns/row	      3542 rows/s	  139584 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=100/json/direct-4              	     144	    233296 ns/row	      4286 rows/s	  135664 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=100/json/buffered-4            	     378	     96272 ns/row	     10387 rows/s	  104792 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=100/file/staged-4              	     100	    302535 ns/row	      3305 rows/s	   10368 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=100/file/direct-4              	     133	    275646 ns/row	      3628 rows/s	   26097 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=100/file/buffered-4            	     268	    122364 ns/row	      8172 rows/s	   14224 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=1000/rowbinary/staged-4        	     100	     32526 ns/row	     30744 rows/s	   12905 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=1000/rowbinary/direct-4        	     100	     31204 ns/row	     32048 rows/s	   44369 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=1000/rowbinary/staged-conns4-4 	     274	     13414 ns/row	     74550 rows/s	   17728 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=1000/json/staged-4             	      82	     45449 ns/row	     22002 rows/s	 1029067 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=1000/json/direct-4             	      68	     45735 ns/row	     21865 rows/s	 1003864 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=1000/json/staged-conns4-4      	     184	     18984 ns/row	     52677 rows/s	  960910 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=1000/file/staged-4             	     100	     39455 ns/row	     25346 rows/s	   31342 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=1000/file/direct-4             	     100	     35727 ns/row	     27990 rows/s	   20882 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=1000/file/staged-conns4-4      	     234	     15090 ns/row	     66267 rows/s	   28220 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=10000/rowbinary/staged-4       	      40	      8550 ns/row	    116963 rows/s	 1585768 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=10000/rowbinary/direct-4       	      31	     12577 ns/row	     79509 rows/s	 1364445 B/op	      30 allocs/op
+BenchmarkInsert/traces/batch=10000/json/staged-4            	      16	     21476 ns/row	     46563 rows/s	 9233469 B/op	      17 allocs/op
+BenchmarkInsert/traces/batch=10000/json/direct-4            	      13	     26336 ns/row	     37970 rows/s	16221931 B/op	      19 allocs/op
+BenchmarkInsert/traces/batch=10000/file/staged-4            	      36	      9061 ns/row	    110367 rows/s	   10423 B/op	      33 allocs/op
+BenchmarkInsert/traces/batch=10000/file/direct-4            	      43	      9241 ns/row	    108213 rows/s	 1483559 B/op	      34 allocs/op
+BenchmarkInsert/logs/batch=100/rowbinary/staged-4           	     211	    170631 ns/row	      5861 rows/s	   28692 B/op	     305 allocs/op
+BenchmarkInsert/logs/batch=100/rowbinary/direct-4           	     214	    155576 ns/row	      6428 rows/s	   28540 B/op	     305 allocs/op
+BenchmarkInsert/logs/batch=100/rowbinary/buffered-4         	     606	     55887 ns/row	     17893 rows/s	   18733 B/op	     305 allocs/op
+BenchmarkInsert/logs/batch=100/json/staged-4                	     271	    136386 ns/row	      7332 rows/s	  113876 B/op	     292 allocs/op
+BenchmarkInsert/logs/batch=100/json/direct-4                	     339	    102248 ns/row	      9780 rows/s	  107656 B/op	     292 allocs/op
+BenchmarkInsert/logs/batch=100/json/buffered-4              	     482	     71472 ns/row	     13992 rows/s	   95958 B/op	     292 allocs/op
+BenchmarkInsert/logs/batch=100/file/staged-4                	     248	    143617 ns/row	      6963 rows/s	   34439 B/op	     308 allocs/op
+BenchmarkInsert/logs/batch=100/file/direct-4                	     300	    126478 ns/row	      7907 rows/s	   32955 B/op	     308 allocs/op
+BenchmarkInsert/logs/batch=100/file/buffered-4              	     351	     96206 ns/row	     10394 rows/s	   31954 B/op	     308 allocs/op
+BenchmarkInsert/logs/batch=1000/rowbinary/staged-4          	     242	     15936 ns/row	     62751 rows/s	  175078 B/op	    2780 allocs/op
+BenchmarkInsert/logs/batch=1000/rowbinary/direct-4          	     205	     17482 ns/row	     57203 rows/s	  202214 B/op	    2780 allocs/op
+BenchmarkInsert/logs/batch=1000/rowbinary/staged-conns4-4   	     584	      6958 ns/row	    143716 rows/s	  175340 B/op	    2780 allocs/op
+BenchmarkInsert/logs/batch=1000/json/staged-4               	     134	     25365 ns/row	     39424 rows/s	  832990 B/op	    2769 allocs/op
+BenchmarkInsert/logs/batch=1000/json/direct-4               	     133	     28255 ns/row	     35392 rows/s	  802102 B/op	    2769 allocs/op
+BenchmarkInsert/logs/batch=1000/json/staged-conns4-4        	     324	     11654 ns/row	     85806 rows/s	  766104 B/op	    2767 allocs/op
+BenchmarkInsert/logs/batch=1000/file/staged-4               	     171	     20682 ns/row	     48352 rows/s	  198413 B/op	    2784 allocs/op
+BenchmarkInsert/logs/batch=1000/file/direct-4               	     204	     17977 ns/row	     55628 rows/s	  179037 B/op	    2784 allocs/op
+BenchmarkInsert/logs/batch=1000/file/staged-conns4-4        	     416	      9037 ns/row	    110650 rows/s	  183668 B/op	    2783 allocs/op
+BenchmarkInsert/logs/batch=10000/rowbinary/staged-4         	      60	      5264 ns/row	    189985 rows/s	 2239705 B/op	   27531 allocs/op
+BenchmarkInsert/logs/batch=10000/rowbinary/direct-4         	      46	      8153 ns/row	    122656 rows/s	 2421474 B/op	   27531 allocs/op
+BenchmarkInsert/logs/batch=10000/json/staged-4              	      27	     15075 ns/row	     66336 rows/s	 7433107 B/op	   27519 allocs/op
+BenchmarkInsert/logs/batch=10000/json/direct-4              	      22	     17154 ns/row	     58296 rows/s	 8682488 B/op	   27521 allocs/op
+BenchmarkInsert/logs/batch=10000/file/staged-4              	      52	      5958 ns/row	    167840 rows/s	 2339246 B/op	   27536 allocs/op
+BenchmarkInsert/logs/batch=10000/file/direct-4              	      55	      5714 ns/row	    175001 rows/s	 2301849 B/op	   27536 allocs/op
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter	251.746s
+exit=0

@@ -31,6 +31,7 @@ exporters:
       storage: file_storage/queue
       num_consumers: 2
       sizer: items
+      queue_size: 200000
       batch:
         flush_timeout: 1s
         min_size: 5000

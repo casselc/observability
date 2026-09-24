@@ -1,0 +1,50 @@
+goos: linux
+goarch: amd64
+pkg: github.com/chucklehead-dev/oscope/spike/otel-chdb/bench
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkExporters/traces/batch=100/chdb-rowbinary-4         	     145	    450602 cpu-ns/row	      4004 rows/s	   17331 B/op	      39 allocs/op
+BenchmarkExporters/traces/batch=100/chdb-json-4              	     124	    467436 cpu-ns/row	      3580 rows/s	  150518 B/op	      29 allocs/op
+BenchmarkExporters/traces/batch=100/chdb-file-4              	     127	    491976 cpu-ns/row	      3400 rows/s	   27369 B/op	      45 allocs/op
+BenchmarkExporters/traces/batch=100/chdb-rowbinary-buffered-4         	     486	     77966 cpu-ns/row	     14102 rows/s	   11497 B/op	      39 allocs/op
+BenchmarkExporters/traces/batch=1000/chdb-rowbinary-4                 	     121	     78577 cpu-ns/row	     32728 rows/s	   20200 B/op	      39 allocs/op
+BenchmarkExporters/traces/batch=1000/chdb-json-4                      	      85	     88460 cpu-ns/row	     23480 rows/s	 1013619 B/op	      29 allocs/op
+BenchmarkExporters/traces/batch=1000/chdb-file-4                      	      81	     88325 cpu-ns/row	     26923 rows/s	   49783 B/op	      45 allocs/op
+BenchmarkExporters/traces/batch=1000/chdb-rowbinary-buffered-4        	     242	     21699 cpu-ns/row	     69294 rows/s	   11532 B/op	      39 allocs/op
+BenchmarkExporters/traces/batch=10000/chdb-rowbinary-4                	      43	     21552 cpu-ns/row	    113073 rows/s	  493828 B/op	      39 allocs/op
+BenchmarkExporters/traces/batch=10000/chdb-json-4                     	      15	     40121 cpu-ns/row	     42828 rows/s	12262331 B/op	      30 allocs/op
+BenchmarkExporters/traces/batch=10000/chdb-file-4                     	      39	     24002 cpu-ns/row	    103478 rows/s	 2176946 B/op	      48 allocs/op
+BenchmarkExporters/traces/batch=10000/chdb-rowbinary-buffered-4       	      48	     11794 cpu-ns/row	    122310 rows/s	 1762159 B/op	      40 allocs/op
+BenchmarkExporters/logs/batch=100/chdb-rowbinary-4                    	     266	    324947 cpu-ns/row	      7332 rows/s	   31015 B/op	     314 allocs/op
+BenchmarkExporters/logs/batch=100/chdb-json-4                         	     208	    392378 cpu-ns/row	      6391 rows/s	  103591 B/op	     304 allocs/op
+BenchmarkExporters/logs/batch=100/chdb-file-4                         	     170	    480062 cpu-ns/row	      5148 rows/s	   32641 B/op	     320 allocs/op
+BenchmarkExporters/logs/batch=100/chdb-rowbinary-buffered-4           	     403	    151293 cpu-ns/row	     12803 rows/s	   21784 B/op	     314 allocs/op
+BenchmarkExporters/logs/batch=1000/chdb-rowbinary-4                   	     154	     64024 cpu-ns/row	     47089 rows/s	  187274 B/op	    2789 allocs/op
+BenchmarkExporters/logs/batch=1000/chdb-json-4                        	      97	     96913 cpu-ns/row	     29333 rows/s	  855493 B/op	    2781 allocs/op
+BenchmarkExporters/logs/batch=1000/chdb-file-4                        	     111	     91170 cpu-ns/row	     34259 rows/s	  202696 B/op	    2796 allocs/op
+BenchmarkExporters/logs/batch=1000/chdb-rowbinary-buffered-4          	     237	     29221 cpu-ns/row	     77150 rows/s	  180120 B/op	    2789 allocs/op
+BenchmarkExporters/logs/batch=10000/chdb-rowbinary-4                  	      43	     24688 cpu-ns/row	    133070 rows/s	 2198525 B/op	   27540 allocs/op
+BenchmarkExporters/logs/batch=10000/chdb-json-4                       	      19	     54039 cpu-ns/row	     60103 rows/s	 8880206 B/op	   27532 allocs/op
+BenchmarkExporters/logs/batch=10000/chdb-file-4                       	      40	     27525 cpu-ns/row	    123657 rows/s	 2546523 B/op	   27548 allocs/op
+BenchmarkExporters/logs/batch=10000/chdb-rowbinary-buffered-4         	      42	     29748 cpu-ns/row	    112340 rows/s	 1927314 B/op	   27540 allocs/op
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/bench	282.820s
+clickhouse 26.10.1.618 pid 22445
+goos: linux
+goarch: amd64
+pkg: github.com/chucklehead-dev/oscope/spike/otel-chdb/bench
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkExporters/traces/batch=100/clickhouse-sync-4         	     236	    321632 cpu-ns/row	      6331 rows/s	  404704 B/op	    5466 allocs/op
+BenchmarkExporters/traces/batch=100/clickhouse-async-4        	      48	    352570 cpu-ns/row	      1348 rows/s	  394135 B/op	    5464 allocs/op
+BenchmarkExporters/traces/batch=1000/clickhouse-sync-4        	     100	     76613 cpu-ns/row	     30435 rows/s	 4162731 B/op	   47486 allocs/op
+BenchmarkExporters/traces/batch=1000/clickhouse-async-4       	      38	     75542 cpu-ns/row	     11503 rows/s	 4155522 B/op	   47486 allocs/op
+BenchmarkExporters/traces/batch=10000/clickhouse-sync-4       	      28	     27063 cpu-ns/row	     72140 rows/s	48536354 B/op	  465485 allocs/op
+BenchmarkExporters/traces/batch=10000/clickhouse-async-4      	      16	     28653 cpu-ns/row	     52455 rows/s	48529755 B/op	  465485 allocs/op
+BenchmarkExporters/logs/batch=100/clickhouse-sync-4           	     156	    385761 cpu-ns/row	      4522 rows/s	  233850 B/op	    3614 allocs/op
+BenchmarkExporters/logs/batch=100/clickhouse-async-4          	      45	    439290 cpu-ns/row	      1215 rows/s	  231398 B/op	    3615 allocs/op
+BenchmarkExporters/logs/batch=1000/clickhouse-sync-4          	     100	     74555 cpu-ns/row	     30739 rows/s	 2356757 B/op	   30675 allocs/op
+BenchmarkExporters/logs/batch=1000/clickhouse-async-4         	      38	     73131 cpu-ns/row	     11038 rows/s	 2347901 B/op	   30676 allocs/op
+BenchmarkExporters/logs/batch=10000/clickhouse-sync-4         	      33	     23515 cpu-ns/row	     93221 rows/s	27665016 B/op	  299613 allocs/op
+BenchmarkExporters/logs/batch=10000/clickhouse-async-4        	      18	     23551 cpu-ns/row	     58659 rows/s	27665710 B/op	  299613 allocs/op
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/bench	52.670s
+exit=0

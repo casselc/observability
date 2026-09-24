@@ -79,6 +79,9 @@ func (w *jsonEachRow) u8(v uint8) {
 	w.buf = strconv.AppendUint(w.buf, uint64(v), 10)
 }
 
+func (w *jsonEachRow) u16(v uint16) { w.u64(uint64(v)) }
+func (w *jsonEachRow) u32(v uint32) { w.u64(uint64(v)) }
+
 func (w *jsonEachRow) u64(v uint64) {
 	w.sep()
 	w.buf = strconv.AppendUint(w.buf, v, 10)

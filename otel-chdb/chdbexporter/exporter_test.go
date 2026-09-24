@@ -68,7 +68,7 @@ func startExporter(t testing.TB, cfg *Config) *chdbExporter {
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	e := newExporter(zap.NewNop(), cfg)
+	e := newExporter(zap.NewNop(), cfg, "")
 	if err := e.start(context.Background(), componenttest.NewNopHost()); err != nil {
 		t.Fatal(err)
 	}

@@ -23,10 +23,38 @@ type rowWriter interface {
 	traceID(id pcommon.TraceID)
 	spanID(id pcommon.SpanID)
 	u8(v uint8)
+	u16(v uint16)
+	u32(v uint32)
 	u64(v uint64)
 	attrs(m pcommon.Map)
 	arr(n int)
 	end()
+}
+
+// envelope is the batch identity appended to every row when publishing.
+// The walkers fill in the event-time range as they go, for the manifest.
+type envelope struct {
+	producer, epoch string
+	batch           uint64
+	received        uint64 // ns
+	schema          uint16
+	minTS, maxTS    uint64
+}
+
+// write appends the envelope columns for the row'th row of the batch.
+func (e *envelope) write(w rowWriter, row int, ts uint64) {
+	if e.minTS == 0 || ts < e.minTS {
+		e.minTS = ts
+	}
+	if ts > e.maxTS {
+		e.maxTS = ts
+	}
+	w.str(e.producer)
+	w.str(e.epoch)
+	w.u64(e.batch)
+	w.u32(uint32(row))
+	w.ts(e.received)
+	w.u16(e.schema)
 }
 
 func serviceName(res pcommon.Map) string {
@@ -60,8 +88,9 @@ func valueString(dst []byte, v pcommon.Value) []byte {
 	return append(dst, v.AsString()...)
 }
 
-// writeTraces encodes every span in td and returns the row count.
-func writeTraces(w rowWriter, td ptrace.Traces) int {
+// writeTraces encodes every span in td and returns the row count. env is nil
+// unless publishing.
+func writeTraces(w rowWriter, td ptrace.Traces, env *envelope) int {
 	n := 0
 	rss := td.ResourceSpans()
 	for i := 0; i < rss.Len(); i++ {
@@ -130,6 +159,9 @@ func writeTraces(w rowWriter, td ptrace.Traces) int {
 					w.attrs(ls.At(l).Attributes())
 				}
 				w.end()
+				if env != nil {
+					env.write(w, n, uint64(s.StartTimestamp()))
+				}
 				w.endRow()
 				n++
 			}
@@ -138,8 +170,9 @@ func writeTraces(w rowWriter, td ptrace.Traces) int {
 	return n
 }
 
-// writeLogs encodes every log record in ld and returns the row count.
-func writeLogs(w rowWriter, ld plog.Logs) int {
+// writeLogs encodes every log record in ld and returns the row count. env is
+// nil unless publishing.
+func writeLogs(w rowWriter, ld plog.Logs, env *envelope) int {
 	n := 0
 	rls := ld.ResourceLogs()
 	for i := 0; i < rls.Len(); i++ {
@@ -181,6 +214,9 @@ func writeLogs(w rowWriter, ld plog.Logs) int {
 				w.attrs(scope.Attributes())
 				w.attrs(r.Attributes())
 				w.str(r.EventName())
+				if env != nil {
+					env.write(w, n, uint64(ts))
+				}
 				w.endRow()
 				n++
 			}

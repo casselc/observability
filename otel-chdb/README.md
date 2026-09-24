@@ -11,7 +11,7 @@ exporter's tables reads these.
 | [`chdb-go/`](chdb-go/) | [chdb-go](https://github.com/chdb-io/chdb-go) at upstream `9f8e35a`, plus one patch: a binary-safe streaming insert. The patch is also in [`patches/`](patches/) for sending upstream. |
 | [`chdbexporter/`](chdbexporter/) | The exporter: config, factory, RowBinary and JSONEachRow encoders, tests, and in-package benchmarks. |
 | [`bench/`](bench/) | A head-to-head against the contrib clickhouse exporter writing to a real ClickHouse server. [`bench/results/`](bench/results/) holds the raw output. |
-| [`otelcol/`](otelcol/) | An `ocb` distribution (OTLP receiver, memory limiter, chdb exporter, file_storage), a config with a persistent queue, and an end-to-end demo. |
+| [`otelcol/`](otelcol/) | An `ocb` distribution (OTLP receiver, memory limiter, chdb exporter, file_storage), configs for local storage and for edge-buffer publishing, and end-to-end demos of both. |
 
 ## Can it be done easily with chdb-go? Mostly
 
@@ -164,6 +164,168 @@ In-package benchmarks (`go test -bench . ./chdbexporter`, raw output in
 `bench/results/insert.txt`) also cover direct vs staged inserts and 4
 connections.
 
+## Publishing: object storage and Parquet
+
+The exporter can also run as a short-lived **edge buffer**. Each batch is
+published somewhere a central consumer can read it after this process is
+gone, and a manifest announces it once it's durable. The embedded database
+keeps hours of state, never more than 72; everything older lives only in
+object storage until the consumer has taken it. This covers the chDB side
+only. The central consumer and catalog aren't built yet; `cmd/chdbattach`
+shows the core of what they would do.
+
+```yaml
+chdb:
+  producer: {id: edge-1, region: eu-west-1, schema_version: 1}   # epoch: new per process
+  object_storage:                    # MergeTree tables on s3_plain_rewritable disks
+    endpoint: https://bucket.s3.eu-west-1.amazonaws.com/otel
+    access_key_id: ...
+    secret_access_key: ...
+    generation: 1h                   # rotate tables
+    local_retention: 6h              # then DETACH locally; objects stay
+    seal_optimize: true              # OPTIMIZE FINAL when sealing
+    compact_parts: true              # never wide parts: ~20 objects per part, not ~150
+    old_parts_lifetime: 10m          # keep merged-away parts for running readers
+  parquet:                           # and/or one Parquet object per batch
+    url: https://bucket.s3.../otel-parquet     # or file:///dir
+    compression: zstd
+  store_tables: true                 # false + parquet = pure Parquet publisher
+```
+
+[`otelcol/config.edge.yaml`](otelcol/config.edge.yaml) is a complete config.
+
+### Layout and commit protocol
+
+```
+{root}/{region}/{signal}/v{schema}/{producer}/{epoch}/
+    {generation}/{table}/...               s3_plain_rewritable data, one table per prefix
+    {generation}/{batch_id}.parquet        (under parquet.url)
+    manifests/{generation}/{batch_id}.json written last: the batch's commit record
+    manifests/{generation}/_sealed.json    written when the generation takes no more batches
+```
+
+- **The envelope.** Every row carries `producer_id`, `producer_epoch`,
+  `batch_id`, `row_ordinal`, `received_at` and `schema_version`, in the table,
+  the Parquet and the manifest. A consumer checkpoints on
+  (producer, epoch, batch), never on event time or part names, which merges
+  change.
+- **Commit.** A batch goes into the table, then Parquet, then its manifest. A
+  batch without a manifest isn't committed: that covers an insert that
+  succeeded before a crash, and the first attempt of a retry, which comes back
+  as a new batch id. A consumer that selects `WHERE batch_id IN (manifested
+  ids)` never double-counts, so retries need no deduplication at the edge.
+- **One writer per table, with no fencing.** The epoch is new for every process
+  incarnation, so a restarted pod writes to new tables and can never overlap
+  its predecessor. One exporter instance per signal per process is enforced at
+  start.
+- **Generations.** A push in a new period creates the next set of tables
+  (staging, view and trace-id table included). The old set then drains:
+  rotation takes the lock that in-flight pushes hold shared. After that it's
+  sealed:
+  1. flush the Buffer, if any;
+  2. drop the process-local views and staging table;
+  3. `OPTIMIZE ... FINAL`;
+  4. write `_sealed.json` with the batch count, row count and batch id range.
+
+  After `local_retention` it's DETACHed, never dropped, since DROP would delete
+  objects the consumer may not have read. Shutdown seals the open generation.
+  A crash leaves one unsealed; its batch manifests are still valid, and the
+  catalog should treat an epoch that has gone quiet as abandoned.
+- **Reading.** `ReaderDDL(cfg, db, signal, generation, manifest.tables, ...)`
+  returns the writer's table definitions on the same endpoints with
+  `disk(readonly = 1, ...)` and `refresh_parts_interval`. `cmd/chdbattach`
+  reads a manifest from S3, attaches the generation read-only, and runs
+  queries against it.
+
+Here is a real batch manifest from the tests, with `tables` shortened (the
+trace-id table is listed too):
+
+```json
+{"producer_id":"os-follow","producer_epoch":"20260924T191120Z-47366a","region":"test","signal":"traces",
+ "schema_version":1,"generation":"g20260924T190000","batch_id":1,"rows":300,"rowbinary_bytes":166768,
+ "received_at":"2026-09-24T19:11:20.215047562Z",
+ "min_event_time":"2026-09-24T12:00:00.123456789Z","max_event_time":"2026-09-24T12:00:00.422456789Z",
+ "tables":[{"table":"os_follow.otel_traces_g20260924T190000",
+            "endpoint":"http://127.0.0.1:18333/otel/test/traces/v1/os-follow/20260924T191120Z-47366a/g20260924T190000/otel_traces/"}, ...],
+ "parquet":"http://127.0.0.1:18333/otel/parquet/test/traces/v1/os-follow/20260924T191120Z-47366a/g20260924T190000/00000000000000000001.parquet"}
+```
+
+### What was verified
+
+Tested against [SeaweedFS](https://github.com/seaweedfs/seaweedfs) 4.47 (built
+from source) as the S3 server, with chDB 26.7.3 on both the writing and the
+reading side:
+
+- **chDB can be the single writer of an `s3_plain_rewritable` table**, with an
+  inline `disk(...)` and `table_disk = 1`, which needs no server config.
+- **A reader in a separate process sees each new batch about 1 s after the
+  writer's insert returns** (`TestObjectStorageReaderFollowsWriter`: 1.01 s and
+  0.97 s in two runs), attached read-only with `refresh_parts_interval = 1`
+  while the writer keeps running.
+- **Sealed and detached generations stay fully readable.** After rotation,
+  seal, `OPTIMIZE FINAL` and detach, another process attaches the generation
+  from its `_sealed.json` and reads every row
+  (`TestGenerationsRotateSealAndDetach`). Merged parts cover the parts they
+  replaced, so the retained old parts don't double-count.
+- **Parquet streams straight from the batch.** The fork's streaming insert
+  accepts `INSERT INTO FUNCTION s3(..., 'Parquet', structure)` with RowBinary
+  input, so the batch is encoded once and chDB writes the Parquet. The Parquet
+  columns match, row for row, what the table exporter stores for the same
+  input (`TestParquetToLocalDirectory`).
+- **Concurrent pushes across rotations lose and duplicate nothing.** Four
+  goroutines push 40 batches while 1 s generations rotate under them. Batch
+  ids run 1–40, every generation's seal agrees with its batch manifests, and
+  the Parquet holds all 2,000 rows (`TestConcurrentPushesAcrossRotations`,
+  also under `-race`).
+- **The collector does it end to end.** `otelcol/run-edge-demo.sh` sent
+  65,510 spans and 34,566 logs with telemetrygen. The seal manifests, batch
+  manifests, Parquet, and the tables a separate process attached from the seal
+  manifest all hold exactly those counts, with batch ids 1–14 and 1–7 and no
+  gaps.
+
+### What it costs
+
+10k-span batches, SeaweedFS on the same 4-vCPU machine (so there is no
+network latency; real S3 will be slower on the table path). S3 writes are
+chDB's own `S3WriteRequestsCount`, including the merges the inserts trigger.
+Raw output is in `bench/results/publish.txt`.
+
+| Variant | spans/s | ms/batch | S3 writes/batch |
+| --- | --- | --- | --- |
+| local tables (no publishing) | 110k | 91 | 0 |
+| Parquet only, local directory | 174k | 57 | 0 |
+| Parquet only, S3 | 123k | 82 | 4.7 |
+| local tables + local Parquet | 69k | 145 | 0 |
+| `s3_plain_rewritable` tables, compact parts | 68k | 148 | 51 |
+| `s3_plain_rewritable` tables, wide parts | 55k | 183 | 75 |
+| S3 tables + S3 Parquet | 45k | 222 | 52 |
+
+- **Parquet is the cheap boundary:** under 5 S3 writes per batch, and faster
+  than local MergeTree, because it skips sorting, indexes and merges.
+- **Native parts cost about 24 objects per inserted part** (data, marks,
+  checksums, primary index, one file per skip index — this schema has six
+  bloom filters — and a `plain_rewritable` prefix record). The traces signal
+  writes two parts per batch. On real S3, those PUTs and their latency are
+  what to budget for. Fewer, bigger batches, a Buffer table in front, or fewer
+  skip indexes on the edge tables all cut them.
+- **`compact_parts` cuts S3 writes by a third.** Past 10 MB, MergeTree makes
+  merged parts wide, with a file per column, about 150 objects for this
+  schema.
+
+### Open questions for the next step
+
+- **Real S3 latency.** Part writes on `plain_rewritable` weren't measured
+  against AWS; SeaweedFS on localhost hides per-request latency.
+- **Deletion.** `old_parts_lifetime` (10 minutes) protects reader queries
+  against merges on an active generation, but nothing protects them against
+  the consumer's own garbage collection. That belongs in the catalog: delete a
+  generation only after every reader has released it.
+- **Readers on ClickHouse server.** Only chDB readers were tested. ClickHouse
+  25.4+ documents the same read-only `plain_rewritable` pattern, so that's the
+  first thing to try with the central fleet.
+- **Stock chdb-go can't publish.** Publishing streams RowBinary and needs the
+  fork. The publishing tests skip on the stock build.
+
 ## Running it
 
 ```sh
@@ -177,6 +339,13 @@ CLICKHOUSE_BIN=/path/to/clickhouse OUT=results/compare.txt bench/run-compare.sh 
 
 # a real collector: build with ocb, send OTLP, stop, read back
 TELEMETRYGEN=$(go env GOPATH)/bin/telemetrygen otelcol/run-demo.sh 10
+
+# publishing: an S3 server with a bucket (SeaweedFS here: weed server -s3 -s3.config s3.json,
+# then `s3.bucket.create -name otel` in weed shell)
+export CHDB_TEST_S3=http://127.0.0.1:8333/otel CHDB_TEST_S3_KEY=... CHDB_TEST_S3_SECRET=...
+cd chdbexporter && go test -race ./... && go test -run '^$' -bench Publish -benchtime 40x .
+S3_ENDPOINT=$CHDB_TEST_S3 S3_ACCESS_KEY_ID=$CHDB_TEST_S3_KEY S3_SECRET_ACCESS_KEY=$CHDB_TEST_S3_SECRET \
+  TELEMETRYGEN=... otelcol/run-edge-demo.sh 10
 ```
 
 `run-demo.sh` sends one hand-written OTLP/HTTP JSON trace and log, then 10
@@ -193,12 +362,13 @@ plus the hand-written pair, which joins trace to log on trace and span id.
   build, which is exactly what `otelcol/builder-config.yaml` does.
 - **One data path per process.** Every chdb exporter in a collector must name
   the same `path`. chdb-go shares it between sessions and refuses a second path.
-- **Nothing else can read the data while the collector runs.** Only the process
-  holding the path can open it, so neither `chdbq` nor oscope's server can read
-  a live collector's data. Queries have to go through the collector: the next
-  piece would be an extension that shares the session and serves oscope's
-  `/api/*` and web UI (or a subset of ClickHouse's HTTP interface for
-  HyperDX/Grafana).
+- **No other process can open the local data while the collector runs.** Only
+  the process holding the path can open it, so neither `chdbq` nor oscope's
+  server can read a live collector's local tables. Queries have to go through
+  the collector: an extension sharing the session could serve oscope's `/api/*`
+  and web UI, or a subset of ClickHouse's HTTP interface for HyperDX and
+  Grafana. Published tables are the exception: any number of processes can
+  attach those read-only.
 - **Shutdown.** With chDB 26.7.3, a process with MergeTree tables can't shut the
   engine down cleanly, so the exporter closes its sessions and leaves the
   engine running until the process exits.

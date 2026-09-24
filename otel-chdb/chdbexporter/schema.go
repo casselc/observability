@@ -38,7 +38,7 @@ const tracesTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s (
         SpanId String,
         TraceState String,
         Attributes Map(LowCardinality(String), String)
-    ) CODEC(ZSTD(1)),
+    ) CODEC(ZSTD(1)),%[4]s
     INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -49,7 +49,7 @@ const tracesTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s (
 PARTITION BY toDate(Timestamp)
 ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
 %[3]s
-SETTINGS index_granularity=8192, ttl_only_drop_parts = 1`
+SETTINGS index_granularity=8192, ttl_only_drop_parts = 1%[5]s`
 
 const tracesIDTsTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s_trace_id_ts (
     TraceId String CODEC(ZSTD(1)),
@@ -60,7 +60,7 @@ const tracesIDTsTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s_trace_id_ts (
 PARTITION BY toDate(Start)
 ORDER BY (TraceId, Start)
 %[3]s
-SETTINGS index_granularity=8192, ttl_only_drop_parts = 1`
+SETTINGS index_granularity=8192, ttl_only_drop_parts = 1%[4]s`
 
 const tracesIDTsView = `CREATE MATERIALIZED VIEW IF NOT EXISTS %[1]s.%[2]s_trace_id_ts_mv
 TO %[1]s.%[2]s_trace_id_ts
@@ -85,7 +85,7 @@ const logsTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s (
     ScopeVersion LowCardinality(String) CODEC(ZSTD(1)),
     ScopeAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
     LogAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-    EventName String CODEC(ZSTD(1)),
+    EventName String CODEC(ZSTD(1)),%[4]s
     INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_res_attr_value mapValues(ResourceAttributes) TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -98,7 +98,7 @@ const logsTable = `CREATE TABLE IF NOT EXISTS %[1]s.%[2]s (
 PARTITION BY toDate(Timestamp)
 ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
 %[3]s
-SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1`
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1%[5]s`
 
 // Column lists, in the order the encoders write them.
 var (
@@ -151,29 +151,131 @@ func quoteColumns(cols []string) string {
 	return strings.Join(q, ", ")
 }
 
-// schemaDDL returns the statements that create the database, the tables, and
-// when buffer_seconds is set, the Buffer tables inserts go through.
-func schemaDDL(c *Config) []string {
+// The envelope: columns that identify where and in which batch a row
+// entered, added to every table when the exporter publishes (object storage
+// or Parquet). A central reader checkpoints on (producer_id, producer_epoch,
+// batch_id), never on event time or part names, which merges change.
+const envelopeDDL = `
+    producer_id LowCardinality(String) CODEC(ZSTD(1)),
+    producer_epoch LowCardinality(String) CODEC(ZSTD(1)),
+    batch_id UInt64 CODEC(Delta, ZSTD(1)),
+    row_ordinal UInt32 CODEC(ZSTD(1)),
+    received_at DateTime64(9) CODEC(Delta, ZSTD(1)),
+    schema_version UInt16,`
+
+var envelopeColumns = []string{"producer_id", "producer_epoch", "batch_id", "row_ordinal", "received_at", "schema_version"}
+
+const envelopeStructure = ", producer_id String, producer_epoch String, batch_id UInt64, row_ordinal UInt32, " +
+	"received_at DateTime64(9), schema_version UInt16"
+
+const (
+	signalTraces = "traces"
+	signalLogs   = "logs"
+)
+
+// columns and structure return a signal's insert column list and its
+// plain-typed structure, with the envelope when env is set.
+func columns(signal string, env bool) []string {
+	c := traceColumns
+	if signal == signalLogs {
+		c = logColumns
+	}
+	if env {
+		c = append(append([]string(nil), c...), envelopeColumns...)
+	}
+	return c
+}
+
+func structure(signal string, env bool) string {
+	s := traceStructure
+	if signal == signalLogs {
+		s = logStructure
+	}
+	if env {
+		s += envelopeStructure
+	}
+	return s
+}
+
+// tableSet is everything one signal writes to in one generation.
+type tableSet struct {
+	signal string
+	// base is the MergeTree table's name: the configured name, plus a
+	// generation suffix when tables rotate.
+	base string
+	// target is the fully qualified table inserts name, and insert the
+	// INSERT statement (no FORMAT, no data) naming it and its columns.
+	target, insert string
+	ddl            []string
+	// stored are the MergeTree tables holding data. On object storage they
+	// are only ever detached, never dropped: DROP would delete the objects a
+	// central reader may not have consumed yet.
+	stored []string
+	// local are the helper objects (views, staging table, Buffer) that
+	// exist only in this process's catalog and are dropped at seal, in
+	// order: views before the tables they read or write.
+	local []string
+}
+
+// diskFunc returns the SETTINGS suffix that puts a table on its own disk, or
+// "" for the default local disk.
+type diskFunc func(table string) string
+
+func localDisk(string) string { return "" }
+
+// buildTableSet returns the DDL for one signal's tables. gen is "" for the
+// unrotated local layout.
+func buildTableSet(c *Config, signal, gen string, env bool, disk diskFunc) tableSet {
 	db := c.Database
-	ddl := []string{
-		fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", db),
-		fmt.Sprintf(tracesTable, db, c.TracesTableName, ttlExpr(c.TTL, "toDateTime(Timestamp)")),
-		fmt.Sprintf(tracesIDTsTable, db, c.TracesTableName, ttlExpr(c.TTL, "toDateTime(Start)")),
-		fmt.Sprintf(tracesIDTsView, db, c.TracesTableName),
-		fmt.Sprintf(logsTable, db, c.LogsTableName, ttlExpr(c.TTL, "toDateTime(Timestamp)")),
+	name := c.TracesTableName
+	if signal == signalLogs {
+		name = c.LogsTableName
 	}
+	base := name
+	if gen != "" {
+		base = name + "_" + gen
+	}
+	extra := ""
+	if env {
+		extra = envelopeDDL
+	}
+	ts := tableSet{signal: signal, base: base}
+	fq := db + "." + base
+	if signal == signalTraces {
+		ts.ddl = append(ts.ddl,
+			fmt.Sprintf(tracesTable, db, base, ttlExpr(c.TTL, "toDateTime(Timestamp)"), extra, disk(base)),
+			fmt.Sprintf(tracesIDTsTable, db, base, ttlExpr(c.TTL, "toDateTime(Start)"), disk(base+"_trace_id_ts")),
+			fmt.Sprintf(tracesIDTsView, db, base))
+		ts.stored = []string{fq, fq + "_trace_id_ts"}
+		ts.local = []string{fq + "_trace_id_ts_mv"}
+	} else {
+		ts.ddl = append(ts.ddl, fmt.Sprintf(logsTable, db, base, ttlExpr(c.TTL, "toDateTime(Timestamp)"), extra, disk(base)))
+		ts.stored = []string{fq}
+	}
+	into := fq
+	var buffer []string
 	if c.BufferSeconds > 0 {
-		for _, t := range []string{c.TracesTableName, c.LogsTableName} {
-			ddl = append(ddl, bufferDDL(db, t, c.BufferSeconds))
-		}
+		ts.ddl = append(ts.ddl, bufferDDL(db, base, c.BufferSeconds))
+		into = fq + "_buf"
+		buffer = []string{into}
 	}
+	ts.target = into
 	if c.StagingTables {
-		ddl = append(ddl,
-			stagingDDL(db, c.TracesTableName, traceStructure),
-			stagingViewDDL(db, c.TracesTableName, bufferedTable(c, c.TracesTableName)),
-			stagingDDL(db, c.LogsTableName, logStructure),
-			stagingViewDDL(db, c.LogsTableName, bufferedTable(c, c.LogsTableName)),
-		)
+		ts.ddl = append(ts.ddl, stagingDDL(db, base, structure(signal, env)), stagingViewDDL(db, base, into))
+		ts.target = fq + "_in"
+		ts.local = append([]string{fq + "_in_mv", fq + "_in"}, ts.local...)
+	}
+	ts.local = append(ts.local, buffer...)
+	ts.insert = fmt.Sprintf("INSERT INTO %s (%s)", ts.target, quoteColumns(columns(signal, env)))
+	return ts
+}
+
+// schemaDDL returns the statements that create the database and both
+// signals' tables in the local, unrotated layout.
+func schemaDDL(c *Config) []string {
+	ddl := []string{fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", c.Database)}
+	for _, sig := range []string{signalTraces, signalLogs} {
+		ddl = append(ddl, buildTableSet(c, sig, "", false, localDisk).ddl...)
 	}
 	return ddl
 }
@@ -200,22 +302,4 @@ func stagingViewDDL(db, table, target string) string {
 func bufferDDL(db, table string, secs int) string {
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %[1]s.%[2]s_buf AS %[1]s.%[2]s "+
 		"ENGINE = Buffer(%[1]s, %[2]s, 1, %[3]d, %[3]d, 10000, 1000000, 10485760, 104857600)", db, table, secs)
-}
-
-// bufferedTable is where rows are written to be stored: the Buffer when
-// there is one, otherwise the MergeTree table.
-func bufferedTable(c *Config, table string) string {
-	if c.BufferSeconds > 0 {
-		return c.Database + "." + table + "_buf"
-	}
-	return c.Database + "." + table
-}
-
-// insertTarget is the table inserts name: the staging table when there is
-// one, else bufferedTable.
-func insertTarget(c *Config, table string) string {
-	if c.StagingTables {
-		return c.Database + "." + table + "_in"
-	}
-	return bufferedTable(c, table)
 }

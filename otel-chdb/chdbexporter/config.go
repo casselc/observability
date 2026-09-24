@@ -65,6 +65,17 @@ type Config struct {
 	// FileDir is where FormatFile stages batches. Defaults to the OS temp
 	// directory.
 	FileDir string `mapstructure:"file_dir"`
+
+	// StoreTables writes batches into MergeTree tables (local, or on object
+	// storage). false with parquet makes the exporter a pure Parquet batch
+	// publisher. Default true.
+	StoreTables bool `mapstructure:"store_tables"`
+	// Producer, ObjectStorage and Parquet turn the exporter into a
+	// short-lived edge buffer that publishes batches for a central consumer.
+	// See README.md, "Publishing".
+	Producer      ProducerConfig      `mapstructure:"producer"`
+	ObjectStorage ObjectStorageConfig `mapstructure:"object_storage"`
+	Parquet       ParquetConfig       `mapstructure:"parquet"`
 }
 
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -89,7 +100,7 @@ func (c *Config) Validate() error {
 	if c.BufferSeconds < 0 {
 		err = errors.Join(err, errors.New("buffer_seconds must not be negative"))
 	}
-	return err
+	return errors.Join(err, c.validatePublish())
 }
 
 func createDefaultConfig() component.Config {
@@ -104,5 +115,19 @@ func createDefaultConfig() component.Config {
 		InsertFormat:    FormatRowBinary,
 		Connections:     1,
 		StagingTables:   true,
+		StoreTables:     true,
+		Producer: ProducerConfig{
+			ID:            defaultProducerID(),
+			Region:        "local",
+			SchemaVersion: 1,
+		},
+		ObjectStorage: ObjectStorageConfig{
+			Generation:       time.Hour,
+			LocalRetention:   6 * time.Hour,
+			SealOptimize:     true,
+			CompactParts:     true,
+			OldPartsLifetime: 10 * time.Minute,
+		},
+		Parquet: ParquetConfig{Compression: "zstd"},
 	}
 }

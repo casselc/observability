@@ -22,6 +22,8 @@ func (w *rowBinary) end()    {}
 
 func (w *rowBinary) ts(nanos uint64) { w.buf = binary.LittleEndian.AppendUint64(w.buf, nanos) }
 func (w *rowBinary) u8(v uint8)      { w.buf = append(w.buf, v) }
+func (w *rowBinary) u16(v uint16)    { w.buf = binary.LittleEndian.AppendUint16(w.buf, v) }
+func (w *rowBinary) u32(v uint32)    { w.buf = binary.LittleEndian.AppendUint32(w.buf, v) }
 func (w *rowBinary) u64(v uint64)    { w.buf = binary.LittleEndian.AppendUint64(w.buf, v) }
 func (w *rowBinary) arr(n int)       { w.buf = binary.AppendUvarint(w.buf, uint64(n)) }
 

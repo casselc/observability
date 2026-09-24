@@ -34,9 +34,9 @@ func BenchmarkEncode(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					*buf = (*buf)[:0]
 					if sig == "traces" {
-						rows += writeTraces(w, td)
+						rows += writeTraces(w, td, nil)
 					} else {
-						rows += writeLogs(w, ld)
+						rows += writeLogs(w, ld, nil)
 					}
 				}
 				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(rows), "ns/row")

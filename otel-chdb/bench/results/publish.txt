@@ -1,0 +1,13 @@
+goos: linux
+goarch: amd64
+pkg: github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkPublish/local-tables-4         	      40	        91.10 ms/batch	    109761 rows/s	         0 s3writes/batch
+BenchmarkPublish/local-tables+parquet-local-4         	      40	       145.1 ms/batch	     68915 rows/s	         0 s3writes/batch
+BenchmarkPublish/parquet-local-only-4                 	      40	        57.48 ms/batch	    173975 rows/s	         0 s3writes/batch
+BenchmarkPublish/s3-tables-4                          	      40	       147.5 ms/batch	     67777 rows/s	        51.15 s3writes/batch
+BenchmarkPublish/s3-tables-wide-parts-4               	      40	       182.6 ms/batch	     54776 rows/s	        74.97 s3writes/batch
+BenchmarkPublish/parquet-s3-only-4                    	      40	        81.55 ms/batch	    122600 rows/s	         4.650 s3writes/batch
+BenchmarkPublish/s3-tables+parquet-s3-4               	      40	       222.1 ms/batch	     45027 rows/s	        52.17 s3writes/batch
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter	42.037s

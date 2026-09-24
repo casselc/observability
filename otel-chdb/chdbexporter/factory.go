@@ -25,7 +25,7 @@ func NewFactory() exporter.Factory {
 
 func createTracesExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Traces, error) {
 	c := cfg.(*Config)
-	e := newExporter(set.Logger, c)
+	e := newExporter(set.Logger, c, signalTraces)
 	return exporterhelper.NewTraces(ctx, set, cfg, e.pushTraces,
 		exporterhelper.WithStart(e.start),
 		exporterhelper.WithShutdown(e.shutdown),
@@ -37,7 +37,7 @@ func createTracesExporter(ctx context.Context, set exporter.Settings, cfg compon
 
 func createLogsExporter(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
 	c := cfg.(*Config)
-	e := newExporter(set.Logger, c)
+	e := newExporter(set.Logger, c, signalLogs)
 	return exporterhelper.NewLogs(ctx, set, cfg, e.pushLogs,
 		exporterhelper.WithStart(e.start),
 		exporterhelper.WithShutdown(e.shutdown),

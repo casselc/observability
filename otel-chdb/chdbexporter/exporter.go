@@ -33,33 +33,39 @@ type result interface{ Free() }
 type chdbExporter struct {
 	cfg    *Config
 	logger *zap.Logger
+	// signal is the one signal this instance exports ("traces" or "logs"),
+	// or "" for both (tests drive one exporter with both).
+	signal string
 
 	// conns is a pool: a native connection runs one statement at a time, and
 	// the sending queue may call push from several goroutines.
 	conns chan session
 	all   []session
 
-	tracesSQL, logsSQL         string // INSERT ... (cols), no FORMAT
-	tracesFileSQL, logsFileSQL string // INSERT ... SELECT FROM file(%s)
-	tracesJSONSQL, logsJSONSQL string // INSERT ... FORMAT JSONEachRow\n
-	rbPool, jsonPool           sync.Pool
-	fileSeq                    atomic.Uint64
+	// local holds each signal's tables when not publishing; pub replaces it
+	// when publishing.
+	local            map[string]tableSet
+	pub              *publisher
+	rbPool, jsonPool sync.Pool
+	fileSeq          atomic.Uint64
 }
 
-func newExporter(logger *zap.Logger, cfg *Config) *chdbExporter {
-	e := &chdbExporter{cfg: cfg, logger: logger}
-	tt := insertTarget(cfg, cfg.TracesTableName)
-	lt := insertTarget(cfg, cfg.LogsTableName)
-	tc, lc := quoteColumns(traceColumns), quoteColumns(logColumns)
-	e.tracesSQL = fmt.Sprintf("INSERT INTO %s (%s)", tt, tc)
-	e.logsSQL = fmt.Sprintf("INSERT INTO %s (%s)", lt, lc)
-	e.tracesJSONSQL = e.tracesSQL + " FORMAT JSONEachRow\n"
-	e.logsJSONSQL = e.logsSQL + " FORMAT JSONEachRow\n"
-	e.tracesFileSQL = e.tracesSQL + " SELECT * FROM file(%s, 'RowBinary', " + sqlQuote(traceStructure) + ")"
-	e.logsFileSQL = e.logsSQL + " SELECT * FROM file(%s, 'RowBinary', " + sqlQuote(logStructure) + ")"
+func newExporter(logger *zap.Logger, cfg *Config, signal string) *chdbExporter {
+	e := &chdbExporter{cfg: cfg, logger: logger, signal: signal}
+	e.local = map[string]tableSet{
+		signalTraces: buildTableSet(cfg, signalTraces, "", false, localDisk),
+		signalLogs:   buildTableSet(cfg, signalLogs, "", false, localDisk),
+	}
 	e.rbPool.New = func() any { return &rowBinary{buf: make([]byte, 0, 1<<20)} }
 	e.jsonPool.New = func() any { return &jsonEachRow{buf: make([]byte, 0, 1<<20)} }
 	return e
+}
+
+func (e *chdbExporter) signals() []string {
+	if e.signal != "" {
+		return []string{e.signal}
+	}
+	return []string{signalTraces, signalLogs}
 }
 
 func sqlQuote(s string) string {
@@ -80,6 +86,15 @@ func (e *chdbExporter) start(_ context.Context, _ component.Host) error {
 		e.all = append(e.all, s)
 		e.conns <- s
 	}
+	if e.cfg.publishing() {
+		p, err := newPublisher(e)
+		if err != nil {
+			e.closeAll()
+			return err
+		}
+		e.pub = p
+		return nil
+	}
 	if e.cfg.CreateSchema {
 		s := e.all[0]
 		for _, q := range schemaDDL(e.cfg) {
@@ -97,7 +112,11 @@ func (e *chdbExporter) shutdown(context.Context) error {
 		return nil
 	}
 	var err error
-	if e.cfg.BufferSeconds > 0 {
+	if e.pub != nil {
+		// Seal what is open: this incarnation writes nothing more, and the
+		// next one gets a new epoch.
+		err = e.pub.close()
+	} else if e.cfg.BufferSeconds > 0 {
 		for _, t := range []string{e.cfg.TracesTableName, e.cfg.LogsTableName} {
 			err = errors.Join(err, exec(e.all[0], fmt.Sprintf("OPTIMIZE TABLE %s.%s_buf", e.cfg.Database, t)))
 		}
@@ -125,21 +144,24 @@ func exec(s session, q string) error {
 }
 
 func (e *chdbExporter) pushTraces(_ context.Context, td ptrace.Traces) error {
-	return e.push("traces", td.SpanCount(),
-		func(w rowWriter) int { return writeTraces(w, td) },
-		traceColumns, e.tracesSQL, e.tracesJSONSQL, e.tracesFileSQL)
+	return e.push(signalTraces, td.SpanCount(), func(w rowWriter, env *envelope) int { return writeTraces(w, td, env) })
 }
 
 func (e *chdbExporter) pushLogs(_ context.Context, ld plog.Logs) error {
-	return e.push("logs", ld.LogRecordCount(),
-		func(w rowWriter) int { return writeLogs(w, ld) },
-		logColumns, e.logsSQL, e.logsJSONSQL, e.logsFileSQL)
+	return e.push(signalLogs, ld.LogRecordCount(), func(w rowWriter, env *envelope) int { return writeLogs(w, ld, env) })
 }
 
-func (e *chdbExporter) push(signal string, count int, write func(rowWriter) int, cols []string, insertSQL, jsonSQL, fileSQL string) error {
+// writeFunc encodes one batch into w and returns its row count.
+type writeFunc func(w rowWriter, env *envelope) int
+
+func (e *chdbExporter) push(signal string, count int, write writeFunc) error {
 	if count == 0 {
 		return nil
 	}
+	if e.pub != nil {
+		return e.pub.push(signal, write)
+	}
+	ts := e.local[signal]
 	start := time.Now()
 	var (
 		rows int
@@ -152,17 +174,17 @@ func (e *chdbExporter) push(signal string, count int, write func(rowWriter) int,
 	case FormatRowBinary:
 		w := e.rbPool.Get().(*rowBinary)
 		w.buf = w.buf[:0]
-		rows = write(w)
+		rows = write(w, nil)
 		data = w.buf
 		encoded := time.Since(start)
-		err = s.Insert(insertSQL, "RowBinary", w.buf)
+		err = s.Insert(ts.insert, "RowBinary", w.buf)
 		e.debug(signal, rows, len(data), encoded, start)
 		e.rbPool.Put(w)
 	case FormatJSON:
 		w := e.jsonPool.Get().(*jsonEachRow)
-		w.buf = append(w.buf[:0], jsonSQL...)
-		w.cols = cols
-		rows = write(w)
+		w.buf = append(append(w.buf[:0], ts.insert...), " FORMAT JSONEachRow\n"...)
+		w.cols = columns(signal, false)
+		rows = write(w, nil)
 		data = w.buf
 		encoded := time.Since(start)
 		// The statement and its rows are one string; unsafeString spares a
@@ -173,10 +195,10 @@ func (e *chdbExporter) push(signal string, count int, write func(rowWriter) int,
 	case FormatFile:
 		w := e.rbPool.Get().(*rowBinary)
 		w.buf = w.buf[:0]
-		rows = write(w)
+		rows = write(w, nil)
 		data = w.buf
 		encoded := time.Since(start)
-		err = e.insertFile(s, fileSQL, w.buf)
+		err = e.insertFile(s, ts.insert+" SELECT * FROM file(%s, 'RowBinary', "+sqlQuote(structure(signal, false))+")", w.buf)
 		e.debug(signal, rows, len(data), encoded, start)
 		e.rbPool.Put(w)
 	}

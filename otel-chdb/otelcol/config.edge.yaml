@@ -1,0 +1,63 @@
+# Edge-buffer mode: OTLP in; each batch published to object storage as
+# s3_plain_rewritable MergeTree parts and as a Parquet object, then announced
+# by a manifest. Generations rotate hourly, are sealed, and are detached
+# locally after 6h; the objects stay for a central consumer to read and
+# reclaim. Credentials come from the environment.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:4318
+      grpc:
+        endpoint: 127.0.0.1:4317
+
+extensions:
+  file_storage/queue:
+    directory: ./data/queue
+    create_directory: true
+
+exporters:
+  chdb:
+    path: ./data/chdb
+    database: otel
+    connections: 2
+    producer:
+      id: ${env:PRODUCER_ID:-edge-1}
+      region: ${env:REGION:-local}
+      schema_version: 1
+    object_storage:
+      endpoint: ${env:S3_ENDPOINT}
+      access_key_id: ${env:S3_ACCESS_KEY_ID}
+      secret_access_key: ${env:S3_SECRET_ACCESS_KEY}
+      generation: 1h
+      local_retention: 6h
+      seal_optimize: true
+      compact_parts: true
+      old_parts_lifetime: 10m
+    parquet:
+      url: ${env:S3_ENDPOINT}/parquet
+      access_key_id: ${env:S3_ACCESS_KEY_ID}
+      secret_access_key: ${env:S3_SECRET_ACCESS_KEY}
+      compression: zstd
+    sending_queue:
+      storage: file_storage/queue
+      num_consumers: 2
+      sizer: items
+      queue_size: 200000
+      batch:
+        flush_timeout: 5s
+        min_size: 5000
+        max_size: 20000
+
+service:
+  extensions: [file_storage/queue]
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [chdb]
+    logs:
+      receivers: [otlp]
+      exporters: [chdb]

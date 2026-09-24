@@ -48,6 +48,7 @@ type pubOpts struct {
 	strictSeal     bool // _sealed.json must match the manifests (F3)
 	noOrphans      bool // no table rows without a manifest (F2)
 	housekeeping   bool // seals and detaches are not lost when their statement fails
+	oncePerPayload bool // a payload is committed at most once (F1)
 	steps          int
 	record         bool // record quint steps
 }
@@ -91,7 +92,37 @@ type pubMachine struct {
 // hegel.Run it is the replay of the shrunk counterexample.
 var lastPubMachine atomic.Pointer[pubMachine]
 
+// pubSetup is what a test case draws before its first command.
+type pubSetup struct {
+	layout            string // tables+parquet, tables, parquet
+	optimize, staging bool
+	connections       int
+	signals           []string
+	minute            int // clock start, minutes past 10:00
+}
+
+func drawPubSetup(tc hegel.TestCase) pubSetup {
+	return pubSetup{
+		optimize:    hegel.Draw(tc, hegel.Booleans()),
+		staging:     hegel.Draw(tc, hegel.Booleans()),
+		connections: hegel.Draw(tc, hegel.Integers(1, 3)),
+		layout:      hegel.Draw(tc, hegel.SampledFrom([]string{"tables+parquet", "tables", "parquet"})),
+		// One signal most of the time, so that pushes meet in the same
+		// generations.
+		signals: hegel.Draw(tc, hegel.SampledFrom([][]string{{signalLogs}, {signalTraces}, {signalLogs, signalTraces}})),
+		minute:  hegel.Draw(tc, hegel.Integers(0, 59)),
+	}
+}
+
 func newPubMachine(tc hegel.TestCase, o pubOpts) *pubMachine {
+	m, err := buildPubMachine(o, drawPubSetup(tc))
+	if err != nil {
+		tc.Errorf("start: %v", err)
+	}
+	return m
+}
+
+func buildPubMachine(o pubOpts, su pubSetup) (*pubMachine, error) {
 	m := &pubMachine{o: o, run: pubRunSeq.Add(1), queue: map[string]string{}, sealedAt: map[genKey]time.Time{},
 		sealFault: map[genKey]bool{}, detachDue: map[string]bool{}, detachErr: map[string]bool{}}
 	cfg := createDefaultConfig().(*Config)
@@ -100,10 +131,10 @@ func newPubMachine(tc hegel.TestCase, o pubOpts) *pubMachine {
 	cfg.Producer.ID, cfg.Producer.Region = "edge", "r1"
 	cfg.ObjectStorage.Generation = time.Hour
 	cfg.ObjectStorage.LocalRetention = 3 * time.Hour
-	cfg.ObjectStorage.SealOptimize = hegel.Draw(tc, hegel.Booleans())
-	cfg.StagingTables = hegel.Draw(tc, hegel.Booleans())
-	cfg.Connections = hegel.Draw(tc, hegel.Integers(1, 3))
-	switch hegel.Draw(tc, hegel.SampledFrom([]string{"tables+parquet", "tables", "parquet"})) {
+	cfg.ObjectStorage.SealOptimize = su.optimize
+	cfg.StagingTables = su.staging
+	cfg.Connections = su.connections
+	switch su.layout {
 	case "tables+parquet":
 		cfg.ObjectStorage.Endpoint = "http://s3.fake/otel"
 		cfg.Parquet.URL = "http://s3.fake/parquet"
@@ -113,21 +144,15 @@ func newPubMachine(tc hegel.TestCase, o pubOpts) *pubMachine {
 		cfg.StoreTables = false
 		cfg.Parquet.URL = "http://s3.fake/parquet"
 	}
-	// Which signals this run pushes: one most of the time, so that pushes
-	// meet in the same generations.
-	m.signals = hegel.Draw(tc, hegel.SampledFrom([][]string{{signalLogs}, {signalTraces}, {signalLogs, signalTraces}}))
+	m.signals = su.signals
 	m.cfg = cfg
 	m.w = newFakeWorld(cfg)
 	if o.record {
 		m.w.rec = newStepRecorder()
 	}
-	m.clock = time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC).Add(time.Duration(hegel.Draw(tc, hegel.Integers(0, 59))) * time.Minute)
-	m.logf("config: %s, staging %v, optimize %v, %d connections, clock %s", map[bool]string{true: "tables", false: "no tables"}[cfg.StoreTables]+
-		map[bool]string{true: "+parquet", false: ""}[cfg.parquet()], cfg.StagingTables, cfg.ObjectStorage.SealOptimize, cfg.Connections, m.clock.Format("15:04"))
-	if err := m.start(); err != nil {
-		tc.Errorf("start: %v", err)
-	}
-	return m
+	m.clock = time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC).Add(time.Duration(su.minute) * time.Minute)
+	m.logf("config: %s, staging %v, optimize %v, %d connections, clock %s", su.layout, cfg.StagingTables, cfg.ObjectStorage.SealOptimize, cfg.Connections, m.clock.Format("15:04"))
+	return m, m.start()
 }
 
 func (m *pubMachine) logf(format string, args ...any) {
@@ -185,8 +210,7 @@ func (m *pubMachine) peekBatch(signal string) uint64 {
 // ---- commands -----------------------------------------------------------------
 
 // pushOnce exports one payload (a retry of a queued one if asked and there
-// is one, else a new one) of 1-3 rows, with an optional fault armed, and
-// updates the reference model.
+// is one, else a new one) of 1-3 rows, with an optional fault armed.
 func pushOnce(m *pubMachine, tc hegel.TestCase, retry bool, faultOp, faultMode string) {
 	var payload, signal string
 	if retry && len(m.queue) > 0 {
@@ -198,12 +222,34 @@ func pushOnce(m *pubMachine, tc hegel.TestCase, retry bool, faultOp, faultMode s
 		payload = hegel.Draw(tc, hegel.SampledFrom(keys))
 		signal = m.queue[payload]
 	} else {
-		m.payloads++
-		payload = fmt.Sprintf("p%d", m.payloads)
+		payload = fmt.Sprintf("p%d", m.payloads+1)
 		signal = hegel.Draw(tc, hegel.SampledFrom(m.signals))
-		m.queue[payload] = signal
 	}
 	n := hegel.Draw(tc, hegel.Integers(1, 3))
+	rotations := len(m.sealedAt)
+	fired := pushExec(m, payload, signal, n, faultOp, faultMode)
+	for _, f := range fired {
+		tc.Event("fault " + f.op + " " + f.mode)
+	}
+	if len(m.sealedAt) > rotations {
+		tc.Event("rotation")
+	}
+	if a := m.attempts[len(m.attempts)-1]; a.err == nil {
+		tc.Event("push committed")
+	} else {
+		tc.Event("push failed")
+	}
+	tc.Note(m.log[len(m.log)-1])
+}
+
+// pushExec exports payload (queued, or new) as n rows of signal, with an
+// optional fault armed, and updates the reference model. It returns the
+// faults that fired.
+func pushExec(m *pubMachine, payload, signal string, n int, faultOp, faultMode string) []fault {
+	if _, queued := m.queue[payload]; !queued {
+		m.payloads++
+		m.queue[payload] = signal
+	}
 	if faultOp != "" {
 		m.w.arm(faultOp, faultMode)
 	}
@@ -236,11 +282,27 @@ func pushOnce(m *pubMachine, tc hegel.TestCase, retry bool, faultOp, faultMode s
 	if err != nil {
 		res = "error: " + err.Error()
 	}
-	for _, f := range fired {
-		tc.Event("fault " + f.op + " " + f.mode)
-	}
 	m.logf("push %s %s (%d rows) at %s -> batch %d in %s; faults %v; %s", payload, signal, n, m.clock.Format("15:04"), a.batch, gen, fired, res)
-	tc.Note(m.log[len(m.log)-1])
+	return fired
+}
+
+// tick opens the generation the clock is in, rotating (and sealing) the
+// previous one, without a push: what the model's rotateGen does eagerly and
+// publish.go does at the next push. It calls the publisher's own acquire.
+func tick(m *pubMachine, signal string) error {
+	gen, _ := genID(m.clock, m.cfg.generation())
+	cur := m.p.signals[signal].cur
+	_, unlock, err := m.p.acquire(signal)
+	if err == nil {
+		unlock()
+	}
+	m.p.wg.Wait()
+	fired := m.w.disarm()
+	if cur != nil && cur.id != gen && m.p.signals[signal].cur != nil && m.p.signals[signal].cur.id != cur.id {
+		m.rotated(signal, cur.id, fired)
+	}
+	m.logf("tick %s at %s: %v", signal, m.clock.Format("15:04"), err)
+	return err
 }
 
 // rotated records that a generation was rotated away (and so sealed).
@@ -363,6 +425,12 @@ func (m *pubMachine) RuleRetention(tc hegel.TestCase) {
 			}
 		}
 	}
+	for _, t := range m.w.tables {
+		if t.state == "detached" {
+			tc.Event("a generation detached")
+			break
+		}
+	}
 	m.logf("retention sweep at %s; faults %v", m.clock.Format("15:04"), fired)
 	tc.Note(m.log[len(m.log)-1])
 }
@@ -398,6 +466,7 @@ func (m *pubMachine) RuleShutdown(tc hegel.TestCase) {
 		sig, gen, _ := strings.Cut(o, ":")
 		m.rotated(sig, gen, fired)
 	}
+	tc.Event("shutdown")
 	m.logf("shutdown (seals %v; faults %v; err %v)", open, fired, err)
 	tc.Note(m.log[len(m.log)-1])
 	restart(m, tc)
@@ -407,6 +476,7 @@ func (m *pubMachine) RuleShutdown(tc hegel.TestCase) {
 // process does, and starts the next incarnation.
 func (m *pubMachine) RuleCrash(tc hegel.TestCase) {
 	m.p.release() // the process is gone, and its claims with it
+	tc.Event("crash")
 	m.logf("crash")
 	tc.Note(m.log[len(m.log)-1])
 	restart(m, tc)
@@ -432,7 +502,10 @@ func restart(m *pubMachine, tc hegel.TestCase) {
 
 // ---- invariants -----------------------------------------------------------------
 
+var firstFailAt atomic.Uint64
+
 func failf(m *pubMachine, tc hegel.TestCase, format string, args ...any) {
+	firstFailAt.CompareAndSwap(0, pubCases.Load())
 	tc.Errorf("%s\n\nhistory:\n  %s", fmt.Sprintf(format, args...), strings.Join(m.log, "\n  "))
 }
 
@@ -612,7 +685,30 @@ func (m *pubMachine) InvariantHousekeeping(tc hegel.TestCase) {
 	}
 }
 
-var pubInvariants = []string{"InvariantNothingForbidden", "InvariantCommitImpliesData", "InvariantSuccessIsCommitted",
+// InvariantPayloadCommittedOnce (only with oncePerPayload): no request is
+// committed twice, i.e. has two batch manifests. The design does not
+// promise it: an ambiguous manifest write is retried as a new batch.
+func (m *pubMachine) InvariantPayloadCommittedOnce(tc hegel.TestCase) {
+	if !m.o.oncePerPayload {
+		return
+	}
+	payloadOf := map[string]string{}
+	for _, a := range m.attempts {
+		payloadOf[fmt.Sprintf("%s|%s|%d", a.epoch, a.signal, a.batch)] = a.payload
+	}
+	ms, _ := m.w.manifests()
+	seen := map[string]string{}
+	for _, mf := range ms {
+		p := payloadOf[fmt.Sprintf("%s|%s|%d", mf.ProducerEpoch, mf.Signal, mf.BatchID)]
+		if prev, dup := seen[p]; dup {
+			failf(m, tc, "payload %s is committed twice: %s and %s", p, prev, mf.key)
+			return
+		}
+		seen[p] = mf.key
+	}
+}
+
+var pubInvariants = []string{"InvariantPayloadCommittedOnce", "InvariantNothingForbidden", "InvariantCommitImpliesData", "InvariantSuccessIsCommitted",
 	"InvariantBatchIDsUnique", "InvariantSealsCount", "InvariantNoOrphanRows", "InvariantHousekeeping"}
 
 // runPublisherMachine is one test case.
@@ -661,13 +757,17 @@ func TestPBTPublisherStateMachine(t *testing.T) {
 // machine that replayed it.
 func expectPublisherFinding(t *testing.T, what string, o pubOpts, n int) *pubMachine {
 	t.Helper()
+	if os.Getenv("PBT_FINDINGS") == "" {
+		t.Skip("set PBT_FINDINGS=1: finding a counterexample takes a second, shrinking it 5-60 s")
+	}
 	o.record = true
 	if o.steps == 0 {
-		o.steps = 20 // shorter sequences shrink faster
+		o.steps = 12 // shorter sequences shrink faster
 	}
 	start, c0 := time.Now(), pubCases.Load()
 	expectFinding(t, what, func(tc hegel.TestCase) { runPublisherMachine(tc, o) }, pbtOpts(n, hegel.WithReportMultipleFailures(false))...)
-	t.Logf("%d test cases in %v, shrinking included", pubCases.Load()-c0, time.Since(start).Round(time.Millisecond))
+	t.Logf("%d test cases in %v, shrinking included; first failure at case %d", pubCases.Load()-c0, time.Since(start).Round(time.Millisecond), firstFailAt.Load()-c0)
+	firstFailAt.Store(0)
 	m := lastPubMachine.Load()
 	if m.w.rec != nil {
 		t.Logf("as model steps:\n%s", renderSteps(m.w.rec.steps))
@@ -683,6 +783,16 @@ func TestPBTFindingSealUndercount(t *testing.T) {
 	m := expectPublisherFinding(t, "a seal that disagrees with its generation's manifests",
 		pubOpts{faults: []string{"manifest"}, ambiguous: true, strictSeal: true}, 500)
 	checkModelAgrees(t, m, "sealMatchesManifests")
+}
+
+// TestPBTFindingDuplicateCommit (the model's first finding): a manifest
+// write that lands but reports an error fails the export, the queue retries
+// the request, and the retry is committed again under a new batch id. Two
+// manifests, one request: a consumer that trusts manifests counts it twice.
+func TestPBTFindingDuplicateCommit(t *testing.T) {
+	m := expectPublisherFinding(t, "a request committed twice",
+		pubOpts{faults: []string{"manifest"}, ambiguous: true, oncePerPayload: true}, 500)
+	checkModelAgrees(t, m, "committedNoDuplicatePayload")
 }
 
 // TestPBTFindingOrphanRows (the model's F2): a push whose table insert
@@ -789,9 +899,20 @@ func TestPBTPublisherConformsToModel(t *testing.T) {
 		mu.Unlock()
 	}, pbtOpts(8, hegel.WithPhases(hegel.PhaseGenerate))...)
 	for i, steps := range runs {
+		if len(steps) == 0 {
+			continue // nothing was pushed
+		}
 		rep, ok := quintgoValidate(t, steps, t.TempDir())
 		conforms := strings.Contains(rep, "conformance: PASS")
-		t.Logf("run %d: %d steps, conforms %v, invariants ok %v", i, len(steps), conforms, ok)
+		var failed []string
+		for _, l := range strings.Split(rep, "\n") {
+			if l = strings.TrimSpace(l); strings.HasPrefix(l, "invariant ") && strings.HasSuffix(l, ": FAIL") {
+				failed = append(failed, strings.TrimSuffix(strings.TrimPrefix(l, "invariant "), ": FAIL"))
+			}
+		}
+		t.Logf("run %d: %d steps, conforms %v, model invariants violated: %v (ok %v)", i, len(steps), conforms, failed, ok)
+		// The model's own invariants may fail: sealMatchesManifests does on
+		// any ambiguous manifest write (F3). Conformance is the claim here.
 		if !conforms {
 			t.Errorf("run %d is not a behaviour of the model:\n%s\n%s", i, renderSteps(steps), rep)
 		}

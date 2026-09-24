@@ -11,6 +11,7 @@ exporter's tables reads these.
 | [`chdb-go/`](chdb-go/) | [chdb-go](https://github.com/chdb-io/chdb-go) at upstream `9f8e35a`, plus one patch: a binary-safe streaming insert. The patch is also in [`patches/`](patches/) for sending upstream. |
 | [`chdbexporter/`](chdbexporter/) | The exporter: config, factory, RowBinary and JSONEachRow encoders, tests, and in-package benchmarks. |
 | [`bench/`](bench/) | A head-to-head against the contrib clickhouse exporter writing to a real ClickHouse server. [`bench/results/`](bench/results/) holds the raw output. |
+| [`model/`](model/README.md) | Quint models of the publishing protocol and of object lifetime, with scenario tests; what they found, and which ClickHouse settings mitigate it. |
 | [`otelcol/`](otelcol/) | An `ocb` distribution (OTLP receiver, memory limiter, chdb exporter, file_storage), configs for local storage and for edge-buffer publishing, and end-to-end demos of both. |
 
 ## Can it be done easily with chdb-go? Mostly
@@ -213,7 +214,19 @@ chdb:
   batch without a manifest isn't committed: that covers an insert that
   succeeded before a crash, and the first attempt of a retry, which comes back
   as a new batch id. A consumer that selects `WHERE batch_id IN (manifested
-  ids)` never double-counts, so retries need no deduplication at the edge.
+  ids)` never sees those orphans. **But it can still double-count**, as the
+  Quint model in [`model/`](model/README.md) showed. A manifest PUT that lands
+  while the exporter sees an error (a timeout, or a crash before the queue
+  acks) commits the batch, and the retry commits it again under a new id. The
+  seal, built from in-memory counters, also misses such a batch. The
+  model-checked fixes are:
+  - content-derived batch ids with an edge dedup token;
+  - seals from an S3 listing;
+  - a content key, a content lease and a check before insert at the consumer.
+
+  [`model/README.md`](model/README.md) also maps each finding to the
+  ClickHouse settings that help. None of these fixes is implemented in
+  `publish.go` yet.
 - **One writer per table, with no fencing.** The epoch is new for every process
   incarnation, so a restarted pod writes to new tables and can never overlap
   its predecessor. One exporter instance per signal per process is enforced at

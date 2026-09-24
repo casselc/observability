@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	execpkg "os/exec"
 	"path/filepath"
@@ -491,5 +493,196 @@ func BenchmarkPublish(b *testing.B) {
 			b.ReportMetric(0, "ns/op")
 			e.shutdown(ctx)
 		})
+	}
+}
+
+// chHTTP runs one statement on the ClickHouse server at CHDB_TEST_CLICKHOUSE
+// (its HTTP interface) and returns the trimmed TSV result.
+func chHTTP(t *testing.T, sql string) string {
+	t.Helper()
+	resp, err := http.Post(os.Getenv("CHDB_TEST_CLICKHOUSE")+"/", "text/plain", strings.NewReader(sql))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("clickhouse: %s\n%.300s", strings.TrimSpace(string(b)), sql)
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// TestClickHouseServerReaderFollowsWriter: the central side as it would
+// really be, a ClickHouse server, attaches the chDB writer's tables with the
+// same ReaderDDL and follows them while the writer keeps inserting and
+// merging. Needs CHDB_TEST_S3 and CHDB_TEST_CLICKHOUSE (e.g.
+// http://127.0.0.1:8123), the server able to reach the same S3 endpoint.
+func TestClickHouseServerReaderFollowsWriter(t *testing.T) {
+	root, key, secret := s3Env(t)
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		t.Skip("CHDB_TEST_CLICKHOUSE not set")
+	}
+	t.Logf("server %s", chHTTP(t, "SELECT version()"))
+	cfg := publishConfig(t, "os_server", "os-server")
+	cfg.ObjectStorage.Endpoint, cfg.ObjectStorage.AccessKeyID, cfg.ObjectStorage.SecretAccessKey = root, key, configSecret(secret)
+	e := startExporter(t, cfg)
+	ctx := context.Background()
+	if err := e.pushTraces(ctx, testgen.Traces(300)); err != nil {
+		t.Fatal(err)
+	}
+	ns := e.pub.namespace(signalTraces)
+	ms := s3Manifests(t, root, ns, key, secret)
+	gen := ms[0].Generation
+	db := "srv_" + strings.NewReplacer("-", "_").Replace(e.pub.epoch)
+	for _, stmt := range ReaderDDL(cfg, db, signalTraces, gen, ms[0].Tables, key, secret, 1) {
+		chHTTP(t, stmt)
+	}
+	table := db + "." + cfg.TracesTableName + "_" + gen
+	count := fmt.Sprintf("SELECT count(), uniqExact(batch_id), (SELECT count() FROM %s_trace_id_ts) FROM %s", table, table)
+	poll := func(want string, within time.Duration) time.Duration {
+		t.Helper()
+		start := time.Now()
+		for last := ""; ; time.Sleep(50 * time.Millisecond) {
+			if last = chHTTP(t, count); last == want {
+				return time.Since(start)
+			}
+			if time.Since(start) > within {
+				t.Fatalf("server did not reach %q in %v (last %q)", want, within, last)
+			}
+		}
+	}
+	poll("300\t1\t300", 10*time.Second)
+
+	// Follows new batches.
+	if err := e.pushTraces(ctx, testgen.Traces(200)); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("server saw the second batch %v after the writer's insert returned", poll("500\t2\t500", 15*time.Second).Round(10*time.Millisecond))
+
+	// Consistent through merges: 20 small batches make the writer merge
+	// while the server polls. Every answer must be whole batches: never a
+	// partial one, never a merged part counted beside the parts it replaced.
+	small := testgen.Traces(100)
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		for i := 0; i < 20 && err == nil; i++ {
+			err = e.pushTraces(ctx, small)
+			time.Sleep(100 * time.Millisecond)
+		}
+		done <- err
+	}()
+	polls, bad := 0, []string{}
+	check := fmt.Sprintf("SELECT count(), uniqExact(batch_id), countIf(batch_id > 2) FROM %s", table)
+	for pushing := true; pushing; {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			pushing = false
+		default:
+		}
+		f := strings.Fields(chHTTP(t, check))
+		rows, _ := strconv.Atoi(f[0])
+		batches, _ := strconv.Atoi(f[1])
+		smallRows, _ := strconv.Atoi(f[2])
+		if rows != 500+smallRows || smallRows != 100*(batches-2) {
+			bad = append(bad, strings.Join(f, " "))
+		}
+		polls++
+		time.Sleep(30 * time.Millisecond)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("%d of %d polls saw inconsistent rows: %v", len(bad), polls, bad)
+	}
+	poll("2500\t22\t2500", 15*time.Second)
+	parts := chHTTP(t, fmt.Sprintf("SELECT count() FROM system.parts WHERE active AND database = '%s' AND table = '%s'", db, cfg.TracesTableName+"_"+gen))
+	merges := query(t, fmt.Sprintf("SELECT count() FROM system.parts WHERE database = 'os_server' AND table = '%s_%s' AND level > 0", cfg.TracesTableName, gen))
+	t.Logf("%d polls during 20 pushes, all consistent; server sees %s active parts, writer has %s merged parts", polls, parts, merges)
+
+	// Dropping the reader's table must not delete the writer's objects.
+	chHTTP(t, "DROP TABLE "+table+"_trace_id_ts SYNC")
+	chHTTP(t, "DROP TABLE "+table+" SYNC")
+	if got := query(t, fmt.Sprintf("SELECT count() FROM os_server.%s_%s", cfg.TracesTableName, gen)); got != "2500" {
+		t.Fatalf("writer after the reader dropped its table: %s", got)
+	}
+	for _, stmt := range ReaderDDL(cfg, db, signalTraces, gen, ms[0].Tables, key, secret, 1) {
+		chHTTP(t, stmt)
+	}
+	poll("2500\t22\t2500", 15*time.Second)
+	chHTTP(t, "DROP DATABASE "+db+" SYNC")
+	if err := e.shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOldPartsLifetimeProtectsServerQueries: a slow query on the ClickHouse
+// server reads parts that the writer then merges away. With chDB's default
+// old_parts_lifetime of 0 the writer's cleanup deletes the replaced parts'
+// objects, and the query fails reading them ("File .../data.bin does not
+// exist"). With the exporter's default of 10 minutes it finishes with every
+// row.
+func TestOldPartsLifetimeProtectsServerQueries(t *testing.T) {
+	root, key, secret := s3Env(t)
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		t.Skip("CHDB_TEST_CLICKHOUSE not set")
+	}
+	for _, life := range []time.Duration{0, 10 * time.Minute} {
+		secs := int(life.Seconds())
+		cfg := publishConfig(t, fmt.Sprintf("os_life%d", secs), fmt.Sprintf("os-life-%d", secs))
+		cfg.ObjectStorage.Endpoint, cfg.ObjectStorage.AccessKeyID, cfg.ObjectStorage.SecretAccessKey = root, key, configSecret(secret)
+		cfg.ObjectStorage.OldPartsLifetime = life
+		e := startExporter(t, cfg)
+		ctx := context.Background()
+		for i := 0; i < 6; i++ {
+			if err := e.pushLogs(ctx, testgen.Logs(2000)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ms := s3Manifests(t, root, e.pub.namespace(signalLogs), key, secret)
+		gen := ms[0].Generation
+		db := fmt.Sprintf("srv_life%d_%s", secs, strings.NewReplacer("-", "_").Replace(e.pub.epoch))
+		for _, stmt := range ReaderDDL(cfg, db, signalLogs, gen, ms[0].Tables, key, secret, 1) {
+			chHTTP(t, stmt)
+		}
+		table := db + "." + cfg.LogsTableName + "_" + gen
+		// Let the server's refresh settle on the current parts, then scan them
+		// slowly (100-row blocks, 0.3 ms a row, one thread: ~4 s).
+		time.Sleep(1500 * time.Millisecond)
+		slow := fmt.Sprintf("SELECT count(), sum(sleepEachRow(0.0003)) FROM %s SETTINGS max_threads = 1, max_block_size = 100, preferred_block_size_bytes = 1000", table)
+		res := make(chan string, 1)
+		go func() {
+			resp, err := http.Post(os.Getenv("CHDB_TEST_CLICKHOUSE")+"/", "text/plain", strings.NewReader(slow))
+			if err != nil {
+				res <- err.Error()
+				return
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			res <- fmt.Sprintf("%d %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		}()
+		time.Sleep(700 * time.Millisecond)
+		// Mid-scan: the writer merges everything into one part, and its
+		// cleanup is woken now rather than on its next periodic run, so
+		// the race a long query would lose happens inside this one.
+		if err := exec(e.all[0], fmt.Sprintf("OPTIMIZE TABLE %s.%s_%s FINAL", cfg.Database, cfg.LogsTableName, gen)); err != nil {
+			t.Fatal(err)
+		}
+		if err := exec(e.all[0], "SYSTEM START CLEANUP"); err != nil {
+			t.Fatal(err)
+		}
+		got := <-res
+		t.Logf("old_parts_lifetime %v: slow server query during a merge -> %.160s", life, got)
+		if life > 0 && got != "200 12000\t0" {
+			t.Errorf("with old_parts_lifetime %v the query should survive the merge: %s", life, got)
+		}
+		if life == 0 && !strings.Contains(got, "does not exist") {
+			t.Errorf("with old_parts_lifetime 0 the merge should have deleted objects under the query: %s", got)
+		}
+		if err := e.shutdown(ctx); err != nil {
+			t.Fatal(err)
+		}
+		chHTTP(t, "DROP DATABASE "+db+" SYNC")
 	}
 }

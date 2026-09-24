@@ -8,7 +8,8 @@
 //
 // {table} is the attached main table, {trace_id_ts} its trace-id lookup
 // table (traces only). -repeat/-every re-run the queries, to watch an active
-// generation refresh.
+// generation refresh. -print-ddl prints the attach statements instead, one per
+// line, for running them on a ClickHouse server.
 package main
 
 import (
@@ -40,8 +41,9 @@ func main() {
 	repeat := flag.Int("repeat", 1, "times to run the queries")
 	every := flag.Duration("every", time.Second, "interval between repeats")
 	format := flag.String("format", "PrettyCompactMonoBlock", "output format")
+	printDDL := flag.Bool("print-ddl", false, "print the attach statements, one per line, and exit")
 	flag.Parse()
-	if *path == "" || *murl == "" || flag.NArg() == 0 {
+	if *path == "" || *murl == "" || (flag.NArg() == 0 && !*printDDL) {
 		fmt.Fprintln(os.Stderr, "usage: chdbattach -path DIR -key K -secret S -manifest URL QUERY...")
 		os.Exit(2)
 	}
@@ -58,7 +60,14 @@ func main() {
 	var m manifest
 	check(json.Unmarshal([]byte(raw), &m))
 	cfg := chdbexporter.NewFactory().CreateDefaultConfig().(*chdbexporter.Config)
-	for _, stmt := range chdbexporter.ReaderDDL(cfg, *db, m.Signal, m.Generation, m.Tables, *key, *secret, *refresh) {
+	ddl := chdbexporter.ReaderDDL(cfg, *db, m.Signal, m.Generation, m.Tables, *key, *secret, *refresh)
+	if *printDDL {
+		for _, stmt := range ddl {
+			fmt.Println(strings.Join(strings.Fields(stmt), " "))
+		}
+		return
+	}
+	for _, stmt := range ddl {
 		q(stmt, "TSV")
 	}
 	name := cfg.TracesTableName

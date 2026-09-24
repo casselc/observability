@@ -283,6 +283,40 @@ reading side:
   manifest all hold exactly those counts, with batch ids 1–14 and 1–7 and no
   gaps.
 
+### Reading with ClickHouse server
+
+The central fleet will be ClickHouse, so the same tables were attached with
+the same `ReaderDDL` on a ClickHouse **26.10.1** server (the `master` build).
+The writer was chDB **26.7.3**. `chdbattach -print-ddl` prints the statements
+for a manifest.
+
+- **Sealed data.** The edge demo's sealed traces generation attached and
+  returned 65,510 spans, 14 batches and 13,102 traces.
+  `sum(cityHash64(*))` over every column of both tables is identical on the
+  server and in chDB, so the parts written by 26.7.3 read back byte for byte on
+  26.10.1. The server also reads the Parquet directly with `s3()`, and it
+  agrees with the tables.
+- **Live data.** The server follows the writer. It saw a new batch 0.99–1.0 s
+  after the writer's insert returned (`refresh_parts_interval = 1`, 4 runs;
+  `TestClickHouseServerReaderFollowsWriter`).
+- **Merges.** The server stays consistent while the writer merges. Through 20
+  small pushes and 4 merges, about 90 polls per run each saw whole batches
+  only: never a partial batch, and never a merged part counted beside the
+  parts it replaced.
+- **Dropping is safe.** `DROP TABLE` on the server's read-only table leaves
+  the writer's objects alone: the writer still has every row, and a
+  re-attach sees them all.
+- **Deletion, demonstrated.** With chDB's default `old_parts_lifetime = 0`, a
+  slow server query fails when the writer merges the parts it's reading:
+  `File 20260924_6_6_0/data.bin does not exist`, 3 runs out of 3 once the
+  writer's cleanup runs. With the exporter's default of 10 minutes, the same
+  query returns all 12,000 rows (`TestOldPartsLifetimeProtectsServerQueries`).
+  So the setting is required, not optional: it bounds the longest query that
+  is safe on an active generation. Sealed generations aren't merged after
+  they're sealed.
+- **Clean log.** The server logged no warnings or errors about the disks or
+  the parts.
+
 ### What it costs
 
 10k-span batches, SeaweedFS on the same 4-vCPU machine (so there is no
@@ -316,13 +350,13 @@ Raw output is in `bench/results/publish.txt`.
 
 - **Real S3 latency.** Part writes on `plain_rewritable` weren't measured
   against AWS; SeaweedFS on localhost hides per-request latency.
-- **Deletion.** `old_parts_lifetime` (10 minutes) protects reader queries
-  against merges on an active generation, but nothing protects them against
-  the consumer's own garbage collection. That belongs in the catalog: delete a
+- **Deletion by the consumer.** `old_parts_lifetime` protects reader queries
+  against the writer's merges, but nothing protects them against the
+  consumer's own garbage collection. That belongs in the catalog: delete a
   generation only after every reader has released it.
-- **Readers on ClickHouse server.** Only chDB readers were tested. ClickHouse
-  25.4+ documents the same read-only `plain_rewritable` pattern, so that's the
-  first thing to try with the central fleet.
+- **Other version pairs.** Only one pair was tested: chDB 26.7.3 writing and
+  ClickHouse 26.10.1 reading. Pin the pair used in production, and test an
+  upgrade of either side.
 - **Stock chdb-go can't publish.** Publishing streams RowBinary and needs the
   fork. The publishing tests skip on the stock build.
 
@@ -343,6 +377,7 @@ TELEMETRYGEN=$(go env GOPATH)/bin/telemetrygen otelcol/run-demo.sh 10
 # publishing: an S3 server with a bucket (SeaweedFS here: weed server -s3 -s3.config s3.json,
 # then `s3.bucket.create -name otel` in weed shell)
 export CHDB_TEST_S3=http://127.0.0.1:8333/otel CHDB_TEST_S3_KEY=... CHDB_TEST_S3_SECRET=...
+export CHDB_TEST_CLICKHOUSE=http://127.0.0.1:8123   # optional: ClickHouse server reader tests
 cd chdbexporter && go test -race ./... && go test -run '^$' -bench Publish -benchtime 40x .
 S3_ENDPOINT=$CHDB_TEST_S3 S3_ACCESS_KEY_ID=$CHDB_TEST_S3_KEY S3_SECRET_ACCESS_KEY=$CHDB_TEST_S3_SECRET \
   TELEMETRYGEN=... otelcol/run-edge-demo.sh 10

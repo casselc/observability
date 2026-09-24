@@ -16,6 +16,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'kill "$ch_pid" 2>/dev/null; wait "$ch_pid" 2>/dev/null; rm -rf "$work"' EXIT
 
+mkdir -p "$work/data"
 (cd "$work" && exec "$CLICKHOUSE_BIN" server -- \
 	--path="$work/data/" --tcp_port=19000 --http_port=18123 --listen_host=127.0.0.1 \
 	--mysql_port=19004 --postgresql_port=19005 --interserver_http_port=19009 \

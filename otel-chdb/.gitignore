@@ -3,3 +3,4 @@
 mem.out
 otelcol/_build/
 otelcol/data/
+model/_apalache-out/

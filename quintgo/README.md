@@ -4,28 +4,38 @@ A spike that does two things for Go, with edgePublish as the first binding:
 
 1. **Model-based testing.** Drive Go code from Quint traces, the way
    quint-connect does for Rust (`connect`, `itf`).
-2. **Runtime conformance, à la PObserve.** Go code emits model steps as
-   OpenTelemetry span events. quintgo rebuilds a model trace from the
-   telemetry and checks it against the Quint model: that each transition is
-   valid, the observed state after each step, and the invariants (`qobs`,
-   `otelio`, `qtrace`, `binding`, `validate`).
+2. **Runtime conformance, à la PObserve.** Go code emits model steps.
+   quintgo rebuilds a model trace and checks it against the Quint model:
+   that each transition is valid, the observed state after each step, and
+   the invariants (`qobs`, `otelio`, `qtrace`, `binding`, `validate`).
+   The steps can travel three ways (see "Which trace path when"):
+   - as OpenTelemetry span events;
+   - as a native step log, with no OTel;
+   - as a model-level ITF trace written by the app itself, in the same
+     format `quint run --mbt` produces.
+
+   `qtest.RecordAndCheck` does record-then-check inside a Go test.
 
 The research, the design choices and their limits are in
 [DESIGN.md](DESIGN.md). This file covers how to run it and how to use it.
 
 ```
 quintgo/                      generic core (module github.com/chucklehead-dev/oscope/spike/quintgo)
-  qtrace/     telemetry schema, Step, Reconstruct (ordering, gaps, restarts)
-  qobs/       runtime recorder: Record, Thread, MemorySink, OTelSink; orchestrion.yml (//quint:action, //quint:thread)
+  qtrace/     telemetry schema, Step, Reconstruct (ordering, gaps, restarts); native step log ReadJSONL/WriteJSONL
+  qobs/       runtime recorder: Record, Thread; sinks MemorySink, JSONLSink/FileSink, OTelSink, Tee; orchestrion.yml
   otelio/     OTLP/JSON file exporter + reader; SDK spans -> steps
-  binding/    YAML binding: model signatures from `quint typecheck`, lint, annotation scan, Quint module generation
-  validate/   Checker / Validate: run `quint test` on the generated module, structured Result
-  itf/        ITF decoder;  connect/  MBT driver runtime (quint run --mbt -> handlers)
-  cmd/quintgo CLI: scaffold | lint | steps | validate
+  load/       reads any input, detecting the format: OTLP/JSON, step log or ITF
+  binding/    YAML binding: model signatures from `quint typecheck`, lint, annotation scan, Plan (steps -> model calls),
+              Quint module generation, ObservedITF/StepsToITF (model-level ITF in-process)
+  validate/   Checker / Validate (steps), ValidateITF (model-level ITF): run `quint test`, structured Result
+  qtest/      Record / RecordAndCheck / Check for Go tests
+  itf/        ITF decoder and encoder, Quint literal <-> ITF value;  connect/  MBT driver runtime (--mbt ITF -> handlers)
+  cmd/quintgo CLI: scaffold | lint | steps | itf | validate
   examples/edgepublish/       first binding (its own module; depends on Orchestrion)
     binding.yaml              the whole edgePublish mapping: no Go code
     publisher/                stand-in for chdbexporter/publish.go, annotated with //quint:action
-    cmd/demo/                 scenarios -> OTLP/JSON spans
+    scenarios/                the demo scenarios, plus a test checking every trace path agrees
+    cmd/demo/                 a scenario -> OTLP/JSON spans, native step log, model-level ITF
     mbt/                      model traces drive the publisher; round trip back through the validator
     run-demo.sh
 ```
@@ -43,9 +53,10 @@ to install.
 cd spike/quintgo
 go test ./...                                   # core: ordering, OTLP round trip, validator on a toy model
 cd examples/edgepublish
-QUINTGO_BACKEND=typescript OUT=/tmp/quintgo-demo ./run-demo.sh      # all five scenarios, ~2 min cold
+QUINTGO_BACKEND=typescript OUT=/tmp/quintgo-demo ./run-demo.sh      # 5 scenarios x 3 trace paths, ~4 min cold
 QUINTGO_BACKEND=typescript go test ./mbt/ -v                         # capability 1: model traces drive Go
 QUINTGO_BACKEND=typescript go run github.com/DataDog/orchestrion go test ./mbt/ -run RoundTrip -v
+QUINTGO_BACKEND=typescript go run github.com/DataDog/orchestrion go test ./scenarios/ -v   # direct emission, both checks, replay
 ```
 
 Step by step, what `run-demo.sh` does:
@@ -54,10 +65,13 @@ Step by step, what `run-demo.sh` does:
 (cd ../.. && go build -o /tmp/q/quintgo ./cmd/quintgo)
 go run github.com/DataDog/orchestrion go build -o /tmp/q/demo ./cmd/demo   # weaves //quint:action
 /tmp/q/quintgo lint -binding binding.yaml -src .
-/tmp/q/demo -scenario happy -out /tmp/q/happy.jsonl                        # OTLP/JSON, as the collector's file exporter writes
-/tmp/q/quintgo steps /tmp/q/happy.jsonl                                    # the reconstructed order
-/tmp/q/quintgo validate -binding binding.yaml -backend typescript -dir /tmp/q/happy /tmp/q/happy.jsonl
-python3 ../../../otel-chdb/model/trace.py /tmp/q/happy/observed_edge_1_traces_conformsTest.itf.json
+/tmp/q/demo -scenario happy -out /tmp/q/spans.jsonl -steps /tmp/q/steps.jsonl -itf /tmp/q/itf -binding binding.yaml
+/tmp/q/quintgo steps /tmp/q/steps.jsonl                                    # the reconstructed order (any format)
+/tmp/q/quintgo validate -binding binding.yaml -backend typescript /tmp/q/spans.jsonl   # OTel path
+/tmp/q/quintgo validate -binding binding.yaml -backend typescript /tmp/q/steps.jsonl   # native step log
+/tmp/q/quintgo validate -backend typescript /tmp/q/itf/edge-1_traces.itf.json          # model-level ITF: no binding needed
+/tmp/q/quintgo itf -binding binding.yaml -out /tmp/q/itf2 /tmp/q/spans.jsonl           # any recorded steps -> model-level ITF
+python3 ../../../otel-chdb/model/trace.py <the itf: path a validate run prints>
 ```
 
 Scenarios and actual results (`validate` exits 0 or 1):
@@ -79,6 +93,46 @@ actor edge-1/traces: 6 steps
       observed: seq 2 writeManifest(batch=1, gen=g20260924T100000, payload=req-1) (span efdc40821aced020)
       Error [QNT513]: Cannot continue in `then` because the highlighted expression evaluated to false
 ```
+
+Each scenario, each of the three paths (`run-demo.sh` output, typescript backend):
+
+```
+=== scenario happy
+  otel      OTLP/JSON spans              exit 0  conformance: PASS;invariant commitImpliesData: PASS;invariant sealMatchesManifests: PASS;invariant committedNoDuplicatePayload: PASS
+  steps     native step log              exit 0  conformance: PASS;invariant commitImpliesData: PASS;invariant sealMatchesManifests: PASS;invariant committedNoDuplicatePayload: PASS
+  itf       model-level ITF              exit 0  conformance: PASS;invariant commitImpliesData: PASS;invariant sealMatchesManifests: PASS;invariant committedNoDuplicatePayload: PASS
+=== scenario ambiguous-seal
+  otel      OTLP/JSON spans              exit 1  conformance: PASS;...;invariant sealMatchesManifests: FAIL;violated after step [15];invariant committedNoDuplicatePayload: FAIL;violated after step [7]
+  steps     native step log              exit 1  conformance: PASS;...;invariant sealMatchesManifests: FAIL;violated after step [15];invariant committedNoDuplicatePayload: FAIL;violated after step [7]
+  itf       model-level ITF              exit 1  conformance: PASS;...;invariant sealMatchesManifests: FAIL;violated after step [15];invariant committedNoDuplicatePayload: FAIL;violated after step [7]
+=== scenario manifest-first
+  otel      OTLP/JSON spans              exit 1  conformance: FAIL;step [1] disabled
+  steps     native step log              exit 1  conformance: FAIL;step [1] disabled
+  itf       model-level ITF              exit 1  conformance: FAIL;step [1] disabled
+```
+
+(`rotation-race` passes on all three; `no-lock` fails at step [1] on all three.)
+
+## Which trace path when
+
+| | OTel spans | Native step log | Model-level ITF |
+|---|---|---|---|
+| What the app writes | `quint.step` span events (`qobs.OTelSink`) | one JSON object per step, the same keys (`qobs.JSONLSink` / `FileSink`) | the binding applied in-process: `mbt::actionTaken`, `mbt::nondetPicks`, `quintgo::expect`, `obs::*` (`binding.StepsToITF`, `demo -itf`, `qtest`) |
+| Needs | an OTel SDK and pipeline; spans never sampled out | a writable file or `io.Writer` | the binding file, and argument templates that render to Quint literals |
+| Terms | implementation (ids, errors) | implementation | model (interned ids, model values) |
+| Check with | `quintgo validate -binding b.yaml spans.jsonl` | `quintgo validate -binding b.yaml steps.jsonl` | `quintgo validate trace.itf.json` (the trace names its model; no binding) |
+| Rebind later? | yes: same telemetry, another binding or design | yes | no: the abstraction is baked in |
+| Use for | production and staging: live telemetry, cross-process, alongside the app's own traces | tests, simulations, CI, deterministic replays, anything without OTel | handing traces to Quint tooling (ITF viewer, `trace.py`); comparing with `quint run --mbt` traces; archiving a checked trace; driving the implementation again through `connect` |
+
+All three give the same verdicts on the five scenarios, at the same step
+(`scenarios.TestScenarios` checks this). A validated run also writes an ITF
+with the model's full state at every step and `mbt::nondetPicks`, i.e. the
+shape of `quint run --mbt`. `connect.Driver` replays such a trace on the
+implementation: `scenarios.TestScenarios` replays each observed conforming
+trace through the MBT driver. `validate.ValidateITF` also takes plain `quint
+run --mbt` output (`quintgo validate -spec M.qnt -module M -instance
+currentDesign trace.itf.json`) and compares every model variable in the
+trace with the model's state after each step.
 
 ## Using it as a library (from Go tests)
 
@@ -114,7 +168,32 @@ Entry points:
 | `validate.NewChecker(binding, opts)`, `(*Checker).Check(ctx, steps) (*Report, error)` | reconstruct + validate |
 | `validate.Validate(ctx, binding, model, trace, opts) (*Result, error)` | one actor's trace |
 | `Result{Conforms, Failure{Kind, Index, Call, Step}, Invariants, Issues, Module, ITF}` | structured verdict |
-| `connect.Generate{Spec, Main, Traces, MaxSteps, Seed}.Run(ctx)`, `itf.ReadFile`, `connect.Driver{Init, Actions, Skip, Check}.Replay(trace)` | MBT: Quint traces drive Go |
+| `connect.Generate{Spec, Main, Traces, MaxSteps, Seed}.Run(ctx)`, `itf.ReadFile`, `connect.Driver{Init, Actions, Skip, Check}.Replay(trace)` | MBT: Quint traces (or observed, validated ones) drive Go |
+| `qobs.NewJSONLSink(w)`, `qobs.FileSink(path)` | native step log, no OTel |
+| `qtrace.ReadJSONL(r)`, `qtrace.WriteJSONL(w, steps)`, `(*Step).Attributes()` | step log I/O |
+| `load.File(path, "auto")`, `load.Sniff(data)` | read OTLP/JSON, a step log or ITF, detected by content |
+| `(*binding.Binding).StepsToITF(steps)`, `.ObservedITF(trace)`, `.Plan(model or nil, trace)` | the binding applied in-process: a model-level ITF per actor |
+| `validate.ValidateITF(ctx, trace, ITFOptions{Binding, Spec, Module, Instance, NoVarCheck})` | replay a model-level ITF: picks as arguments, `quintgo::expect` and model variables checked per step |
+| `qtest.RecordAndCheck(t, binding, scenario, opts...)`, `qtest.Record`, `qtest.Check` | record then check in a test |
+| `itf.ParseQuint(expr)`, `Value.Quint()`, `json.Marshal(Value)`, `itf.Some` | Quint literal <-> ITF value |
+
+Record then check, with no OTel and no files to manage (`qtest`):
+
+```go
+func TestScenario(t *testing.T) {
+    qtest.RecordAndCheck(t, "binding.yaml", func(rec *qobs.Recorder) {
+        runScenario()                                                    // woven //quint:action steps go to rec
+        rec.Record(ctx, "deposit", nil, "amount", 5, "obs.balance", 35)  // or record explicitly
+    }, qtest.WithOptions(validate.Options{Backend: "typescript"}))
+}
+```
+
+It installs the recorder as the global one for the scenario. It fails the
+test with the offending step and invariant, and it leaves a step log, a
+model-level ITF per actor, and the generated modules in `t.TempDir()`
+(`$QUINTGO_KEEP/<test>` keeps them). Other forms:
+- `qtest.Record` returns the `Run` without failing, for expected violations;
+- `qtest.Check(t, binding, steps)` checks steps recorded elsewhere.
 
 These fit property-based and state-machine testing both ways:
 - feed a PBT run's recorded steps to `Check`;
@@ -179,11 +258,20 @@ Everything else is generic.
 5. **Lint:** `quintgo lint -binding binding.yaml -src ./your/pkg`. This checks
    the binding against `quint typecheck`'s view of the model, and that every
    field a template uses is recorded by the annotation.
-6. **Emit:** build with `orchestrion go build`. Install a recorder at startup
-   with `qobs.SetGlobal(qobs.NewRecorder(qobs.NewOTelSink(tp)))`, on a
-   TracerProvider that never samples these spans out.
-7. **Validate:** `quintgo validate -binding binding.yaml spans.jsonl`, on the
-   collector's file exporter output, or `validate.Checker` in tests.
+6. **Emit.** Build with `orchestrion go build`, then install a recorder at
+   startup. Pick the sink by where the trace should go (see "Which trace
+   path when"):
+   - `qobs.NewOTelSink(tp)`, on a TracerProvider that never samples these
+     spans out;
+   - `qobs.FileSink("steps.jsonl")` for a native step log;
+   - in tests, `qtest.RecordAndCheck`, which also writes the model-level ITF.
+
+   For ITF emitted in-process, write argument templates as Quint literals:
+   records, `Set(...)` and constructors, not calls of model operators.
+   `expect` may use any Quint.
+7. **Validate.** Run `quintgo validate [-binding binding.yaml] FILE...`, where
+   FILE is detected by content. In tests, use `validate.Checker`,
+   `validate.ValidateITF` or `qtest`.
 8. **Optional MBT:** write `connect.Driver` handlers, and put a gate at the
    effect seam so the model can schedule the implementation.
 
@@ -195,10 +283,18 @@ Everything else is generic.
 - Payload identity across retries is not available in the real exporter.
 - Validation is per actor, post hoc and bounded by trace length. There is no
   liveness checking and no windowing yet.
+- Two limits of the model-level ITF:
+  - its argument templates must render to Quint literals, so operator calls
+    cannot be arguments there (they still work on the other paths);
+  - it names its model by absolute path in `#meta.quintgo.spec`. Pass
+    `-spec` to validate it on another machine.
+- `-instance` expects an instance module shaped as a single
+  `import M(...).*`; its constants are read from the source text.
 - Measured cost per recorded step (4 vCPU VM, `go test ./otelio -bench .`):
   - recording off: ~22 ns (argument boxing);
   - MemorySink: ~1.5–2.9 µs;
-  - OTel batch span processor to OTLP/JSON: ~7.1 µs, 37 allocations.
+  - OTel batch span processor to OTLP/JSON: ~7.1–8.9 µs, 37 allocations;
+  - native step log (`JSONLSink`): ~7–7.5 µs, 39 allocations (reflection-based JSON).
   Orchestrion's cold build takes ~70 s. Validation with the typescript
   backend takes 4–8 s per trace.
 - The example validates a stand-in of `publish.go` (same control flow, store

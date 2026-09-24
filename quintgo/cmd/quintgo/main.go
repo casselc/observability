@@ -3,11 +3,14 @@
 //
 //	quintgo scaffold -spec model.qnt -module M          print a binding skeleton for M
 //	quintgo lint     -binding b.yaml [-src DIR]         check a binding (and annotations) against the model
-//	quintgo steps    FILE.jsonl...                      print the reconstructed per-actor traces
-//	quintgo validate -binding b.yaml [-dir OUT] FILE.jsonl...
-//	                                                    reconstruct, replay in Quint, report
+//	quintgo steps    FILE...                            print the reconstructed per-actor traces
+//	quintgo validate [-binding b.yaml] [-dir OUT] FILE...
+//	                                                    reconstruct (or read), replay in Quint, report
+//	quintgo itf      -binding b.yaml -out DIR FILE...   recorded steps -> model-level ITF, per actor
 //
-// FILE.jsonl is OTLP/JSON, e.g. the collector's file exporter output.
+// FILE is detected by content: OTLP/JSON (e.g. the collector's file
+// exporter output), a native step log (qobs.JSONLSink), or a model-level
+// ITF trace (quintgo's, or `quint run --mbt` output with -spec/-module/-instance).
 // Exit status of validate: 0 all actors conform and satisfy the invariants,
 // 1 some do not, 2 usage or tool error.
 package main
@@ -17,10 +20,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/otelio"
+	"github.com/chucklehead-dev/oscope/spike/quintgo/load"
 	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
 	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
 )
@@ -40,6 +44,8 @@ func main() {
 		err = steps(os.Args[2:])
 	case "validate":
 		code, err = runValidate(os.Args[2:])
+	case "itf":
+		err = toITF(os.Args[2:])
 	default:
 		usage()
 	}
@@ -55,7 +61,9 @@ func usage() {
   quintgo scaffold -spec model.qnt -module M
   quintgo lint     -binding b.yaml [-src DIR]
   quintgo steps    FILE.jsonl...
-  quintgo validate -binding b.yaml [-dir OUT] [-backend rust|typescript] FILE.jsonl...`)
+  quintgo validate [-binding b.yaml] [-dir OUT] [-backend rust|typescript] [-format auto|otlp|steps|itf]
+                   [-spec M.qnt -module M -instance I] [-novars] FILE...
+  quintgo itf      -binding b.yaml -out DIR FILE...      recorded steps -> model-level ITF per actor`)
 	os.Exit(2)
 }
 
@@ -140,16 +148,14 @@ func lint(args []string) (int, error) {
 func readSteps(files []string) ([]qtrace.Step, error) {
 	var all []qtrace.Step
 	for _, f := range files {
-		r, err := os.Open(f)
+		in, err := load.File(f, load.Unknown)
 		if err != nil {
 			return nil, err
 		}
-		s, err := otelio.ReadSteps(r)
-		r.Close()
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f, err)
+		if in.Format == load.ITF {
+			return nil, fmt.Errorf("%s is an ITF trace, not recorded steps", f)
 		}
-		all = append(all, s...)
+		all = append(all, in.Steps...)
 	}
 	return all, nil
 }
@@ -177,39 +183,128 @@ func steps(args []string) error {
 
 func runValidate(args []string) (int, error) {
 	fset := flag.NewFlagSet("validate", flag.ExitOnError)
-	bpath := fset.String("binding", "", "binding file")
+	bpath := fset.String("binding", "", "binding file (optional for ITF written by quintgo)")
 	dir := fset.String("dir", "", "where to write generated modules and ITF (default: a temp dir)")
 	backend := fset.String("backend", "", "quint test backend (default $QUINTGO_BACKEND or rust)")
 	quint := fset.String("quint", "quint", "quint binary")
+	format := fset.String("format", "auto", "input format: auto, otlp, steps (native step log) or itf")
+	spec := fset.String("spec", "", "ITF input: the model, if neither the trace nor a binding names it")
+	module := fset.String("module", "", "ITF input: the parameterised module")
+	instance := fset.String("instance", "", "ITF input: replay against this instance module (e.g. currentDesign), e.g. for quint run --mbt traces")
+	novars := fset.Bool("novars", false, "ITF input: do not compare model variables carried by the trace")
 	verbose := fset.Bool("v", false, "print quint's output")
 	fset.Parse(args)
-	if *bpath == "" || fset.NArg() == 0 {
+	if fset.NArg() == 0 {
 		usage()
 	}
-	c, err := validate.NewChecker(*bpath, validate.Options{Quint: *quint, Backend: *backend, Dir: *dir})
-	if err != nil {
-		return 2, err
-	}
-	all, err := readSteps(fset.Args())
-	if err != nil {
-		return 2, err
-	}
-	rep, err := c.Check(context.Background(), all)
-	if err != nil {
-		return 2, err
-	}
-	fmt.Print(rep.Summary())
-	if *verbose {
-		for _, a := range rep.Actors {
-			fmt.Println(a.Output)
+	opts := validate.Options{Quint: *quint, Backend: *backend, Dir: *dir}
+	var b *binding.Binding
+	if *bpath != "" {
+		var err error
+		if b, err = binding.Load(*bpath); err != nil {
+			return 2, err
 		}
 	}
-	if rep.OK() {
+	var steps []qtrace.Step
+	var itfs []*load.Input
+	for _, f := range fset.Args() {
+		in, err := load.File(f, load.Format(*format))
+		if err != nil {
+			return 2, err
+		}
+		fmt.Printf("input %s: %s\n", f, map[load.Format]string{load.OTLP: "OTLP/JSON spans", load.StepLog: "native step log",
+			load.ITF: "model-level ITF", load.Unknown: "empty"}[in.Format])
+		if in.Format == load.ITF {
+			itfs = append(itfs, in)
+		} else {
+			steps = append(steps, in.Steps...)
+		}
+	}
+	ok := true
+	if len(steps) > 0 || len(itfs) == 0 {
+		if *bpath == "" {
+			return 2, fmt.Errorf("recorded steps need -binding")
+		}
+		c, err := validate.NewChecker(*bpath, opts)
+		if err != nil {
+			return 2, err
+		}
+		rep, err := c.Check(context.Background(), steps)
+		if err != nil {
+			return 2, err
+		}
+		fmt.Print(rep.Summary())
+		if *verbose {
+			for _, a := range rep.Actors {
+				fmt.Println(a.Output)
+			}
+		}
+		ok = ok && rep.OK()
+	}
+	for i, in := range itfs {
+		o := opts
+		if o.Dir != "" && len(itfs) > 1 {
+			o.Dir = fmt.Sprintf("%s/itf%d", o.Dir, i)
+		}
+		r, err := validate.ValidateITF(context.Background(), in.ITF, validate.ITFOptions{Options: o, Binding: b,
+			Spec: *spec, Module: *module, Instance: *instance, NoVarCheck: *novars})
+		if err != nil {
+			return 2, fmt.Errorf("%s: %w", in.Path, err)
+		}
+		fmt.Print(r.Summary())
+		if *verbose {
+			fmt.Println(r.Output)
+		}
+		ok = ok && r.OK()
+	}
+	if ok {
 		fmt.Println("RESULT: trace conforms to the model and satisfies the invariants")
 		return 0, nil
 	}
 	fmt.Println("RESULT: VIOLATION")
 	return 1, nil
+}
+
+// toITF writes one model-level ITF per actor from recorded steps.
+func toITF(args []string) error {
+	fset := flag.NewFlagSet("itf", flag.ExitOnError)
+	bpath := fset.String("binding", "", "binding file")
+	out := fset.String("out", ".", "output directory: <actor>.itf.json per actor")
+	fset.Parse(args)
+	if *bpath == "" || fset.NArg() == 0 {
+		usage()
+	}
+	b, err := binding.Load(*bpath)
+	if err != nil {
+		return err
+	}
+	all, err := readSteps(fset.Args())
+	if err != nil {
+		return err
+	}
+	traces, issues, err := b.StepsToITF(all)
+	for _, i := range issues {
+		fmt.Println("issue:", i)
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*out, 0o755); err != nil {
+		return err
+	}
+	for actor, data := range traces {
+		f := filepath.Join(*out, strings.Map(func(r rune) rune {
+			if r == '/' || r == ' ' {
+				return '_'
+			}
+			return r
+		}, actor)+".itf.json")
+		if err := os.WriteFile(f, data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("actor %s -> %s\n", actor, f)
+	}
+	return nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

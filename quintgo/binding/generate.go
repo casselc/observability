@@ -27,15 +27,51 @@ type GeneratedTests struct {
 
 // Call is one step of the replay.
 type Call struct {
-	Quint    string       // e.g. writeTable(px(1, 1, 3, 1, Encoded), Ok)
-	Expect   string       // post-state check, or ""
-	Step     *qtrace.Step // the observed step; nil for inferred steps
-	Inferred string       // why the step was inserted ("restart"), if inferred
+	Quint    string            // e.g. writeTable({ payload: 1, ... }, Ok)
+	Expect   string            // post-state check, or ""
+	Step     *qtrace.Step      // the observed step; nil for inferred steps
+	Inferred string            // why the step was inserted ("restart"), if inferred
+	Action   string            // the model action
+	Args     map[string]string // parameter -> the Quint expression passed
+	Note     string            // description, for calls that come from an ITF state
+}
+
+// Plan is the binding applied to one actor's trace: the instance's
+// constants and the calls, in model terms. It needs no Quint tooling.
+type Plan struct {
+	Actor         string
+	Processes     []string
+	ObservedSteps int
+	Constants     map[string]string // constant -> Quint expression
+	Calls         []Call
+}
+
+// ConstantList renders the constants as "NAME = expr", sorted.
+func (p *Plan) ConstantList() []string {
+	var out []string
+	for _, c := range sortedKeys(p.Constants) {
+		out = append(out, fmt.Sprintf("%s = %s", c, p.Constants[c]))
+	}
+	return out
 }
 
 // Generate builds the replay module for one actor's trace. qntPath is where
 // the module will be written (the model import is made relative to it).
 func (b *Binding) Generate(m *Model, t *qtrace.Trace, qntPath string) (*Generated, error) {
+	p, err := b.Plan(m, t)
+	if err != nil {
+		return nil, err
+	}
+	return RenderModule(ModuleSpec{
+		Spec: b.SpecPath(), Module: b.Module, Constants: p.ConstantList(), Defs: b.Defs, Invariants: b.Invariants,
+		Header: []string{fmt.Sprintf("actor %q, %d observed steps, processes %v", t.Actor, len(t.Steps), t.Processes)},
+	}, p.Calls, qntPath)
+}
+
+// Plan applies the binding to a trace. With a model, parameters are taken
+// in the model's order and checked; with m == nil (emitting a model-level
+// ITF in-process, without Quint) they are keyed by name only.
+func (b *Binding) Plan(m *Model, t *qtrace.Trace) (*Plan, error) {
 	// 1. Intern opaque identifiers, in trace order.
 	type ikey struct{ arg, scope string }
 	tables := map[ikey]map[string]int64{}
@@ -112,31 +148,42 @@ func (b *Binding) Generate(m *Model, t *qtrace.Trace, qntPath string) (*Generate
 			return toI(v)
 		},
 	}
-	var consts []string
+	plan := &Plan{Actor: t.Actor, Processes: t.Processes, ObservedSteps: len(t.Steps), Constants: map[string]string{}}
 	for _, c := range sortedKeys(b.Constants) {
 		v, err := render(b.Constants[c], nil, funcs)
 		if err != nil {
 			return nil, fmt.Errorf("constant %s: %w", c, err)
 		}
-		consts = append(consts, fmt.Sprintf("%s = %s", c, v))
+		plan.Constants[c] = v
 	}
 
 	// 3. Calls.
-	g := &Generated{Module: "observed", LineStep: map[int]int{}}
 	prevProc := ""
 	for i := range t.Steps {
 		s := &t.Steps[i]
 		if prevProc != "" && s.Process != prevProc && b.Restart != "" {
-			g.Calls = append(g.Calls, Call{Quint: b.Restart, Inferred: fmt.Sprintf("restart: process %s -> %s", short(prevProc), short(s.Process))})
+			plan.Calls = append(plan.Calls, Call{Quint: b.Restart, Action: b.Restart, Args: map[string]string{},
+				Inferred: fmt.Sprintf("restart: process %s -> %s", short(prevProc), short(s.Process))})
 		} else if prevProc != "" && s.Process != prevProc {
 			return nil, fmt.Errorf("step %d (%s): process changed from %s to %s and the binding has no restart action", i, s.Action, prevProc, s.Process)
 		}
 		prevProc = s.Process
-		ps, ok := m.Actions[s.Action]
-		if !ok {
-			return nil, fmt.Errorf("step %d: %s is not an action of %s", i, s.Action, m.Module)
-		}
 		ab := b.Actions[s.Action]
+		var params []string
+		if m != nil {
+			ps, ok := m.Actions[s.Action]
+			if !ok {
+				return nil, fmt.Errorf("step %d: %s is not an action of %s", i, s.Action, m.Module)
+			}
+			for _, p := range ps {
+				if _, ok := ab.Args[p.Name]; !ok {
+					return nil, fmt.Errorf("step %d: binding gives no template for %s", i, m.Signature(s.Action))
+				}
+				params = append(params, p.Name)
+			}
+		} else {
+			params = sortedKeys(ab.Args)
+		}
 		outcome, err := b.outcome(ab, s)
 		if err != nil {
 			return nil, fmt.Errorf("step %d: %w", i, err)
@@ -145,40 +192,50 @@ func (b *Binding) Generate(m *Model, t *qtrace.Trace, qntPath string) (*Generate
 			continue
 		}
 		data := stepData(s, args[i], procIdx[s.Process], outcome)
-		var call strings.Builder
-		call.WriteString(s.Action)
-		if len(ps) > 0 {
-			call.WriteString("(")
-			for j, p := range ps {
-				tpl, ok := ab.Args[p.Name]
-				if !ok {
-					return nil, fmt.Errorf("step %d: binding gives no template for %s", i, m.Signature(s.Action))
-				}
-				v, err := render(tpl, data, funcs)
-				if err != nil {
-					return nil, fmt.Errorf("step %d (%s, %s): arg %s: %w", i, s.Action, s.Source, p.Name, err)
-				}
-				if j > 0 {
-					call.WriteString(", ")
-				}
-				call.WriteString(v)
+		c := Call{Step: s, Action: s.Action, Args: map[string]string{}}
+		var vals []string
+		for _, p := range params {
+			v, err := render(ab.Args[p], data, funcs)
+			if err != nil {
+				return nil, fmt.Errorf("step %d (%s, %s): arg %s: %w", i, s.Action, s.Source, p, err)
 			}
-			call.WriteString(")")
+			c.Args[p] = v
+			vals = append(vals, v)
 		}
-		c := Call{Quint: call.String(), Step: s}
+		c.Quint = s.Action
+		if len(vals) > 0 {
+			c.Quint += "(" + strings.Join(vals, ", ") + ")"
+		}
 		if ab.Expect != "" {
 			if c.Expect, err = render(ab.Expect, data, funcs); err != nil {
 				return nil, fmt.Errorf("step %d (%s): expect: %w", i, s.Action, err)
 			}
 		}
-		g.Calls = append(g.Calls, c)
+		plan.Calls = append(plan.Calls, c)
 	}
+	return plan, nil
+}
 
-	// 4. Text.
-	rel, err := filepath.Rel(filepath.Dir(qntPath), strings.TrimSuffix(b.SpecPath(), ".qnt"))
+// ModuleSpec says what a generated replay module imports and checks.
+type ModuleSpec struct {
+	Spec       string   // the model file
+	Module     string   // parameterised module, instantiated with Constants
+	Constants  []string // "NAME = expr"
+	Instance   string   // if set, import this (already instantiated) module instead
+	Defs       string   // Quint helpers
+	Invariants []string
+	InitExpect string   // checked in the initial state, if set
+	Header     []string // comment lines
+}
+
+// RenderModule writes the replay module for calls: a conformance run with
+// each call's expect, and one run per invariant.
+func RenderModule(ms ModuleSpec, calls []Call, qntPath string) (*Generated, error) {
+	rel, err := filepath.Rel(filepath.Dir(qntPath), strings.TrimSuffix(ms.Spec, ".qnt"))
 	if err != nil {
 		return nil, err
 	}
+	g := &Generated{Module: "observed", LineStep: map[int]int{}, Calls: calls}
 	var w strings.Builder
 	line := 1
 	pr := func(format string, a ...any) {
@@ -188,18 +245,28 @@ func (b *Binding) Generate(m *Model, t *qtrace.Trace, qntPath string) (*Generate
 		line += strings.Count(s, "\n") + 1
 	}
 	pr("// Generated by quintgo from observed telemetry. Do not edit.")
-	pr("// actor %q, %d observed steps, processes %v", t.Actor, len(t.Steps), t.Processes)
+	for _, h := range ms.Header {
+		pr("// %s", h)
+	}
 	pr("module %s {", g.Module)
-	pr("  import %s(%s).* from %q", b.Module, strings.Join(consts, ", "), rel)
-	if strings.TrimSpace(b.Defs) != "" {
-		pr("%s", indent(strings.TrimRight(b.Defs, "\n"), "  "))
+	if ms.Instance != "" {
+		pr("  import %s.* from %q", ms.Instance, rel)
+	} else {
+		pr("  import %s(%s).* from %q", ms.Module, strings.Join(ms.Constants, ", "), rel)
+	}
+	if strings.TrimSpace(ms.Defs) != "" {
+		pr("%s", indent(strings.TrimRight(ms.Defs, "\n"), "  "))
 	}
 	pr("")
 	g.Tests.Conforms = "conformsTest"
 	pr("  // The observed steps, each checked against the observed state.")
 	pr("  run %s =", g.Tests.Conforms)
-	pr("    init")
-	for i, c := range g.Calls {
+	if ms.InitExpect != "" {
+		pr("    init.expect(%s)", ms.InitExpect)
+	} else {
+		pr("    init")
+	}
+	for i, c := range calls {
 		pr("    // [%d] %s", i, describe(c))
 		g.LineStep[line] = i
 		if c.Expect != "" {
@@ -209,14 +276,14 @@ func (b *Binding) Generate(m *Model, t *qtrace.Trace, qntPath string) (*Generate
 		}
 	}
 	g.Tests.Invariants = map[string]string{}
-	for _, inv := range b.Invariants {
+	for _, inv := range ms.Invariants {
 		name := inv + "InvTest"
 		g.Tests.Invariants[inv] = name
 		pr("")
 		pr("  // The same steps; %s must hold in every state.", inv)
 		pr("  run %s =", name)
 		pr("    init.expect(%s)", inv)
-		for i, c := range g.Calls {
+		for i, c := range calls {
 			g.LineStep[line] = i
 			pr("    .then(%s.expect(%s))", c.Quint, inv)
 		}
@@ -253,6 +320,9 @@ func (b *Binding) outcome(a Action, s *qtrace.Step) (string, error) {
 
 func describe(c Call) string {
 	if c.Step == nil {
+		if c.Inferred == "" {
+			return c.Note
+		}
 		return "inferred " + c.Inferred
 	}
 	s := c.Step

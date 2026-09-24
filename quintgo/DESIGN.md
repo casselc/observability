@@ -16,7 +16,10 @@ The ask had two parts:
 
 Two later requirements: the toolkit must be generic (edgePublish is the first
 binding, not the only target), and usable as a Go library from tests, e.g.
-property-based state-machine tests.
+property-based state-machine tests. A third came after review: running apps
+must be able to emit a checkable trace directly, without reconstructing it
+from OTel spans, for tests, simulations, deterministic replays and CI. §6b
+covers it.
 
 ## 1. Prior art
 
@@ -312,6 +315,85 @@ loop: model trace → Go → recorded steps → `Checker.Check` → the same mod
   which the reconstructor flagged as an overlap;
 - the failed-step-replayed-as-success hole in the binding semantics.
 
+## 6b. Emitting checkable traces directly
+
+The OTel path suits production, where steps ride the telemetry pipeline next
+to the app's own traces. Tests, simulations, CI and deterministic replays
+need neither the SDK nor a collector. There are two additional paths, and
+both are verified with the same verdicts as the OTel path.
+
+**Native step log** (`qobs.JSONLSink` / `FileSink`, `qtrace.ReadJSONL`).
+- One JSON object per step, whose keys are exactly the OTel attribute keys of
+  §3, plus `quint.time_unix_nano`. Decoding reuses `qtrace.FromAttributes`,
+  so the two formats cannot drift apart. It is the same data without the
+  span wrapper:
+  ```json
+  {"quint.action":"writeManifest","quint.actor":"edge-1/traces","quint.arg.batch":1,"quint.arg.gen":"g20260924T100000",
+   "quint.arg.payload":"req-1","quint.outcome":"ok","quint.process":"epoch-A","quint.recorder":"20147ffb9e1d",
+   "quint.seq":2,"quint.thread":"t1","quint.time_unix_nano":1790292680572863711}
+  ```
+- It keeps implementation terms, so reconstruction (ordering, gaps,
+  restarts) and the binding apply exactly as for spans. A step log can be
+  re-checked against another binding.
+- `load.Sniff` tells OTLP/JSON (`resourceSpans`), a step log
+  (`quint.action`) and ITF (`states`) apart by content, so every command
+  takes any of them.
+
+**Model-level ITF** (`binding.Plan` → `StepsToITF` / `ObservedITF`; `validate.ValidateITF`).
+- The binding is applied in-process: interning, restarts, outcome mapping and
+  instance constants. The trace is written in the shape `quint run --mbt`
+  writes, per state:
+  - `mbt::actionTaken`;
+  - `mbt::nondetPicks`: each parameter as `Some(value)`;
+  - `quintgo::expect`: the binding's rendered post-state check;
+  - `obs::<name>`: the observed projections.
+  `#meta.quintgo` names the spec, module, constants, defs and invariants, so
+  the file validates with no binding at hand.
+- Turning a template into a pick needs a *value*, not an expression. Without
+  a Quint evaluator in Go, argument templates must render to Quint literals.
+  `itf.ParseQuint` handles records, `Set`/`List`/`Map`, tuples, constructors,
+  ints, strings and bools, and rejects operator calls with a clear message.
+  The edgePublish binding moved from `px(...)` to literal records for this.
+  Its expects still use `px`.
+- Validating an ITF replays `.then(action(picks…))`, matching picks to
+  parameters by name. After each step it checks `quintgo::expect` and
+  equality for **every model variable the state carries**. So the same code
+  validates three kinds of trace:
+  - a quintgo-emitted ITF (no model variables; expects only);
+  - the enriched ITF of an earlier validation (full model state at every
+    step);
+  - raw `quint run --mbt` output (`-instance currentDesign`: its constants
+    are read from the instance module's source, because Quint does not
+    re-export an instance's import).
+  Tampering with one variable in one state of a `quint run --mbt` trace is
+  reported as a state mismatch at that step. (Verified.)
+- Picks are matched by name, which works when the model names its `nondet`
+  bindings after the action parameters they feed. edgePublish does. That is
+  a convention for the `--mbt` direction, not a guarantee of Quint's.
+
+**Symmetry with `connect`.** A validated run's ITF now carries
+`mbt::nondetPicks` next to the model's states, so it has the same shape as
+`quint run --mbt` output. `connect.Driver` consumes both.
+`scenarios.TestScenarios` replays each observed conforming trace
+(`happy`, `rotation-race`, `ambiguous-seal`) through the edgePublish MBT
+driver, with store state compared after every step. A trace observed in a
+run can be replayed deterministically on a new build. Model traces drive
+Go; Go traces go back to the model; either can drive Go again.
+
+**Record then check** (`qtest`).
+- `RecordAndCheck(t, binding, scenario)` installs a recorder (memory plus a
+  step log) as the global one, runs the scenario, writes the model-level
+  ITF, validates, and fails the test with the offending step and invariant.
+- `Record` returns the result for expected violations; `Check` takes steps
+  recorded elsewhere.
+- Checkers are cached per binding, so the model is typechecked once per
+  test binary.
+
+Costs, measured: the step log costs ~7 µs per step (reflection-based JSON
+of a map, synchronous; `FileSink` is buffered), about the same as the OTel
+batch path. It avoids the dependency, not the cost. A hand-written encoder
+would be the fix if it mattered.
+
 ## 7. edgePublish mapping
 
 | Model action | stand-in (`publisher/publish.go`) | real `chdbexporter/publish.go` | observed args | notes |
@@ -372,7 +454,9 @@ The stand-in's binding should then apply unchanged.
      lint and scaffold, `quint test`-based validator, ITF, connect;
    - Orchestrion aspects;
    - the edgePublish binding;
-   - demo scenarios, MBT and round-trip tests.
+   - demo scenarios, MBT and round-trip tests;
+   - direct emission (§6b): step log, model-level ITF, `ValidateITF`
+     (including `quint run --mbt` traces), `qtest`.
 2. **Real exporter:** the five edits above, behind the Orchestrion build
    only. Run the collector's own tests woven, and validate their telemetry
    (`Checker` from `go test`). PBT/state-machine tests can feed
@@ -389,7 +473,11 @@ The stand-in's binding should then apply unchanged.
    - alerting on disabled, state or invariant verdicts and on gaps.
    Budget ~7 µs per step (measured) on the hot path. A push is 4 steps,
    against S3 PUTs measured in milliseconds.
-6. **Tooling:**
+6. **Direct emission:** a Quint evaluator for picks (or `quint` evaluating
+   the binding's defs), so model-level ITF can take operator calls; and a
+   streaming ITF writer for long simulations. Today the ITF is built at the
+   end, from buffered steps.
+7. **Tooling:**
    - statement-level `//quint:step`;
    - `quintgo lint` also checking annotation expression types against
      `quint typecheck` parameter types;

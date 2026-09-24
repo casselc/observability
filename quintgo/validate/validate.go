@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
+	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
 	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
 )
 
@@ -62,6 +63,7 @@ type Result struct {
 }
 
 type Failure struct {
+	Note  string // for ITF replays: which state, and what was observed
 	Kind  string
 	Index int    // into Calls
 	Call  string // the Quint step
@@ -96,6 +98,21 @@ func (r *Result) OK() bool {
 
 // Validate checks one actor's trace.
 func Validate(ctx context.Context, b *binding.Binding, m *binding.Model, t *qtrace.Trace, opt Options) (*Result, error) {
+	opt, err := opt.resolve()
+	if err != nil {
+		return nil, err
+	}
+	base := "observed_" + sanitize(t.Actor)
+	qnt := filepath.Join(opt.Dir, base+".qnt")
+	g, err := b.Generate(m, t, qnt)
+	if err != nil {
+		return nil, err
+	}
+	res := &Result{Actor: t.Actor, Issues: t.Issues}
+	return res, run(ctx, g, qnt, base, b.Invariants, opt, res)
+}
+
+func (opt Options) resolve() (Options, error) {
 	if opt.Quint == "" {
 		opt.Quint = "quint"
 	}
@@ -108,26 +125,25 @@ func Validate(ctx context.Context, b *binding.Binding, m *binding.Model, t *qtra
 	if opt.Dir == "" {
 		d, err := os.MkdirTemp("", "quintgo-")
 		if err != nil {
-			return nil, err
+			return opt, err
 		}
 		opt.Dir = d
 	}
 	if err := os.MkdirAll(opt.Dir, 0o755); err != nil {
-		return nil, err
+		return opt, err
 	}
 	if abs, err := filepath.Abs(opt.Dir); err == nil {
 		opt.Dir = abs
 	}
-	base := "observed_" + sanitize(t.Actor)
-	qnt := filepath.Join(opt.Dir, base+".qnt")
-	g, err := b.Generate(m, t, qnt)
-	if err != nil {
-		return nil, err
-	}
+	return opt, nil
+}
+
+// run writes a generated module, runs quint test on it, and fills res.
+func run(ctx context.Context, g *binding.Generated, qnt, base string, invariants []string, opt Options, res *Result) error {
 	if err := os.WriteFile(qnt, []byte(g.Text), 0o644); err != nil {
-		return nil, err
+		return err
 	}
-	res := &Result{Actor: t.Actor, Steps: len(g.Calls), Module: qnt, Calls: g.Calls, Issues: t.Issues}
+	res.Steps, res.Module, res.Calls = len(g.Calls), qnt, g.Calls
 	itfPattern := filepath.Join(opt.Dir, base+"_{test}.itf.json")
 	cmd := exec.CommandContext(ctx, opt.Quint, "test", filepath.Base(qnt), "--main", g.Module,
 		"--backend", opt.Backend, "--max-samples", "1", "--out-itf", itfPattern)
@@ -136,16 +152,16 @@ func Validate(ctx context.Context, b *binding.Binding, m *binding.Model, t *qtra
 	res.Output = string(out)
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); !ok {
-			return nil, fmt.Errorf("quint test: %w", err)
+			return fmt.Errorf("quint test: %w", err)
 		}
 	}
 	verdicts, failures := parseQuintTest(res.Output, qnt, g)
 	if _, ok := verdicts[g.Tests.Conforms]; !ok {
-		return res, fmt.Errorf("quint test did not report %s:\n%s", g.Tests.Conforms, res.Output)
+		return fmt.Errorf("quint test did not report %s:\n%s", g.Tests.Conforms, res.Output)
 	}
 	res.Conforms = verdicts[g.Tests.Conforms]
 	res.Failure = failures[g.Tests.Conforms]
-	for _, inv := range b.Invariants {
+	for _, inv := range invariants {
 		name := g.Tests.Invariants[inv]
 		ir := InvariantResult{Name: inv, Verdict: verdicts[name], Failure: failures[name]}
 		if res.Conforms != Pass {
@@ -159,7 +175,7 @@ func Validate(ctx context.Context, b *binding.Binding, m *binding.Model, t *qtra
 			res.ITF = itf
 		}
 	}
-	return res, nil
+	return nil
 }
 
 var (
@@ -198,6 +214,7 @@ func parseQuintTest(out, qnt string, g *binding.Generated) (map[string]Verdict, 
 			fl.Index = i
 			fl.Call = g.Calls[i].Quint
 			fl.Step = g.Calls[i].Step
+			fl.Note = g.Calls[i].Note
 		} else {
 			fl.Call = "init" // init.expect(...) of an invariant run
 		}
@@ -244,11 +261,24 @@ func annotateITF(path string, g *binding.Generated) error {
 			if p := strings.IndexByte(act, '('); p >= 0 {
 				act = act[:p]
 			}
-			if c := g.Calls[i-1]; c.Step != nil {
+			c := g.Calls[i-1]
+			if c.Step != nil {
 				ns["mbt::observedSeq"] = map[string]any{"#bigint": strconv.FormatUint(c.Step.Seq, 10)}
 			}
+			// The arguments, as `quint run --mbt` records nondet picks, so
+			// this trace can drive an implementation (package connect).
+			picks := map[string]any{}
+			for name, expr := range c.Args {
+				if v, err := itf.ParseQuint(expr); err == nil {
+					picks[name] = itf.Some(v)
+				}
+			}
+			ns["mbt::nondetPicks"] = picks
 		}
 		ns["mbt::actionTaken"] = act
+		if i == 0 {
+			ns["mbt::nondetPicks"] = map[string]any{}
+		}
 		states[i] = ns
 	}
 	out, err := json.Marshal(t)
@@ -309,6 +339,9 @@ func (f *Failure) describe(pfx string) string {
 	}
 	if f.Call != "" {
 		fmt.Fprintf(&b, "%s  quint:    %s\n", pfx, f.Call)
+	}
+	if f.Step == nil && f.Note != "" {
+		fmt.Fprintf(&b, "%s  observed: %s\n", pfx, f.Note)
 	}
 	if s := f.Step; s != nil {
 		fmt.Fprintf(&b, "%s  observed: seq %d %s (%s)\n", pfx, s.Seq, s.String(), s.Source)

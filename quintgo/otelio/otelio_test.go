@@ -87,3 +87,12 @@ func BenchmarkRecordOTelBatchToFile(b *testing.B) {
 		r.Record(ctx, "writeTable", nil, "payload", "req-1", "batch", uint64(i), "gen", "g20260924T100000")
 	}
 }
+
+func BenchmarkRecordStepLog(b *testing.B) {
+	r := qobs.NewRecorder(qobs.NewJSONLSink(io.Discard))
+	ctx := context.Background()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		r.Record(ctx, "writeTable", nil, "payload", "req-1", "batch", uint64(i), "gen", "g20260924T100000")
+	}
+}

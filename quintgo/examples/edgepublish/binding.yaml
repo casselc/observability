@@ -54,6 +54,9 @@ defs: |
   pure def px(p: int, e: int, b: int, g: int, ph: Phase): Push =
     { payload: p, bk: { epoch: e, batch: b }, gk: { epoch: e, gen: g }, phase: ph }
 
+# Arguments are written as Quint literals (not px(...)), so the binding can
+# also turn steps into a model-level ITF in-process, without Quint: its
+# nondet picks must be values. Expects may use any Quint.
 actions:
   pushStart:
     args:
@@ -63,15 +66,15 @@ actions:
     expect: 'writer.pushes.contains(px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, Encoded))'
   writeTable:
     args:
-      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, Encoded)'
+      x: '{ payload: {{.payload}}, bk: { epoch: {{.process}}, batch: {{.batch}} }, gk: { epoch: {{.process}}, gen: {{.gen}} }, phase: Encoded }'
       o: '{{.outcome}}'
   writeParquet:
     args:
-      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, TableDone)'
+      x: '{ payload: {{.payload}}, bk: { epoch: {{.process}}, batch: {{.batch}} }, gk: { epoch: {{.process}}, gen: {{.gen}} }, phase: TableDone }'
       o: '{{.outcome}}'
   writeManifest:
     args:
-      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, ParquetDone)'
+      x: '{ payload: {{.payload}}, bk: { epoch: {{.process}}, batch: {{.batch}} }, gk: { epoch: {{.process}}, gen: {{.gen}} }, phase: ParquetDone }'
       o: '{{.outcome}}'
   rotateGen:
     expect: 'writer.rotated.contains({ epoch: {{.process}}, gen: {{.gen}} })'

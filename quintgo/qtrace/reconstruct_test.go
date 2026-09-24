@@ -81,3 +81,24 @@ func TestContradictoryKeysReportCycle(t *testing.T) {
 		t.Fatalf("issues %v", traces[0].Issues)
 	}
 }
+
+func TestStepLogRoundTrip(t *testing.T) {
+	s := st("writeTable", 3, "T", 5)
+	s.Args["batch"], s.Args["gen"], s.Args["ok"] = int64(2), "g1", true
+	s.Obs = map[string]any{"rows": int64(4)}
+	s.Outcome, s.Error = "ambiguous", "timeout"
+	var buf strings.Builder
+	if err := WriteJSONL(&buf, []Step{s}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadJSONL(strings.NewReader(buf.String()))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	g := got[0]
+	if g.Action != "writeTable" || g.Seq != 3 || g.Thread != "T" || g.Order["batch"] != 5 || g.Args["batch"] != int64(2) ||
+		g.Args["gen"] != "g1" || g.Args["ok"] != true || g.Obs["rows"] != int64(4) || g.Outcome != "ambiguous" ||
+		g.Error != "timeout" || !g.Time.Equal(s.Time) || g.Process != "p" || g.Actor != "a" {
+		t.Fatalf("round trip: %+v\n%s", g, buf.String())
+	}
+}

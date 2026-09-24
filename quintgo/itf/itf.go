@@ -57,6 +57,11 @@ type State struct {
 	Vars   map[string]Value
 	Action string           // mbt::actionTaken
 	Picks  map[string]Value // mbt::nondetPicks, with Some(v) unwrapped and None dropped
+	// Extra holds quintgo's annotations, which are not model variables:
+	// "quintgo::expect" (a Quint boolean over the post-state) and observed
+	// projections "obs::<name>". Keys keep their prefix.
+	Extra map[string]Value
+	Meta  map[string]any // the state's #meta
 }
 
 func ReadFile(path string) (*Trace, error) {
@@ -78,10 +83,17 @@ func Parse(b []byte) (*Trace, error) {
 	}
 	t := &Trace{Meta: raw.Meta, Vars: raw.Vars}
 	for i, rs := range raw.States {
-		s := State{Index: i, Vars: map[string]Value{}, Picks: map[string]Value{}}
+		s := State{Index: i, Vars: map[string]Value{}, Picks: map[string]Value{}, Extra: map[string]Value{}}
 		for k, v := range rs {
 			switch {
 			case k == "#meta":
+				_ = json.Unmarshal(v, &s.Meta)
+			case strings.HasPrefix(k, "quintgo::") || strings.HasPrefix(k, "obs::"):
+				val, err := decode(v)
+				if err != nil {
+					return nil, fmt.Errorf("state %d %s: %w", i, k, err)
+				}
+				s.Extra[k] = val
 			case k == "mbt::actionTaken":
 				_ = json.Unmarshal(v, &s.Action)
 			case k == "mbt::nondetPicks":

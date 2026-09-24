@@ -40,6 +40,10 @@ module edgePublish {
   const CONTENT_LEASE: bool   // a claim leases the content key, not just the batch
   const CHECK_CENTRAL: bool   // before inserting, check the central table for the key
                               // (assumes that read sees committed inserts: sequential consistency)
+  const CONTENT_BATCH_ID: bool // the batch id is a hash of the payload, so a retry rewrites the same
+                              // table block (insert_deduplication_token + a dedup window on the edge
+                              // table), the same Parquet key and the same manifest key
+  const CRASHES: bool         // the writer process can crash and restart with a new epoch
 
   type BatchKey = { epoch: int, batch: int }
   type GenKey = { epoch: int, gen: int }
@@ -91,16 +95,18 @@ module edgePublish {
 
   pure def inWindow(w: List[int], t: int): bool = w.indices().exists(i => w[i] == t)
 
-  pure def canStartPush(w: Writer, queue: Set[int], p: int, maxBatch: int): bool = and {
+  pure def canStartPush(w: Writer, queue: Set[int], p: int, maxBatch: int, contentId: bool): bool = and {
     queue.contains(p),
     not(w.pushes.exists(x => x.payload == p)),  // the queue hands an item to one consumer at a time
-    w.nextBatch <= maxBatch,
+    contentId or w.nextBatch <= maxBatch,
   }
 
-  pure def startPush(w: Writer, p: int): Writer = {
+  // With a content-derived id the batch is named by its payload (here the
+  // payload id stands for the hash), so every attempt at it has one name.
+  pure def startPush(w: Writer, p: int, contentId: bool): Writer = {
     ...w,
-    nextBatch: w.nextBatch + 1,
-    pushes: w.pushes.union(Set({ payload: p, bk: { epoch: w.epoch, batch: w.nextBatch },
+    nextBatch: if (contentId) w.nextBatch else w.nextBatch + 1,
+    pushes: w.pushes.union(Set({ payload: p, bk: { epoch: w.epoch, batch: if (contentId) p else w.nextBatch },
                                  gk: { epoch: w.epoch, gen: w.gen }, phase: Encoded })),
   }
 
@@ -137,8 +143,8 @@ module edgePublish {
   }
 
   action pushStart(p: int): bool = all {
-    canStartPush(writer, queue, p, MAX_BATCH),
-    writer' = startPush(writer, p),
+    canStartPush(writer, queue, p, MAX_BATCH, CONTENT_BATCH_ID),
+    writer' = startPush(writer, p, CONTENT_BATCH_ID),
     queue' = queue, tableRows' = tableRows, parquet' = parquet, manifests' = manifests, seals' = seals,
     events' = events, unchangedConsumer,
   }
@@ -197,7 +203,7 @@ module edgePublish {
   // Crash and restart: in-flight pushes and unsealed generations are lost;
   // the queue is persistent; the new incarnation has a new epoch.
   action crash: bool = all {
-    writer.epoch < MAX_EPOCH,
+    CRASHES, writer.epoch < MAX_EPOCH,
     writer' = restarted(writer),
     events' = events.union(Set("crash")),
     queue' = queue, tableRows' = tableRows, parquet' = parquet, manifests' = manifests, seals' = seals,
@@ -360,7 +366,7 @@ module edgePublish {
 module currentDesign {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false, CONTENT_BATCH_ID = false, CRASHES = true).*
 }
 
 // The same, in an ideal environment: S3 never fails ambiguously, no other
@@ -368,7 +374,7 @@ module currentDesign {
 module currentDesignIdealEnv {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = false, OTHER_TRAFFIC = false,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false, CONTENT_BATCH_ID = false, CRASHES = true).*
 }
 
 // First fix: seal from an S3 listing, content-keyed tokens and ledger.
@@ -376,7 +382,7 @@ module currentDesignIdealEnv {
 module contentKeyOnly {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = false, CHECK_CENTRAL = false).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = false, CHECK_CENTRAL = false, CONTENT_BATCH_ID = false, CRASHES = true).*
 }
 
 // Full fix: plus content leases and a central check before insert, so
@@ -384,12 +390,40 @@ module contentKeyOnly {
 module fixedDesign {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true, CONTENT_BATCH_ID = false, CRASHES = true).*
 }
 
 // Mutation: no rotation lock. Does sealing still hold with listing-based seals?
 module noRotationLock {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = false, OTHER_TRAFFIC = false,
-    ROTATION_LOCK = false, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true).*
+    ROTATION_LOCK = false, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true, CONTENT_BATCH_ID = false, CRASHES = true).*
+}
+
+// Content-derived batch ids at the edge (retries are idempotent: same table
+// block with a dedup token, same Parquet and manifest keys), nothing else
+// changed at the consumer. Without crashes: every retry is the same batch.
+module contentBatchIdNoCrash {
+  import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
+    DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false,
+    CHECK_CENTRAL = false, CONTENT_BATCH_ID = true, CRASHES = false).*
+}
+
+// The same with crashes: a request committed just before a crash, and
+// retried by the queue after it, is committed again in the next epoch.
+module contentBatchIdWithCrash {
+  import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
+    DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false,
+    CHECK_CENTRAL = false, CONTENT_BATCH_ID = true, CRASHES = true).*
+}
+
+// Recommended: content batch ids at the edge, and content keys with leases
+// and a check before insert at the consumer.
+module recommended {
+  import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
+    DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true,
+    CHECK_CENTRAL = true, CONTENT_BATCH_ID = true, CRASHES = true).*
 }

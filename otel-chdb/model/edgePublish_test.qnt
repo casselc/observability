@@ -20,7 +20,7 @@ module scenarios {
 module currentTest {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false, CHECK_CENTRAL = false, CONTENT_BATCH_ID = false, CRASHES = true).*
   import scenarios.*
 
   // Publish payload p as batch b, all three writes succeeding.
@@ -118,7 +118,7 @@ module currentTest {
 module fixedTest {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = false, CHECK_CENTRAL = false).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = false, CHECK_CENTRAL = false, CONTENT_BATCH_ID = false, CRASHES = true).*
   import scenarios.*
 
   // Publish payload p as batch b, all three writes succeeding.
@@ -199,7 +199,7 @@ module fixedTest {
 module noLockTest {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = false, OTHER_TRAFFIC = false,
-    ROTATION_LOCK = false, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true).*
+    ROTATION_LOCK = false, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true, CONTENT_BATCH_ID = false, CRASHES = true).*
   import scenarios.*
 
   // Publish payload p as batch b, all three writes succeeding.
@@ -228,7 +228,7 @@ module noLockTest {
 module lockTest {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = false, OTHER_TRAFFIC = false,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true, CONTENT_BATCH_ID = false, CRASHES = true).*
   import scenarios.*
 
   // Publish payload p as batch b, all three writes succeeding.
@@ -253,7 +253,7 @@ module lockTest {
 module fullFixTest {
   import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
     DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
-    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true).*
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = true, CONTENT_KEY = true, CONTENT_LEASE = true, CHECK_CENTRAL = true, CONTENT_BATCH_ID = false, CRASHES = true).*
   import scenarios.*
 
   action publish(p: int, b: int): bool =

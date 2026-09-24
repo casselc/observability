@@ -1,0 +1,235 @@
+@!@!@STARTMSG 2262:0 @!@!@
+Created by Apalache on Thu Sep 24 21:51:39 UTC 2026
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = {}
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> FALSE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> FALSE,
+    view |-> {}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = {"insert"}
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Active", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> FALSE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> FALSE,
+    view |-> {}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = {"insert"}
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Active", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+4: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = {"insert"}
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Active", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {}, since |-> 0, st |-> Variant("Active", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> {}, since |-> 0, st |-> Variant("Absent", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+5: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = { "insert", "merge" }
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {},
+      since |-> 0,
+      st |-> Variant("Outdated", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {},
+      since |-> 0,
+      st |-> Variant("Outdated", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> { 1, 2 },
+      since |-> 0,
+      st |-> Variant("Active", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+6: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = { "cleanup", "insert", "merge" }
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Deleted", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {},
+      since |-> 0,
+      st |-> Variant("Outdated", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> { 1, 2 },
+      since |-> 0,
+      st |-> Variant("Active", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+7: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = FALSE
+/\ lifetime0::partLifetime::events = { "cleanup", "insert", "merge" }
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Deleted", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {},
+      since |-> 0,
+      st |-> Variant("Outdated", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> { 1, 2 },
+      since |-> 0,
+      st |-> Variant("Active", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {1}, read |-> {}, running |-> TRUE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+8: <Next>
+/\ lifetime0::partLifetime::acked = FALSE
+/\ lifetime0::partLifetime::badRead = TRUE
+/\ lifetime0::partLifetime::events = { "badRead", "cleanup", "insert", "merge" }
+/\ lifetime0::partLifetime::gcDone = FALSE
+/\ lifetime0::partLifetime::now = 0
+/\ lifetime0::partLifetime::parts = SetAsFun({ <<
+    1, [covers |-> {}, since |-> 0, st |-> Variant("Deleted", [tag |-> "UNIT"])]
+  >>,
+  <<
+    2, [covers |-> {},
+      since |-> 0,
+      st |-> Variant("Outdated", [tag |-> "UNIT"])]
+  >>,
+  <<
+    3, [covers |-> { 1, 2 },
+      since |-> 0,
+      st |-> Variant("Active", [tag |-> "UNIT"])]
+  >> })
+/\ lifetime0::partLifetime::readers = SetAsFun({<<
+  1, [attached |-> TRUE,
+    q |-> [parts |-> {}, read |-> {}, running |-> FALSE, started |-> 0],
+    refreshedAt |-> 0,
+    refreshing |-> TRUE,
+    view |-> {1}]
+>>})
+/\ lifetime0::partLifetime::writerUp = TRUE
+
+@!@!@ENDMSG 2217 @!@!@

@@ -99,7 +99,7 @@ module currentTest {
       .then(workerCrash(1))
       .then(ingest(2, mf(1, 1, 1, 1)))
       .expect(and {
-        centralCount.get({ epoch: 1, batch: 1 }) == 2,
+        batchCount(centralCount, { epoch: 1, batch: 1 }) == 2,
         not(batchIngestedAtMostOnce),
       })
 
@@ -111,7 +111,7 @@ module currentTest {
       .then(insert(1))
       .then(workerCrash(1))
       .then(ingest(2, mf(1, 1, 1, 1)))
-      .expect(and { centralCount.get({ epoch: 1, batch: 1 }) == 1, batchIngestedAtMostOnce, events.contains("dedupHit") })
+      .expect(and { batchCount(centralCount, { epoch: 1, batch: 1 }) == 1, batchIngestedAtMostOnce, events.contains("dedupHit") })
 }
 
 // The first fix (content keys, listing seals), same stories.
@@ -285,5 +285,59 @@ module fullFixTest {
       .then(workerCrash(1))
       .then(claim(2, mf(1, 1, 1, 1)))
       .then(insert(2))
-      .expect(and { centralCount.get({ epoch: 1, batch: 1 }) == 1, payloadIngestedAtMostOnce, batchIngestedAtMostOnce })
+      .expect(and { batchCount(centralCount, { epoch: 1, batch: 1 }) == 1, payloadIngestedAtMostOnce, batchIngestedAtMostOnce })
+}
+
+// Content-derived batch ids: a retry within the generation is idempotent,
+// but a retry after rotation is published again in the next generation.
+module contentBatchIdTest {
+  import edgePublish(PAYLOADS = Set(1, 2), WORKERS = Set(1, 2), MAX_EPOCH = 2, MAX_BATCH = 3, MAX_GEN = 2,
+    DEDUP_WINDOW = 2, AMBIGUOUS_WRITES = true, OTHER_TRAFFIC = true,
+    ROTATION_LOCK = true, SEAL_FROM_LISTING = false, CONTENT_KEY = false, CONTENT_LEASE = false,
+    CHECK_CENTRAL = false, CONTENT_BATCH_ID = true, CRASHES = false).*
+  import scenarios.*
+
+  // Batch ids are the payload: batch 1 of epoch 1 is payload 1.
+  run retryInSameGenerationIsIdempotentTest =
+    init
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 1, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 1, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 1, ParquetDone), Ambiguous))
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 1, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 1, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 1, ParquetDone), Ok))
+      .then(rotateGen)
+      .then(sealGen({ epoch: 1, gen: 1 }))
+      .expect(and { manifests.size() == 1, liveTableNoDuplicatePayload, committedNoDuplicatePayload, sealMatchesManifests })
+
+  run retryAfterRotationPublishesAgainTest =
+    init
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 1, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 1, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 1, ParquetDone), Ambiguous))
+      .then(rotateGen)
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 2, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 2, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 2, ParquetDone), Ok))
+      .expect(and { manifests.size() == 2, not(liveTableNoDuplicatePayload), not(committedNoDuplicatePayload) })
+
+  // ...which a consumer ledger keyed on batch id absorbs: same id, already acknowledged.
+  run ledgerOnBatchIdAbsorbsCrossGenerationCopyTest =
+    init
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 1, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 1, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 1, ParquetDone), Ambiguous))
+      .then(rotateGen)
+      .then(pushStart(1))
+      .then(writeTable(px(1, 1, 1, 2, Encoded), Ok))
+      .then(writeParquet(px(1, 1, 1, 2, TableDone), Ok))
+      .then(writeManifest(px(1, 1, 1, 2, ParquetDone), Ok))
+      .then(claim(1, mf(1, 1, 1, 1))).then(insert(1)).then(ack(1))
+      .then(claim(1, mf(1, 1, 1, 2)))
+      .fail()
 }

@@ -52,6 +52,10 @@ module edgePublish {
   type Outcome = Ok | Fail | Ambiguous
   type Manifest = { bk: BatchKey, gk: GenKey, payload: int }
   type Seal = { gk: GenKey, batches: Set[BatchKey] }
+  // A published source: a batch in a generation's tables. With content-derived
+  // batch ids one batch id can be published in two generations (a retry
+  // after rotation), so central rows are counted per source, not per id.
+  type SourceKey = { bk: BatchKey, gk: GenKey }
   type Writer = {
     epoch: int,
     nextBatch: int,
@@ -67,22 +71,25 @@ module edgePublish {
   // ---- state --------------------------------------------------------------
   var queue: Set[int]                   // unacknowledged payloads (persistent)
   var writer: Writer
-  var tableRows: Set[{ bk: BatchKey, payload: int }]  // what a live-attached reader sees
-  var parquet: Set[BatchKey]
+  var tableRows: Set[{ src: SourceKey, payload: int }]  // what readers attached live see
+  var parquet: Set[SourceKey]                           // objects under each generation's prefix
   var manifests: Set[Manifest]
   var seals: Set[Seal]
   var workers: int -> Worker
   var ledger: Set[BatchKey]             // batches the consumer has acknowledged
   var ledgerContent: Set[int]           // their content keys (used when CONTENT_KEY)
-  var centralCount: BatchKey -> int     // rows inserted centrally, per source batch
+  var centralCount: SourceKey -> int    // inserts into central, per source (batch, generation)
   var dedupWindow: List[int]            // last DEDUP_WINDOW insert tokens (FIFO)
   var events: Set[str]                  // for witnesses only
 
   // ---- pure logic ---------------------------------------------------------
   pure val OTHER_TOKEN = 0              // a token from unrelated traffic
 
-  pure def allBatchKeys(maxEpoch: int, maxBatch: int): Set[BatchKey] =
-    tuples(1.to(maxEpoch), 1.to(maxBatch)).map(t => { epoch: t._1, batch: t._2 })
+  pure def allSourceKeys(maxEpoch: int, maxBatch: int, maxGen: int): Set[SourceKey] =
+    tuples(1.to(maxEpoch), 1.to(maxBatch), 1.to(maxGen))
+      .map(t => { bk: { epoch: t._1, batch: t._2 }, gk: { epoch: t._1, gen: t._3 } })
+
+  pure def src(m: Manifest): SourceKey = { bk: m.bk, gk: m.gk }
 
   // The insert deduplication token a worker uses for a batch.
   pure def token(m: Manifest, contentKey: bool): int =
@@ -133,8 +140,12 @@ module edgePublish {
   pure def restarted(w: Writer): Writer =
     { epoch: w.epoch + 1, nextBatch: 1, gen: 1, pushes: Set(), succeeded: Set(), rotated: Set() }
 
-  pure def payloadCount(counts: BatchKey -> int, ms: Set[Manifest], p: int): int =
-    ms.filter(m => m.payload == p).fold(0, (acc, m) => acc + counts.get(m.bk))
+  pure def payloadCount(counts: SourceKey -> int, ms: Set[Manifest], p: int): int =
+    ms.filter(m => m.payload == p).fold(0, (acc, m) => acc + counts.get(src(m)))
+
+  // Central inserts of one batch id, over every generation it was published in.
+  pure def batchCount(counts: SourceKey -> int, bk: BatchKey): int =
+    counts.keys().filter(k => k.bk == bk).fold(0, (acc, k) => acc + counts.get(k))
 
   // ---- actions: writer ----------------------------------------------------
   action unchangedConsumer = all {
@@ -156,7 +167,7 @@ module edgePublish {
     AMBIGUOUS_WRITES or o != Ambiguous,
     val lands = o != Fail
     all {
-      tableRows' = if (lands) tableRows.union(Set({ bk: x.bk, payload: x.payload })) else tableRows,
+      tableRows' = if (lands) tableRows.union(Set({ src: { bk: x.bk, gk: x.gk }, payload: x.payload })) else tableRows,
       writer' = if (o == Ok) advance(writer, x, TableDone) else abort(writer, x),
     },
     events' = if (o == Ambiguous) events.union(Set("ambiguous")) else events,
@@ -166,7 +177,7 @@ module edgePublish {
   action writeParquet(x: Push, o: Outcome): bool = all {
     writer.pushes.contains(x), x.phase == TableDone,
     AMBIGUOUS_WRITES or o != Ambiguous,
-    parquet' = if (o != Fail) parquet.union(Set(x.bk)) else parquet,
+    parquet' = if (o != Fail) parquet.union(Set({ bk: x.bk, gk: x.gk })) else parquet,
     writer' = if (o == Ok) advance(writer, x, ParquetDone) else abort(writer, x),
     events' = if (o == Ambiguous) events.union(Set("ambiguous")) else events,
     queue' = queue, tableRows' = tableRows, manifests' = manifests, seals' = seals, unchangedConsumer,
@@ -247,10 +258,10 @@ module edgePublish {
       val m = ws.claim.fold({ bk: { epoch: 0, batch: 0 }, gk: { epoch: 0, gen: 0 }, payload: 0 }, (_, x) => x)
       val t = token(m, CONTENT_KEY)
       val present = if (CONTENT_KEY) payloadCount(centralCount, manifests, m.payload) > 0
-                    else centralCount.get(m.bk) > 0
+                    else batchCount(centralCount, m.bk) > 0
       val dup = inWindow(dedupWindow, t) or (CHECK_CENTRAL and present)
       all {
-        centralCount' = if (dup) centralCount else centralCount.setBy(m.bk, c => c + 1),
+        centralCount' = if (dup) centralCount else centralCount.setBy(src(m), c => c + 1),
         dedupWindow' = if (dup) dedupWindow else remember(dedupWindow, t, DEDUP_WINDOW),
         events' = if (dup) events.union(Set("dedupHit")) else events.union(Set("inserted")),
       },
@@ -296,7 +307,7 @@ module edgePublish {
     tableRows' = Set(), parquet' = Set(), manifests' = Set(), seals' = Set(),
     workers' = WORKERS.mapBy(_ => { claim: Set(), inserted: false }),
     ledger' = Set(), ledgerContent' = Set(),
-    centralCount' = allBatchKeys(MAX_EPOCH, MAX_BATCH).mapBy(_ => 0),
+    centralCount' = allSourceKeys(MAX_EPOCH, MAX_BATCH, MAX_GEN).mapBy(_ => 0),
     dedupWindow' = List(),
     events' = Set(),
   }
@@ -322,15 +333,15 @@ module edgePublish {
   // ---- properties -----------------------------------------------------------
   // A manifest is only written after the batch's table rows and Parquet exist.
   val commitImpliesData: bool =
-    manifests.forall(m => tableRows.contains({ bk: m.bk, payload: m.payload }) and parquet.contains(m.bk))
+    manifests.forall(m => tableRows.contains({ src: src(m), payload: m.payload }) and parquet.contains(src(m)))
 
   // Nothing uncommitted reaches the central table.
   val onlyCommittedIngested: bool =
-    centralCount.keys().forall(bk => centralCount.get(bk) > 0 implies manifests.exists(m => m.bk == bk))
+    centralCount.keys().forall(k => centralCount.get(k) > 0 implies manifests.exists(m => src(m) == k))
 
   // A committed batch is inserted centrally at most once.
   val batchIngestedAtMostOnce: bool =
-    centralCount.keys().forall(bk => centralCount.get(bk) <= 1)
+    centralCount.keys().forall(k => batchCount(centralCount, k.bk) <= 1)
 
   // End to end: each OTLP request's rows land centrally at most once.
   val payloadIngestedAtMostOnce: bool =

@@ -1,0 +1,277 @@
+@!@!@STARTMSG 2262:0 @!@!@
+Created by Apalache on Thu Sep 24 22:05:35 UTC 2026
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {}
+/\ currentDesign::edgePublish::parquet = {}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 1,
+  pushes |-> {},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {}
+/\ currentDesign::edgePublish::parquet = {}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("Encoded", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {}
+/\ currentDesign::edgePublish::parquet = {}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {[payload |-> 2,
+  src |-> [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]]}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("TableDone", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+4: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {}
+/\ currentDesign::edgePublish::parquet = {[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {[payload |-> 2,
+  src |-> [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]]}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("ParquetDone", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+5: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {"ambiguous"}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {[bk |-> [batch |-> 1, epoch |-> 1],
+  gk |-> [epoch |-> 1, gen |-> 1],
+  payload |-> 2]}
+/\ currentDesign::edgePublish::parquet = {[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {[payload |-> 2,
+  src |-> [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]]}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 2,
+  pushes |-> {},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+6: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = {"ambiguous"}
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {[bk |-> [batch |-> 1, epoch |-> 1],
+  gk |-> [epoch |-> 1, gen |-> 1],
+  payload |-> 2]}
+/\ currentDesign::edgePublish::parquet = {[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {}
+/\ currentDesign::edgePublish::tableRows = {[payload |-> 2,
+  src |-> [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]]}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |-> {},
+  rotated |-> {[epoch |-> 1, gen |-> 1]},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+7: <Next>
+/\ currentDesign::edgePublish::centralCount = SetAsFun({ <<
+    [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0
+  >>,
+  <<[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 1, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 2, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 2]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 1]], 0>>,
+  <<[bk |-> [batch |-> 3, epoch |-> 2], gk |-> [epoch |-> 2, gen |-> 2]], 0>> })
+/\ currentDesign::edgePublish::dedupWindow = <<>>
+/\ currentDesign::edgePublish::events = { "ambiguous", "sealed" }
+/\ currentDesign::edgePublish::ledger = {}
+/\ currentDesign::edgePublish::ledgerContent = {}
+/\ currentDesign::edgePublish::manifests = {[bk |-> [batch |-> 1, epoch |-> 1],
+  gk |-> [epoch |-> 1, gen |-> 1],
+  payload |-> 2]}
+/\ currentDesign::edgePublish::parquet = {[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ currentDesign::edgePublish::queue = { 1, 2 }
+/\ currentDesign::edgePublish::seals = {[batches |-> {}, gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ currentDesign::edgePublish::tableRows = {[payload |-> 2,
+  src |-> [bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]]}
+/\ currentDesign::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ currentDesign::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |-> {},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@

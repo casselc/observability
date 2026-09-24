@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://datadoghq.dev/orchestrion/schema.json
+#
+# Generic quintgo aspects. A project opts in by importing
+# github.com/chucklehead-dev/oscope/spike/quintgo/qobs in its orchestrion.tool.go
+# and building with `orchestrion go build` / `orchestrion go test`. A plain
+# `go build` ignores the directives: the program is unchanged.
+meta:
+  name: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+  description: Record Quint model steps (//quint:action) as OpenTelemetry span events.
+
+aspects:
+  # //quint:action action:<name> [when:ok|error] [key:<Go expr> ...]
+  #
+  # On return from the annotated function, records one model step. Each
+  # key:<expr> is evaluated when the function returns, so an expression may
+  # use the parameters, the receiver and NAMED results (not locals). The
+  # final error result, if any, is the step's outcome. With when:ok the step
+  # (and its expressions) is skipped when that error is non-nil.
+  # Keys: actor, process, thread, outcome, obs.<name>, order.<domain>, or an
+  # argument name. Values with spaces must be quoted: key:"f(a, b)".
+  - id: quint-action
+    join-point:
+      function-body:
+        directive: 'quint:action'
+    advice:
+      - prepend-statements:
+          imports:
+            context: context
+            quintqobs: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+          template: |-
+            {{- $ctx := .Function.ArgumentOfType "context.Context" -}}
+            {{- $err := .Function.ResultOfType "error" -}}
+            {{- $name := "" -}}
+            {{- $when := "" -}}
+            {{- range .DirectiveArgs "quint:action" -}}
+              {{- if eq .Key "action" -}}{{- $name = .Value -}}{{- end -}}
+              {{- if eq .Key "when" -}}{{- $when = .Value -}}{{- end -}}
+            {{- end -}}
+            defer func() {
+              {{- if and (eq $when "ok") (ne $err "") }}
+              if {{ $err }} != nil {
+                return
+              }
+              {{- end }}
+              {{- if and (eq $when "error") (ne $err "") }}
+              if {{ $err }} == nil {
+                return
+              }
+              {{- end }}
+              quintqobs.Record({{ if ne $ctx "" }}{{ $ctx }}{{ else }}context.TODO(){{ end }}, {{ printf "%q" $name }}, {{ if ne $err "" }}{{ $err }}{{ else }}nil{{ end }},
+                {{- range .DirectiveArgs "quint:action" }}
+                  {{- if and (ne .Key "action") (ne .Key "when") }} {{ printf "%q" .Key }}, {{ .Value }},{{ end }}
+                {{- end }}
+              )
+            }()
+
+  # //quint:thread on a function with a context.Context parameter: the steps
+  # recorded under that context (and contexts derived from it) are in program
+  # order with each other. Put it on the function that performs one logical
+  # sequence of steps, e.g. one request's handler.
+  - id: quint-thread
+    join-point:
+      function-body:
+        directive: 'quint:thread'
+    advice:
+      - prepend-statements:
+          imports:
+            quintqobs: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+          template: |-
+            {{- $ctx := .Function.ArgumentOfType "context.Context" -}}
+            {{- if ne $ctx "" -}}
+            {{ $ctx }} = quintqobs.Thread({{ $ctx }})
+            {{- end -}}

@@ -1,0 +1,92 @@
+# quintgo binding: how steps observed from the edgepublish stand-in (or the
+# real chdbexporter, once annotated the same way) become calls of the actions
+# of spike/otel-chdb/model/edgePublish.qnt.
+#
+# Only the WRITER half of the model is observed: pushStart, the three writes,
+# rotateGen, sealGen, and crash (inferred from a change of process). The
+# consumer's variables stay at their initial values, which every writer
+# action leaves unchanged.
+
+spec: ../../../otel-chdb/model/edgePublish.qnt
+module: edgePublish
+
+# The instance to replay against: the design as built (currentDesign's
+# flags), sized to what the trace contains. Templates over the trace:
+#   set "arg"  Set(...) of an argument's (interned) values
+#   max "arg"  its largest value;  procs  number of incarnations
+constants:
+  PAYLOADS: '{{ set "payload" }}'
+  WORKERS: 'Set(1)'
+  MAX_EPOCH: '{{ procs }}'
+  MAX_BATCH: '{{ atLeast 1 (max "batch") }}'
+  MAX_GEN: '{{ add (max "gen") 1 }}'  # + 1: rotating the last generation away (Close) needs a next one
+  DEDUP_WINDOW: '2'
+  AMBIGUOUS_WRITES: 'true'
+  OTHER_TRAFFIC: 'false'
+  ROTATION_LOCK: 'true'
+  SEAL_FROM_LISTING: 'false'
+  CONTENT_KEY: 'false'
+  CONTENT_LEASE: 'false'
+  CHECK_CENTRAL: 'false'
+  CONTENT_BATCH_ID: 'false'
+  CRASHES: 'true'
+
+# The abstraction function for opaque ids: request names and generation ids
+# (timestamps) become 1, 2, ... in order of first appearance. Generations
+# restart at 1 in each incarnation, as the model's do. Batch ids and the
+# incarnation number (.process) are already the model's integers.
+intern:
+  payload: actor
+  gen: process
+
+# quint.outcome -> the model's Outcome. "ambiguous" is only known when the
+# error says so (qobs.Outcomer); a plain error is taken as Fail.
+outcomes:
+  ok: Ok
+  error: Fail
+  ambiguous: Ambiguous
+
+# A new incarnation of the writer means the previous one crashed.
+restart: crash
+
+defs: |
+  // The push of payload p as batch b of epoch e in generation g, at a phase.
+  pure def px(p: int, e: int, b: int, g: int, ph: Phase): Push =
+    { payload: p, bk: { epoch: e, batch: b }, gk: { epoch: e, gen: g }, phase: ph }
+
+actions:
+  pushStart:
+    args:
+      p: '{{.payload}}'
+    # The model allocates the batch id and generation itself; the observed
+    # ones must be the ones it allocated.
+    expect: 'writer.pushes.contains(px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, Encoded))'
+  writeTable:
+    args:
+      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, Encoded)'
+      o: '{{.outcome}}'
+  writeParquet:
+    args:
+      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, TableDone)'
+      o: '{{.outcome}}'
+  writeManifest:
+    args:
+      x: 'px({{.payload}}, {{.process}}, {{.batch}}, {{.gen}}, ParquetDone)'
+      o: '{{.outcome}}'
+  rotateGen:
+    expect: 'writer.rotated.contains({ epoch: {{.process}}, gen: {{.gen}} })'
+  sealGen:
+    args:
+      gk: '{ epoch: {{.process}}, gen: {{.gen}} }'
+    # A seal whose _sealed.json write failed wrote nothing: the model's
+    # generation just stays rotated and unsealed. An ambiguous one landed.
+    outcomes: { error: skip, ambiguous: call }
+    # What _sealed.json said, against what the model's seal holds.
+    expect: 'seals.exists(s => s.gk == { epoch: {{.process}}, gen: {{.gen}} } and s.batches.size() == {{.obs.batches}})'
+
+# Checked in every state of the replayed trace. (liveTableNoDuplicatePayload
+# is left out: the current design violates it on any retried push, finding F2.)
+invariants:
+  - commitImpliesData
+  - sealMatchesManifests
+  - committedNoDuplicatePayload

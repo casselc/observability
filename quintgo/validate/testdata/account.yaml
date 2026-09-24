@@ -1,0 +1,12 @@
+spec: account.qnt
+module: account
+constants:
+  LIMIT: '100'
+actions:
+  deposit:
+    args: { amount: '{{.amount}}' }
+    expect: 'balance == {{.obs.balance}}'
+  withdraw:
+    args: { amount: '{{.amount}}' }
+    expect: 'balance == {{.obs.balance}}'
+invariants: [nonNegative, underLimit]

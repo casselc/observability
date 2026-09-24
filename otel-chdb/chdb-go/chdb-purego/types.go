@@ -40,6 +40,11 @@ type chdb_connection struct {
 	internal_data unsafe.Pointer
 }
 
+// chdb_insert_stream mirrors chdb.h's opaque handle for a streaming INSERT.
+type chdb_insert_stream struct {
+	internal_data unsafe.Pointer
+}
+
 type chdb_result struct {
 	internal_data unsafe.Pointer
 }

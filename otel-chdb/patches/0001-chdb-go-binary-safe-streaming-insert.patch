@@ -1,0 +1,486 @@
+diff --git a/chdb-purego/binding.go b/chdb-purego/binding.go
+index ffbc306..87a3c27 100644
+--- a/chdb-purego/binding.go
++++ b/chdb-purego/binding.go
+@@ -103,6 +103,16 @@ var (
+ 	chdbResultStorageBytesRead func(result *chdb_result) uint64
+ 	chdbResultError            func(result *chdb_result) string
+ 
++	// Binary-safe query and streaming INSERT. Bound only when the loaded
++	// engine exports all of them; see insert.go and bindInsertSymbols.
++	chdbQueryN              func(conn unsafe.Pointer, query *byte, queryLen uint, format *byte, formatLen uint) *chdb_result
++	chdbStreamInsertN       func(conn unsafe.Pointer, query *byte, queryLen uint, format *byte, formatLen uint) *chdb_insert_stream
++	chdbStreamAppend        func(stream *chdb_insert_stream, data unsafe.Pointer, length uint) int32
++	chdbStreamDone          func(stream *chdb_insert_stream) *chdb_result
++	chdbStreamCancelInsert  func(stream *chdb_insert_stream)
++	chdbStreamInsertError   func(stream *chdb_insert_stream) string
++	chdbDestroyInsertStream func(stream *chdb_insert_stream)
++
+ 	// Management ABI, added in chdb-core v26.7.2-rc.2. Bound only when the
+ 	// loaded engine exports it; see admin.go and bindAdminSymbols.
+ 	chdbVersion          func() string
+@@ -200,6 +210,7 @@ func bindSymbols(libchdb uintptr) {
+ 	purego.RegisterLibFunc(&chdbResultError, libchdb, "chdb_result_error")
+ 
+ 	bindAdminSymbols(libchdb)
++	bindInsertSymbols(libchdb)
+ 
+ 	// Probed rather than declared, for the same reason the admin symbols are:
+ 	// an engine older than v26.7.2-rc.2 does not export it, and panicking
+diff --git a/chdb-purego/insert.go b/chdb-purego/insert.go
+new file mode 100644
+index 0000000..30fc393
+--- /dev/null
++++ b/chdb-purego/insert.go
+@@ -0,0 +1,218 @@
++package chdbpurego
++
++import (
++	"errors"
++	"fmt"
++	"runtime"
++	"sync"
++	"unsafe"
++
++	"github.com/ebitengine/purego"
++)
++
++// ErrInsertABIUnavailable is returned by the binary-safe entry points when the
++// loaded libchdb does not export chdb_query_n and the chdb_stream_insert
++// family.
++var ErrInsertABIUnavailable = errors.New("chdb: the loaded libchdb does not export chdb_query_n / chdb_stream_insert_n")
++
++// ChdbInsertConn is the binary-safe surface a connection offers when the
++// engine exports it.
++//
++// Query and QueryStreaming pass their SQL as Go strings, which purego hands to
++// the engine as NUL-terminated C strings: the first zero byte ends the
++// statement. That rules out inline binary payloads (RowBinary, Native,
++// Parquet, Arrow) and makes every insert pay for a text encoding. The two
++// methods here take explicit lengths instead.
++//
++// Like ChdbAdminConn it is a second interface rather than more methods on
++// ChdbConn, so existing implementations of ChdbConn keep compiling; callers
++// reach it with a type assertion, which is also how they learn the engine is
++// too old.
++type ChdbInsertConn interface {
++	// QueryBytes runs query through chdb_query_n. query may hold NUL bytes.
++	QueryBytes(query []byte, format string) (ChdbResult, error)
++
++	// InsertStream begins a streaming INSERT. query is the statement with no
++	// FORMAT clause and no data ("INSERT INTO db.t (a, b)"); format names the
++	// input format of the chunks passed to Append ("RowBinary", "Native",
++	// "JSONEachRow", ...).
++	//
++	// The stream holds the connection until Done or Cancel returns: the engine
++	// accepts no other statement on it meanwhile, and Close waits for it.
++	// Exactly one of Done or Cancel must be called.
++	InsertStream(query, format string) (ChdbInsertStream, error)
++}
++
++// ChdbInsertStream is an open streaming INSERT.
++type ChdbInsertStream interface {
++	// Append pushes one chunk of format-encoded data. The engine copies it, so
++	// the caller may reuse data as soon as Append returns. It may block while
++	// the engine applies backpressure.
++	Append(data []byte) error
++	// Done signals end of input, commits, and releases the stream.
++	Done() error
++	// Cancel aborts without committing and releases the stream. Safe to call
++	// after Done, where it does nothing.
++	Cancel()
++}
++
++// InsertABIAvailable reports whether the loaded engine exports the
++// binary-safe query and streaming insert symbols. It loads the library if
++// needed.
++func InsertABIAvailable() (bool, error) {
++	if err := ensureLoaded(); err != nil {
++		return false, err
++	}
++	return insertABIAvailable(), nil
++}
++
++func insertABIAvailable() bool {
++	return chdbQueryN != nil && chdbStreamInsertN != nil
++}
++
++// bindInsertSymbols binds chdb_query_n and the streaming insert family when
++// the loaded engine has them. Probed, not declared, for the reason given on
++// bindAdminSymbols: RegisterLibFunc panics on a missing symbol. All or none,
++// since a stream that can begin but not finish is worse than no stream.
++func bindInsertSymbols(libchdb uintptr) {
++	names := []string{
++		"chdb_query_n", "chdb_stream_insert_n", "chdb_stream_append",
++		"chdb_stream_done", "chdb_stream_cancel_insert",
++		"chdb_stream_insert_error", "chdb_destroy_insert_stream",
++	}
++	for _, n := range names {
++		if !has(libchdb, n) {
++			return
++		}
++	}
++	purego.RegisterLibFunc(&chdbStreamAppend, libchdb, "chdb_stream_append")
++	purego.RegisterLibFunc(&chdbStreamDone, libchdb, "chdb_stream_done")
++	purego.RegisterLibFunc(&chdbStreamCancelInsert, libchdb, "chdb_stream_cancel_insert")
++	purego.RegisterLibFunc(&chdbStreamInsertError, libchdb, "chdb_stream_insert_error")
++	purego.RegisterLibFunc(&chdbDestroyInsertStream, libchdb, "chdb_destroy_insert_stream")
++	// Last two gate insertABIAvailable, so bind them after the rest.
++	purego.RegisterLibFunc(&chdbStreamInsertN, libchdb, "chdb_stream_insert_n")
++	purego.RegisterLibFunc(&chdbQueryN, libchdb, "chdb_query_n")
++}
++
++// QueryBytes implements ChdbInsertConn.
++func (c *connection) QueryBytes(query []byte, formatStr string) (ChdbResult, error) {
++	c.mu.RLock()
++	defer c.mu.RUnlock()
++	if c.conn == nil {
++		return nil, fmt.Errorf("invalid connection")
++	}
++	if !insertABIAvailable() {
++		return nil, ErrInsertABIUnavailable
++	}
++	f, fLen, fBuf := cString(formatStr)
++	res := chdbQueryN(c.conn.internal_data, bytesPtr(query), uint(len(query)), f, fLen)
++	runtime.KeepAlive(query)
++	runtime.KeepAlive(fBuf)
++	if res == nil {
++		return newChdbResult(res), nil
++	}
++	if msg := chdbResultError(res); msg != "" {
++		chdbDestroyQueryResult(res)
++		return nil, errors.New(msg)
++	}
++	return newChdbResult(res), nil
++}
++
++// InsertStream implements ChdbInsertConn. On success the connection's read
++// lock stays held until the stream's Done or Cancel, so a Close waits for the
++// stream rather than freeing the connection underneath it.
++func (c *connection) InsertStream(query, formatStr string) (ChdbInsertStream, error) {
++	c.mu.RLock()
++	if c.conn == nil {
++		c.mu.RUnlock()
++		return nil, fmt.Errorf("invalid connection")
++	}
++	if !insertABIAvailable() {
++		c.mu.RUnlock()
++		return nil, ErrInsertABIUnavailable
++	}
++	q, qLen, qBuf := cString(query)
++	f, fLen, fBuf := cString(formatStr)
++	h := chdbStreamInsertN(c.conn.internal_data, q, qLen, f, fLen)
++	runtime.KeepAlive(qBuf)
++	runtime.KeepAlive(fBuf)
++	if h == nil {
++		c.mu.RUnlock()
++		return nil, errors.New("chdb: chdb_stream_insert_n returned no stream")
++	}
++	if msg := chdbStreamInsertError(h); msg != "" {
++		chdbDestroyInsertStream(h)
++		c.mu.RUnlock()
++		return nil, errors.New(msg)
++	}
++	return &insertStream{conn: c, h: h}, nil
++}
++
++type insertStream struct {
++	once sync.Once
++	conn *connection
++	h    *chdb_insert_stream
++}
++
++func (s *insertStream) Append(data []byte) error {
++	if s.h == nil {
++		return errors.New("chdb: append on a finished insert stream")
++	}
++	if len(data) == 0 {
++		return nil
++	}
++	state := chdbStreamAppend(s.h, unsafe.Pointer(&data[0]), uint(len(data)))
++	runtime.KeepAlive(data)
++	if state != 0 {
++		if msg := chdbStreamInsertError(s.h); msg != "" {
++			return errors.New(msg)
++		}
++		return errors.New("chdb: chdb_stream_append failed")
++	}
++	return nil
++}
++
++func (s *insertStream) Done() error {
++	if s.h == nil {
++		return errors.New("chdb: insert stream already finished")
++	}
++	var err error
++	s.once.Do(func() {
++		res := chdbStreamDone(s.h)
++		if res == nil {
++			if msg := chdbStreamInsertError(s.h); msg != "" {
++				err = errors.New(msg)
++			} else {
++				err = errors.New("chdb: chdb_stream_done returned no result")
++			}
++		} else {
++			if msg := chdbResultError(res); msg != "" {
++				err = errors.New(msg)
++			}
++			chdbDestroyQueryResult(res)
++		}
++		s.release()
++	})
++	return err
++}
++
++func (s *insertStream) Cancel() {
++	s.once.Do(func() {
++		chdbStreamCancelInsert(s.h)
++		s.release()
++	})
++}
++
++func (s *insertStream) release() {
++	chdbDestroyInsertStream(s.h)
++	s.h = nil
++	s.conn.mu.RUnlock()
++}
++
++func bytesPtr(b []byte) *byte {
++	if len(b) == 0 {
++		return nil
++	}
++	return &b[0]
++}
+diff --git a/chdb-purego/types.go b/chdb-purego/types.go
+index 2bac48e..aab0c39 100644
+--- a/chdb-purego/types.go
++++ b/chdb-purego/types.go
+@@ -40,6 +40,11 @@ type chdb_connection struct {
+ 	internal_data unsafe.Pointer
+ }
+ 
++// chdb_insert_stream mirrors chdb.h's opaque handle for a streaming INSERT.
++type chdb_insert_stream struct {
++	internal_data unsafe.Pointer
++}
++
+ type chdb_result struct {
+ 	internal_data unsafe.Pointer
+ }
+diff --git a/chdb/insert.go b/chdb/insert.go
+new file mode 100644
+index 0000000..53374ec
+--- /dev/null
++++ b/chdb/insert.go
+@@ -0,0 +1,75 @@
++package chdb
++
++import (
++	"fmt"
++
++	chdbpurego "github.com/chdb-io/chdb-go/v2/chdb-purego"
++)
++
++// insertConn returns this session's binary-safe surface, or an error saying
++// why there is not one. The caller holds the session's read lock.
++func (s *Session) insertConn() (chdbpurego.ChdbInsertConn, error) {
++	if s.closed || s.conn == nil {
++		return nil, fmt.Errorf("chdb: query on a closed session")
++	}
++	ic, ok := s.conn.(chdbpurego.ChdbInsertConn)
++	if !ok {
++		return nil, chdbpurego.ErrInsertABIUnavailable
++	}
++	return ic, nil
++}
++
++// QueryBytes is Query for SQL that may hold NUL bytes. It goes through
++// chdb_query_n, which takes an explicit length, where Query's statement ends at
++// the first zero byte.
++func (s *Session) QueryBytes(query []byte, outputFormats ...string) (chdbpurego.ChdbResult, error) {
++	outputFormat := "CSV"
++	if len(outputFormats) > 0 {
++		outputFormat = outputFormats[0]
++	}
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	ic, err := s.insertConn()
++	if err != nil {
++		return nil, err
++	}
++	return ic.QueryBytes(query, outputFormat)
++}
++
++// InsertStream begins a streaming INSERT on this session:
++//
++//	st, err := sess.InsertStream("INSERT INTO db.t (a, b)", "RowBinary")
++//	for _, chunk := range chunks {
++//		if err := st.Append(chunk); err != nil { st.Cancel(); return err }
++//	}
++//	return st.Done()
++//
++// query carries no FORMAT clause and no data. Chunks are raw bytes in format,
++// so binary formats (RowBinary, Native, Parquet, Arrow) need no text encoding
++// and no escaping. The engine copies each chunk, so a caller can reuse one
++// buffer for the whole stream.
++//
++// The session's native connection runs nothing else until Done or Cancel;
++// open a second session on the same path to query concurrently.
++func (s *Session) InsertStream(query, format string) (chdbpurego.ChdbInsertStream, error) {
++	s.mu.RLock()
++	defer s.mu.RUnlock()
++	ic, err := s.insertConn()
++	if err != nil {
++		return nil, err
++	}
++	return ic.InsertStream(query, format)
++}
++
++// Insert is InsertStream with a single chunk.
++func (s *Session) Insert(query, format string, data []byte) error {
++	st, err := s.InsertStream(query, format)
++	if err != nil {
++		return err
++	}
++	if err := st.Append(data); err != nil {
++		st.Cancel()
++		return err
++	}
++	return st.Done()
++}
+diff --git a/chdb/insert_test.go b/chdb/insert_test.go
+new file mode 100644
+index 0000000..317c425
+--- /dev/null
++++ b/chdb/insert_test.go
+@@ -0,0 +1,130 @@
++package chdb
++
++import (
++	"encoding/binary"
++	"strings"
++	"testing"
++)
++
++// rowBinary encodes (UInt32, String) rows the way RowBinary lays them out:
++// fixed-width little-endian integers, strings as LEB128 length then bytes.
++func rowBinary(buf []byte, id uint32, s string) []byte {
++	buf = binary.LittleEndian.AppendUint32(buf, id)
++	buf = binary.AppendUvarint(buf, uint64(len(s)))
++	return append(buf, s...)
++}
++
++func insertSession(t *testing.T) *Session {
++	t.Helper()
++	s, err := NewSession()
++	if err != nil {
++		t.Fatalf("new session: %v", err)
++	}
++	t.Cleanup(s.Close)
++	if _, err := s.Query("CREATE DATABASE IF NOT EXISTS ins"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Query("CREATE OR REPLACE TABLE ins.t (id UInt32, s String) ENGINE = MergeTree ORDER BY id"); err != nil {
++		t.Fatal(err)
++	}
++	return s
++}
++
++func TestInsertRowBinaryWithNulBytes(t *testing.T) {
++	s := insertSession(t)
++	// Id 0 encodes as four zero bytes and the strings hold NULs: every one of
++	// them would end a C string, which is why Query cannot carry this.
++	var buf []byte
++	buf = rowBinary(buf, 0, "a\x00b")
++	buf = rowBinary(buf, 1, "")
++	buf = rowBinary(buf, 2, strings.Repeat("\x00", 3))
++	if err := s.Insert("INSERT INTO ins.t (id, s)", "RowBinary", buf); err != nil {
++		t.Fatalf("insert: %v", err)
++	}
++	res, err := s.Query("SELECT id, hex(s) FROM ins.t ORDER BY id", "CSV")
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := "0,\"610062\"\n1,\"\"\n2,\"000000\"\n"
++	if got := res.String(); got != want {
++		t.Fatalf("got %q, want %q", got, want)
++	}
++}
++
++func TestInsertStreamManyChunksReusedBuffer(t *testing.T) {
++	s := insertSession(t)
++	st, err := s.InsertStream("INSERT INTO ins.t (id, s)", "RowBinary")
++	if err != nil {
++		t.Fatal(err)
++	}
++	var buf []byte
++	for chunk := 0; chunk < 50; chunk++ {
++		buf = buf[:0] // the engine copies each chunk, so the buffer is reused
++		for i := 0; i < 200; i++ {
++			buf = rowBinary(buf, uint32(chunk*200+i), "row")
++		}
++		if err := st.Append(buf); err != nil {
++			st.Cancel()
++			t.Fatal(err)
++		}
++	}
++	if err := st.Done(); err != nil {
++		t.Fatal(err)
++	}
++	res, err := s.Query("SELECT count(), sum(id) FROM ins.t", "CSV")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got := res.String(); got != "10000,49995000\n" {
++		t.Fatalf("got %q", got)
++	}
++}
++
++func TestInsertStreamBadDataFailsAndSessionRecovers(t *testing.T) {
++	s := insertSession(t)
++	// Three bytes cannot be a UInt32 followed by a string.
++	err := s.Insert("INSERT INTO ins.t (id, s)", "RowBinary", []byte{1, 2, 3})
++	if err == nil {
++		t.Fatal("expected an error for truncated RowBinary")
++	}
++	if err := s.Insert("INSERT INTO ins.t (id, s)", "RowBinary", rowBinary(nil, 7, "ok")); err != nil {
++		t.Fatalf("session unusable after a failed stream: %v", err)
++	}
++}
++
++func TestInsertStreamCancelCommitsNothingAppendedLater(t *testing.T) {
++	s := insertSession(t)
++	st, err := s.InsertStream("INSERT INTO ins.t (id, s)", "RowBinary")
++	if err != nil {
++		t.Fatal(err)
++	}
++	st.Cancel()
++	st.Cancel() // idempotent
++	if err := st.Append(rowBinary(nil, 1, "x")); err == nil {
++		t.Fatal("append after cancel should fail")
++	}
++	if _, err := s.Query("SELECT 1"); err != nil {
++		t.Fatalf("session unusable after cancel: %v", err)
++	}
++}
++
++func TestInsertStreamBadQuery(t *testing.T) {
++	s := insertSession(t)
++	if _, err := s.InsertStream("INSERT INTO ins.missing (id)", "RowBinary"); err == nil {
++		t.Fatal("expected an error for a missing table")
++	}
++	if _, err := s.Query("SELECT 1"); err != nil {
++		t.Fatalf("session unusable after a failed begin: %v", err)
++	}
++}
++
++func TestQueryBytesKeepsNul(t *testing.T) {
++	s := insertSession(t)
++	res, err := s.QueryBytes([]byte("SELECT length('a\x00b')"), "CSV")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got := res.String(); got != "3\n" {
++		t.Fatalf("got %q, want 3", got)
++	}
++}

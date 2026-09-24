@@ -103,6 +103,16 @@ var (
 	chdbResultStorageBytesRead func(result *chdb_result) uint64
 	chdbResultError            func(result *chdb_result) string
 
+	// Binary-safe query and streaming INSERT. Bound only when the loaded
+	// engine exports all of them; see insert.go and bindInsertSymbols.
+	chdbQueryN              func(conn unsafe.Pointer, query *byte, queryLen uint, format *byte, formatLen uint) *chdb_result
+	chdbStreamInsertN       func(conn unsafe.Pointer, query *byte, queryLen uint, format *byte, formatLen uint) *chdb_insert_stream
+	chdbStreamAppend        func(stream *chdb_insert_stream, data unsafe.Pointer, length uint) int32
+	chdbStreamDone          func(stream *chdb_insert_stream) *chdb_result
+	chdbStreamCancelInsert  func(stream *chdb_insert_stream)
+	chdbStreamInsertError   func(stream *chdb_insert_stream) string
+	chdbDestroyInsertStream func(stream *chdb_insert_stream)
+
 	// Management ABI, added in chdb-core v26.7.2-rc.2. Bound only when the
 	// loaded engine exports it; see admin.go and bindAdminSymbols.
 	chdbVersion          func() string
@@ -200,6 +210,7 @@ func bindSymbols(libchdb uintptr) {
 	purego.RegisterLibFunc(&chdbResultError, libchdb, "chdb_result_error")
 
 	bindAdminSymbols(libchdb)
+	bindInsertSymbols(libchdb)
 
 	// Probed rather than declared, for the same reason the admin symbols are:
 	// an engine older than v26.7.2-rc.2 does not export it, and panicking

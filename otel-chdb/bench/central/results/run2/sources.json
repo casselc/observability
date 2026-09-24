@@ -1,0 +1,67 @@
+{
+ "r_nat": {
+  "producer": "natural",
+  "epoch": "20260924T212352Z-26492c",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/natural/20260924T212352Z-26492c/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_unm": {
+  "producer": "unmerged",
+  "epoch": "20260924T212409Z-05bbcb",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/unmerged/20260924T212409Z-05bbcb/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_opt": {
+  "producer": "optimized",
+  "epoch": "20260924T212423Z-7e04ca",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/optimized/20260924T212423Z-7e04ca/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m0": {
+  "producer": "multi0",
+  "epoch": "20260924T212443Z-d5a967",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi0/20260924T212443Z-d5a967/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m1": {
+  "producer": "multi1",
+  "epoch": "20260924T212445Z-5ac67e",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi1/20260924T212445Z-5ac67e/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m2": {
+  "producer": "multi2",
+  "epoch": "20260924T212446Z-c9fe79",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi2/20260924T212446Z-c9fe79/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m3": {
+  "producer": "multi3",
+  "epoch": "20260924T212448Z-a455d9",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi3/20260924T212448Z-a455d9/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m4": {
+  "producer": "multi4",
+  "epoch": "20260924T212449Z-9dd08d",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi4/20260924T212449Z-9dd08d/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m5": {
+  "producer": "multi5",
+  "epoch": "20260924T212451Z-fd87d9",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi5/20260924T212451Z-fd87d9/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m6": {
+  "producer": "multi6",
+  "epoch": "20260924T212452Z-8ea162",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi6/20260924T212452Z-8ea162/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m7": {
+  "producer": "multi7",
+  "epoch": "20260924T212454Z-9d5504",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi7/20260924T212454Z-9d5504/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m8": {
+  "producer": "multi8",
+  "epoch": "20260924T212455Z-f0e01d",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi8/20260924T212455Z-f0e01d/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m9": {
+  "producer": "multi9",
+  "epoch": "20260924T212457Z-80a702",
+  "manifest": "http://127.0.0.1:18333/otel/ce09242123/traces/v1/multi9/20260924T212457Z-80a702/manifests/g20260924T000000/00000000000000000001.json"
+ }
+}

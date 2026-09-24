@@ -1,0 +1,1478 @@
+{
+  "#meta": {
+    "format": "ITF",
+    "varTypes": {
+      "currentDesign::edgePublish::queue": "Set(Int)",
+      "currentDesign::edgePublish::writer": "{ epoch: Int, gen: Int, nextBatch: Int, pushes: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int, phase: Encoded({ tag: Str }) | ParquetDone({ tag: Str }) | TableDone({ tag: Str }) }), rotated: Set({ epoch: Int, gen: Int }), succeeded: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int } }) }",
+      "currentDesign::edgePublish::tableRows": "Set({ bk: { batch: Int, epoch: Int }, payload: Int })",
+      "currentDesign::edgePublish::parquet": "Set({ batch: Int, epoch: Int })",
+      "currentDesign::edgePublish::manifests": "Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int })",
+      "currentDesign::edgePublish::seals": "Set({ batches: Set({ batch: Int, epoch: Int }), gk: { epoch: Int, gen: Int } })",
+      "currentDesign::edgePublish::workers": "(Int -> { claim: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int }), inserted: Bool })",
+      "currentDesign::edgePublish::ledger": "Set({ batch: Int, epoch: Int })",
+      "currentDesign::edgePublish::ledgerContent": "Set(Int)",
+      "currentDesign::edgePublish::centralCount": "({ batch: Int, epoch: Int } -> Int)",
+      "currentDesign::edgePublish::dedupWindow": "Seq(Int)",
+      "currentDesign::edgePublish::events": "Set(Str)"
+    },
+    "format-description": "https://apalache-mc.org/docs/adr/015adr-trace.html",
+    "description": "Created by Apalache on Thu Sep 24 21:44:19 UTC 2026"
+  },
+  "vars": [
+    "currentDesign::edgePublish::queue",
+    "currentDesign::edgePublish::writer",
+    "currentDesign::edgePublish::tableRows",
+    "currentDesign::edgePublish::parquet",
+    "currentDesign::edgePublish::manifests",
+    "currentDesign::edgePublish::seals",
+    "currentDesign::edgePublish::workers",
+    "currentDesign::edgePublish::ledger",
+    "currentDesign::edgePublish::ledgerContent",
+    "currentDesign::edgePublish::centralCount",
+    "currentDesign::edgePublish::dedupWindow",
+    "currentDesign::edgePublish::events"
+  ],
+  "states": [
+    {
+      "#meta": {
+        "index": 0
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "1"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 1
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "Encoded",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 2
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "TableDone",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 3
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "ParquetDone",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 4
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": [
+          "ambiguous"
+        ]
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 5
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": [
+          "ambiguous"
+        ]
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": [
+            {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          ]
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 6
+      },
+      "currentDesign::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::dedupWindow": [],
+      "currentDesign::edgePublish::events": {
+        "#set": [
+          "ambiguous",
+          "sealed"
+        ]
+      },
+      "currentDesign::edgePublish::ledger": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "currentDesign::edgePublish::manifests": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "currentDesign::edgePublish::seals": {
+        "#set": [
+          {
+            "batches": {
+              "#set": []
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "currentDesign::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "currentDesign::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    }
+  ]
+}

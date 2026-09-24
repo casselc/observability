@@ -1,0 +1,9 @@
+{"exp": "manifest", "what": "list prefix (_path only)", "run": 0, "wall_s": 0.02170909199980997, "S3GetObject": 0, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 0}
+{"exp": "manifest", "what": "read 10 named manifests", "run": 0, "wall_s": 0.017962499000077514, "S3GetObject": 10, "S3ListObjects": 0, "S3HeadObject": 10, "ReadBufferFromS3Bytes": 8530}
+{"exp": "manifest", "what": "list + read all 61", "run": 0, "wall_s": 0.052222360000087065, "S3GetObject": 61, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 51938}
+{"exp": "manifest", "what": "list prefix (_path only)", "run": 1, "wall_s": 0.017483027000025686, "S3GetObject": 0, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 0}
+{"exp": "manifest", "what": "read 10 named manifests", "run": 1, "wall_s": 0.05101959200010242, "S3GetObject": 10, "S3ListObjects": 0, "S3HeadObject": 10, "ReadBufferFromS3Bytes": 8530}
+{"exp": "manifest", "what": "list + read all 61", "run": 1, "wall_s": 0.03885851399991225, "S3GetObject": 61, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 51938}
+{"exp": "manifest", "what": "list prefix (_path only)", "run": 2, "wall_s": 0.018200232000026517, "S3GetObject": 0, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 0}
+{"exp": "manifest", "what": "read 10 named manifests", "run": 2, "wall_s": 0.016008822999992844, "S3GetObject": 10, "S3ListObjects": 0, "S3HeadObject": 10, "ReadBufferFromS3Bytes": 8530}
+{"exp": "manifest", "what": "list + read all 61", "run": 2, "wall_s": 0.03785367199998291, "S3GetObject": 61, "S3ListObjects": 2, "S3HeadObject": 0, "ReadBufferFromS3Bytes": 51938}

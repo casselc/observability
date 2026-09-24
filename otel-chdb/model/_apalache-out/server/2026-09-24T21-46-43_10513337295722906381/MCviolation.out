@@ -1,0 +1,221 @@
+@!@!@STARTMSG 2262:0 @!@!@
+Created by Apalache on Thu Sep 24 21:46:55 UTC 2026
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {}
+/\ noRotationLock::edgePublish::tableRows = {}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 1,
+  pushes |-> {},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {}
+/\ noRotationLock::edgePublish::tableRows = {}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 1,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("Encoded", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {}
+/\ noRotationLock::edgePublish::tableRows = {}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("Encoded", [tag |-> "UNIT"])]},
+  rotated |-> {[epoch |-> 1, gen |-> 1]},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+4: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {"sealed"}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {[batches |-> {}, gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ noRotationLock::edgePublish::tableRows = {}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("Encoded", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+5: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {"sealed"}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {[batches |-> {}, gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ noRotationLock::edgePublish::tableRows = {[bk |-> [batch |-> 1, epoch |-> 1], payload |-> 2]}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("TableDone", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+6: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {"sealed"}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {}
+/\ noRotationLock::edgePublish::parquet = {[batch |-> 1, epoch |-> 1]}
+/\ noRotationLock::edgePublish::queue = { 1, 2 }
+/\ noRotationLock::edgePublish::seals = {[batches |-> {}, gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ noRotationLock::edgePublish::tableRows = {[bk |-> [batch |-> 1, epoch |-> 1], payload |-> 2]}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |->
+    {[bk |-> [batch |-> 1, epoch |-> 1],
+      gk |-> [epoch |-> 1, gen |-> 1],
+      payload |-> 2,
+      phase |-> Variant("ParquetDone", [tag |-> "UNIT"])]},
+  rotated |-> {},
+  succeeded |-> {}]
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+7: <Next>
+/\ noRotationLock::edgePublish::centralCount = SetAsFun({ <<[batch |-> 1, epoch |-> 1], 0>>,
+  <<[batch |-> 1, epoch |-> 2], 0>>,
+  <<[batch |-> 2, epoch |-> 1], 0>>,
+  <<[batch |-> 2, epoch |-> 2], 0>>,
+  <<[batch |-> 3, epoch |-> 1], 0>>,
+  <<[batch |-> 3, epoch |-> 2], 0>> })
+/\ noRotationLock::edgePublish::dedupWindow = <<>>
+/\ noRotationLock::edgePublish::events = {"sealed"}
+/\ noRotationLock::edgePublish::ledger = {}
+/\ noRotationLock::edgePublish::ledgerContent = {}
+/\ noRotationLock::edgePublish::manifests = {[bk |-> [batch |-> 1, epoch |-> 1],
+  gk |-> [epoch |-> 1, gen |-> 1],
+  payload |-> 2]}
+/\ noRotationLock::edgePublish::parquet = {[batch |-> 1, epoch |-> 1]}
+/\ noRotationLock::edgePublish::queue = {1}
+/\ noRotationLock::edgePublish::seals = {[batches |-> {}, gk |-> [epoch |-> 1, gen |-> 1]]}
+/\ noRotationLock::edgePublish::tableRows = {[bk |-> [batch |-> 1, epoch |-> 1], payload |-> 2]}
+/\ noRotationLock::edgePublish::workers = SetAsFun({ <<1, [claim |-> {}, inserted |-> FALSE]>>,
+  <<2, [claim |-> {}, inserted |-> FALSE]>> })
+/\ noRotationLock::edgePublish::writer = [epoch |-> 1,
+  gen |-> 2,
+  nextBatch |-> 2,
+  pushes |-> {},
+  rotated |-> {},
+  succeeded |->
+    {[bk |-> [batch |-> 1, epoch |-> 1], gk |-> [epoch |-> 1, gen |-> 1]]}]
+
+@!@!@ENDMSG 2217 @!@!@

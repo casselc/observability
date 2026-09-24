@@ -1,0 +1,67 @@
+{
+ "r_nat": {
+  "producer": "natural",
+  "epoch": "20260924T205205Z-827022",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/natural/20260924T205205Z-827022/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_unm": {
+  "producer": "unmerged",
+  "epoch": "20260924T205315Z-9fd9e0",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/unmerged/20260924T205315Z-9fd9e0/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_opt": {
+  "producer": "optimized",
+  "epoch": "20260924T205341Z-6de7ed",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/optimized/20260924T205341Z-6de7ed/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m0": {
+  "producer": "multi0",
+  "epoch": "20260924T205401Z-15c256",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi0/20260924T205401Z-15c256/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m1": {
+  "producer": "multi1",
+  "epoch": "20260924T205402Z-408ecc",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi1/20260924T205402Z-408ecc/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m2": {
+  "producer": "multi2",
+  "epoch": "20260924T205403Z-175c9b",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi2/20260924T205403Z-175c9b/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m3": {
+  "producer": "multi3",
+  "epoch": "20260924T205405Z-ab9e0b",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi3/20260924T205405Z-ab9e0b/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m4": {
+  "producer": "multi4",
+  "epoch": "20260924T205406Z-e01985",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi4/20260924T205406Z-e01985/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m5": {
+  "producer": "multi5",
+  "epoch": "20260924T205408Z-7ca9e7",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi5/20260924T205408Z-7ca9e7/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m6": {
+  "producer": "multi6",
+  "epoch": "20260924T205409Z-420074",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi6/20260924T205409Z-420074/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m7": {
+  "producer": "multi7",
+  "epoch": "20260924T205410Z-9ba574",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi7/20260924T205410Z-9ba574/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m8": {
+  "producer": "multi8",
+  "epoch": "20260924T205412Z-c229ad",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi8/20260924T205412Z-c229ad/manifests/g20260924T000000/00000000000000000001.json"
+ },
+ "r_m9": {
+  "producer": "multi9",
+  "epoch": "20260924T205413Z-79c767",
+  "manifest": "http://127.0.0.1:18333/otel/ce/traces/v1/multi9/20260924T205413Z-79c767/manifests/g20260924T000000/00000000000000000001.json"
+ }
+}

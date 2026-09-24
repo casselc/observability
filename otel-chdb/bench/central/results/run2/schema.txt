@@ -1,0 +1,17 @@
+extra column in structure (added in a newer schema): HTTP 200: 8000		8000
+extra column, input_format_parquet_allow_missing_columns=0: HTTP 400: Code: 8. DB::Exception: Column NewCol was not found in parquet schema: (in file/uri otel/parquet/ce09242123/traces/v1/natural/20260924T212352Z-26492c/g20260924T000000/00000000000000000030.parquet): While executing ParquetV3BlockInputFormat:
+column types widened (Duration Int128, schema_version UInt32): HTTP 200: 8000	Int128	123892159000
+inferred Parquet schema: HTTP 200: Timestamp	DateTime64(9, \'UTC\')					
+TraceId	String					
+SpanId	String					
+ParentSpanId	String					
+TraceState	String					
+SpanName	String					
+SpanKind	String					
+ServiceName	String					
+ResourceAttributes	Map(String, String)					
+Scope
+native: ALTER on the read-only attached table: HTTP 500: Code: 774. DB::Exception: Table is read-only. (TABLE_IS_PERMANENTLY_READ_ONLY) (version 26.10.1.618 (official build))
+native: INSERT into the read-only attached table: HTTP 500: Code: 774. DB::Exception: Table is in readonly mode: While executing WaitForAsyncInsert. (TABLE_IS_PERMANENTLY_READ_ONLY) (version 26.10.1.618 (official build))
+native r_nat batches 1-60 hash: HTTP 200: 480000	9447905976857025221
+parquet batches 1-60 hash: HTTP 200: 480000	9447905976857025221

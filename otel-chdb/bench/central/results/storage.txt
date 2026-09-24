@@ -1,0 +1,13 @@
+r_unm unmerged otel_traces objects,bytes: 1502 11491099
+r_unm unmerged otel_traces_trace_id_ts objects,bytes: 902 1280285
+r_unm unmerged parquet objects,bytes: 60 15804207
+r_unm unmerged manifests objects,bytes: 61 51938
+r_opt optimized otel_traces objects,bytes: 1814 36497108
+r_opt optimized otel_traces_trace_id_ts objects,bytes: 1094 9832382
+r_opt optimized parquet objects,bytes: 60 15804745
+r_opt optimized manifests objects,bytes: 61 52184
+r_m0 multi0 otel_traces objects,bytes: 127 957335
+r_m0 multi0 otel_traces_trace_id_ts objects,bytes: 77 106684
+r_m0 multi0 parquet objects,bytes: 5 1316034
+r_m0 multi0 manifests objects,bytes: 6 4988
+active part bytes (reader view): r_unm	11219187	60; r_opt	7177662	1; r_m0	934675	5

@@ -1,0 +1,15 @@
+{"exp": "dedup2", "step": "first attempt, ORDER BY batch_id, row_ordinal (11 parts)", "total": 80000}
+{"exp": "dedup2", "step": "retry after writer OPTIMIZE FINAL (1 parts)", "total": 160000}
+{"exp": "dedup2", "step": "retry after merge, max_threads=16", "total": 160000}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": false, "run": 0, "wall_s": 1.4819466960000227, "qcpu_s": 1.767027}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": true, "run": 0, "wall_s": 4.0321789420002005, "qcpu_s": 4.824676}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": false, "run": 0, "wall_s": 1.568027438999934, "qcpu_s": 2.020231}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": true, "run": 0, "wall_s": 3.377422696999929, "qcpu_s": 4.295881}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": false, "run": 1, "wall_s": 1.5755598490000011, "qcpu_s": 1.796057}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": true, "run": 1, "wall_s": 3.5995298410000487, "qcpu_s": 4.31313}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": false, "run": 1, "wall_s": 1.4174232029999985, "qcpu_s": 1.797363}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": true, "run": 1, "wall_s": 2.8243752339999446, "qcpu_s": 3.721666}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": false, "run": 2, "wall_s": 2.134281091000048, "qcpu_s": 2.328463}
+{"exp": "dedup2", "step": "orderby-cost", "source": "native-1part", "order": true, "run": 2, "wall_s": 3.5637788120000096, "qcpu_s": 4.501776}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": false, "run": 2, "wall_s": 2.297700549999945, "qcpu_s": 2.526432}
+{"exp": "dedup2", "step": "orderby-cost", "source": "parquet", "order": true, "run": 2, "wall_s": 3.503087179999966, "qcpu_s": 4.333002}

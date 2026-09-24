@@ -1,0 +1,22 @@
+{"exp": "dedup", "source": "parquet", "step": "first attempt", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "parquet", "step": "retry: same settings", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "parquet", "step": "retry: max_threads=1, max_insert_threads=1", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "parquet", "step": "retry: max_block_size=10000", "written": 80000, "total": 144000}
+{"exp": "dedup", "source": "parquet", "step": "retry: max_threads=16", "written": 80000, "total": 144000}
+{"exp": "dedup", "source": "parquet", "step": "no token, run twice", "written": null, "total": 160000}
+{"exp": "dedup", "source": "native-3parts", "step": "first attempt", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-3parts", "step": "retry: same settings", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-3parts", "step": "retry: max_threads=1, max_insert_threads=1", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-3parts", "step": "retry: max_block_size=10000", "written": 80000, "total": 155410}
+{"exp": "dedup", "source": "native-3parts", "step": "retry: max_threads=16", "written": 80000, "total": 155410}
+{"exp": "dedup", "source": "native-3parts", "step": "no token, run twice", "written": null, "total": 160000}
+{"exp": "dedup", "source": "native-60parts", "step": "first attempt", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-60parts", "step": "retry: same settings", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-60parts", "step": "retry: max_threads=1, max_insert_threads=1", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-60parts", "step": "retry: max_block_size=10000", "written": 80000, "total": 144000}
+{"exp": "dedup", "source": "native-60parts", "step": "retry: max_threads=16", "written": 80000, "total": 144000}
+{"exp": "dedup", "source": "native-60parts", "step": "no token, run twice", "written": null, "total": 160000}
+{"exp": "dedup", "source": "native-live", "step": "first attempt (13 parts in reader)", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-live", "step": "retry, no merge in between", "written": 80000, "total": 80000}
+{"exp": "dedup", "source": "native-live", "step": "retry after writer OPTIMIZE FINAL (1 parts in reader)", "written": 80000, "total": 160000}
+{"exp": "dedup", "source": "native-live", "step": "retry after merge, max_threads=1", "written": 80000, "total": 160000}

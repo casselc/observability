@@ -1,0 +1,1512 @@
+{
+  "#meta": {
+    "format": "ITF",
+    "varTypes": {
+      "noRotationLock::edgePublish::queue": "Set(Int)",
+      "noRotationLock::edgePublish::writer": "{ epoch: Int, gen: Int, nextBatch: Int, pushes: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int, phase: Encoded({ tag: Str }) | ParquetDone({ tag: Str }) | TableDone({ tag: Str }) }), rotated: Set({ epoch: Int, gen: Int }), succeeded: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int } }) }",
+      "noRotationLock::edgePublish::tableRows": "Set({ bk: { batch: Int, epoch: Int }, payload: Int })",
+      "noRotationLock::edgePublish::parquet": "Set({ batch: Int, epoch: Int })",
+      "noRotationLock::edgePublish::manifests": "Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int })",
+      "noRotationLock::edgePublish::seals": "Set({ batches: Set({ batch: Int, epoch: Int }), gk: { epoch: Int, gen: Int } })",
+      "noRotationLock::edgePublish::workers": "(Int -> { claim: Set({ bk: { batch: Int, epoch: Int }, gk: { epoch: Int, gen: Int }, payload: Int }), inserted: Bool })",
+      "noRotationLock::edgePublish::ledger": "Set({ batch: Int, epoch: Int })",
+      "noRotationLock::edgePublish::ledgerContent": "Set(Int)",
+      "noRotationLock::edgePublish::centralCount": "({ batch: Int, epoch: Int } -> Int)",
+      "noRotationLock::edgePublish::dedupWindow": "Seq(Int)",
+      "noRotationLock::edgePublish::events": "Set(Str)"
+    },
+    "format-description": "https://apalache-mc.org/docs/adr/015adr-trace.html",
+    "description": "Created by Apalache on Thu Sep 24 21:44:41 UTC 2026"
+  },
+  "vars": [
+    "noRotationLock::edgePublish::queue",
+    "noRotationLock::edgePublish::writer",
+    "noRotationLock::edgePublish::tableRows",
+    "noRotationLock::edgePublish::parquet",
+    "noRotationLock::edgePublish::manifests",
+    "noRotationLock::edgePublish::seals",
+    "noRotationLock::edgePublish::workers",
+    "noRotationLock::edgePublish::ledger",
+    "noRotationLock::edgePublish::ledgerContent",
+    "noRotationLock::edgePublish::centralCount",
+    "noRotationLock::edgePublish::dedupWindow",
+    "noRotationLock::edgePublish::events"
+  ],
+  "states": [
+    {
+      "#meta": {
+        "index": 0
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "1"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 1
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "1"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "Encoded",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 2
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "Encoded",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": [
+            {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          ]
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 3
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "TableDone",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": [
+            {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          ]
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 4
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "ParquetDone",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": [
+            {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          ]
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 5
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": [
+          "sealed"
+        ]
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          },
+          {
+            "#bigint": "2"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": [
+          {
+            "batches": {
+              "#set": []
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              },
+              "payload": {
+                "#bigint": "2"
+              },
+              "phase": {
+                "tag": "ParquetDone",
+                "value": {
+                  "tag": "UNIT"
+                }
+              }
+            }
+          ]
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": []
+        }
+      }
+    },
+    {
+      "#meta": {
+        "index": 6
+      },
+      "noRotationLock::edgePublish::centralCount": {
+        "#map": [
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "2"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ],
+          [
+            {
+              "batch": {
+                "#bigint": "3"
+              },
+              "epoch": {
+                "#bigint": "2"
+              }
+            },
+            {
+              "#bigint": "0"
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::dedupWindow": [],
+      "noRotationLock::edgePublish::events": {
+        "#set": [
+          "sealed"
+        ]
+      },
+      "noRotationLock::edgePublish::ledger": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::ledgerContent": {
+        "#set": []
+      },
+      "noRotationLock::edgePublish::manifests": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::parquet": {
+        "#set": [
+          {
+            "batch": {
+              "#bigint": "1"
+            },
+            "epoch": {
+              "#bigint": "1"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::queue": {
+        "#set": [
+          {
+            "#bigint": "1"
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::seals": {
+        "#set": [
+          {
+            "batches": {
+              "#set": []
+            },
+            "gk": {
+              "epoch": {
+                "#bigint": "1"
+              },
+              "gen": {
+                "#bigint": "1"
+              }
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::tableRows": {
+        "#set": [
+          {
+            "bk": {
+              "batch": {
+                "#bigint": "1"
+              },
+              "epoch": {
+                "#bigint": "1"
+              }
+            },
+            "payload": {
+              "#bigint": "2"
+            }
+          }
+        ]
+      },
+      "noRotationLock::edgePublish::workers": {
+        "#map": [
+          [
+            {
+              "#bigint": "1"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ],
+          [
+            {
+              "#bigint": "2"
+            },
+            {
+              "claim": {
+                "#set": []
+              },
+              "inserted": false
+            }
+          ]
+        ]
+      },
+      "noRotationLock::edgePublish::writer": {
+        "epoch": {
+          "#bigint": "1"
+        },
+        "gen": {
+          "#bigint": "2"
+        },
+        "nextBatch": {
+          "#bigint": "2"
+        },
+        "pushes": {
+          "#set": []
+        },
+        "rotated": {
+          "#set": []
+        },
+        "succeeded": {
+          "#set": [
+            {
+              "bk": {
+                "batch": {
+                  "#bigint": "1"
+                },
+                "epoch": {
+                  "#bigint": "1"
+                }
+              },
+              "gk": {
+                "epoch": {
+                  "#bigint": "1"
+                },
+                "gen": {
+                  "#bigint": "1"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

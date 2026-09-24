@@ -1,0 +1,10 @@
+{"exp": "conv", "structure": "plain", "run": 0, "wall_s": 0.26395471800015, "qcpu_s": 0.525792}
+{"exp": "conv", "structure": "target-types", "run": 0, "wall_s": 0.25306451799997376, "qcpu_s": 0.563573}
+{"exp": "conv", "structure": "plain", "run": 1, "wall_s": 0.23136046599984184, "qcpu_s": 0.442126}
+{"exp": "conv", "structure": "target-types", "run": 1, "wall_s": 0.2520097810001971, "qcpu_s": 0.533245}
+{"exp": "conv", "structure": "plain", "run": 2, "wall_s": 0.1976088430001255, "qcpu_s": 0.40747}
+{"exp": "conv", "structure": "target-types", "run": 2, "wall_s": 0.25259975100016163, "qcpu_s": 0.543335}
+{"exp": "conv", "structure": "plain", "run": 3, "wall_s": 0.22381684300034976, "qcpu_s": 0.452493}
+{"exp": "conv", "structure": "target-types", "run": 3, "wall_s": 0.2752392309998868, "qcpu_s": 0.537852}
+{"exp": "conv", "structure": "plain", "run": 4, "wall_s": 0.22848798299992268, "qcpu_s": 0.433076}
+{"exp": "conv", "structure": "target-types", "run": 4, "wall_s": 0.266272034999929, "qcpu_s": 0.570074}

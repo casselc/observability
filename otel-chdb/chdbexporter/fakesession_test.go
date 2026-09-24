@@ -43,9 +43,12 @@ type fakeTable struct {
 }
 
 type fakeObject struct {
-	data   []byte
-	rows   []fakeRow // Parquet
-	writes int
+	data     []byte
+	rows     []fakeRow // Parquet
+	writes   int
+	kind, ns string
+	manifest *batchManifest
+	seal     *sealManifest
 }
 
 type fault struct {
@@ -65,6 +68,7 @@ type fakeWorld struct {
 	violations []string
 	statements []string
 	rec        *stepRecorder
+	cache      *manifestCache
 	payload    string // what the current push is exporting, for steps
 }
 
@@ -326,10 +330,18 @@ func (w *fakeWorld) insert(q, format string, data []byte) error {
 
 // decodeEnvelopeRows decodes a payload with the structure a statement names
 // and returns each row's envelope.
+var structureCache sync.Map // structure string -> []rbColumn
+
 func decodeEnvelopeRows(structure string, data []byte) ([]fakeRow, error) {
-	cols, err := parseStructure(structure)
-	if err != nil {
-		return nil, err
+	var cols []rbColumn
+	if c, ok := structureCache.Load(structure); ok {
+		cols = c.([]rbColumn)
+	} else {
+		var err error
+		if cols, err = parseStructure(structure); err != nil {
+			return nil, err
+		}
+		structureCache.Store(structure, cols)
 	}
 	rows, err := decodeRowBinary(cols, data)
 	if err != nil {
@@ -438,8 +450,17 @@ func (w *fakeWorld) putObject(key string, k objKey, kind string, data []byte, ro
 		} else if kind != "seal" {
 			w.violate("%s %s overwritten (write %d)", kind, key, o.writes+1)
 		}
-		o.data, o.rows = append([]byte(nil), data...), rows
+		o.data, o.rows, o.kind, o.ns = append([]byte(nil), data...), rows, kind, k.ns
 		o.writes++
+		switch kind {
+		case "manifest":
+			o.manifest = new(batchManifest)
+			_ = json.Unmarshal(data, o.manifest)
+		case "seal":
+			o.seal = new(sealManifest)
+			_ = json.Unmarshal(data, o.seal)
+		}
+		w.cache = nil
 		return nil
 	})
 	switch kind {
@@ -470,28 +491,36 @@ type fakeSeal struct {
 	sealManifest
 }
 
+// manifests returns every batch manifest and seal in S3, in key order. They
+// are parsed when written and cached until the next write.
 func (w *fakeWorld) manifests() ([]fakeManifest, []fakeSeal) {
+	if w.cache != nil {
+		return w.cache.ms, w.cache.ss
+	}
 	var ms []fakeManifest
 	var ss []fakeSeal
 	keys := make([]string, 0, len(w.objects))
-	for k := range w.objects {
-		keys = append(keys, k)
+	for k, o := range w.objects {
+		if o.kind == "manifest" || o.kind == "seal" {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		k, kind, _ := parseObjKey(key)
-		switch kind {
-		case "manifest":
-			var m batchManifest
-			_ = json.Unmarshal(w.objects[key].data, &m)
-			ms = append(ms, fakeManifest{key, m})
-		case "seal":
-			var s sealManifest
-			_ = json.Unmarshal(w.objects[key].data, &s)
-			ss = append(ss, fakeSeal{key, k.ns, s})
+		o := w.objects[key]
+		if o.kind == "manifest" {
+			ms = append(ms, fakeManifest{key, *o.manifest})
+		} else {
+			ss = append(ss, fakeSeal{key, o.ns, *o.seal})
 		}
 	}
+	w.cache = &manifestCache{ms, ss}
 	return ms, ss
+}
+
+type manifestCache struct {
+	ms []fakeManifest
+	ss []fakeSeal
 }
 
 // crashLocal forgets the local catalog, as a restart on a fresh (temporary)

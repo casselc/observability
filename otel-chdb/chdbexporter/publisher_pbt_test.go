@@ -52,7 +52,7 @@ type pubOpts struct {
 	record         bool // record quint steps
 }
 
-var pubRunSeq atomic.Uint64
+var pubRunSeq, pubCases atomic.Uint64
 
 type attempt struct {
 	epoch, signal, payload, gen string
@@ -146,6 +146,9 @@ func (m *pubMachine) start() error {
 		return err
 	}
 	e := newExporter(zap.NewNop(), &cfg, "")
+	// The pools' 1 MiB buffers dominate a test case's cost; batches here are
+	// a few rows.
+	e.rbPool.New = func() any { return &rowBinary{} }
 	e.conns = make(chan session, cfg.Connections)
 	for i := 0; i < cfg.Connections; i++ {
 		s := fakeSession{m.w}
@@ -181,16 +184,16 @@ func (m *pubMachine) peekBatch(signal string) uint64 {
 
 // ---- commands -----------------------------------------------------------------
 
-// pushOnce exports one payload (a new one, or a retry of a queued one) of
-// 1-3 rows, with an optional fault armed, and updates the reference model.
+// pushOnce exports one payload (a retry of a queued one if asked and there
+// is one, else a new one) of 1-3 rows, with an optional fault armed, and
+// updates the reference model.
 func pushOnce(m *pubMachine, tc hegel.TestCase, retry bool, faultOp, faultMode string) {
 	var payload, signal string
-	if retry {
+	if retry && len(m.queue) > 0 {
 		keys := make([]string, 0, len(m.queue))
 		for k := range m.queue {
 			keys = append(keys, k)
 		}
-		tc.Assume(len(keys) > 0)
 		sort.Strings(keys)
 		payload = hegel.Draw(tc, hegel.SampledFrom(keys))
 		signal = m.queue[payload]
@@ -233,6 +236,9 @@ func pushOnce(m *pubMachine, tc hegel.TestCase, retry bool, faultOp, faultMode s
 	if err != nil {
 		res = "error: " + err.Error()
 	}
+	for _, f := range fired {
+		tc.Event("fault " + f.op + " " + f.mode)
+	}
 	m.logf("push %s %s (%d rows) at %s -> batch %d in %s; faults %v; %s", payload, signal, n, m.clock.Format("15:04"), a.batch, gen, fired, res)
 	tc.Note(m.log[len(m.log)-1])
 }
@@ -248,8 +254,20 @@ func (m *pubMachine) rotated(signal, gen string, fired []fault) {
 	}
 }
 
-func drawFault(m *pubMachine, tc hegel.TestCase, op string) (string, string) {
-	tc.Assume(slices.Contains(m.o.faults, op))
+// drawFault picks one of ops that this run may fail and a mode. It returns
+// no fault rather than rejecting the rule when none applies: rejected rules
+// burn hegel's retry budget and cut sequences short.
+func drawFault(m *pubMachine, tc hegel.TestCase, ops ...string) (string, string) {
+	var ok []string
+	for _, op := range ops {
+		if slices.Contains(m.o.faults, op) {
+			ok = append(ok, op)
+		}
+	}
+	if len(ok) == 0 {
+		return "", ""
+	}
+	op := hegel.Draw(tc, hegel.SampledFrom(ok))
 	mode := "fail"
 	if m.o.ambiguous && hegel.Draw(tc, hegel.Booleans()) {
 		mode = "ambiguous"
@@ -260,28 +278,38 @@ func drawFault(m *pubMachine, tc hegel.TestCase, op string) (string, string) {
 func (m *pubMachine) RulePush(tc hegel.TestCase)  { pushOnce(m, tc, false, "", "") }
 func (m *pubMachine) RuleRetry(tc hegel.TestCase) { pushOnce(m, tc, true, "", "") }
 
+// The fault rules are separate so that swarm testing can switch each kind
+// off for a whole test case.
+
 func (m *pubMachine) RuleTableFault(tc hegel.TestCase) {
-	op, mode := drawFault(m, tc, "insert")
-	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()) && len(m.queue) > 0, op, mode)
+	var op, mode string
+	if m.cfg.StoreTables {
+		op, mode = drawFault(m, tc, "insert")
+	}
+	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()), op, mode)
 }
 
 func (m *pubMachine) RuleParquetFault(tc hegel.TestCase) {
-	tc.Assume(m.cfg.parquet())
-	op, mode := drawFault(m, tc, "parquet")
-	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()) && len(m.queue) > 0, op, mode)
+	var op, mode string
+	if m.cfg.parquet() {
+		op, mode = drawFault(m, tc, "parquet")
+	}
+	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()), op, mode)
 }
 
 func (m *pubMachine) RuleManifestFault(tc hegel.TestCase) {
 	op, mode := drawFault(m, tc, "manifest")
-	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()) && len(m.queue) > 0, op, mode)
+	pushOnce(m, tc, hegel.Draw(tc, hegel.Booleans()), op, mode)
 }
 
 // RuleRotateWithFault moves into the next generation and pushes, with a
 // fault in the new generation's DDL or in the old one's seal.
 func (m *pubMachine) RuleRotateWithFault(tc hegel.TestCase) {
-	op := hegel.Draw(tc, hegel.SampledFrom([]string{"ddl", "seal", "drop", "optimize"}))
-	tc.Assume(m.cfg.StoreTables || op == "seal")
-	op, mode := drawFault(m, tc, op)
+	ops := []string{"seal"}
+	if m.cfg.StoreTables {
+		ops = append(ops, "ddl", "drop", "optimize")
+	}
+	op, mode := drawFault(m, tc, ops...)
 	m.clock = m.clock.Add(m.cfg.generation())
 	pushOnce(m, tc, false, op, mode)
 }
@@ -300,11 +328,14 @@ func (m *pubMachine) RuleNextGeneration(tc hegel.TestCase) {
 	tc.Note(m.log[len(m.log)-1])
 }
 
+// clockMachine adds a clock that can go backwards. It is a separate type,
+// not a switch inside a rule, because hegel finds rules by reflection.
+type clockMachine struct{ *pubMachine }
+
 // RuleClockBack steps the wall clock back (NTP, a VM migration), or
 // equivalently: a push that read the clock just before a generation boundary
 // takes the rotation lock after one that read it just after.
-func (m *pubMachine) RuleClockBack(tc hegel.TestCase) {
-	tc.Assume(m.o.clockBack)
+func (m clockMachine) RuleClockBack(tc hegel.TestCase) {
 	d := time.Duration(hegel.Draw(tc, hegel.Integers(1, 2)))*m.cfg.generation() - time.Duration(hegel.Draw(tc, hegel.Integers(0, 59)))*time.Minute
 	m.clock = m.clock.Add(-d)
 	m.logf("clock -%v -> %s", d, m.clock.Format("15:04"))
@@ -314,7 +345,6 @@ func (m *pubMachine) RuleClockBack(tc hegel.TestCase) {
 // RuleRetention lets local_retention pass for some sealed generations and
 // runs the sweep the retention loop would run, maybe with a failing DETACH.
 func (m *pubMachine) RuleRetention(tc hegel.TestCase) {
-	tc.Assume(m.cfg.StoreTables)
 	m.clock = m.clock.Add(time.Duration(hegel.Draw(tc, hegel.Integers(0, 7))) * time.Hour / 2)
 	faulty := len(m.o.faults) > 0 && slices.Contains(m.o.faults, "detach") && hegel.Draw(tc, hegel.Booleans())
 	if faulty {
@@ -587,6 +617,7 @@ var pubInvariants = []string{"InvariantNothingForbidden", "InvariantCommitImplie
 
 // runPublisherMachine is one test case.
 func runPublisherMachine(tc hegel.TestCase, o pubOpts) {
+	pubCases.Add(1)
 	m := newPubMachine(tc, o)
 	lastPubMachine.Store(m)
 	// A test case ends like a crash: nothing is sealed, and the process-wide
@@ -601,7 +632,12 @@ func runPublisherMachine(tc hegel.TestCase, o pubOpts) {
 	if steps == 0 {
 		steps = 30
 	}
-	hegel.RunStateful(tc, m, hegel.WithStatefulStepCount(steps), hegel.WithAlwaysCheckInvariants(pubInvariants...))
+	opts := []hegel.StateMachineOption{hegel.WithStatefulStepCount(steps), hegel.WithAlwaysCheckInvariants(pubInvariants...)}
+	if o.clockBack {
+		hegel.RunStateful(tc, &clockMachine{m}, opts...)
+	} else {
+		hegel.RunStateful(tc, m, opts...)
+	}
 }
 
 var allFaults = []string{"ddl", "insert", "parquet", "manifest", "seal", "drop", "optimize", "detach"}
@@ -626,7 +662,12 @@ func TestPBTPublisherStateMachine(t *testing.T) {
 func expectPublisherFinding(t *testing.T, what string, o pubOpts, n int) *pubMachine {
 	t.Helper()
 	o.record = true
-	expectFinding(t, what, func(tc hegel.TestCase) { runPublisherMachine(tc, o) }, pbtOpts(n)...)
+	if o.steps == 0 {
+		o.steps = 20 // shorter sequences shrink faster
+	}
+	start, c0 := time.Now(), pubCases.Load()
+	expectFinding(t, what, func(tc hegel.TestCase) { runPublisherMachine(tc, o) }, pbtOpts(n, hegel.WithReportMultipleFailures(false))...)
+	t.Logf("%d test cases in %v, shrinking included", pubCases.Load()-c0, time.Since(start).Round(time.Millisecond))
 	m := lastPubMachine.Load()
 	if m.w.rec != nil {
 		t.Logf("as model steps:\n%s", renderSteps(m.w.rec.steps))

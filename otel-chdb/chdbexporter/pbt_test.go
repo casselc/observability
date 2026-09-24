@@ -73,6 +73,13 @@ func expectFinding(t *testing.T, what string, body func(hegel.TestCase), opts ..
 	os.Stdout = w
 	outc := make(chan string)
 	go func() { b, _ := io.ReadAll(r); outc <- string(b) }()
+	// hegel.Run keys its example database by call site, which is this line
+	// for every finding: give each test its own database instead.
+	db := os.Getenv("HEGEL_DB")
+	if db == "" {
+		db = filepath.Join(os.TempDir(), "chdbexporter-hegel")
+	}
+	opts = append(opts, hegel.WithDatabase(filepath.Join(db, strings.ReplaceAll(t.Name(), "/", "_"))))
 	runErr := hegel.Run(body, opts...)
 	os.Stdout = old
 	w.Close()
@@ -80,6 +87,11 @@ func expectFinding(t *testing.T, what string, body func(hegel.TestCase), opts ..
 	stdoutMu.Unlock()
 	if runErr == nil {
 		t.Fatalf("expected hegel to find %s, but every example passed. If it was fixed, turn this into an ordinary property.", what)
+	}
+	// A run can also fail without a counterexample (a health check, a
+	// nondeterministic test); that is not a finding.
+	if !strings.Contains(out, "failure:") {
+		t.Fatalf("hegel failed without a counterexample: %v\n%s", runErr, out)
 	}
 	t.Logf("hegel found %s. Shrunk counterexample:\n%s", what, trimReport(out))
 	return out

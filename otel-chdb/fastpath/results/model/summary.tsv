@@ -29,3 +29,14 @@ unboundedRequests	batchIngestedAtMostOnce	VIOLATED	21s	Found an issue (4521ms at
 graceNoMargin	noLostBehindCheckpoint	ok	110s	
 unboundedRequests	importerNeverInserts	VIOLATED	17s	Found an issue (756ms at 4 traces/second)
 fireBeforeCommit	onlyCommittedIngested	VIOLATED	19s	Found an issue (252ms at 4 traces/second)
+unboundedRequests	onlyCommittedIngested	ok	140s	
+fireBeforeCommit	importerNeverInserts	VIOLATED	21s	Found an issue (633ms at 3 traces/second)
+unboundedRequests	noLostBehindCheckpoint	ok	122s	
+tokenOnly	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (678ms at 4 traces/second)
+fireBeforeCommit	noLostBehindCheckpoint	ok	122s	
+tokenOnly	importerNeverInserts	VIOLATED	13s	Found an issue (785ms at 4 traces/second)
+fireBeforeCommit	batchIngestedAtMostOnce	ok	141s	
+tokenOnlyNoFastPath	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (789ms at 4 traces/second)
+tokenOnly	onlyCommittedIngested	ok	127s	
+tokenOnlyNoFastPath	importerNeverInserts	VIOLATED	13s	Found an issue (476ms at 6 traces/second)
+tokenOnly	noLostBehindCheckpoint	ok	102s	

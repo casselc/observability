@@ -1,0 +1,793 @@
+An example execution:
+
+[State 0]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 0,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 0,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 0,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 0,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 0,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 1,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 1,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 1,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 2,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 2,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 2,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 3,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 4,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 4,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 4,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 4,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 5,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 5,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 6,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set(),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 0,
+  tokenOnlyNoFastPath::fastPath::impInserts: 0,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 6,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set("impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 1,
+  tokenOnlyNoFastPath::fastPath::impInserts: 1,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 20]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set("impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 1,
+  tokenOnlyNoFastPath::fastPath::impInserts: 1,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 21]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set("impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 1, phase: "done" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 2,
+  tokenOnlyNoFastPath::fastPath::impInserts: 2,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(1, 1), (1, 2)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 22]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events: Set("impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 1, phase: "done" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 2,
+  tokenOnlyNoFastPath::fastPath::impInserts: 2,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(1, 2), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 23]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events:
+    Set("impCrash", "impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 2,
+  tokenOnlyNoFastPath::fastPath::impInserts: 2,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(1, 2), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 24]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events:
+    Set("impCrash", "impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 3,
+  tokenOnlyNoFastPath::fastPath::impInserts: 3,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(1, 2), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 25]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events:
+    Set("impCrash", "impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 3,
+  tokenOnlyNoFastPath::fastPath::impInserts: 3,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 26]
+{
+  tokenOnlyNoFastPath::fastPath::abandoned: Set(2),
+  tokenOnlyNoFastPath::fastPath::buffer: Set(),
+  tokenOnlyNoFastPath::fastPath::ckpt: 0,
+  tokenOnlyNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnlyNoFastPath::fastPath::clock: 7,
+  tokenOnlyNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnlyNoFastPath::fastPath::committed: [1],
+  tokenOnlyNoFastPath::fastPath::events:
+    Set("impCrash", "impInserted", "impPartial"),
+  tokenOnlyNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnlyNoFastPath::fastPath::imp: { b: 1, phase: "done" },
+  tokenOnlyNoFastPath::fastPath::impChecks: 4,
+  tokenOnlyNoFastPath::fastPath::impInserts: 4,
+  tokenOnlyNoFastPath::fastPath::ledger: Set(),
+  tokenOnlyNoFastPath::fastPath::markers: Set(),
+  tokenOnlyNoFastPath::fastPath::net: Set(),
+  tokenOnlyNoFastPath::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnlyNoFastPath::fastPath::window: [(1, 1), (1, 2)],
+  tokenOnlyNoFastPath::fastPath::written: Set(1, 2),
+  tokenOnlyNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (789ms at 4 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

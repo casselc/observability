@@ -1,0 +1,586 @@
+An example execution:
+
+[State 0]
+{
+  tokenOnly::fastPath::abandoned: Set(),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 0,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  tokenOnly::fastPath::abandoned: Set(),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 0,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 0,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 0,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 0,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 1,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 1,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0)],
+  tokenOnly::fastPath::written: Set(2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 1,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 2,
+  tokenOnly::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  tokenOnly::fastPath::committed: [],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 2,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 2,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 3,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 4,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 4,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 4,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 4,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 5,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 5,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 6,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set(),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 0,
+  tokenOnly::fastPath::impInserts: 0,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  tokenOnly::fastPath::abandoned: Set(2),
+  tokenOnly::fastPath::buffer: Set(),
+  tokenOnly::fastPath::ckpt: 0,
+  tokenOnly::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  tokenOnly::fastPath::clock: 6,
+  tokenOnly::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  tokenOnly::fastPath::committed: [1],
+  tokenOnly::fastPath::events: Set("impPartial"),
+  tokenOnly::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  tokenOnly::fastPath::imp: { b: 0, phase: "idle" },
+  tokenOnly::fastPath::impChecks: 1,
+  tokenOnly::fastPath::impInserts: 1,
+  tokenOnly::fastPath::ledger: Set(),
+  tokenOnly::fastPath::markers: Set(),
+  tokenOnly::fastPath::net: Set(),
+  tokenOnly::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  tokenOnly::fastPath::window: [(0, 0), (0, 0)],
+  tokenOnly::fastPath::written: Set(1, 2),
+  tokenOnly::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (785ms at 4 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

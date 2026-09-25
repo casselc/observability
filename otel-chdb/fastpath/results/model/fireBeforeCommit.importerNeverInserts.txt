@@ -1,0 +1,615 @@
+An example execution:
+
+[State 0]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 0,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 0,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0)],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 0,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0)],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 3]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 1,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0)],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 4]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0)],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 5]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 6]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 7]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 8]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 9]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 10]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 2,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 11]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 3,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 12]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 3,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 13]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 3,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 14]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 4,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 15]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 5,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 16]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 5,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 17]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 5,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 18]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 6,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 19]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 7,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set(),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 0, phase: "idle" },
+  fireBeforeCommit::fastPath::impChecks: 0,
+  fireBeforeCommit::fastPath::impInserts: 0,
+  fireBeforeCommit::fastPath::ledger: Set(),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(0, 0), (0, 0)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[State 20]
+{
+  fireBeforeCommit::fastPath::abandoned: Set(2),
+  fireBeforeCommit::fastPath::buffer: Set(),
+  fireBeforeCommit::fastPath::ckpt: 0,
+  fireBeforeCommit::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fireBeforeCommit::fastPath::clock: 7,
+  fireBeforeCommit::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fireBeforeCommit::fastPath::committed: [1],
+  fireBeforeCommit::fastPath::events: Set("impInserted"),
+  fireBeforeCommit::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fireBeforeCommit::fastPath::imp: { b: 1, phase: "done" },
+  fireBeforeCommit::fastPath::impChecks: 1,
+  fireBeforeCommit::fastPath::impInserts: 1,
+  fireBeforeCommit::fastPath::ledger: Set(1),
+  fireBeforeCommit::fastPath::markers: Set(),
+  fireBeforeCommit::fastPath::net: Set(),
+  fireBeforeCommit::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fireBeforeCommit::fastPath::window: [(1, 1), (1, 2)],
+  fireBeforeCommit::fastPath::written: Set(1, 2),
+  fireBeforeCommit::fastPath::writtenAt: Map(1 -> 2, 2 -> 2)
+}
+
+[violation] Found an issue (633ms at 3 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x6199 --backend=typescript to reproduce.
+error: Invariant violated

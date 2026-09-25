@@ -1,0 +1,586 @@
+An example execution:
+
+[State 0]
+{
+  ledgerCheck::fastPath::abandoned: Set(),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 0,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  ledgerCheck::fastPath::abandoned: Set(),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 0,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 0,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 0,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 0,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 1,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 1,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0)],
+  ledgerCheck::fastPath::written: Set(2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 1,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 2,
+  ledgerCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheck::fastPath::committed: [],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 2,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 2,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 3,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 4,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 4,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 4,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 4,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 5,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 5,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 6,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set(),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 0,
+  ledgerCheck::fastPath::impInserts: 0,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  ledgerCheck::fastPath::abandoned: Set(2),
+  ledgerCheck::fastPath::buffer: Set(),
+  ledgerCheck::fastPath::ckpt: 0,
+  ledgerCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheck::fastPath::clock: 6,
+  ledgerCheck::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  ledgerCheck::fastPath::committed: [1],
+  ledgerCheck::fastPath::events: Set("impPartial"),
+  ledgerCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheck::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheck::fastPath::impChecks: 1,
+  ledgerCheck::fastPath::impInserts: 1,
+  ledgerCheck::fastPath::ledger: Set(),
+  ledgerCheck::fastPath::markers: Set(),
+  ledgerCheck::fastPath::net: Set(),
+  ledgerCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheck::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheck::fastPath::written: Set(1, 2),
+  ledgerCheck::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (603ms at 5 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

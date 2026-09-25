@@ -1,0 +1,934 @@
+An example execution:
+
+[State 0]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 0,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [],
+  checkAnyRow::fastPath::written: Set(),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 0,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [],
+  checkAnyRow::fastPath::written: Set(),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 0,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0)],
+  checkAnyRow::fastPath::written: Set(),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 3]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 1,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0)],
+  checkAnyRow::fastPath::written: Set(),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 4]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 2,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0)],
+  checkAnyRow::fastPath::written: Set(),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 5]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 2,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  checkAnyRow::fastPath::committed: [],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 6]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 2,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 7]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 2,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 8]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 3,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 9]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 3,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 10]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 3,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 11]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 3,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 12]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 3,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 13]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 4,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 14]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 4,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 15]
+{
+  checkAnyRow::fastPath::abandoned: Set(),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 4,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 16]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 4,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 17]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 5,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 18]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 5,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 19]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 5,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 20]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 6,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 21]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 6,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 22]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 23]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set(),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 0,
+  checkAnyRow::fastPath::impInserts: 0,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  checkAnyRow::fastPath::window: [(0, 0), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 24]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impPartial"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 1,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(0, 0), (2, 2)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 25]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 2, phase: "done" },
+  checkAnyRow::fastPath::impChecks: 2,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(0, 0), (2, 2)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 26]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 2,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(0, 0), (2, 2)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 27]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 2, phase: "done" },
+  checkAnyRow::fastPath::impChecks: 3,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(0, 0), (2, 2)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 28]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 2, phase: "done" },
+  checkAnyRow::fastPath::impChecks: 3,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(2, 2), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 29]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 3,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(2, 2), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 30]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 0,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 2, phase: "done" },
+  checkAnyRow::fastPath::impChecks: 4,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(2, 2), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 31]
+{
+  checkAnyRow::fastPath::abandoned: Set(1),
+  checkAnyRow::fastPath::buffer: Set(),
+  checkAnyRow::fastPath::ckpt: 1,
+  checkAnyRow::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  checkAnyRow::fastPath::clock: 7,
+  checkAnyRow::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  checkAnyRow::fastPath::committed: [2],
+  checkAnyRow::fastPath::events: Set("impCrash", "impPartial", "impSkipped"),
+  checkAnyRow::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  checkAnyRow::fastPath::imp: { b: 0, phase: "idle" },
+  checkAnyRow::fastPath::impChecks: 4,
+  checkAnyRow::fastPath::impInserts: 1,
+  checkAnyRow::fastPath::ledger: Set(),
+  checkAnyRow::fastPath::markers: Set(),
+  checkAnyRow::fastPath::net: Set(),
+  checkAnyRow::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  checkAnyRow::fastPath::window: [(2, 2), (0, 0)],
+  checkAnyRow::fastPath::written: Set(1, 2),
+  checkAnyRow::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[violation] Found an issue (895ms at 4 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x66e5 --backend=typescript to reproduce.
+error: Invariant violated

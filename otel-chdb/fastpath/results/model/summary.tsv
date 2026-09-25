@@ -42,3 +42,12 @@ tokenOnlyNoFastPath	importerNeverInserts	VIOLATED	13s	Found an issue (476ms at 6
 tokenOnly	noLostBehindCheckpoint	ok	102s	
 tokenOnlyNoFastPath	noLostBehindCheckpoint	ok	96s	
 tokenOnlyNoFastPath	onlyCommittedIngested	ok	114s	
+checkAnyRow	noLostBehindCheckpoint	VIOLATED	17s	Found an issue (895ms at 4 traces/second)
+checkAnyRow	importerNeverInserts	VIOLATED	17s	Found an issue (454ms at 7 traces/second)
+ledgerCheck	batchIngestedAtMostOnce	VIOLATED	17s	Found an issue (870ms at 3 traces/second)
+checkAnyRow	onlyCommittedIngested	ok	119s	
+checkAnyRow	batchIngestedAtMostOnce	ok	125s	
+ledgerCheck	importerNeverInserts	VIOLATED	15s	Found an issue (603ms at 5 traces/second)
+ledgerCheckMvReliable	batchIngestedAtMostOnce	VIOLATED	15s	Found an issue (1040ms at 4 traces/second)
+ledgerCheck	noLostBehindCheckpoint	ok	96s	
+ledgerCheck	onlyCommittedIngested	ok	123s	

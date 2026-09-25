@@ -1,0 +1,876 @@
+An example execution:
+
+[State 0]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 0,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [],
+  ledgerCheckMvReliable::fastPath::written: Set(),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 0,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [],
+  ledgerCheckMvReliable::fastPath::written: Set(),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 0,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 3]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 1,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 4]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 2,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 5]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 2,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  ledgerCheckMvReliable::fastPath::committed: [],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 6]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 2,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 7]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 2,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 8]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 3,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 9]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 3,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 10]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 3,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 11]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 3,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 12]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 3,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 13]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 4,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 14]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 4,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> -1, 2 -> 2)
+}
+
+[State 15]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 4,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 16]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 4,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 17]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 5,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 18]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 5,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 19]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 5,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 20]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 6,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 21]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 6,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 22]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 23]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set(),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 0,
+  ledgerCheckMvReliable::fastPath::impInserts: 0,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 24]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 1,
+  ledgerCheckMvReliable::fastPath::impInserts: 1,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (2, 2)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 25]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 2,
+  ledgerCheckMvReliable::fastPath::impInserts: 2,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (2, 2)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 26]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 2,
+  ledgerCheckMvReliable::fastPath::impInserts: 2,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  ledgerCheckMvReliable::fastPath::window: [(2, 2), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 27]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 3,
+  ledgerCheckMvReliable::fastPath::impInserts: 3,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  ledgerCheckMvReliable::fastPath::window: [(2, 2), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 28]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 0, phase: "idle" },
+  ledgerCheckMvReliable::fastPath::impChecks: 3,
+  ledgerCheckMvReliable::fastPath::impInserts: 3,
+  ledgerCheckMvReliable::fastPath::ledger: Set(),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  ledgerCheckMvReliable::fastPath::window: [(0, 0), (0, 0)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[State 29]
+{
+  ledgerCheckMvReliable::fastPath::abandoned: Set(1),
+  ledgerCheckMvReliable::fastPath::buffer: Set(),
+  ledgerCheckMvReliable::fastPath::ckpt: 0,
+  ledgerCheckMvReliable::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  ledgerCheckMvReliable::fastPath::clock: 7,
+  ledgerCheckMvReliable::fastPath::commitAt: Map(1 -> -1, 2 -> 2),
+  ledgerCheckMvReliable::fastPath::committed: [2],
+  ledgerCheckMvReliable::fastPath::events: Set("impInserted", "impPartial"),
+  ledgerCheckMvReliable::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  ledgerCheckMvReliable::fastPath::imp: { b: 2, phase: "done" },
+  ledgerCheckMvReliable::fastPath::impChecks: 4,
+  ledgerCheckMvReliable::fastPath::impInserts: 4,
+  ledgerCheckMvReliable::fastPath::ledger: Set(2),
+  ledgerCheckMvReliable::fastPath::markers: Set(),
+  ledgerCheckMvReliable::fastPath::net: Set(),
+  ledgerCheckMvReliable::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 2),
+  ledgerCheckMvReliable::fastPath::window: [(2, 1), (2, 2)],
+  ledgerCheckMvReliable::fastPath::written: Set(1, 2),
+  ledgerCheckMvReliable::fastPath::writtenAt: Map(1 -> 4, 2 -> 2)
+}
+
+[violation] Found an issue (1040ms at 4 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x66e5 --backend=typescript to reproduce.
+error: Invariant violated

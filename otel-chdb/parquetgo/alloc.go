@@ -1,3 +1,5 @@
+//go:build !noarrow
+
 package parquetgo
 
 import (

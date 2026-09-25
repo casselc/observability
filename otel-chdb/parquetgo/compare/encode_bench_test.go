@@ -8,42 +8,57 @@ import (
 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
 )
 
-// BenchmarkGoEncode measures parquetgo's pdata -> Parquet bytes in memory,
-// no I/O: the part of the Go path that replaces chDB.
+func encoders(opts parquetgo.Options) map[string]func() parquetgo.BatchEncoder {
+	return map[string]func() parquetgo.BatchEncoder{
+		"arrow":      func() parquetgo.BatchEncoder { return parquetgo.NewEncoder(opts, nil) },
+		"parquet-go": func() parquetgo.BatchEncoder { return parquetgo.NewPGEncoder(opts) },
+		"parquet-go-par4": func() parquetgo.BatchEncoder {
+			o := opts
+			o.Parallelism = 4
+			return parquetgo.NewPGEncoder(o)
+		},
+	}
+}
+
+// BenchmarkGoEncode measures pdata -> Parquet bytes in memory, no I/O: the
+// part of the Go path that replaces chDB.
 func BenchmarkGoEncode(b *testing.B) {
 	td, ld := testgen.Traces(10000), testgen.Logs(10000)
-	for _, bloom := range []bool{true, false} {
-		opts := parquetgo.DefaultOptions()
-		opts.BloomFilters = bloom
-		name := "bloom"
-		if !bloom {
-			name = "nobloom"
+	for _, engine := range []string{"arrow", "parquet-go", "parquet-go-par4"} {
+		for _, bloom := range []bool{true, false} {
+			opts := parquetgo.DefaultOptions()
+			opts.BloomFilters = bloom
+			name := engine + "-bloom"
+			if !bloom {
+				name = engine + "-nobloom"
+			}
+			mk := encoders(opts)[engine]
+			b.Run("traces-"+name, func(b *testing.B) {
+				e := mk()
+				var buf bytes.Buffer
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					buf.Reset()
+					env := &parquetgo.Envelope{Producer: "p", Epoch: "e", Batch: uint64(i + 1), Received: 1, Schema: 1}
+					if _, err := e.Traces(&buf, td, env); err != nil {
+						b.Fatal(err)
+					}
+				}
+				b.ReportMetric(float64(buf.Len()), "bytes/obj")
+			})
+			b.Run("logs-"+name, func(b *testing.B) {
+				e := mk()
+				var buf bytes.Buffer
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					buf.Reset()
+					env := &parquetgo.Envelope{Producer: "p", Epoch: "e", Batch: uint64(i + 1), Received: 1, Schema: 1}
+					if _, err := e.Logs(&buf, ld, env); err != nil {
+						b.Fatal(err)
+					}
+				}
+				b.ReportMetric(float64(buf.Len()), "bytes/obj")
+			})
 		}
-		b.Run("traces-"+name, func(b *testing.B) {
-			e := parquetgo.NewEncoder(opts, nil)
-			var buf bytes.Buffer
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				buf.Reset()
-				env := &parquetgo.Envelope{Producer: "p", Epoch: "e", Batch: uint64(i + 1), Received: 1, Schema: 1}
-				if _, err := e.Traces(&buf, td, env); err != nil {
-					b.Fatal(err)
-				}
-			}
-			b.ReportMetric(float64(buf.Len()), "bytes/obj")
-		})
-		b.Run("logs-"+name, func(b *testing.B) {
-			e := parquetgo.NewEncoder(opts, nil)
-			var buf bytes.Buffer
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				buf.Reset()
-				env := &parquetgo.Envelope{Producer: "p", Epoch: "e", Batch: uint64(i + 1), Received: 1, Schema: 1}
-				if _, err := e.Logs(&buf, ld, env); err != nil {
-					b.Fatal(err)
-				}
-			}
-			b.ReportMetric(float64(buf.Len()), "bytes/obj")
-		})
 	}
 }

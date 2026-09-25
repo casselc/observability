@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,6 +52,8 @@ type Config struct {
 	// Generation groups objects; default 1h.
 	Generation time.Duration
 	Parquet    Options
+	// Engine is "arrow" (arrow-go pqarrow, the default) or "parquet-go".
+	Engine string
 
 	// Transport, when set, carries every S3 request (for counting them).
 	Transport http.RoundTripper
@@ -75,6 +78,16 @@ type signalState struct {
 	mu  sync.RWMutex
 	cur *generation
 	seq atomic.Uint64
+}
+
+// newArrowEncoder is set by encode.go unless built with -tags noarrow
+// (arrow-go adds ~20 MB to a binary; see README).
+var newArrowEncoder func(Options) BatchEncoder
+
+// BatchEncoder writes one batch as one Parquet file.
+type BatchEncoder interface {
+	Traces(dst io.Writer, td ptrace.Traces, env *Envelope) (int, error)
+	Logs(dst io.Writer, ld plog.Logs, env *Envelope) (int, error)
 }
 
 // Publisher writes batches as Parquet objects plus manifests.
@@ -111,7 +124,17 @@ func New(cfg Config) (*Publisher, error) {
 	if p.epoch == "" {
 		p.epoch = processEpoch()
 	}
-	p.encs.New = func() any { return NewEncoder(cfg.Parquet, nil) }
+	switch cfg.Engine {
+	case "", "arrow":
+		if newArrowEncoder == nil {
+			return nil, errors.New("built with -tags noarrow: use engine parquet-go")
+		}
+		p.encs.New = func() any { return newArrowEncoder(cfg.Parquet) }
+	case "parquet-go":
+		p.encs.New = func() any { return BatchEncoder(NewPGEncoder(cfg.Parquet)) }
+	default:
+		return nil, fmt.Errorf("engine %q: want arrow or parquet-go", cfg.Engine)
+	}
 	p.bufs.New = func() any { return new(bytes.Buffer) }
 	u, err := url.Parse(cfg.URL)
 	if err != nil {
@@ -186,26 +209,26 @@ func (p *Publisher) acquire(signal string) (*generation, func()) {
 
 // PushTraces publishes td as one batch.
 func (p *Publisher) PushTraces(ctx context.Context, td ptrace.Traces) error {
-	return p.push(ctx, "traces", func(e *Encoder, buf *bytes.Buffer, env *Envelope) (int, error) {
+	return p.push(ctx, "traces", func(e BatchEncoder, buf *bytes.Buffer, env *Envelope) (int, error) {
 		return e.Traces(buf, td, env)
 	})
 }
 
 // PushLogs publishes ld as one batch.
 func (p *Publisher) PushLogs(ctx context.Context, ld plog.Logs) error {
-	return p.push(ctx, "logs", func(e *Encoder, buf *bytes.Buffer, env *Envelope) (int, error) {
+	return p.push(ctx, "logs", func(e BatchEncoder, buf *bytes.Buffer, env *Envelope) (int, error) {
 		return e.Logs(buf, ld, env)
 	})
 }
 
-func (p *Publisher) push(ctx context.Context, signal string, enc func(*Encoder, *bytes.Buffer, *Envelope) (int, error)) error {
+func (p *Publisher) push(ctx context.Context, signal string, enc func(BatchEncoder, *bytes.Buffer, *Envelope) (int, error)) error {
 	g, unlock := p.acquire(signal)
 	defer unlock()
 	st := p.signals[signal]
 	start := p.cfg.Now()
 	env := &Envelope{Producer: p.cfg.ProducerID, Epoch: p.epoch, Batch: st.seq.Add(1),
 		Received: uint64(start.UnixNano()), Schema: p.cfg.SchemaVersion}
-	e := p.encs.Get().(*Encoder)
+	e := p.encs.Get().(BatchEncoder)
 	defer p.encs.Put(e)
 	buf := p.bufs.Get().(*bytes.Buffer)
 	defer p.bufs.Put(buf)

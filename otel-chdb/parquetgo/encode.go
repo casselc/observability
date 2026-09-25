@@ -1,3 +1,5 @@
+//go:build !noarrow
+
 package parquetgo
 
 import (
@@ -17,44 +19,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
-
-// Options tune the Parquet written. The zero value is not useful; start from
-// DefaultOptions, which matches what ClickHouse 26.x writes by default
-// (output_format_parquet_*): zstd, dictionary encoding, statistics, page
-// indexes and bloom filters on every column, 1 MiB pages, one row group per
-// batch.
-type Options struct {
-	// Compression: zstd, snappy, lz4, gzip, brotli or none.
-	Compression string
-	// CompressionLevel is codec-specific; 0 means the codec's default.
-	CompressionLevel int
-	Dictionary       bool
-	Statistics       bool
-	PageIndex        bool
-	// BloomFilters writes a split-block bloom filter per column chunk, sized
-	// for the batch's row count at BloomFPP.
-	BloomFilters bool
-	BloomFPP     float64
-	DataPageSize int64
-	// MaxRowGroupRows splits big batches into several row groups.
-	MaxRowGroupRows int64
-	// PlainFor lists leaf column paths written without a dictionary: the
-	// ones that are nearly unique per row, where a dictionary only costs
-	// hashing (ClickHouse tries a dictionary everywhere and falls back at
-	// 1 MiB).
-	PlainFor []string
-}
-
-// HighCardinality are the columns that are unique, or nearly, per row.
-var HighCardinality = []string{"Timestamp", "TraceId", "SpanId", "ParentSpanId", "row_ordinal",
-	"Events.Timestamp.list.element"}
-
-// DefaultOptions matches ClickHouse's Parquet output defaults.
-func DefaultOptions() Options {
-	return Options{Compression: "zstd", Dictionary: true, Statistics: true, PageIndex: true,
-		BloomFilters: true, BloomFPP: 0.005, DataPageSize: 1 << 20, MaxRowGroupRows: 1_000_000,
-		PlainFor: HighCardinality}
-}
 
 func codec(name string) (compress.Compression, error) {
 	switch name {
@@ -95,6 +59,9 @@ func (o Options) props(rows int, mem memory.Allocator) (*parquet.WriterPropertie
 		parquet.WithDataPageSize(o.DataPageSize),
 		parquet.WithMaxRowGroupLength(o.MaxRowGroupRows),
 	}
+	if o.DataPageV2 {
+		opts = append(opts, parquet.WithDataPageVersion(parquet.DataPageV2))
+	}
 	for _, p := range o.PlainFor {
 		opts = append(opts, parquet.WithDictionaryFor(p, false))
 	}
@@ -112,6 +79,10 @@ func (o Options) props(rows int, mem memory.Allocator) (*parquet.WriterPropertie
 			parquet.WithBloomFilterCandidates(candidates))
 	}
 	return parquet.NewWriterProperties(opts...), nil
+}
+
+func init() {
+	newArrowEncoder = func(o Options) BatchEncoder { return NewEncoder(o, nil) }
 }
 
 // Encoder turns pdata into Parquet. It keeps its Arrow builders between

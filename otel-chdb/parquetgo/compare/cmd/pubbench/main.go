@@ -108,7 +108,8 @@ func startCounter(target string) (string, *counter) {
 }
 
 func main() {
-	impl := flag.String("impl", "go", "go or chdb")
+	impl := flag.String("impl", "parquet-go", "chdb, arrow or parquet-go")
+	par := flag.Int("par", 1, "parquet-go: columns encoded in parallel")
 	dest := flag.String("url", "", "file:///dir or S3 prefix URL")
 	signal := flag.String("signal", "traces", "traces or logs")
 	n := flag.Int("n", 10000, "rows per batch")
@@ -127,6 +128,9 @@ func main() {
 	}
 	epoch := fmt.Sprintf("b%d", time.Now().UnixNano())
 	producer := "bench-" + *impl
+	if *par > 1 {
+		producer += fmt.Sprintf("-par%d", *par)
+	}
 
 	var push func() error
 	var closeFn func() error
@@ -146,12 +150,13 @@ func main() {
 			push = func() error { return p.Logs.ConsumeLogs(ctx, ld) }
 		}
 		closeFn = p.Shutdown
-	case "go":
+	case "arrow", "parquet-go":
 		opts := parquetgo.DefaultOptions()
 		opts.BloomFilters = *bloom
 		opts.Compression = *compression
+		opts.Parallelism = *par
 		p, err := parquetgo.New(parquetgo.Config{URL: url, AccessKeyID: s3.Key, SecretAccessKey: s3.Secret,
-			ProducerID: producer, Region: "cmp", SchemaVersion: 1, Epoch: epoch, Parquet: opts})
+			ProducerID: producer, Region: "cmp", SchemaVersion: 1, Epoch: epoch, Parquet: opts, Engine: *impl})
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -164,7 +169,14 @@ func main() {
 	default:
 		log.Fatalf("impl %q", *impl)
 	}
-	r := result{Impl: *impl, Signal: *signal, Rows: *n, Batches: *batches}
+	name := *impl
+	if *par > 1 {
+		name += fmt.Sprintf("-par%d", *par)
+	}
+	if !*bloom {
+		name += "-nobloom"
+	}
+	r := result{Impl: name, Signal: *signal, Rows: *n, Batches: *batches}
 	r.Dest = "local"
 	if strings.HasPrefix(*dest, "http") {
 		r.Dest = "s3"

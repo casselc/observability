@@ -1,0 +1,39 @@
+cpu: Intel(R) Xeon(R) Processor @ 2.80GHz
+BenchmarkGoEncode/traces-arrow-bloom-4         	      20	 150571268 ns/op	    321754 bytes/obj	62160795 B/op	  617867 allocs/op
+BenchmarkGoEncode/traces-arrow-bloom-4         	      20	 155749750 ns/op	    321754 bytes/obj	72267395 B/op	  617931 allocs/op
+BenchmarkGoEncode/traces-arrow-bloom-4         	      20	 158621233 ns/op	    321754 bytes/obj	69721400 B/op	  617910 allocs/op
+BenchmarkGoEncode/logs-arrow-bloom-4           	      20	 112227563 ns/op	    205206 bytes/obj	51163310 B/op	  474667 allocs/op
+BenchmarkGoEncode/logs-arrow-bloom-4           	      20	 121517822 ns/op	    205206 bytes/obj	50502240 B/op	  474673 allocs/op
+BenchmarkGoEncode/logs-arrow-bloom-4           	      20	 112422859 ns/op	    205206 bytes/obj	50700131 B/op	  474679 allocs/op
+BenchmarkGoEncode/traces-arrow-nobloom-4       	      20	 129664932 ns/op	    163308 bytes/obj	46697833 B/op	  614262 allocs/op
+BenchmarkGoEncode/traces-arrow-nobloom-4       	      20	 122274202 ns/op	    163308 bytes/obj	41974984 B/op	  614225 allocs/op
+BenchmarkGoEncode/traces-arrow-nobloom-4       	      20	 120447935 ns/op	    163308 bytes/obj	47959100 B/op	  614264 allocs/op
+BenchmarkGoEncode/logs-arrow-nobloom-4         	      20	  88775147 ns/op	     81741 bytes/obj	32040091 B/op	  472348 allocs/op
+BenchmarkGoEncode/logs-arrow-nobloom-4         	      20	  92112385 ns/op	     81741 bytes/obj	36324934 B/op	  472360 allocs/op
+BenchmarkGoEncode/logs-arrow-nobloom-4         	      20	  88583909 ns/op	     81741 bytes/obj	30633792 B/op	  472329 allocs/op
+BenchmarkGoEncode/traces-parquet-go-bloom-4    	      20	  78530064 ns/op	    270575 bytes/obj	 8017331 B/op	     738 allocs/op
+BenchmarkGoEncode/traces-parquet-go-bloom-4    	      20	  69808227 ns/op	    270575 bytes/obj	 7844608 B/op	     731 allocs/op
+BenchmarkGoEncode/traces-parquet-go-bloom-4    	      20	  68000745 ns/op	    270575 bytes/obj	 5884844 B/op	     719 allocs/op
+BenchmarkGoEncode/logs-parquet-go-bloom-4      	      20	  46105478 ns/op	    158467 bytes/obj	 6618863 B/op	   28029 allocs/op
+BenchmarkGoEncode/logs-parquet-go-bloom-4      	      20	  50286531 ns/op	    158467 bytes/obj	 8350741 B/op	   28028 allocs/op
+BenchmarkGoEncode/logs-parquet-go-bloom-4      	      20	  50809397 ns/op	    158467 bytes/obj	10372043 B/op	   28044 allocs/op
+BenchmarkGoEncode/traces-parquet-go-nobloom-4  	      20	  74641170 ns/op	    177069 bytes/obj	 6885914 B/op	     608 allocs/op
+BenchmarkGoEncode/traces-parquet-go-nobloom-4  	      20	  70053430 ns/op	    177069 bytes/obj	 5862465 B/op	     598 allocs/op
+BenchmarkGoEncode/traces-parquet-go-nobloom-4  	      20	  71332420 ns/op	    177069 bytes/obj	 5788565 B/op	     598 allocs/op
+BenchmarkGoEncode/logs-parquet-go-nobloom-4    	      20	  52361786 ns/op	     98754 bytes/obj	 9325439 B/op	   27951 allocs/op
+BenchmarkGoEncode/logs-parquet-go-nobloom-4    	      20	  50107004 ns/op	     98754 bytes/obj	 8380272 B/op	   27947 allocs/op
+BenchmarkGoEncode/logs-parquet-go-nobloom-4    	      20	  45983712 ns/op	     98754 bytes/obj	 7296425 B/op	   27938 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-bloom-4         	      20	  77911148 ns/op	    270575 bytes/obj	 8939165 B/op	     750 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-bloom-4         	      20	  78451004 ns/op	    270575 bytes/obj	 7996934 B/op	     740 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-bloom-4         	      20	  73750075 ns/op	    270575 bytes/obj	 8010696 B/op	     742 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-bloom-4           	      20	  55641277 ns/op	    158467 bytes/obj	10834822 B/op	   28068 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-bloom-4           	      20	  56933649 ns/op	    158467 bytes/obj	10552503 B/op	   28064 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-bloom-4           	      20	  56427047 ns/op	    158467 bytes/obj	10769562 B/op	   28068 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-nobloom-4       	      20	  84328630 ns/op	    177069 bytes/obj	 7840108 B/op	     623 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-nobloom-4       	      20	  86910683 ns/op	    177069 bytes/obj	 7745884 B/op	     623 allocs/op
+BenchmarkGoEncode/traces-parquet-go-par4-nobloom-4       	      20	  71244036 ns/op	    177069 bytes/obj	 7715552 B/op	     620 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-nobloom-4         	      20	  54415369 ns/op	     98754 bytes/obj	 8558682 B/op	   27964 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-nobloom-4         	      20	  54316320 ns/op	     98754 bytes/obj	 8493888 B/op	   27962 allocs/op
+BenchmarkGoEncode/logs-parquet-go-par4-nobloom-4         	      20	  50998992 ns/op	     98754 bytes/obj	 8477277 B/op	   27962 allocs/op
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare	65.807s

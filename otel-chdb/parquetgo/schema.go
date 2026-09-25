@@ -1,9 +1,5 @@
-// Package parquetgo publishes OpenTelemetry traces and logs as Parquet
-// without chDB: pdata is walked straight into Arrow builders and written with
-// arrow-go's Parquet writer, then uploaded with an S3 client. The schema, the
-// envelope columns, the object layout and the manifests are the chdb
-// exporter's (../chdbexporter, publish.go), so a consumer cannot tell the two
-// producers apart except by the Parquet footer's created_by.
+//go:build !noarrow
+
 package parquetgo
 
 import "github.com/apache/arrow-go/v18/arrow"

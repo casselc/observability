@@ -48,8 +48,9 @@ larger. Keep parquetgo where the edge is, or must stay, a Go collector.**
   - the edge is an `otelcol-contrib` build, or needs processors, receivers
     or extensions that only the Go collector has. The Rust engine is a
     different binary with its own config and operations;
-  - you need metrics. This exporter does traces and logs only, as parquetgo
-    does, but parquetgo lives next to the Go metrics pipeline;
+  - (metrics are no longer a reason: both now publish the contrib
+    clickhouseexporter's five metrics tables, row for row; see
+    [Metrics](#metrics));
   - build and supply-chain weight matter more than edge CPU. See
     [Build and footprint](#build-and-footprint).
   - maturity matters: otap-dataflow is pre-1.0, and this exporter is a
@@ -587,6 +588,257 @@ benchmark, which links pdata, object_store and parquet but not the
 controller, admin server or receivers, is 22 MB stripped [M]. A static musl
 build wasn't tried.
 
+## Metrics
+
+**Metrics are supported, OTLP direct by default, OTAP too. The rows are
+identical to the contrib clickhouseexporter v0.161.0's own rows, including
+on hostile input. Edge CPU is 3.8–6.8 µs per data point by type, not the
+calculator's 2 µs, and about half of parquetgo's. Central is at parity.**
+
+### Upstream's metrics support [D, then M]
+
+- **OTLP bytes views** (`views/otlp/bytes/metrics.rs`, `RawMetricsData`):
+  complete for all five types, exemplars and bucket ranges included. They
+  are zero-copy, like the traces and logs views.
+- **OTAP views** (`views/otap/metrics.rs`, `OtapMetricsView`): complete as
+  well. Upstream's OTLP→OTAP encoder followed by this view gives
+  **column-identical** rows to the direct walk on testgen, the mixed batch
+  and the duplicate-key cases (`tests/metrics.rs`). No patch was needed.
+- **Limits found in the views** [D, not exercised end to end]:
+  - `aggregation_temporality()` returns an enum that maps every unknown
+    value to `Unspecified` (0). Contrib stores the raw `int32`, so a
+    request with, say, temporality 7 would differ.
+  - A point that carries both `as_double` and `as_int` on the wire reads as
+    the double. Go keeps the last one.
+  - An exemplar id of the wrong length reads as absent, so it renders as
+    zeros. Go's pdata rejects the whole request.
+  - `SumView::data_points` reads `GAUGE_DATA_POINTS`. Both are field 1, so
+    this is harmless.
+- **The OTLP→OTAP conversion rejects invalid UTF-8** inside map values
+  (CBOR), as it does for traces. The hostile metrics batch is answered 400
+  on the via-OTAP path.
+
+### What was built
+
+- **Spec:** `../parquetgo/METRICS_SCHEMA.md` is followed for the layout and
+  the rendering.
+  - One object per non-empty metric type per request. Each object goes under
+    its own signal namespace (`metrics_gauge`, `metrics_sum`,
+    `metrics_histogram`, `metrics_exponential_histogram`,
+    `metrics_summary`), with its own lane, epoch, slots and content key
+    (`BLAKE3("{signal}\0" + request)`).
+  - `DateTime` columns are TIMESTAMP(MILLIS) of `uint32(floor(int64(ns)/1e9))`
+    (`metrics::dt_ms`), as clickhouse-go stores them. ClickHouse's own
+    DateTime64→DateTime conversion wraps the same way, which was checked.
+  - Exemplar ids are always hex, so a zero id is zeros. Unset
+    sum/min/max/value are 0.
+  - A metric of type Empty rejects the whole request, as permanent 400.
+  - A request with no points is ACKed with no objects.
+- **Code:**
+  - `src/metrics.rs`: one generic walk over the view traits that fills all
+    five types' buffers in one pass. Resource and scope maps are rendered
+    and sorted once per scope.
+  - `src/schema.rs`: `metrics(signal)`.
+  - `src/batch.rs`: `flatten_all`, with `Input::OtlpMetrics` and
+    `Input::OtapMetrics`.
+  - `src/central.rs`: s3() structures and the consumer's metrics tables,
+    which use contrib's columns and types plus the envelope, `content_key`
+    and the projection.
+  - `consume --signal metrics_<type>`.
+- **Ack:** `exporter.rs` commits a request's objects concurrently, each in
+  its type's lane. It ACKs only when every object has committed
+  (`proto::request_verdict`). Otherwise it NACKs the whole request, and on
+  the retry the committed parts are found in their lanes' known set (no
+  request to S3).
+- **Map order: `src/gosort.rs`.**
+  - Contrib builds every metrics map with clickhouse-go's
+    `orderedmap.CollectN`, which **sorts keys with Go's unstable
+    `slices.SortFunc`** and keeps duplicates.
+  - Up to 12 entries that sort is a stable insertion sort. Above 12, the
+    order of duplicate keys is whatever pdqsort leaves.
+  - `gosort.rs` ports it and is unit-tested against Go's output. It is only
+    used when a map has duplicate keys, which wire-decoded pdata can hold.
+
+### Disagreements with METRICS_SCHEMA.md
+
+- **Duplicate keys in maps of more than 12 entries.**
+  - parquetgo sorts with `SortStableFunc`, so it differs from contrib there.
+    Rust matches contrib.
+  - `metrics-extra.pb` (wire-built duplicate keys, all five types) shows it:
+    the Rust rows equal contrib's, while parquetgo's differ from both, and
+    only in the order of equal keys.
+  - The spec's text still says maps are "in pdata order"; its code sorts.
+- **Two worked `dt` examples have arithmetic slips.**
+  - `MaxInt64` gives `633_437_444_000`, and `1<<63` gives
+    `3_661_529_851_000`.
+  - The formula and parquetgo's `dtMillis` agree with this crate.
+- **Not part of the contract:**
+  - V1 data pages, where parquetgo writes V2.
+  - No bloom filters on metrics: there is no TraceId column.
+  - No dictionary on `Value`, `Sum` and the exemplar leaves.
+
+### Correctness [M]
+
+`scripts/metrics_e2e.sh` sends each dataset as OTLP/HTTP to `otap-s3pq`
+(direct and via OTAP). Then `scripts/metrics_correctness.py` compares, per
+type and dataset:
+
+- against **contrib's own rows**: `tools/cmd/metricsref`, the exporter from
+  its factory with `create_schema`, into ClickHouse. The object is
+  `INSERT … SELECT`ed into a table `AS` the exporter's, then checked by count
+  + `sum(cityHash64(all columns))` and `EXCEPT` both ways;
+- against **parquetgo's objects** (`otlpgen -metrics -ref`): count + hash
+  with structure and inferred, `DESCRIBE`, `EXCEPT` both ways, plus the
+  envelope.
+
+The datasets are:
+
+- `compare.Metrics(3000)`: 3,000 points per type;
+- `compare.NastyMetrics(700)`: NaN/±Inf/−0, int extremes, unset values,
+  exemplars (none, 30, zero ids, zero time), empty and 60-entry maps with
+  100 KB values, every value type, invalid UTF-8 everywhere, extreme
+  timestamps, exponential histograms with negative buckets, `MinInt32`
+  offsets and extreme scales, mismatched bucket lengths;
+- `metrics-extra.pb`: duplicate keys, and `service.name` twice.
+
+Results are in `results/metrics/correctness.txt`: 230 PASS.
+
+| | testgen | nasty | extra (duplicate keys) |
+|---|---|---|---|
+| Rust direct vs contrib rows, ×5 types | **equal** (hash, EXCEPT 0/0) | **equal** | **equal** |
+| Rust direct vs parquetgo objects | identical (hash both ways, schema, EXCEPT) | identical | differ in duplicate-key order only |
+| parquetgo vs contrib rows | equal | equal | **differ** |
+| Rust via OTAP vs contrib | equal | request rejected (400, CBOR UTF-8) | equal |
+
+### Faults: no half-acked request [M]
+
+`scripts/metrics_faults.sh` runs 6 distinct mixed requests. Each request is
+2,000 points of each type, so 5 objects. Every scenario ends with one Rust
+consumer per type (`results/metrics/faults/summary.txt`). **All pass**: in
+every table, 12,000 rows and 6 distinct content keys; every request 2xx
+exactly once.
+
+| Scenario | Fault | Edge / sender | Objects per type | Central |
+|---|---|---|---|---|
+| ambiguous | every 2nd PUT, any type, applied, answer held 3 s | 15 resolved own by HEAD | 6 | 6/6 per type |
+| **partial** | histogram PUTs time out *and* their HEADs time out | **3 NACKs with 4 of 5 objects committed**; the retries: 12 parts skipped as known, the histogram slot resolved by 412→HEAD | 6 | 6/6 |
+| dropped | every 3rd PUT, 503, never lands | object_store's retry | 6 | 6/6 |
+| crash | histogram PUT and HEAD answers held 8 s; SIGKILL at 3 s with the first request 4/5 committed; restart | resent to new epochs | 7 (+1 copy), 1 tombstone | 6/6: the copy of each type skipped by content key, dead epochs tombstoned |
+| crashall | every 2nd PUT of any type held 8 s, SIGKILL, restart | | 7, 1 tombstone | 6/6 |
+
+`tools/cmd/faultproxy2` gained `-head-hold`/`-head-limit`, to make a part
+stay unresolved.
+
+### Model [M]
+
+**Why a new model:**
+
+- The per-type logs are unchanged: each is `s3Inline.qnt`.
+- The request level is new:
+  - ACK only when every object has committed;
+  - an edge crash restarts every lane at once;
+  - the sender resends to every lane.
+- So `../model/s3InlineMetrics.qnt` wraps **two instances** of `s3Inline`
+  (G and S), unmodified, and adds `ackRequest`, `crash` and `reqAcked`.
+
+**Invariants:**
+
+- `reqAckedImpliesAllCommitted`;
+- `noObjectLost`;
+- both instances' full `safety`.
+
+**Results** (`results/mbt/metrics.txt`):
+
+- **Simulation:**
+  - the design: 3,000 traces × 60 steps, no violation;
+  - the mutant `ackOnAny` (2xx once any object commits) breaks
+    `reqAckedImpliesAllCommitted` in 0.3 s. After a crash it also breaks
+    `noObjectLost`: the other object is lost;
+  - every witness is reached: half-committed, cross-epoch copy, all acked.
+- **quint-connect** (`tests/mbt_s3inline_metrics.rs`):
+  - It drives two lanes, two consumers and the real `request_verdict`. The
+    driver is shared with `mbt_s3inline.rs` via `tests/common/s3inline.rs`.
+  - After every step it also compares **`ackable`**: the requests the
+    implementation would ACK now, against those the model enables
+    `ackRequest` for.
+  - The design passes: 300 traces, 23,968 steps, 103 s. The traces reach:
+    - 600 crashes and 198 acks;
+    - a half-committed state in 296 traces;
+    - a cross-epoch dedup in 178 traces.
+  - `OTAPRS_MUTANT=ack_on_any` fails at trace 1, step 23. The gauge object
+    commits while the sum object hasn't; the model has `ackable {}`, the
+    implementation `{2}`.
+- Quint 0.32 quirk: in the wrapper, a state variable read on the right of
+  `G::x' = …` resolves in G's namespace. `crash` therefore takes the
+  pending set as a parameter.
+
+### Measurements [M]
+
+The environment and accounting are as for traces and logs: 3 processes ×
+(3 warm-up + 30 timed) batches of **10,000 data points**, interleaved with
+parquetgo's `pubbench` (built from `../parquetgo/compare`, same
+`MetricsBatch` data). The box was busier than for traces: load average
+1.4–3.6 (`results/metrics/bench.md`, `.jsonl`).
+
+**Edge, to S3, CPU per 10k points** (median [min–max]). "mixed" is one
+request with 2,000 points of each type, so 5 objects.
+
+| type | Rust OTLP direct | µs/point | Rust OTAP input | Rust via OTAP | parquetgo | peak RSS Rust / parquetgo | object KB Rust / parquetgo (all blooms, no bloom) | S3 requests per request |
+|---|---|---|---|---|---|---|---|---|
+| gauge | **38** [38–40] | 3.8 | 45 | 58 | 91 | 41 / 133 MB | **87** / 211, 183 | 1 PUT (parquetgo: 2) |
+| sum | **40** [39–42] | 4.0 | 44 | 58 | 92 | 40 / 139 | **35** / 126, 111 | 1 (2) |
+| histogram | **67** [66–67] | 6.7 | 73 | 94 | 134 | 58 / 253 | **117** / 281, 252 | 1 (2) |
+| exp. histogram | **68** [66–70] | 6.8 | 69 | 92 | 142 | 60 / 179 | **261** / 428, 395 | 1 (2) |
+| summary | **50** [47–50] | 5.0 | 50 | 68 | 87 | 44 / 139 | **131** / 247, 225 | 1 (2) |
+| mixed (5 objects) | **68** [64–70] | 6.8 | 68 | 86 | 140 | 39 / 251 | **179** / 328, 291 | **5 PUTs, 0 HEAD** (10: object + manifest per type) |
+
+- **The whole `otap-s3pq` process** was fed 30 distinct single-type 10k-point
+  requests over OTLP/HTTP. It used 53 [51–54] ms CPU per request and 82 MB
+  peak RSS (29 MB after start).
+- **Where the time goes:**
+  - For direct gauge: flatten 12, encode 26, commit 5 ms.
+  - Encode is Parquet column writing, as for traces.
+  - Flatten includes rendering and Go-order sorting of every point's
+    attribute map.
+- **Commit:** 5–7.5 ms per object on localhost. The mixed row's 20.6 ms is
+  the five commits one after another in `encbench`; the exporter runs them
+  concurrently.
+- **The calculator's 2 µs/point is too low:**
+  - the Rust edge measures 3.8 µs/point (gauge, sum) to 6.8 µs/point
+    (histograms, mixed traffic);
+  - parquetgo measures 8.7–14 µs/point;
+  - use ~4 µs for gauge/sum-heavy traffic and ~7 µs for histogram-heavy or
+    mixed traffic.
+
+**Central.** `scripts/metrics_central_bench.py` inserts 10 objects of
+10,000 points each into the consumer's central table for the type, measured
+as server CPU (`results/metrics/central.md`).
+
+| type | Rust µs/point, default / 1 thread | parquetgo, default / 1 thread | MB read, 10 objects, Rust / parquetgo |
+|---|---|---|---|
+| gauge | 4.1 / 3.6 | 3.8 / 3.3 | 0.89 / 2.16 |
+| sum | 3.9 / 3.6 | 4.0 / 4.7 | 0.36 / 1.29 |
+| histogram | 4.9 / 4.5 | 5.0 / 5.2 | 1.20 / 2.87 |
+| exp. histogram | 5.7 / 4.7 | 5.6 / 6.3 | 2.67 / 4.39 |
+| summary | 4.1 / 4.1 | 4.2 / 5.1 | 1.34 / 2.53 |
+
+- **Central `INSERT … SELECT` costs about 3.5–5.7 µs of server CPU per
+  point**, for both producers. That is within the ±15% noise of this shared
+  server.
+- It is about as much as the Rust edge spends, and less than half of what
+  parquetgo's edge spends.
+- The Rust objects are read with 40–70% fewer bytes.
+
+### Metrics gaps
+
+- **The raw temporality enum and the double-plus-int oneof** differ from
+  contrib, as noted above. The OTLP views don't expose raw values, and
+  fixing that would take an upstream patch.
+- **No OTAP receiver was run.** The OTAP input is covered by the via-OTAP
+  path and by `--path otap` in-process.
+- **One lane per type was measured.** A mixed request holds five lanes, one
+  per type, at once.
+
 ## Remaining gaps
 
 - **Not tested against:**
@@ -596,7 +848,8 @@ build wasn't tried.
   - a real `aws_signing_helper`.
 
   The credential tests use the same local stand-ins as parquetgo.
-- **Signals and inputs:** metrics aren't implemented. OTLP/gRPC input
+- **Signals and inputs:** see [Metrics](#metrics) for what metrics
+  leave open. OTLP/gRPC input
   isn't benchmarked; only HTTP is (the receiver hands the exporter the same
   bytes).
 - **Queueing:** there is no persistent queue at the edge.
@@ -648,10 +901,18 @@ cargo test --release --test mbt_s3inline -- --nocapture
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data OUT=results/bench.jsonl scripts/bench.sh && python3 scripts/summarize.py results/bench.jsonl
 python3 scripts/central_bench.py $CARGO_TARGET_DIR/release/encbench $S/bin/pubbench $S/data results/central.md
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data OUT=results/latency POLL=200ms scripts/latency.sh
+# metrics
+$S/bin/otlpgen -metrics -out $S/mdata -variants 12
+OTAPRS_DATA=$S/mdata cargo test --release --test metrics -- --nocapture
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata RUN=mc$(date +%s) PATHS="direct via_otap" OUT=results/metrics scripts/metrics_e2e.sh
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata OUT=results/metrics/faults scripts/metrics_faults.sh
+cargo test --release --test mbt_s3inline_metrics -- --nocapture       # OTAPRS_MUTANT=ack_on_any: fails
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata OUT=results/metrics/bench.jsonl scripts/metrics_bench.sh
+python3 scripts/metrics_central_bench.py $CARGO_TARGET_DIR/release $S/bin $S/mdata results/metrics/central.md
 cargo build --profile dist --bin otap-s3pq           # thin LTO, stripped: the size number
 ```
 
-Everything writes under `s3://otel/otap-rs/` on the local SeaweedFS. Every
+Everything writes under `s3://otel/otap-rs/` (metrics: `s3://otel/metrics-rs/`) on the local SeaweedFS. Every
 ClickHouse database is private and dropped afterwards.
 
 ## Files
@@ -662,15 +923,17 @@ ClickHouse database is private and dropped afterwards.
 | `UPSTREAM`, `patches/`, `scripts/fetch-upstream.sh` | the pinned upstream commit and the two patches |
 | `src/main.rs` | the `otap-s3pq` engine binary: upstream controller + OTLP receiver + this exporter |
 | `src/exporter.rs` | `urn:otel:exporter:s3pq`: config, lanes, ack/nack |
+| `src/metrics.rs`, `src/gosort.rs` | the metrics walker (five types, one pass); Go's `slices.SortFunc` for contrib's map order |
 | `src/flatten.rs`, `src/render.rs`, `src/schema.rs`, `src/columns.rs` | the view walker, contrib-compatible rendering, the published schema, zero-copy column buffers |
 | `src/batch.rs`, `src/encode.rs` | content key, flatten + encode per slot; Parquet and Arrow IPC writers |
 | `src/proto.rs` | the commit protocol: `Lane`, `Consumer`, keys, metadata, mutations |
 | `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential_process, in-memory store with faults |
 | `src/central.rs`, `src/bin/consume.rs` | the central consumer |
 | `src/bin/encbench.rs` | the in-process edge benchmark |
-| `tests/mbt_s3inline.rs` | quint-connect model-based test against `../model/s3Inline.qnt` |
+| `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt` and `../model/s3InlineMetrics.qnt`; the shared log driver |
+| `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
 | `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes, deterministic encoding, the upstream view bug |
 | `configs/edge.yaml` | the pipeline (env-substituted) |
-| `tools/` (Go) | `otlpgen` (datasets as OTLP, parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop) |
+| `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows) |
 | `scripts/` | correctness, faults, bench, central bench, latency, summaries |
-| `results/` | `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt` |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt` |

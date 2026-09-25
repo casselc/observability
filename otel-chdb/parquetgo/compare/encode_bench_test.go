@@ -62,3 +62,33 @@ func BenchmarkGoEncode(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkMetricsEncode measures pdata -> Parquet bytes for 10k data
+// points of one metric type, in memory, no I/O.
+func BenchmarkMetricsEncode(b *testing.B) {
+	for t, sig := range parquetgo.MetricSignals {
+		md := MetricsBatch(parquetgo.MetricType(t), 10000, 0)
+		for _, bloom := range []bool{true, false} {
+			opts := parquetgo.DefaultOptions()
+			opts.BloomFilters = bloom
+			name := sig + "-bloom"
+			if !bloom {
+				name = sig + "-nobloom"
+			}
+			b.Run(name, func(b *testing.B) {
+				e := parquetgo.NewPGEncoder(opts)
+				var buf bytes.Buffer
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					buf.Reset()
+					env := &parquetgo.Envelope{Producer: "p", Epoch: "e", Batch: uint64(i + 1), Received: 1, Schema: 1}
+					if _, err := e.MetricsOf(&buf, md, parquetgo.MetricType(t), env); err != nil {
+						b.Fatal(err)
+					}
+				}
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/10000, "ns/point")
+				b.ReportMetric(float64(buf.Len()), "bytes/obj")
+			})
+		}
+	}
+}

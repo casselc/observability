@@ -10,6 +10,8 @@
 //!   formed as one block (`ONE_BLOCK`), so the dedup token also protects an
 //!   insert retried after a crash.
 
+use arrow::datatypes::DataType;
+
 pub const ENV_STRUCTURE: &str = ", producer_id String, producer_epoch String, batch_id UInt64, row_ordinal UInt32, received_at DateTime64(9), schema_version UInt16";
 
 pub const TRACES_STRUCTURE: &str = "Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String, SpanName String, SpanKind String, ServiceName String, ResourceAttributes Map(String, String), ScopeName String, ScopeVersion String, SpanAttributes Map(String, String), Duration UInt64, StatusCode String, StatusMessage String, `Events.Timestamp` Array(DateTime64(9)), `Events.Name` Array(String), `Events.Attributes` Array(Map(String, String)), `Links.TraceId` Array(String), `Links.SpanId` Array(String), `Links.TraceState` Array(String), `Links.Attributes` Array(Map(String, String))";
@@ -42,6 +44,7 @@ pub fn structure(signal: crate::Signal) -> String {
     match signal {
         crate::Signal::Traces => format!("{TRACES_STRUCTURE}{ENV_STRUCTURE}"),
         crate::Signal::Logs => format!("{LOGS_STRUCTURE}{ENV_STRUCTURE}"),
+        m => metrics_structure(m),
     }
 }
 
@@ -49,10 +52,93 @@ pub fn cols(signal: crate::Signal) -> String {
     match signal {
         crate::Signal::Traces => format!("{TRACES_COLS}{ENV_COLS}"),
         crate::Signal::Logs => format!("{LOGS_COLS}{ENV_COLS}"),
+        m => content_cols(m) + ENV_COLS,
     }
 }
 
+/// A metrics type's content columns (no envelope), quoted, in table order.
+pub fn content_cols(signal: crate::Signal) -> String {
+    let sc = crate::schema::metrics(signal, &DataType::Utf8);
+    let n = sc.fields().len() - 6;
+    sc.fields()[..n].iter().map(|f| format!("`{}`", f.name())).collect::<Vec<_>>().join(", ")
+}
+
+/// The object's ClickHouse type for an Arrow type (the s3() structure).
+fn plain_type(t: &DataType) -> String {
+    match t {
+        DataType::Utf8 | DataType::Binary => "String".into(),
+        DataType::Timestamp(arrow::datatypes::TimeUnit::Millisecond, _) => "DateTime".into(),
+        DataType::Timestamp(..) => "DateTime64(9)".into(),
+        DataType::Map(..) => "Map(String, String)".into(),
+        DataType::List(f) => format!("Array({})", plain_type(f.data_type())),
+        DataType::Boolean => "Bool".into(),
+        other => format!("{other:?}"), // UInt32, UInt64, Int32, Float64, ...
+    }
+}
+
+/// The s3() structure of a metrics object, envelope included.
+pub fn metrics_structure(signal: crate::Signal) -> String {
+    let sc = crate::schema::metrics(signal, &DataType::Utf8);
+    sc.fields().iter().map(|f| format!("`{}` {}", f.name(), plain_type(f.data_type()))).collect::<Vec<_>>().join(", ")
+}
+
+/// The contrib exporter's column type (v0.161.0 DDL, codecs and indexes left out).
+fn contrib_type(name: &str, t: &DataType) -> String {
+    match t {
+        DataType::Utf8 if name == "ServiceName" || name == "MetricName" => "LowCardinality(String)".into(),
+        DataType::Utf8 => "String".into(),
+        DataType::Timestamp(..) => "DateTime".into(),
+        DataType::Map(..) => "Map(LowCardinality(String), String)".into(),
+        DataType::List(f) => format!("Array({})", contrib_type(name, f.data_type())),
+        DataType::Boolean => "Bool".into(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// The contrib exporter's table body for a metrics type: the same columns,
+/// types and Nested groups as `metrics_*_table.sql`.
+pub fn contrib_metrics_columns(signal: crate::Signal) -> String {
+    let sc = crate::schema::metrics(signal, &DataType::Utf8);
+    let n = sc.fields().len() - 6;
+    let mut out: Vec<String> = Vec::new();
+    let mut nested: Option<(String, Vec<String>)> = None;
+    for f in &sc.fields()[..n] {
+        if let Some((group, sub)) = f.name().split_once('.') {
+            let DataType::List(e) = f.data_type() else { unreachable!() };
+            let item = format!("{sub} {}", contrib_type(sub, e.data_type()));
+            match &mut nested {
+                Some((g, items)) if g == group => items.push(item),
+                _ => {
+                    if let Some((g, items)) = nested.take() {
+                        out.push(format!("{g} Nested ({})", items.join(", ")));
+                    }
+                    nested = Some((group.to_string(), vec![item]));
+                }
+            }
+            continue;
+        }
+        if let Some((g, items)) = nested.take() {
+            out.push(format!("{g} Nested ({})", items.join(", ")));
+        }
+        out.push(format!("{} {}", f.name(), contrib_type(f.name(), f.data_type())));
+    }
+    if let Some((g, items)) = nested.take() {
+        out.push(format!("{g} Nested ({})", items.join(", ")));
+    }
+    out.join(",\n  ")
+}
+
 pub fn create_table(table: &str, signal: crate::Signal) -> String {
+    if signal.is_metrics() {
+        return format!(
+            "CREATE TABLE IF NOT EXISTS {table} ({}{CENTRAL_ENV},
+  PROJECTION by_content (SELECT content_key, count() GROUP BY content_key))
+ENGINE = MergeTree PARTITION BY toDate(received_at)
+ORDER BY (ServiceName, MetricName, toStartOfHour(TimeUnix), cityHash64(Attributes), TimeUnix)
+SETTINGS non_replicated_deduplication_window = 1000",
+            contrib_metrics_columns(signal)
+        );
+    }
     let body = match signal {
         crate::Signal::Traces => "(Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String,
   SpanName LowCardinality(String), SpanKind LowCardinality(String), ServiceName LowCardinality(String),
@@ -65,10 +151,12 @@ pub fn create_table(table: &str, signal: crate::Signal) -> String {
   ResourceAttributes Map(LowCardinality(String), String), ScopeSchemaUrl LowCardinality(String), ScopeName String,
   ScopeVersion LowCardinality(String), ScopeAttributes Map(LowCardinality(String), String),
   LogAttributes Map(LowCardinality(String), String), EventName String",
+        _ => unreachable!(),
     };
     let order = match signal {
         crate::Signal::Traces => "(ServiceName, SpanName, toDateTime(Timestamp))",
         crate::Signal::Logs => "(ServiceName, Timestamp)",
+        _ => unreachable!(),
     };
     format!(
         "CREATE TABLE IF NOT EXISTS {table} {body}{CENTRAL_ENV},

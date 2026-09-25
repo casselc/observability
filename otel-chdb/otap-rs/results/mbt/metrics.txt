@@ -1,0 +1,17 @@
+../model/s3InlineMetrics.qnt (two s3Inline instances, G and S, plus the request level), quint 0.32.0
+
+quint run (simulation, --invariant safety, --max-steps 60, seed 0x5eed):
+  s3InlineMetricsDesign  3000 traces: no violation (58.6 s)
+  ackOnAny               violation after 291 ms (reqAckedImpliesAllCommitted);
+                         noObjectLost (a crash after the early 2xx) also violated, after 47 s
+  witnesses reached in the design (not(w) violated): wAcked, wCrossEpochCopy, wHalfCommitted, wAllDone
+
+quint-connect (tests/mbt_s3inline_metrics.rs, QUINT_SEED=0x5eed, 300 traces x up to 80 steps):
+  design: pass, 103 s. The same 300 traces (quint run --mbt --n-traces 300): 23,968 steps;
+    actions: crash 600, ackRequest 198, per-lane apply/lose/send/timeout/resolve/switch, consumer tomb/crash, ...
+    traces reaching: halfCommitted 296, restart 300, dedupHit 178, resolvedOwn 178, switched 160,
+                     learnedOther 60, allAcked 37, resolvedOwn412 20
+  OTAPRS_MUTANT=ack_on_any: FAIL at trace 1, step 23 (gReceive: request 2's gauge object commits,
+    its sum object doesn't): model ackable {} / implementation ackable {2}
+
+tests/mbt_s3inline.rs after the driver moved to tests/common/s3inline.rs: pass (35 s, seed 0x5eed)

@@ -1,0 +1,60 @@
+2026/09/25 06:02:38 PUT #2 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000000.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:38 PUT #3 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:02:38 PUT #5 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:02:38 PUT #4 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000000.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:38 PUT #1 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:02:39 PUT #4: client gave up before the answer
+2026/09/25 06:02:39 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000000.parquet inm="" -> 200
+2026/09/25 06:02:39 PUT #2: client gave up before the answer
+2026/09/25 06:02:39 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000000.parquet inm="" -> 200
+2026/09/25 06:02:40 PUT #7 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:02:40 PUT #8 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000001.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:40 PUT #9 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:02:40 PUT #6 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000001.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:40 PUT #10 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000001.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:41 PUT #8: client gave up before the answer
+2026/09/25 06:02:41 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000001.parquet inm="" -> 200
+2026/09/25 06:02:41 PUT #6: client gave up before the answer
+2026/09/25 06:02:41 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000001.parquet inm="" -> 200
+2026/09/25 06:02:41 PUT #10: client gave up before the answer
+2026/09/25 06:02:41 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000001.parquet inm="" -> 200
+2026/09/25 06:02:41 PUT #14 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000002.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:41 PUT #15 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:02:41 PUT #13 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:02:41 PUT #11 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:02:41 PUT #12 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000002.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:42 PUT #12: client gave up before the answer
+2026/09/25 06:02:42 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000002.parquet inm="" -> 200
+2026/09/25 06:02:42 PUT #14: client gave up before the answer
+2026/09/25 06:02:42 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000002.parquet inm="" -> 200
+2026/09/25 06:02:42 PUT #20 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000003.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:42 PUT #19 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:02:42 PUT #18 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000003.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:42 PUT #17 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:02:42 PUT #16 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000003.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:43 PUT #16: client gave up before the answer
+2026/09/25 06:02:43 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000003.parquet inm="" -> 200
+2026/09/25 06:02:43 PUT #20: client gave up before the answer
+2026/09/25 06:02:43 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000003.parquet inm="" -> 200
+2026/09/25 06:02:43 PUT #18: client gave up before the answer
+2026/09/25 06:02:43 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000003.parquet inm="" -> 200
+2026/09/25 06:02:43 PUT #22 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000004.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:43 PUT #21 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:02:43 PUT #25 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:02:43 PUT #24 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000004.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:43 PUT #23 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:02:44 PUT #24: client gave up before the answer
+2026/09/25 06:02:44 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000004.parquet inm="" -> 200
+2026/09/25 06:02:44 PUT #22: client gave up before the answer
+2026/09/25 06:02:44 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000004.parquet inm="" -> 200
+2026/09/25 06:02:44 PUT #26 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000005.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:44 PUT #28 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000005.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:44 PUT #27 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_sum/20260925T060236.903Z-98d005b8/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:02:44 PUT #30 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000005.parquet inm="*" -> 200 (applied; answer held 3s)
+2026/09/25 06:02:44 PUT #29 /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_exponential_histogram/20260925T060236.903Z-de850b88/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:02:45 PUT #28: client gave up before the answer
+2026/09/25 06:02:45 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_gauge/20260925T060236.903Z-6807407a/00000000000000000005.parquet inm="" -> 200
+2026/09/25 06:02:45 PUT #26: client gave up before the answer
+2026/09/25 06:02:45 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_histogram/20260925T060236.903Z-d8ebe73c/00000000000000000005.parquet inm="" -> 200
+2026/09/25 06:02:45 PUT #30: client gave up before the answer
+2026/09/25 06:02:45 HEAD /otel/metrics-rs/faults/mf1790316156/ambiguous/metrics_summary/20260925T060236.903Z-01d410af/00000000000000000005.parquet inm="" -> 200

@@ -7,6 +7,12 @@
 //! unknown, and permanently when the data can't be encoded. With the OTLP
 //! receiver's `wait_for_result`, the client's response follows the commit.
 //!
+//! Metrics: a request becomes one object per non-empty metric type
+//! (`metrics_gauge`, `metrics_sum`, ...), each appended to its own type's lane
+//! and log, concurrently. The request is ACKed only when every object has
+//! committed (`proto::request_verdict`); otherwise it is NACKed as a whole,
+//! and the retry finds the parts that did commit in their lanes' known set.
+//!
 //! Lanes: one log per (signal, lane). A request goes to lane
 //! `hash(content) mod lanes`, so a retry meets the lane, and the unresolved
 //! slot, of its first attempt. Lanes append concurrently; one lane appends
@@ -15,7 +21,7 @@
 use crate::batch::{Encoder, Flat, Format, Input};
 use crate::encode::ParquetOptions;
 use crate::flatten::Envelope;
-use crate::proto::{self, Lane, Ref};
+use crate::proto::{self, Lane, PartOutcome, Ref, Verdict};
 use crate::runner::{self, AppendError, EncodedCache, Stats, Timeouts};
 use crate::store::{S3Config, S3Store};
 use crate::Signal;
@@ -121,7 +127,8 @@ struct LaneState {
     cache: EncodedCache,
 }
 
-type Done = (OtapPdata, Result<Ref, AppendError>, Instant, usize);
+/// A request's outcome: one entry per object.
+type Done = (OtapPdata, Vec<(Signal, PartOutcome)>, Instant, usize);
 
 struct Shared {
     store: S3Store,
@@ -130,15 +137,17 @@ struct Shared {
     timeouts: Timeouts,
     producer: String,
     lanes: HashMap<(Signal, usize), Rc<tokio::sync::Mutex<LaneState>>>,
+    lanes_per_signal: usize,
     prefixes: HashMap<Signal, String>,
     verbose: bool,
 }
 
-fn signal_of(t: SignalType) -> Option<Signal> {
+fn signal_of(t: SignalType) -> Signal {
     match t {
-        SignalType::Traces => Some(Signal::Traces),
-        SignalType::Logs => Some(Signal::Logs),
-        _ => None,
+        SignalType::Traces => Signal::Traces,
+        SignalType::Logs => Signal::Logs,
+        // The request's objects are per type; the type is decided per metric.
+        SignalType::Metrics => Signal::MetricsGauge,
     }
 }
 
@@ -146,81 +155,103 @@ fn now_ns() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64
 }
 
-/// Content hash + flattened columns for one request.
-fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Flat, String> {
-    let signal = signal_of(pdata.signal_type()).ok_or("only traces and logs are supported")?;
+/// Content hash + flattened columns for each of a request's objects.
+fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
+    let signal = signal_of(pdata.signal_type());
     let mut enc = sh.encoder.borrow_mut();
     match pdata.payload_ref().data() {
         PayloadData::OtlpBytes(b) => {
-            let bytes = match b {
-                OtlpProtoBytes::ExportTracesRequest(x) | OtlpProtoBytes::ExportLogsRequest(x) => x,
-                OtlpProtoBytes::ExportMetricsRequest(_) => return Err("metrics are not supported".into()),
+            let (bytes, input) = match b {
+                OtlpProtoBytes::ExportTracesRequest(x) | OtlpProtoBytes::ExportLogsRequest(x) => {
+                    (x, Input::Otlp(signal, x))
+                }
+                OtlpProtoBytes::ExportMetricsRequest(x) => (x, Input::OtlpMetrics(x)),
             };
             match path {
-                OtlpPath::Direct => enc.flatten(&Input::Otlp(signal, bytes)).map_err(|e| e.0),
+                OtlpPath::Direct => enc.flatten_all(&input).map_err(|e| e.0),
                 OtlpPath::ViaOtap => {
                     let recs: OtapArrowRecords = b.clone().try_into_with_default().map_err(|e| format!("{e}"))?;
-                    let mut f = enc.flatten(&Input::Otap(signal, &recs)).map_err(|e| e.0)?;
-                    // Keep the request's content key, so both paths dedup alike.
-                    f.content = crate::batch::content_hash_otlp(signal, bytes);
-                    Ok(f)
+                    let input = if signal.is_metrics() { Input::OtapMetrics(&recs) } else { Input::Otap(signal, &recs) };
+                    let mut fs = enc.flatten_all(&input).map_err(|e| e.0)?;
+                    // Keep the request's content keys, so both paths dedup alike.
+                    for f in &mut fs {
+                        f.content = crate::batch::content_hash_otlp(f.signal, bytes);
+                    }
+                    Ok(fs)
                 }
             }
         }
-        PayloadData::OtapArrowRecords(r) => enc.flatten(&Input::Otap(signal, r)).map_err(|e| e.0),
+        PayloadData::OtapArrowRecords(r) => {
+            let input = if signal.is_metrics() { Input::OtapMetrics(r) } else { Input::Otap(signal, r) };
+            enc.flatten_all(&input).map_err(|e| e.0)
+        }
     }
 }
 
-fn commit(sh: Rc<Shared>, pdata: OtapPdata, flat: Flat, received_ns: u64) -> LocalBoxFuture<'static, Done> {
+/// Appends one object to its signal's lane.
+async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, PartOutcome) {
+    let started = Instant::now();
+    let n = sh.lanes_per_signal;
+    let idx = if n <= 1 {
+        0
+    } else {
+        u64::from_str_radix(&flat.content[..16], 16).unwrap_or(0) as usize % n
+    };
+    let lane = sh.lanes[&(flat.signal, idx)].clone();
+    let mut g = lane.lock().await;
+    let st = &mut *g;
+    let prefix = &sh.prefixes[&flat.signal];
+    let producer = sh.producer.clone();
+    let mut encode = |r: &Ref| {
+        let env = Envelope {
+            producer: producer.clone(),
+            epoch: r.epoch.clone(),
+            batch: r.seq,
+            received_ns,
+        };
+        sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)
+    };
+    let res = runner::append(
+        &mut st.lane,
+        &mut st.cache,
+        &sh.store,
+        prefix,
+        &sh.producer,
+        &flat.content,
+        &mut encode,
+        &sh.timeouts,
+        &sh.stats,
+    )
+    .await;
+    if sh.verbose {
+        match &res {
+            Ok(r) => crate::log(&format!(
+                "{} rows={} content={} -> {}/{} in {:?}",
+                flat.signal.name(),
+                flat.stats.rows,
+                flat.content,
+                r.epoch,
+                r.seq,
+                started.elapsed()
+            )),
+            Err(e) => crate::log(&format!("{} content={}: {e}", flat.signal.name(), flat.content)),
+        }
+    }
+    let out = match res {
+        Ok(r) => PartOutcome::Committed(r),
+        Err(AppendError::Encode(e)) => PartOutcome::Rejected(e),
+        Err(e @ AppendError::Unresolved(_)) => PartOutcome::Unresolved(e.to_string()),
+    };
+    (flat.signal, out)
+}
+
+/// Commits every object of a request, concurrently (each in its own lane).
+fn commit(sh: Rc<Shared>, pdata: OtapPdata, flats: Vec<Flat>, received_ns: u64) -> LocalBoxFuture<'static, Done> {
     Box::pin(async move {
         let started = Instant::now();
-        let n = sh.lanes.len() / 2;
-        let idx = if n <= 1 {
-            0
-        } else {
-            u64::from_str_radix(&flat.content[..16], 16).unwrap_or(0) as usize % n
-        };
-        let lane = sh.lanes[&(flat.signal, idx)].clone();
-        let mut g = lane.lock().await;
-        let st = &mut *g;
-        let prefix = &sh.prefixes[&flat.signal];
-        let producer = sh.producer.clone();
-        let mut encode = |r: &Ref| {
-            let env = Envelope {
-                producer: producer.clone(),
-                epoch: r.epoch.clone(),
-                batch: r.seq,
-                received_ns,
-            };
-            sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)
-        };
-        let res = runner::append(
-            &mut st.lane,
-            &mut st.cache,
-            &sh.store,
-            prefix,
-            &sh.producer,
-            &flat.content,
-            &mut encode,
-            &sh.timeouts,
-            &sh.stats,
-        )
-        .await;
-        if sh.verbose {
-            match &res {
-                Ok(r) => crate::log(&format!(
-                    "{} rows={} content={} -> {}/{} in {:?}",
-                    flat.signal.name(),
-                    flat.stats.rows,
-                    flat.content,
-                    r.epoch,
-                    r.seq,
-                    started.elapsed()
-                )),
-                Err(e) => crate::log(&format!("{} content={}: {e}", flat.signal.name(), flat.content)),
-            }
-        }
-        (pdata, res, started, flat.stats.rows)
+        let rows = flats.iter().map(|f| f.stats.rows).sum();
+        let parts = futures::future::join_all(flats.into_iter().map(|f| commit_one(sh.clone(), f, received_ns))).await;
+        (pdata, parts, started, rows)
     })
 }
 
@@ -240,7 +271,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
         })?;
         let mut lanes = HashMap::new();
         let mut prefixes = HashMap::new();
-        for s in [Signal::Traces, Signal::Logs] {
+        for s in Signal::ALL {
             let _ = prefixes.insert(s, format!("{}/{}", store.prefix, s.name()).trim_start_matches('/').to_string());
             for i in 0..cfg.lanes.max(1) {
                 let _ = lanes.insert(
@@ -264,6 +295,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
             stats: Stats::default(),
             producer: cfg.producer_id.clone(),
             lanes,
+            lanes_per_signal: cfg.lanes.max(1),
             prefixes,
             verbose: cfg.verbose,
         });
@@ -271,16 +303,26 @@ impl Exporter<OtapPdata> for S3pqExporter {
         let mut in_flight: FuturesUnordered<LocalBoxFuture<'static, Done>> = FuturesUnordered::new();
 
         let finish = |d: Done, eh: &EffectHandler<OtapPdata>| {
-            let (pdata, res, _started, _rows) = d;
+            let (pdata, parts, _started, _rows) = d;
             let eh = eh.clone();
             async move {
-                match res {
-                    Ok(_) => eh.notify_ack(AckMsg::new(pdata)).await,
+                match proto::request_verdict(parts.iter().map(|(_, o)| o)) {
+                    Verdict::Ack => eh.notify_ack(AckMsg::new(pdata)).await,
                     // The data can't be encoded: a client error (OTLP 400 / INVALID_ARGUMENT).
-                    Err(AppendError::Encode(e)) => {
+                    Verdict::Reject(e) => {
                         eh.notify_nack(NackMsg::new_permanent_with_cause(e, pdata, NackCause::Refused)).await
                     }
-                    Err(e @ AppendError::Unresolved(_)) => eh.notify_nack(NackMsg::new(e.to_string(), pdata)).await,
+                    Verdict::Retry(e) => {
+                        if parts.len() > 1 {
+                            let done: Vec<&str> = parts
+                                .iter()
+                                .filter(|(_, o)| matches!(o, PartOutcome::Committed(_)))
+                                .map(|(s, _)| s.name())
+                                .collect();
+                            crate::log(&format!("nack: {} of {} objects committed ({done:?}); {e}", done.len(), parts.len()));
+                        }
+                        eh.notify_nack(NackMsg::new(e, pdata)).await
+                    }
                 }
             }
         };
@@ -321,7 +363,9 @@ impl Exporter<OtapPdata> for S3pqExporter {
                     }
                     let received_ns = now_ns();
                     match prepare(&sh, &pdata, cfg.otlp_path) {
-                        Ok(flat) => in_flight.push(commit(sh.clone(), pdata, flat, received_ns)),
+                        // A metrics request without data points: nothing to write.
+                        Ok(flats) if flats.is_empty() => effect_handler.notify_ack(AckMsg::new(pdata)).await?,
+                        Ok(flats) => in_flight.push(commit(sh.clone(), pdata, flats, received_ns)),
                         Err(e) => {
                             crate::log(&format!("rejecting request: {e}"));
                             effect_handler

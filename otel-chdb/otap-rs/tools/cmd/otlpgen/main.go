@@ -5,6 +5,7 @@
 //
 //	otlpgen -out DIR                      # testgen 10k/3k and nasty 700, both signals
 //	otlpgen -out DIR -ref http://127.0.0.1:18333/otel/otap-rs/ref -key otel -secret otelsecret -epoch R1
+//	otlpgen -metrics -out DIR [-variants N] [-ref ...]   # metrics only (see metrics.go)
 package main
 
 import (
@@ -39,7 +40,23 @@ func main() {
 	secret := flag.String("secret", "otelsecret", "")
 	epoch := flag.String("epoch", "", "reference epoch (default: a timestamp)")
 	variants := flag.Int("variants", 0, "also write N distinct 10k-row batches per signal (timestamps shifted by i s), bench-v{i}.pb")
+	metrics := flag.Bool("metrics", false, "write (and with -ref publish) the metrics datasets instead")
 	flag.Parse()
+	if *metrics {
+		if *out != "" {
+			if err := os.MkdirAll(*out, 0o755); err != nil {
+				log.Fatal(err)
+			}
+			writeMetrics(*out, *variants)
+		}
+		if *ref != "" {
+			if *epoch == "" {
+				*epoch = fmt.Sprintf("r%d", time.Now().Unix())
+			}
+			publishMetricsRef(*ref, *key, *secret, *epoch)
+		}
+		return
+	}
 	data := []dataset{
 		{"testgen-10000", testgen.Traces(10000), testgen.Logs(10000)},
 		{"testgen-3000", testgen.Traces(3000), testgen.Logs(3000)},

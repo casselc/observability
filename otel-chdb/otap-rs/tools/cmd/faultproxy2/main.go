@@ -8,6 +8,10 @@
 //	                   after the retry (it must get 412)
 //	-mode drop         never forward, answer 503 after -hold: nothing lands
 //
+// -head-hold D -head-limit N also holds the answers to the first N matching
+// HEADs for D (the HEAD is applied at once), so a PUT that timed out can't be
+// resolved either: the part stays unresolved and its request is NACKed.
+//
 // SigV4 still verifies: the Host header is passed through unchanged. Every
 // request is logged with method, path, If-None-Match and status, so a run's
 // S3 request counts can be read off the log.
@@ -37,7 +41,10 @@ func main() {
 	every := flag.Int64("every", 1, "fault every n-th matching PUT")
 	skip := flag.Int64("skip", 0, "leave the first n matching PUTs alone")
 	limit := flag.Int64("limit", 0, "fault at most this many PUTs (0: no limit)")
+	headHold := flag.Duration("head-hold", 0, "hold the answer of matching HEADs this long")
+	headLimit := flag.Int64("head-limit", 0, "hold at most this many HEADs")
 	flag.Parse()
+	var heads atomic.Int64
 	u, err := url.Parse(*target)
 	if err != nil {
 		log.Fatal(err)
@@ -53,6 +60,23 @@ func main() {
 	}
 	log.Fatal(http.ListenAndServe(*listen, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		inm := r.Header.Get("If-None-Match")
+		if r.Method == http.MethodHead && *headHold > 0 && strings.Contains(r.URL.Path, *match) && heads.Load() < *headLimit {
+			h := heads.Add(1)
+			rec := httptest.NewRecorder()
+			rp.ServeHTTP(rec, r)
+			log.Printf("HEAD #%d %s -> %d (answer held %v)", h, r.URL.Path, rec.Code, *headHold)
+			select {
+			case <-time.After(*headHold):
+			case <-r.Context().Done():
+				log.Printf("HEAD #%d: client gave up before the answer", h)
+				return
+			}
+			for k, v := range rec.Header() {
+				w.Header()[k] = v
+			}
+			w.WriteHeader(rec.Code)
+			return
+		}
 		if r.Method != http.MethodPut || !strings.Contains(r.URL.Path, *match) || *mode == "none" {
 			rec := httptest.NewRecorder()
 			rp.ServeHTTP(rec, r)

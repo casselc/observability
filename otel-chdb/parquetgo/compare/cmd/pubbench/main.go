@@ -3,7 +3,7 @@
 // process so RSS and startup are per implementation, and prints one JSON
 // line of measurements.
 //
-//	pubbench -impl go|chdb -url file:///dir|http://host/bucket/prefix -signal traces|logs \
+//	pubbench -impl go|chdb -url file:///dir|http://host/bucket/prefix -signal traces|logs|metrics|metrics_gauge|... \
 //	         -n 10000 -batches 30 -warmup 3 [-count-s3]
 package main
 
@@ -29,6 +29,7 @@ import (
 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
 var mainStart = time.Now()
@@ -111,7 +112,7 @@ func main() {
 	impl := flag.String("impl", "parquet-go", "chdb, arrow or parquet-go")
 	par := flag.Int("par", 1, "parquet-go: columns encoded in parallel")
 	dest := flag.String("url", "", "file:///dir or S3 prefix URL")
-	signal := flag.String("signal", "traces", "traces or logs")
+	signal := flag.String("signal", "traces", "traces, logs, metrics (all five types) or one of "+strings.Join(parquetgo.MetricSignals[:], ", "))
 	n := flag.Int("n", 10000, "rows per batch")
 	batches := flag.Int("batches", 30, "measured batches")
 	warmup := flag.Int("warmup", 3, "unmeasured batches first")
@@ -136,8 +137,24 @@ func main() {
 	var closeFn func() error
 	ctx := context.Background()
 	td, ld := testgen.Traces(*n), testgen.Logs(*n)
+	// Metrics: -n data points of the named type, or of every type.
+	md := pmetric.NewMetrics()
+	metricSignals := []string{}
+	if *signal == "metrics" {
+		md = compare.Metrics(*n)
+		metricSignals = parquetgo.MetricSignals[:]
+	}
+	for t, sig := range parquetgo.MetricSignals {
+		if *signal == sig {
+			md = compare.MetricsBatch(parquetgo.MetricType(t), *n, 0)
+			metricSignals = []string{sig}
+		}
+	}
 	switch *impl {
 	case "chdb":
+		if len(metricSignals) > 0 {
+			log.Fatal("the chdb exporter publishes no metrics")
+		}
 		dir, _ := os.MkdirTemp("", "pubbench-chdb")
 		defer os.RemoveAll(dir)
 		p, err := compare.NewChdbPublisher(dir, producer, epoch, url, s3)
@@ -160,9 +177,12 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		if *signal == "traces" {
+		switch {
+		case len(metricSignals) > 0:
+			push = func() error { return p.PushMetrics(ctx, md) }
+		case *signal == "traces":
 			push = func() error { return p.PushTraces(ctx, td) }
-		} else {
+		default:
 			push = func() error { return p.PushLogs(ctx, ld) }
 		}
 		closeFn = func() error { return p.Close(ctx) }
@@ -229,10 +249,16 @@ func main() {
 	}
 	r.MaxRSSMB = maxRSSMB()
 	if strings.HasPrefix(*dest, "file://") {
-		matches, _ := filepath.Glob(filepath.Join(strings.TrimPrefix(*dest, "file://"), "cmp", *signal, "v1", producer, epoch, "g*", "*.parquet"))
-		if len(matches) > 0 {
-			if st, err := os.Stat(matches[0]); err == nil {
-				r.ObjectBytes = st.Size()
+		sigs := metricSignals
+		if len(sigs) == 0 {
+			sigs = []string{*signal}
+		}
+		for _, sig := range sigs {
+			matches, _ := filepath.Glob(filepath.Join(strings.TrimPrefix(*dest, "file://"), "cmp", sig, "v1", producer, epoch, "g*", "*.parquet"))
+			if len(matches) > 0 {
+				if st, err := os.Stat(matches[0]); err == nil {
+					r.ObjectBytes += st.Size()
+				}
 			}
 		}
 	}

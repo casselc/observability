@@ -39,6 +39,7 @@ fn same_request_same_bytes() {
         let p = match sig {
             Signal::Traces => OtlpProtoBytes::ExportTracesRequest(b.clone().into()),
             Signal::Logs => OtlpProtoBytes::ExportLogsRequest(b.clone().into()),
+            _ => unreachable!(),
         };
         let recs: OtapArrowRecords = p.try_into_with_default().unwrap();
         let via = enc.flatten(&Input::Otap(sig, &recs)).unwrap();

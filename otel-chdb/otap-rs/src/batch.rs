@@ -3,6 +3,7 @@
 
 use crate::encode::{self, ParquetOptions};
 use crate::flatten::{Envelope, LogsBuf, Stats, TracesBuf, record_batch};
+use crate::metrics::MetricsBuf;
 use crate::proto;
 use crate::runner::Encoded;
 use crate::schema::{SCHEMA_VERSION, Schemas};
@@ -10,8 +11,9 @@ use crate::Signal;
 use arrow::array::ArrayRef;
 use bytes::Bytes;
 use otel_arrow_dfe_pdata::OtapArrowRecords;
-use otel_arrow_dfe_pdata::views::otap::{OtapLogsView, OtapTracesView};
+use otel_arrow_dfe_pdata::views::otap::{OtapLogsView, OtapMetricsView, OtapTracesView};
 use otel_arrow_dfe_pdata::views::otlp::bytes::logs::RawLogsData;
+use otel_arrow_dfe_pdata::views::otlp::bytes::metrics::RawMetricsData;
 use otel_arrow_dfe_pdata::views::otlp::bytes::traces::RawTraceData;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -33,6 +35,10 @@ pub enum Input<'a> {
     Otlp(Signal, &'a [u8]),
     /// OTAP Arrow record batches.
     Otap(Signal, &'a OtapArrowRecords),
+    /// A serialized ExportMetricsServiceRequest: one object per metric type.
+    OtlpMetrics(&'a [u8]),
+    /// OTAP metrics record batches.
+    OtapMetrics(&'a OtapArrowRecords),
 }
 
 /// A flattened batch: the content columns (no envelope yet) and stats.
@@ -82,8 +88,11 @@ pub fn content_hash_cols(signal: Signal, cols: &[ArrayRef]) -> String {
 pub struct Encoder {
     pub traces_sc: Schemas,
     pub logs_sc: Schemas,
+    /// One per metric type, in `Signal::METRICS` order.
+    pub metrics_sc: Vec<Schemas>,
     traces: TracesBuf,
     logs: LogsBuf,
+    metrics: MetricsBuf,
     pub opts: ParquetOptions,
     pub format: Format,
 }
@@ -101,8 +110,10 @@ impl Encoder {
         Self {
             traces_sc: Schemas::new(Signal::Traces),
             logs_sc: Schemas::new(Signal::Logs),
+            metrics_sc: Signal::METRICS.iter().map(|s| Schemas::new(*s)).collect(),
             traces: TracesBuf::default(),
             logs: LogsBuf::default(),
+            metrics: MetricsBuf::default(),
             opts,
             format,
         }
@@ -112,7 +123,42 @@ impl Encoder {
         match s {
             Signal::Traces => &self.traces_sc,
             Signal::Logs => &self.logs_sc,
+            m => &self.metrics_sc[Signal::METRICS.iter().position(|x| *x == m).expect("a metric type")],
         }
+    }
+
+    /// Walks any input into its objects' columns: one `Flat` for traces or
+    /// logs, one per non-empty metric type for metrics (none for a request
+    /// without data points).
+    pub fn flatten_all(&mut self, input: &Input<'_>) -> Result<Vec<Flat>, EncodeError> {
+        let e = |m: &dyn std::fmt::Display| EncodeError(m.to_string());
+        match input {
+            Input::OtlpMetrics(b) => {
+                let v = RawMetricsData::try_new(b).map_err(|x| e(&x))?;
+                self.metrics.fill(&v).map_err(|x| EncodeError(x.0))?;
+                Ok(self.metrics_flats(|sig, _| content_hash_otlp(sig, b)))
+            }
+            Input::OtapMetrics(r) => {
+                let v = OtapMetricsView::try_from(*r).map_err(|x| e(&x))?;
+                self.metrics.fill(&v).map_err(|x| EncodeError(x.0))?;
+                Ok(self.metrics_flats(content_hash_cols))
+            }
+            other => Ok(vec![self.flatten(other)?]),
+        }
+    }
+
+    fn metrics_flats(&mut self, key: impl Fn(Signal, &[ArrayRef]) -> String) -> Vec<Flat> {
+        let mut out = Vec::new();
+        for (i, sig) in Signal::METRICS.into_iter().enumerate() {
+            let stats = self.metrics.stats(sig);
+            // Always take the columns, so the buffers are reset for the next request.
+            let cols = self.metrics.content_arrays(sig, &self.metrics_sc[i]);
+            if stats.rows > 0 {
+                let content = key(sig, &cols);
+                out.push(Flat { signal: sig, content, cols, stats });
+            }
+        }
+        out
     }
 
     /// Walks the input into columns.
@@ -139,10 +185,12 @@ impl Encoder {
                 let st = self.logs.fill(&v);
                 (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc))
             }
+            _ => return Err(EncodeError("metrics input has one object per type: use flatten_all".into())),
         };
         let content = match input {
             Input::Otlp(s, b) => content_hash_otlp(*s, b),
             Input::Otap(s, _) => content_hash_cols(*s, &cols),
+            _ => unreachable!(),
         };
         Ok(Flat { signal, content, cols, stats })
     }

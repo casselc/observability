@@ -1,0 +1,35 @@
+ingest 20260925T060236.903Z-6807407a/0 content=9f98bfdc0d47f58e4f3754f4c40c5f6e rows=2000 visible_after_ms=9532.3
+ingest 20260925T060236.903Z-6807407a/1 content=5ba709ff28e8b2cd9b81ac523466cd0f rows=2000 visible_after_ms=8481.8
+ingest 20260925T060236.903Z-6807407a/2 content=a722a9bfaa7872f83607b42e4d0a7d28 rows=2000 visible_after_ms=7457.2
+ingest 20260925T060236.903Z-6807407a/3 content=7c8b704dce4d407d5d0524812799127d rows=2000 visible_after_ms=6416.0
+ingest 20260925T060236.903Z-6807407a/4 content=43fe78a457ab07ce8edd02c0717b8859 rows=2000 visible_after_ms=5403.8
+ingest 20260925T060236.903Z-6807407a/5 content=ce78a73a52060b0dcc0b2c73243f840c rows=2000 visible_after_ms=4400.7
+{"central_count_distinct_content":"12000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":12000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":9532.287279,"visible_after_ms_p50":7457.213073,"visible_after_ms_p90":9532.287279}
+ingest 20260925T060236.903Z-98d005b8/0 content=7f0991df62305949baf9063181436e77 rows=2000 visible_after_ms=9796.5
+ingest 20260925T060236.903Z-98d005b8/1 content=fc25a915959d3ae4f0a7541621cbb961 rows=2000 visible_after_ms=8749.1
+ingest 20260925T060236.903Z-98d005b8/2 content=fd7d0f71a7fab80a1878b40628043ee0 rows=2000 visible_after_ms=7722.5
+ingest 20260925T060236.903Z-98d005b8/3 content=1867da5d207f4a10f46c57f6d57e8d01 rows=2000 visible_after_ms=6671.8
+ingest 20260925T060236.903Z-98d005b8/4 content=8ee4a95309afbe341a6b73016198a507 rows=2000 visible_after_ms=5669.2
+ingest 20260925T060236.903Z-98d005b8/5 content=88c6e4d7c0ef31e4f0d09fc1eca13dca rows=2000 visible_after_ms=4669.4
+{"central_count_distinct_content":"12000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":12000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":9796.53093,"visible_after_ms_p50":7722.492976,"visible_after_ms_p90":9796.53093}
+ingest 20260925T060236.903Z-d8ebe73c/0 content=778d5bc61631598db73eb44d96d0edd9 rows=2000 visible_after_ms=10069.2
+ingest 20260925T060236.903Z-d8ebe73c/1 content=db57c42e276e4878c99324d7048b5eb9 rows=2000 visible_after_ms=9039.6
+ingest 20260925T060236.903Z-d8ebe73c/2 content=bb191e3699a92dd9a503e7f7b0466428 rows=2000 visible_after_ms=8020.6
+ingest 20260925T060236.903Z-d8ebe73c/3 content=8b6c936df17f9e03080096943794cd20 rows=2000 visible_after_ms=6971.3
+ingest 20260925T060236.903Z-d8ebe73c/4 content=8904ac70ae01788ff924b3909eda2cf3 rows=2000 visible_after_ms=5966.8
+ingest 20260925T060236.903Z-d8ebe73c/5 content=9eee98c19eb788752bdcb983bd610b78 rows=2000 visible_after_ms=4972.5
+{"central_count_distinct_content":"12000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":12000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":10069.152213,"visible_after_ms_p50":8020.55969,"visible_after_ms_p90":10069.152213}
+ingest 20260925T060236.903Z-de850b88/0 content=3a0587ec613e50947a5146a64ed39de1 rows=2000 visible_after_ms=10359.4
+ingest 20260925T060236.903Z-de850b88/1 content=d0998158fead00a59e475b2c084d45f8 rows=2000 visible_after_ms=9312.6
+ingest 20260925T060236.903Z-de850b88/2 content=fd238a4a60cc8aaeab7d410c022df68d rows=2000 visible_after_ms=8295.0
+ingest 20260925T060236.903Z-de850b88/3 content=6545c94e561da4191404a23897b5b5be rows=2000 visible_after_ms=7249.6
+ingest 20260925T060236.903Z-de850b88/4 content=ca6ff9d5d4be8b1dee30bdd6b6e5048c rows=2000 visible_after_ms=6242.8
+ingest 20260925T060236.903Z-de850b88/5 content=599950c0484f8af8a7b1e6e4b1e8c267 rows=2000 visible_after_ms=5241.1
+{"central_count_distinct_content":"12000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":12000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":10359.357335,"visible_after_ms_p50":8294.982122,"visible_after_ms_p90":10359.357335}
+ingest 20260925T060236.903Z-01d410af/0 content=af776f0de3186d387262ac1f2f683297 rows=2000 visible_after_ms=10626.2
+ingest 20260925T060236.903Z-01d410af/1 content=159f043e935f00672ecaa46d3493a7fc rows=2000 visible_after_ms=9591.0
+ingest 20260925T060236.903Z-01d410af/2 content=c904de20ba2c3a20a98e8f550667fb08 rows=2000 visible_after_ms=8565.7
+ingest 20260925T060236.903Z-01d410af/3 content=965378a319c67e42742b5df307ea2068 rows=2000 visible_after_ms=7519.5
+ingest 20260925T060236.903Z-01d410af/4 content=5b940ab1208d6bf40235f9b257eea0a4 rows=2000 visible_after_ms=6511.3
+ingest 20260925T060236.903Z-01d410af/5 content=0401d3d01bac52008105595bc7f860f9 rows=2000 visible_after_ms=5511.3
+{"central_count_distinct_content":"12000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":12000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":10626.171342,"visible_after_ms_p50":8565.708063,"visible_after_ms_p90":10626.171342}

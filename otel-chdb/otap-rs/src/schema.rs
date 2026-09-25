@@ -20,6 +20,13 @@ pub fn ts_type() -> DataType {
     DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into()))
 }
 
+/// A ClickHouse `DateTime` (the metrics tables' timestamps), as ClickHouse's
+/// own Parquet writer types it: TIMESTAMP(MILLIS, UTC) holding whole seconds
+/// (../parquetgo/METRICS_SCHEMA.md, tag `dt`).
+pub fn dt_type() -> DataType {
+    DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into()))
+}
+
 fn col(name: &str, t: DataType) -> Field {
     Field::new(name, t, false)
 }
@@ -95,6 +102,89 @@ pub fn logs(s: &DataType) -> Schema {
     Schema::new(f)
 }
 
+/// The contrib clickhouseexporter's metrics tables (v0.161.0,
+/// `internal/sqltemplates/metrics_*_table.sql`), column for column and in
+/// the same order, with plain types: `LowCardinality(String)` is a string,
+/// `DateTime` is TIMESTAMP(MILLIS) holding the second clickhouse-go stores
+/// (`metrics::dt_ms`), `Boolean` is BOOLEAN, and each Nested sub-column is
+/// its own LIST. This is ../parquetgo/METRICS_SCHEMA.md.
+pub fn metrics(signal: crate::Signal, s: &DataType) -> Schema {
+    use crate::Signal as S;
+    let f64l = || list(DataType::Float64);
+    let mut f = vec![
+        col("ResourceAttributes", map_type(s)),
+        col("ResourceSchemaUrl", s.clone()),
+        col("ScopeName", s.clone()),
+        col("ScopeVersion", s.clone()),
+        col("ScopeAttributes", map_type(s)),
+        col("ScopeDroppedAttrCount", DataType::UInt32),
+        col("ScopeSchemaUrl", s.clone()),
+        col("ServiceName", s.clone()),
+        col("MetricName", s.clone()),
+        col("MetricDescription", s.clone()),
+        col("MetricUnit", s.clone()),
+        col("Attributes", map_type(s)),
+        col("StartTimeUnix", dt_type()),
+        col("TimeUnix", dt_type()),
+    ];
+    let exemplars = || {
+        vec![
+            col("Exemplars.FilteredAttributes", list(map_type(s))),
+            col("Exemplars.TimeUnix", list(dt_type())),
+            col("Exemplars.Value", f64l()),
+            col("Exemplars.SpanId", list(s.clone())),
+            col("Exemplars.TraceId", list(s.clone())),
+        ]
+    };
+    match signal {
+        S::MetricsGauge | S::MetricsSum => {
+            f.push(col("Value", DataType::Float64));
+            f.push(col("Flags", DataType::UInt32));
+            f.extend(exemplars());
+            if signal == S::MetricsSum {
+                f.push(col("AggregationTemporality", DataType::Int32));
+                f.push(col("IsMonotonic", DataType::Boolean));
+            }
+        }
+        S::MetricsHistogram => {
+            f.push(col("Count", DataType::UInt64));
+            f.push(col("Sum", DataType::Float64));
+            f.push(col("BucketCounts", list(DataType::UInt64)));
+            f.push(col("ExplicitBounds", f64l()));
+            f.extend(exemplars());
+            f.push(col("Flags", DataType::UInt32));
+            f.push(col("Min", DataType::Float64));
+            f.push(col("Max", DataType::Float64));
+            f.push(col("AggregationTemporality", DataType::Int32));
+        }
+        S::MetricsExpHistogram => {
+            f.push(col("Count", DataType::UInt64));
+            f.push(col("Sum", DataType::Float64));
+            f.push(col("Scale", DataType::Int32));
+            f.push(col("ZeroCount", DataType::UInt64));
+            f.push(col("PositiveOffset", DataType::Int32));
+            f.push(col("PositiveBucketCounts", list(DataType::UInt64)));
+            f.push(col("NegativeOffset", DataType::Int32));
+            f.push(col("NegativeBucketCounts", list(DataType::UInt64)));
+            f.extend(exemplars());
+            f.push(col("Flags", DataType::UInt32));
+            f.push(col("Min", DataType::Float64));
+            f.push(col("Max", DataType::Float64));
+            f.push(col("AggregationTemporality", DataType::Int32));
+        }
+        S::MetricsSummary => {
+            f.push(col("Count", DataType::UInt64));
+            f.push(col("Sum", DataType::Float64));
+            f.push(col("ValueAtQuantiles.Quantile", f64l()));
+            f.push(col("ValueAtQuantiles.Value", f64l()));
+            f.push(col("Flags", DataType::UInt32));
+        }
+        S::Traces | S::Logs => unreachable!("not a metrics signal"),
+    }
+    f.extend(envelope(s));
+    Schema::new(f)
+}
+
 /// Both forms of one signal's schema.
 pub struct Schemas {
     /// What the arrays are built as (strings as Binary).
@@ -105,6 +195,9 @@ pub struct Schemas {
     pub ts_elem: FieldRef,
     pub str_elem: FieldRef,
     pub map_elem: FieldRef,
+    pub dt_elem: FieldRef,
+    pub f64_elem: FieldRef,
+    pub u64_elem: FieldRef,
 }
 
 impl Schemas {
@@ -112,6 +205,7 @@ impl Schemas {
         let (b, u) = match signal {
             crate::Signal::Traces => (traces(&DataType::Binary), traces(&DataType::Utf8)),
             crate::Signal::Logs => (logs(&DataType::Binary), logs(&DataType::Utf8)),
+            m => (metrics(m, &DataType::Binary), metrics(m, &DataType::Utf8)),
         };
         let parquet = ArrowSchemaConverter::new()
             .convert(&u)
@@ -123,13 +217,23 @@ impl Schemas {
             ts_elem: Arc::new(Field::new("element", ts_type(), false)),
             str_elem: Arc::new(Field::new("element", DataType::Binary, false)),
             map_elem: Arc::new(Field::new("element", map_type(&DataType::Binary), false)),
+            dt_elem: Arc::new(Field::new("element", dt_type(), false)),
+            f64_elem: Arc::new(Field::new("element", DataType::Float64, false)),
+            u64_elem: Arc::new(Field::new("element", DataType::UInt64, false)),
         }
     }
 }
 
 /// Leaf columns that are unique or nearly so per row: written without a
-/// dictionary (parquetgo's `HighCardinality`).
+/// dictionary (parquetgo's `HighCardinality`). Paths that a signal's schema
+/// doesn't have are ignored by the writer.
 pub const HIGH_CARDINALITY: &[&[&str]] = &[
+    &["Value"],
+    &["Sum"],
+    &["Exemplars.TimeUnix", "list", "element"],
+    &["Exemplars.Value", "list", "element"],
+    &["Exemplars.SpanId", "list", "element"],
+    &["Exemplars.TraceId", "list", "element"],
     &["Timestamp"],
     &["TraceId"],
     &["SpanId"],

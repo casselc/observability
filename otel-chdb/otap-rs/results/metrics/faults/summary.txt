@@ -1,0 +1,21 @@
+run mf1790316156: 6 requests, each 2000 points of each of 5 types (5 objects)
+PASS ambiguous: requests=6 acked=6 partial-commit NACKs=0 central rows/contents per type: gauge=12000/6(objs 6, tombs 0) sum=12000/6(objs 6, tombs 0) histogram=12000/6(objs 6, tombs 0) exponential_histogram=12000/6(objs 6, tombs 0) summary=12000/6(objs 6, tombs 0)
+  edge: exporter stop: committed=15 resolved_own=15 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=30 puts=30 heads=15 abandoned=0
+  sender: {"attempts":6,"elapsed_s":6.395852805,"max_ack_ms":1091.013,"median_ack_ms":1070.331,"min_ack_ms":1035.639,"requests":6,"summary":true}
+  consumers: cross-epoch copies skipped 0, epochs closed by tombstone 0
+PASS partial: requests=6 acked=6 partial-commit NACKs=3 central rows/contents per type: gauge=12000/6(objs 6, tombs 0) sum=12000/6(objs 6, tombs 0) histogram=12000/6(objs 6, tombs 0) exponential_histogram=12000/6(objs 6, tombs 0) summary=12000/6(objs 6, tombs 0)
+  edge: exporter stop: committed=27 resolved_own=3 resent=0 learned_other=0 halted=0 known_skipped=12 encodes=30 puts=33 heads=6 abandoned=0
+  sender: {"attempts":9,"elapsed_s":8.357144325,"max_ack_ms":6024.841,"median_ack_ms":1047.773,"min_ack_ms":73.031,"requests":6,"summary":true}
+  consumers: cross-epoch copies skipped 0, epochs closed by tombstone 0
+PASS dropped: requests=6 acked=6 partial-commit NACKs=0 central rows/contents per type: gauge=12000/6(objs 6, tombs 0) sum=12000/6(objs 6, tombs 0) histogram=12000/6(objs 6, tombs 0) exponential_histogram=12000/6(objs 6, tombs 0) summary=12000/6(objs 6, tombs 0)
+  edge: exporter stop: committed=30 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=30 puts=30 heads=0 abandoned=0
+  sender: {"attempts":6,"elapsed_s":3.336056568,"max_ack_ms":764.035,"median_ack_ms":697.929,"min_ack_ms":378.156,"requests":6,"summary":true}
+  consumers: cross-epoch copies skipped 0, epochs closed by tombstone 0
+PASS crash: requests=6 acked=6 partial-commit NACKs=1 central rows/contents per type: gauge=12000/6(objs 7, tombs 1) sum=12000/6(objs 7, tombs 1) histogram=12000/6(objs 7, tombs 1) exponential_histogram=12000/6(objs 7, tombs 1) summary=12000/6(objs 7, tombs 1)
+  edge: exporter stop: committed=30 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=30 puts=30 heads=0 abandoned=0
+  sender: {"attempts":16,"elapsed_s":6.167615526,"max_ack_ms":5791.459,"median_ack_ms":76.008,"min_ack_ms":71.537,"requests":6,"summary":true}
+  consumers: cross-epoch copies skipped 5, epochs closed by tombstone 5
+PASS crashall: requests=6 acked=6 partial-commit NACKs=0 central rows/contents per type: gauge=12000/6(objs 7, tombs 1) sum=12000/6(objs 7, tombs 1) histogram=12000/6(objs 7, tombs 1) exponential_histogram=12000/6(objs 7, tombs 1) summary=12000/6(objs 7, tombs 1)
+  edge: exporter stop: committed=20 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=20 puts=20 heads=0 abandoned=0
+  sender: {"attempts":15,"elapsed_s":6.022467892,"max_ack_ms":3648.63,"median_ack_ms":1056.799,"min_ack_ms":72.406,"requests":6,"summary":true}
+  consumers: cross-epoch copies skipped 5, epochs closed by tombstone 5

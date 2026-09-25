@@ -155,6 +155,9 @@ pub enum Mutation {
     NoHalt,
     /// The consumer inserts without checking central for the content key.
     NoCheckCentral,
+    /// A request split into several objects is ACKed once any one of them
+    /// has committed (`../model/s3InlineMetrics.qnt`'s `ackOnAny`).
+    AckOnAny,
 }
 
 const RECENT_CAP: usize = 4096;
@@ -305,6 +308,61 @@ impl Lane {
         self.next = 0;
         self.after_412 = false;
         self.phase = if self.entry.is_some() { Phase::Ready } else { Phase::Idle };
+    }
+}
+
+// ---- requests with several objects ------------------------------------------------
+
+/// How one object of a request ended up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PartOutcome {
+    /// Committed at a slot (first try, resolved by HEAD, or found known).
+    Committed(Ref),
+    /// Not resolved yet: the lane holds the slot; a retry resolves it.
+    Unresolved(String),
+    /// The part can't be encoded: retrying can't help.
+    Rejected(String),
+}
+
+/// What the request's sender is told.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// Every object is committed (or there were none).
+    Ack,
+    /// At least one object is unresolved: retry the whole request. The parts
+    /// already committed are found in their lanes' known set on the retry,
+    /// or, after a restart, committed again in the new epoch, where the
+    /// consumer's content-key check skips the copy.
+    Retry(String),
+    /// A part can't be encoded: permanent.
+    Reject(String),
+}
+
+/// The request-level decision for a request split into several objects (a
+/// metrics request: one object per metric type, each in its own log): ACK
+/// only when every object has committed. Never ACK on a subset: the sender
+/// would drop the request, and a part still unresolved in a lane is lost if
+/// the edge then restarts (`../model/s3InlineMetrics.qnt`, `ackOnFirst`).
+pub fn request_verdict<'a>(parts: impl IntoIterator<Item = &'a PartOutcome>) -> Verdict {
+    request_verdict_with(parts, Mutation::None)
+}
+
+/// `request_verdict`, or with `Mutation::AckOnAny` the broken rule, for the
+/// model-based test.
+pub fn request_verdict_with<'a>(parts: impl IntoIterator<Item = &'a PartOutcome>, m: Mutation) -> Verdict {
+    let mut retry = None;
+    let mut any = false;
+    for p in parts {
+        match p {
+            PartOutcome::Committed(_) => any = true,
+            PartOutcome::Unresolved(e) => retry = retry.or_else(|| Some(e.clone())),
+            PartOutcome::Rejected(e) => return Verdict::Reject(e.clone()),
+        }
+    }
+    match retry {
+        Some(_) if any && m == Mutation::AckOnAny => Verdict::Ack,
+        Some(e) => Verdict::Retry(e),
+        None => Verdict::Ack,
     }
 }
 
@@ -518,6 +576,16 @@ mod tests {
         assert_eq!(l.on_head(&Slot::Tomb), Step::Halted);
         l.reincarnate("F".into());
         assert_eq!((l.next, l.phase, l.epoch.as_str()), (0, Phase::Ready, "F"));
+    }
+
+    #[test]
+    fn verdict_needs_every_part() {
+        let ok = PartOutcome::Committed(Ref { epoch: "E".into(), seq: 0 });
+        let un = PartOutcome::Unresolved("t".into());
+        assert_eq!(request_verdict(&[]), Verdict::Ack);
+        assert_eq!(request_verdict(&[ok.clone(), ok.clone()]), Verdict::Ack);
+        assert_eq!(request_verdict(&[ok.clone(), un.clone()]), Verdict::Retry("t".into()));
+        assert_eq!(request_verdict(&[un, PartOutcome::Rejected("x".into()), ok]), Verdict::Reject("x".into()));
     }
 
     #[test]

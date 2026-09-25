@@ -1,0 +1,40 @@
+2026/09/25 06:03:19 PUT #1 /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060317.163Z-57f18c4c/00000000000000000000.parquet inm="*" -> 200 (applied; answer held 8s)
+2026/09/25 06:03:19 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060317.163Z-f3f826f8/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:19 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060317.163Z-cb968095/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:19 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060317.163Z-2a58afa2/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:19 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060317.163Z-9f9387a5/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:20 PUT #1: client gave up before the answer
+2026/09/25 06:03:20 HEAD #1 /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060317.163Z-57f18c4c/00000000000000000000.parquet -> 200 (answer held 8s)
+2026/09/25 06:03:21 HEAD #1: client gave up before the answer
+2026/09/25 06:03:21 PUT #2 /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060317.163Z-57f18c4c/00000000000000000000.parquet inm="*" -> 412 (applied; answer held 8s)
+2026/09/25 06:03:22 PUT #2: client gave up before the answer
+2026/09/25 06:03:24 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:24 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:24 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:24 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:24 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_gauge/20260925T060324.681Z-0aec2c07/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060324.681Z-3d3ac91b/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_exponential_histogram/20260925T060324.681Z-7e929871/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_summary/20260925T060324.681Z-5d7d9fb2/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 06:03:25 PUT /otel/metrics-rs/faults/mf1790316156/crash/metrics_sum/20260925T060324.681Z-08a6ce86/00000000000000000005.parquet inm="*" -> 200

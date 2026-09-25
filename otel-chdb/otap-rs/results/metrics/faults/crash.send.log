@@ -1,0 +1,17 @@
+2026/09/25 06:03:21 request 0 attempt 1: HTTP 503: áPipeline processing failed: commit unresolved: put metrics-rs/faults/mf1790316156/crash/metrics_histogram/20260925T060317.163Z-57f18c4c/00000000000000000000.parquet: Unknown; head: head metrics-r
+2026/09/25 06:03:22 request 0 attempt 2: Post "http://127.0.0.1:14518/v1/metrics": EOF
+2026/09/25 06:03:22 request 0 attempt 3: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:22 request 0 attempt 4: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:23 request 0 attempt 5: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:23 request 0 attempt 6: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:23 request 0 attempt 7: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:23 request 0 attempt 8: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:24 request 0 attempt 9: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:24 request 0 attempt 10: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+{"seq":0,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b00.pb","attempts":11,"sent_ns":1790316199162098229,"ack_ms":5791.459,"last_err":"Post \"http://127.0.0.1:14518/v1/metrics\": dial tcp 127.0.0.1:14518: connect: connection refused"}
+{"seq":1,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b01.pb","attempts":1,"sent_ns":1790316204953699828,"ack_ms":76.008}
+{"seq":2,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b02.pb","attempts":1,"sent_ns":1790316205029761087,"ack_ms":71.679}
+{"seq":3,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b03.pb","attempts":1,"sent_ns":1790316205101530968,"ack_ms":71.537}
+{"seq":4,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b04.pb","attempts":1,"sent_ns":1790316205173129906,"ack_ms":73.112}
+{"seq":5,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b05.pb","attempts":1,"sent_ns":1790316205246293629,"ack_ms":83.387}
+{"attempts":16,"elapsed_s":6.167615526,"max_ack_ms":5791.459,"median_ack_ms":76.008,"min_ack_ms":71.537,"requests":6,"summary":true}

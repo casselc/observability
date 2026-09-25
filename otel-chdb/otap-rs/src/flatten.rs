@@ -44,7 +44,7 @@ pub struct Stats {
 
 impl Stats {
     #[inline]
-    fn see(&mut self, ts: u64) {
+    pub(crate) fn see(&mut self, ts: u64) {
         // parquetgo Envelope.write: 0 means "unset" for the minimum.
         if self.min_ts == 0 || ts < self.min_ts {
             self.min_ts = ts;
@@ -55,7 +55,7 @@ impl Stats {
     }
 }
 
-fn push_value<'a, V: AnyValueView<'a>>(dst: &mut Bin, v: Option<&V>) {
+pub(crate) fn push_value<'a, V: AnyValueView<'a>>(dst: &mut Bin, v: Option<&V>) {
     match v {
         Some(val) if val.value_type() == ValueType::String => {
             dst.push(val.as_string().unwrap_or_default())
@@ -108,7 +108,7 @@ impl PreMap {
 
 /// pcommon `Map.Get("service.name")`: the first such key; a string as is,
 /// anything else as `AsString`.
-fn service_name<A: AttributeView>(dst: &mut Vec<u8>, it: impl Iterator<Item = A>) {
+pub(crate) fn service_name<A: AttributeView>(dst: &mut Vec<u8>, it: impl Iterator<Item = A>) {
     dst.clear();
     for kv in it {
         if kv.key() == b"service.name" {
@@ -124,11 +124,11 @@ fn service_name<A: AttributeView>(dst: &mut Vec<u8>, it: impl Iterator<Item = A>
     }
 }
 
-fn opt(b: Option<&[u8]>) -> &[u8] {
+pub(crate) fn opt(b: Option<&[u8]>) -> &[u8] {
     b.unwrap_or_default()
 }
 
-fn envelope_cols(env: &Envelope, n: usize) -> Vec<ArrayRef> {
+pub(crate) fn envelope_cols(env: &Envelope, n: usize) -> Vec<ArrayRef> {
     vec![
         repeat_bin(env.producer.as_bytes(), n),
         repeat_bin(env.epoch.as_bytes(), n),

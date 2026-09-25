@@ -10,6 +10,10 @@
 //! tombstone into it. Progress (checkpoints, closed epochs) goes to
 //! `--state` after every step, standing in for S3NATIVE.md's CAS'd object.
 //!
+//! Metrics: one consumer per type (`--signal metrics_gauge`, `metrics_sum`,
+//! `metrics_histogram`, `metrics_exponential_histogram`, `metrics_summary`),
+//! each following its own type's logs into a contrib-typed table.
+//!
 //!   consume --s3 http://127.0.0.1:18333/otel/otap-rs/edge --signal traces
 //!           --ch http://127.0.0.1:18123 --table db.otel_traces [--once] [--poll 200ms] [--quiet 5s]
 //!           [--state FILE] [--key K --secret S]
@@ -51,10 +55,7 @@ fn now_ns() -> u64 {
 async fn main() {
     otel_arrow_dfe_otap::crypto::install_crypto_provider().expect("crypto provider");
     let args: Vec<String> = std::env::args().collect();
-    let signal = match arg(&args, "--signal").as_deref() {
-        Some("logs") => Signal::Logs,
-        _ => Signal::Traces,
-    };
+    let signal = arg(&args, "--signal").map_or(Signal::Traces, |s| Signal::from_name(&s).expect("--signal: traces, logs, metrics_gauge, ..."));
     let cfg = S3Config {
         url: arg(&args, "--s3").expect("--s3"),
         access_key_id: arg(&args, "--key").or(Some("otel".into())),

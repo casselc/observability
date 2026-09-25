@@ -30,9 +30,10 @@ import (
 // column is handed to parquet-go's column writer a page's worth of rows at
 // a time. Same schema, same Options.
 type PGEncoder struct {
-	opts   Options
-	traces *pgSignal
-	logs   *pgSignal
+	opts    Options
+	traces  *pgSignal
+	logs    *pgSignal
+	metrics [NumMetricTypes]*pgSignal
 }
 
 func NewPGEncoder(opts Options) *PGEncoder { return &PGEncoder{opts: opts} }
@@ -76,6 +77,14 @@ const (
 	kListStr
 	kListTS
 	kListMap
+	// metrics only
+	kF64
+	kI32
+	kBool
+	kDT // DateTime: TIMESTAMP(MILLIS) holding whole seconds
+	kListU64
+	kListF64
+	kListDT
 )
 
 type pgCol struct {
@@ -144,7 +153,8 @@ type pgSignal struct {
 	elem  int // element index inside the open list
 
 	scratch []byte
-	arena   []byte // hex ids and rendered values, referenced by vals until flush
+	kvs     []attrKV // sortedAttrs' buffer
+	arena   []byte   // hex ids and rendered values, referenced by vals until flush
 	hex     [32]byte
 }
 
@@ -163,6 +173,9 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 	}
 	str := func(path string) parquet.Node { return leafNode(path, parquet.String()) }
 	ts := func(path string) parquet.Node { return leafNode(path, parquet.Timestamp(parquet.Nanosecond)) }
+	dt := func(path string) parquet.Node { return leafNode(path, parquet.Timestamp(parquet.Millisecond)) }
+	f64 := func(path string) parquet.Node { return leafNode(path, parquet.Leaf(parquet.DoubleType)) }
+	u64 := func(path string) parquet.Node { return leafNode(path, parquet.Uint(64)) }
 	g := parquet.Group{}
 	var blooms []parquet.BloomFilterColumn
 	bloom := func(path ...string) {
@@ -194,12 +207,28 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 		case kListMap:
 			p := c.name + ".list.element.key_value."
 			g[c.name] = parquet.Required(parquet.List(parquet.Required(parquet.Map(str(p+"key"), str(p+"value")))))
+		case kF64:
+			g[c.name] = f64(c.name)
+		case kI32:
+			g[c.name] = leafNode(c.name, parquet.Leaf(parquet.Int32Type))
+		case kBool:
+			// No dictionary: RLE booleans are already a bit per value.
+			g[c.name] = parquet.Required(parquet.Leaf(parquet.BooleanType))
+		case kDT:
+			g[c.name] = dt(c.name)
+		case kListU64:
+			g[c.name] = parquet.Required(parquet.List(u64(c.name + ".list.element")))
+		case kListF64:
+			g[c.name] = parquet.Required(parquet.List(f64(c.name + ".list.element")))
+		case kListDT:
+			g[c.name] = parquet.Required(parquet.List(dt(c.name + ".list.element")))
 		}
 		switch c.kind {
 		case kMap:
 			bloom(c.name, "key_value", "key")
 			bloom(c.name, "key_value", "value")
-		case kListStr, kListTS:
+		case kBool:
+		case kListStr, kListTS, kListU64, kListF64, kListDT:
 			bloom(c.name, "list", "element")
 		case kListMap:
 			bloom(c.name, "list", "element", "key_value", "key")
@@ -219,7 +248,7 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 		switch c.kind {
 		case kMap:
 			paths = [][]string{{c.name, "key_value", "key"}, {c.name, "key_value", "value"}}
-		case kListStr, kListTS:
+		case kListStr, kListTS, kListU64, kListF64, kListDT:
 			paths = [][]string{{c.name, "list", "element"}}
 		case kListMap:
 			paths = [][]string{{c.name, "list", "element", "key_value", "key"}, {c.name, "list", "element", "key_value", "value"}}
@@ -264,11 +293,12 @@ func (s *pgSignal) reset() {
 }
 
 func (s *pgSignal) flush(dst io.Writer) error {
-	if s.w == nil {
-		s.w = parquet.NewWriter(dst, s.opts...)
-	} else {
-		s.w.Reset(dst)
-	}
+	// A new writer per file, not Writer.Reset: in parquet-go v0.32.0 Reset
+	// clears the column paths the writer keeps (format.ColumnMetaData.Reset
+	// does clear(PathInSchema) on a slice that aliases them), so every file
+	// after the first would carry empty path_in_schema entries and differ
+	// from a fresh writer's bytes for the same batch.
+	s.w = parquet.NewWriter(dst, s.opts...)
 	cws := s.w.ColumnWriters()
 	// Page-sized runs of whole rows per column; the writer cuts a page when
 	// its buffer passes DataPageSize.
@@ -424,45 +454,59 @@ func (s *pgSignal) traceID(id pcommon.TraceID) { s.hexID(id[:]) }
 func (s *pgSignal) spanID(id pcommon.SpanID)   { s.hexID(id[:]) }
 
 func (s *pgSignal) attrs(m pcommon.Map) {
-	kl, vl := s.leaf[s.col][0], s.leaf[s.col][1]
+	mp, ok := s.mapStart(m.Len())
+	if !ok {
+		return
+	}
+	m.Range(func(k string, v pcommon.Value) bool {
+		s.mapEntry(&mp, k, v)
+		return true
+	})
+}
+
+// mapPos is where one map value's entries go: a top-level map column or the
+// next element of a list of maps.
+type mapPos struct {
+	kl, vl, rep, def int
+}
+
+// mapStart opens a map of n entries at the current position; for n == 0 it
+// writes the empty map and returns false.
+func (s *pgSignal) mapStart(n int) (mapPos, bool) {
+	mp := mapPos{kl: s.leaf[s.col][0], vl: s.leaf[s.col][1]}
 	// Levels: a top-level map has max rep 1 / def 1; a map inside a list
 	// element has max rep 2 / def 2.
-	var firstRep, def int
 	if s.inArr {
-		def = 2
-		if s.elem == 0 {
-			firstRep = 0
-		} else {
-			firstRep = 1
+		mp.def = 2
+		if s.elem > 0 {
+			mp.rep = 1
 		}
 		s.elem++
 	} else {
-		def = 1
+		mp.def = 1
 		s.col++
 	}
-	if m.Len() == 0 {
-		s.vals[kl] = append(s.vals[kl], parquet.Value{}.Level(firstRep, def-1, kl))
-		s.vals[vl] = append(s.vals[vl], parquet.Value{}.Level(firstRep, def-1, vl))
-		return
+	if n == 0 {
+		s.vals[mp.kl] = append(s.vals[mp.kl], parquet.Value{}.Level(mp.rep, mp.def-1, mp.kl))
+		s.vals[mp.vl] = append(s.vals[mp.vl], parquet.Value{}.Level(mp.rep, mp.def-1, mp.vl))
+		return mp, false
 	}
-	i := 0
-	m.Range(func(k string, v pcommon.Value) bool {
-		rep := firstRep
-		if i > 0 {
-			rep = def // the map's own repetition level
-		}
-		i++
-		s.vals[kl] = append(s.vals[kl], parquet.ByteArrayValue(bytesOf(k)).Level(rep, def, kl))
-		var vb []byte
-		if v.Type() == pcommon.ValueTypeStr {
-			vb = bytesOf(v.Str())
-		} else {
-			s.scratch = valueString(s.scratch[:0], v)
-			vb = s.stash(s.scratch)
-		}
-		s.vals[vl] = append(s.vals[vl], parquet.ByteArrayValue(vb).Level(rep, def, vl))
-		return true
-	})
+	return mp, true
+}
+
+// mapEntry appends one entry; after the first, entries repeat at the map's
+// own level.
+func (s *pgSignal) mapEntry(mp *mapPos, k string, v pcommon.Value) {
+	s.vals[mp.kl] = append(s.vals[mp.kl], parquet.ByteArrayValue(bytesOf(k)).Level(mp.rep, mp.def, mp.kl))
+	var vb []byte
+	if v.Type() == pcommon.ValueTypeStr {
+		vb = bytesOf(v.Str())
+	} else {
+		s.scratch = valueString(s.scratch[:0], v)
+		vb = s.stash(s.scratch)
+	}
+	s.vals[mp.vl] = append(s.vals[mp.vl], parquet.ByteArrayValue(vb).Level(mp.rep, mp.def, mp.vl))
+	mp.rep = mp.def
 }
 
 // orderedGroup is a parquet.Group whose fields keep the given order.

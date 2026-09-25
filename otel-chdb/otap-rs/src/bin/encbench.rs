@@ -5,7 +5,11 @@
 //! via upstream's OTLP→OTAP conversion), encode, and (with --s3) the
 //! create-only commit through the real lane (PUT, plus HEAD if ambiguous).
 //!
-//!   encbench --file traces-testgen-10000.pb --signal traces [--s3 URL --key K --secret S]
+//! A metrics request (`--signal metrics`) becomes one object per non-empty
+//! metric type, each committed in its own type's lane (here one after the
+//! other; the exporter runs them concurrently). ObjectBytes is their sum.
+//!
+//!   encbench --file traces-testgen-10000.pb --signal traces|logs|metrics [--s3 URL --key K --secret S]
 //!            [--path direct|via_otap] [--format parquet|arrow] [--bloom traceid|none|all]
 //!            [--zstd 3] [--batches 30] [--warmup 3] [--out FILE] [--label NAME]
 
@@ -75,10 +79,13 @@ fn main() {
     otel_arrow_dfe_otap::crypto::install_crypto_provider().expect("crypto provider");
     let args: Vec<String> = std::env::args().collect();
     let file = arg(&args, "--file").expect("--file");
+    let is_metrics = arg(&args, "--signal").as_deref() == Some("metrics");
     let signal = match arg(&args, "--signal").as_deref() {
         Some("logs") => Signal::Logs,
+        Some("metrics") => Signal::MetricsGauge,
         _ => Signal::Traces,
     };
+    let mut signal_label = if is_metrics { "metrics" } else { signal.name() };
     let batches: usize = arg(&args, "--batches").map_or(30, |s| s.parse().unwrap());
     let warmup: usize = arg(&args, "--warmup").map_or(3, |s| s.parse().unwrap());
     let via_otap = arg(&args, "--path").as_deref() == Some("via_otap");
@@ -103,13 +110,13 @@ fn main() {
         _ => {}
     }
     let body = bytes::Bytes::from(std::fs::read(&file).expect("read --file"));
-    let prebuilt: Option<OtapArrowRecords> = otap_input.then(|| {
-        let p = match signal {
-            Signal::Traces => OtlpProtoBytes::ExportTracesRequest(body.clone()),
-            Signal::Logs => OtlpProtoBytes::ExportLogsRequest(body.clone()),
-        };
-        p.try_into_with_default().expect("otlp -> otap")
-    });
+    let otlp = |b: &bytes::Bytes| match signal {
+        Signal::Traces => OtlpProtoBytes::ExportTracesRequest(b.clone()),
+        Signal::Logs => OtlpProtoBytes::ExportLogsRequest(b.clone()),
+        _ => OtlpProtoBytes::ExportMetricsRequest(b.clone()),
+    };
+    let prebuilt: Option<OtapArrowRecords> =
+        otap_input.then(|| otlp(&body).try_into_with_default().expect("otlp -> otap"));
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let store = arg(&args, "--s3").map(|url| {
         let cfg = S3Config {
@@ -120,7 +127,7 @@ fn main() {
         };
         Counting { inner: cfg.build().expect("s3"), puts: Cell::new(0), heads: Cell::new(0), lists: Cell::new(0) }
     });
-    let prefix = store.as_ref().map(|s| format!("{}/{}", s.inner.prefix, signal.name())).unwrap_or_default();
+    let prefix_of = |sig: Signal| store.as_ref().map(|s| format!("{}/{}", s.inner.prefix, sig.name())).unwrap_or_default();
     let label = arg(&args, "--label").unwrap_or_else(|| {
         format!(
             "rust-{}{}{}",
@@ -134,8 +141,8 @@ fn main() {
         )
     });
     let producer = format!("bench-{label}");
-    let mut lane = Lane::new(new_epoch());
-    let mut cache = EncodedCache::default();
+    let mut lanes: BTreeMap<Signal, (Lane, EncodedCache)> =
+        Signal::ALL.iter().map(|s| (*s, (Lane::new(new_epoch()), EncodedCache::default()))).collect();
     let stats = Stats::default();
     let timeouts = Timeouts { put: Duration::from_secs(10), head: Duration::from_secs(2) };
     let ready_ms = t_main.elapsed().as_secs_f64() * 1000.0;
@@ -144,64 +151,79 @@ fn main() {
     let mut phase = [0f64; 3]; // flatten (incl. hash, and conversion), encode, commit
     let mut obj_bytes = 0usize;
     let mut rows = 0usize;
+    let mut objects = 0usize;
     let mut push = |phase: &mut [f64; 3], i: usize| {
         let t0 = Instant::now();
         let recs: Option<OtapArrowRecords> = via_otap.then(|| {
-            let p = match signal {
-                Signal::Traces => OtlpProtoBytes::ExportTracesRequest(body.clone()),
-                Signal::Logs => OtlpProtoBytes::ExportLogsRequest(body.clone()),
-            };
-            let mut r: OtapArrowRecords = p.try_into_with_default().expect("otlp -> otap");
+            let mut r: OtapArrowRecords = otlp(&body).try_into_with_default().expect("otlp -> otap");
             if std::env::var_os("DECODE_IDS").is_some() {
                 r.decode_transport_optimized_ids().expect("decode ids");
             }
             r
         });
-        let mut flat = match (&recs, &prebuilt) {
-            (Some(r), _) | (None, Some(r)) => enc.flatten(&Input::Otap(signal, r)).expect("flatten"),
-            (None, None) => enc.flatten(&Input::Otlp(signal, &body)).expect("flatten"),
+        let input = match (&recs, &prebuilt) {
+            (Some(r), _) | (None, Some(r)) if is_metrics => Input::OtapMetrics(r),
+            (Some(r), _) | (None, Some(r)) => Input::Otap(signal, r),
+            (None, None) if is_metrics => Input::OtlpMetrics(&body),
+            (None, None) => Input::Otlp(signal, &body),
         };
-        if via_otap {
-            flat.content = otap_s3pq::batch::content_hash_otlp(signal, &body);
+        let mut flats = enc.flatten_all(&input).expect("flatten");
+        for flat in &mut flats {
+            if via_otap {
+                flat.content = otap_s3pq::batch::content_hash_otlp(flat.signal, &body);
+            }
+            // Every batch is a new request: make the content key unique so the
+            // lane commits each one (a real stream has distinct requests).
+            flat.content = format!("{}{:08x}", &flat.content[..24], i);
         }
-        // Every batch is a new request: make the content key unique so the
-        // lane commits each one (a real stream has distinct requests).
-        flat.content = format!("{}{:08x}", &flat.content[..24], i);
-        rows = flat.stats.rows;
+        rows = flats.iter().map(|f| f.stats.rows).sum();
         let t1 = Instant::now();
         let received_ns = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
-        match &store {
-            None => {
-                let env = Envelope { producer: producer.clone(), epoch: lane.epoch.clone(), batch: i as u64, received_ns };
-                let o = enc.encode(&flat, &env).expect("encode");
-                obj_bytes = o.body.len();
-                if let (Some(out), 0) = (arg(&args, "--out"), i) {
-                    std::fs::write(out, &o.body).expect("write --out");
-                }
-                phase[1] += t1.elapsed().as_secs_f64() * 1000.0;
-            }
-            Some(st) => {
-                let mut enc_ms = 0.0;
-                let mut encode = |r: &otap_s3pq::proto::Ref| {
-                    let te = Instant::now();
-                    let env = Envelope { producer: producer.clone(), epoch: r.epoch.clone(), batch: r.seq, received_ns };
-                    let o = enc.encode(&flat, &env).map_err(|e| e.0);
-                    if let Ok(o) = &o {
-                        obj_bytes = o.body.len();
+        obj_bytes = 0;
+        for flat in &flats {
+            let (lane, cache) = lanes.get_mut(&flat.signal).unwrap();
+            let t1 = Instant::now();
+            match &store {
+                None => {
+                    let env = Envelope { producer: producer.clone(), epoch: lane.epoch.clone(), batch: i as u64, received_ns };
+                    let o = enc.encode(flat, &env).expect("encode");
+                    obj_bytes += o.body.len();
+                    if let (Some(out), 0) = (arg(&args, "--out"), i) {
+                        let out = if is_metrics { format!("{out}.{}", flat.signal.name()) } else { out };
+                        std::fs::write(out, &o.body).expect("write --out");
                     }
-                    enc_ms += te.elapsed().as_secs_f64() * 1000.0;
-                    o
-                };
-                rt.block_on(runner::append(
-                    &mut lane, &mut cache, st, &prefix, &producer, &flat.content, &mut encode, &timeouts, &stats,
-                ))
-                .expect("append");
-                phase[1] += enc_ms;
-                phase[2] += t1.elapsed().as_secs_f64() * 1000.0 - enc_ms;
+                    phase[1] += t1.elapsed().as_secs_f64() * 1000.0;
+                }
+                Some(st) => {
+                    let mut enc_ms = 0.0;
+                    let mut size = 0;
+                    let mut encode = |r: &otap_s3pq::proto::Ref| {
+                        let te = Instant::now();
+                        let env = Envelope { producer: producer.clone(), epoch: r.epoch.clone(), batch: r.seq, received_ns };
+                        let o = enc.encode(flat, &env).map_err(|e| e.0);
+                        if let Ok(o) = &o {
+                            size = o.body.len();
+                        }
+                        enc_ms += te.elapsed().as_secs_f64() * 1000.0;
+                        o
+                    };
+                    let prefix = prefix_of(flat.signal);
+                    rt.block_on(runner::append(
+                        lane, cache, st, &prefix, &producer, &flat.content, &mut encode, &timeouts, &stats,
+                    ))
+                    .expect("append");
+                    obj_bytes += size;
+                    phase[1] += enc_ms;
+                    phase[2] += t1.elapsed().as_secs_f64() * 1000.0 - enc_ms;
+                }
             }
+        }
+        objects = flats.len();
+        if is_metrics && flats.len() == 1 {
+            signal_label = flats[0].signal.name(); // one metric type: name it
         }
         phase[0] += (t1 - t0).as_secs_f64() * 1000.0;
     };
@@ -227,7 +249,7 @@ fn main() {
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let n = batches as f64;
     let mut out = serde_json::json!({
-        "Impl": label, "Signal": signal.name(), "Dest": if store.is_some() { "s3" } else { "local" },
+        "Impl": label, "Signal": signal_label, "Objects": objects, "Dest": if store.is_some() { "s3" } else { "local" },
         "Rows": rows, "Batches": batches, "ReadyMS": ready_ms, "FirstBatchMS": first_ms,
         "MedianMS": lat[lat.len() / 2], "MinMS": lat[0], "MaxMS": lat[lat.len() - 1],
         "RowsPerSec": (rows * batches) as f64 / el, "CPUMSPerBatch": (cpu1 - cpu0) / n,

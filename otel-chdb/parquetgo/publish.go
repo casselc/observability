@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
@@ -145,6 +146,9 @@ func New(cfg Config) (*Publisher, error) {
 	p := &Publisher{cfg: cfg, epoch: cfg.Epoch, signals: map[string]*signalState{
 		"traces": {}, "logs": {},
 	}}
+	for _, sig := range MetricSignals {
+		p.signals[sig] = &signalState{}
+	}
 	if p.epoch == "" {
 		p.epoch = processEpoch()
 	}
@@ -241,10 +245,8 @@ func (p *Publisher) PushLogs(ctx context.Context, ld plog.Logs) error {
 func (p *Publisher) push(ctx context.Context, signal string, enc func(BatchEncoder, *bytes.Buffer, *Envelope) (int, error)) error {
 	g, unlock := p.acquire(signal)
 	defer unlock()
-	st := p.signals[signal]
 	start := p.cfg.Now()
-	env := &Envelope{Producer: p.cfg.ProducerID, Epoch: p.epoch, Batch: st.seq.Add(1),
-		Received: uint64(start.UnixNano()), Schema: p.cfg.SchemaVersion}
+	env := p.envelope(signal, start)
 	e := p.encs.Get().(BatchEncoder)
 	defer p.encs.Put(e)
 	buf := p.bufs.Get().(*bytes.Buffer)
@@ -254,14 +256,24 @@ func (p *Publisher) push(ctx context.Context, signal string, enc func(BatchEncod
 	if err != nil {
 		return fmt.Errorf("parquet encode %s batch %d: %w", signal, env.Batch, err)
 	}
+	return p.commit(ctx, signal, g, env, rows, buf.Bytes(), start)
+}
+
+func (p *Publisher) envelope(signal string, received time.Time) *Envelope {
+	return &Envelope{Producer: p.cfg.ProducerID, Epoch: p.epoch, Batch: p.signals[signal].seq.Add(1),
+		Received: uint64(received.UnixNano()), Schema: p.cfg.SchemaVersion}
+}
+
+// commit writes one encoded batch: the object, then its manifest.
+func (p *Publisher) commit(ctx context.Context, signal string, g *generation, env *Envelope, rows int, data []byte, start time.Time) error {
 	ns := p.namespace(signal)
 	objRel := ns + "/" + g.id + "/" + fmt.Sprintf("%020d.parquet", env.Batch)
-	if err := p.put(ctx, objRel, buf.Bytes(), "application/vnd.apache.parquet"); err != nil {
+	if err := p.put(ctx, objRel, data, "application/vnd.apache.parquet"); err != nil {
 		return fmt.Errorf("parquet %s batch %d: %w", signal, env.Batch, err)
 	}
 	m := batchManifest{
 		ProducerID: env.Producer, ProducerEpoch: env.Epoch, Region: p.cfg.Region, Signal: signal,
-		SchemaVersion: env.Schema, Generation: g.id, BatchID: env.Batch, Rows: rows, Bytes: buf.Len(),
+		SchemaVersion: env.Schema, Generation: g.id, BatchID: env.Batch, Rows: rows, Bytes: len(data),
 		ReceivedAt: start.UTC(), MinEventTime: time.Unix(0, int64(env.MinTS)).UTC(), MaxEventTime: time.Unix(0, int64(env.MaxTS)).UTC(),
 		Parquet: joinURL(p.cfg.URL, objRel),
 	}
@@ -283,6 +295,66 @@ func (p *Publisher) push(ctx context.Context, signal string, enc func(BatchEncod
 		}
 	}
 	return nil
+}
+
+// MetricsEncoder writes one request's metrics as up to five Parquet files,
+// one per metric type (the parquet-go engine; the arrow engine has none).
+type MetricsEncoder interface {
+	Metrics(dst func(MetricType) io.Writer, md pmetric.Metrics, envs *[NumMetricTypes]*Envelope) ([NumMetricTypes]int, error)
+}
+
+// PushMetrics publishes md as one batch per metric type present: each type
+// is its own signal (MetricSignals: metrics_gauge, metrics_sum, ...), with
+// its own batch sequence, object and manifest, because each object is one
+// table's insert. All objects share received_at. It returns nil only once
+// every non-empty type has committed; the objects are committed
+// concurrently, and a failure of one does not undo the others (a retry
+// publishes the whole request again, as for traces and logs).
+func (p *Publisher) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
+	n, err := MetricPoints(md)
+	if err != nil {
+		return err
+	}
+	e := p.encs.Get().(BatchEncoder)
+	defer p.encs.Put(e)
+	me, ok := e.(MetricsEncoder)
+	if !ok {
+		return fmt.Errorf("engine %q does not encode metrics: use parquet-go", p.cfg.Engine)
+	}
+	start := p.cfg.Now()
+	var envs [NumMetricTypes]*Envelope
+	var gens [NumMetricTypes]*generation
+	var bufs [NumMetricTypes]*bytes.Buffer
+	for t := range NumMetricTypes {
+		if n[t] == 0 {
+			continue
+		}
+		sig := MetricSignals[t]
+		g, unlock := p.acquire(sig)
+		defer unlock()
+		gens[t], envs[t] = g, p.envelope(sig, start)
+		bufs[t] = p.bufs.Get().(*bytes.Buffer)
+		defer p.bufs.Put(bufs[t])
+		bufs[t].Reset()
+	}
+	rows, err := me.Metrics(func(t MetricType) io.Writer { return bufs[t] }, md, &envs)
+	if err != nil {
+		return fmt.Errorf("parquet encode metrics: %w", err)
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, NumMetricTypes)
+	for t := range NumMetricTypes {
+		if bufs[t] == nil {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[t] = p.commit(ctx, MetricSignals[t], gens[t], envs[t], rows[t], bufs[t].Bytes(), start)
+		}()
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // put stores data at rel (relative to the URL): one PUT on S3 (the SDK's

@@ -1,0 +1,7 @@
+{"seq":0,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b00.pb","attempts":1,"sent_ns":1790316158896453132,"ack_ms":1091.013}
+{"seq":1,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b01.pb","attempts":1,"sent_ns":1790316159987698755,"ack_ms":1065.786}
+{"seq":2,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b02.pb","attempts":1,"sent_ns":1790316161053612133,"ack_ms":1085.112}
+{"seq":3,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b03.pb","attempts":1,"sent_ns":1790316162138773321,"ack_ms":1046.892}
+{"seq":4,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b04.pb","attempts":1,"sent_ns":1790316163185700164,"ack_ms":1035.639}
+{"seq":5,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b05.pb","attempts":1,"sent_ns":1790316164221407725,"ack_ms":1070.331}
+{"attempts":6,"elapsed_s":6.395852805,"max_ack_ms":1091.013,"median_ack_ms":1070.331,"min_ack_ms":1035.639,"requests":6,"summary":true}

@@ -1,0 +1,16 @@
+{"seq":0,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b00.pb","attempts":1,"sent_ns":1790316212528173924,"ack_ms":1084.962}
+{"seq":1,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b01.pb","attempts":1,"sent_ns":1790316213613267948,"ack_ms":1056.799}
+2026/09/25 06:03:35 request 2 attempt 1: Post "http://127.0.0.1:14518/v1/metrics": EOF
+2026/09/25 06:03:35 request 2 attempt 2: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:36 request 2 attempt 3: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:36 request 2 attempt 4: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:36 request 2 attempt 5: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:37 request 2 attempt 6: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:37 request 2 attempt 7: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:37 request 2 attempt 8: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+2026/09/25 06:03:37 request 2 attempt 9: Post "http://127.0.0.1:14518/v1/metrics": dial tcp 127.0.0.1:14518: connect: connection refused
+{"seq":2,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b02.pb","attempts":10,"sent_ns":1790316214670133508,"ack_ms":3648.63,"last_err":"Post \"http://127.0.0.1:14518/v1/metrics\": dial tcp 127.0.0.1:14518: connect: connection refused"}
+{"seq":3,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b03.pb","attempts":1,"sent_ns":1790316218318850170,"ack_ms":80.531}
+{"seq":4,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b04.pb","attempts":1,"sent_ns":1790316218399416452,"ack_ms":78.709}
+{"seq":5,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs-mdata/metrics-mixed-10000-b05.pb","attempts":1,"sent_ns":1790316218478199405,"ack_ms":72.406}
+{"attempts":15,"elapsed_s":6.022467892,"max_ack_ms":3648.63,"median_ack_ms":1056.799,"min_ack_ms":72.406,"requests":6,"summary":true}

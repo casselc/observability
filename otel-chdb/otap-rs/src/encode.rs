@@ -55,7 +55,7 @@ impl ParquetOptions {
         sc.parquet.columns().iter().map(|c| c.path().string()).collect()
     }
 
-    fn properties(&self, rows: usize, kv: Vec<KeyValue>) -> WriterProperties {
+    fn properties(&self, sc: &Schemas, rows: usize, kv: Vec<KeyValue>) -> WriterProperties {
         let mut b = WriterProperties::builder()
             .set_created_by(format!("otap-s3pq {} (parquet-rs 58)", env!("CARGO_PKG_VERSION")))
             .set_writer_version(if self.writer_version == "2.0" {
@@ -84,6 +84,14 @@ impl ParquetOptions {
                 false,
             );
         }
+        for p in &sc.plain {
+            b = b.set_column_dictionary_enabled(ColumnPath::new(p.clone()), false);
+        }
+        for p in &sc.delta {
+            b = b
+                .set_column_dictionary_enabled(ColumnPath::new(p.clone()), false)
+                .set_column_encoding(ColumnPath::new(p.clone()), parquet::basic::Encoding::DELTA_BINARY_PACKED);
+        }
         for c in &self.bloom_columns {
             let path = ColumnPath::from(c.as_str());
             b = b
@@ -110,7 +118,7 @@ pub fn parquet(
         .map(|(k, v)| KeyValue::new(k.clone(), v.clone()))
         .collect();
     let options = ArrowWriterOptions::new()
-        .with_properties(opts.properties(batch.num_rows(), kv))
+        .with_properties(opts.properties(sc, batch.num_rows(), kv))
         .with_skip_arrow_metadata(true)
         .with_parquet_schema(sc.parquet.clone());
     let mut w = ArrowWriter::try_new_with_options(out, sc.arrow.clone(), options)?;

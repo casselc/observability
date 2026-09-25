@@ -9,9 +9,18 @@
 //! metric type, each committed in its own type's lane (here one after the
 //! other; the exporter runs them concurrently). ObjectBytes is their sum.
 //!
+//! `--layout series` encodes metrics as layout B (`series.rs`): points
+//! objects plus a series object whenever a series is new in its window; a
+//! committed series object marks its series announced, as in the exporter.
+//! `--files a.pb,b.pb,...` (or a directory) cycles through distinct requests
+//! instead of repeating `--file`, e.g. the spike's fleet batches, so the
+//! series cache sees real series reuse and the hourly re-announce.
+//! ObjectsPerBatch / BytesPerBatch average the timed batches.
+//!
 //!   encbench --file traces-testgen-10000.pb --signal traces|logs|metrics [--s3 URL --key K --secret S]
 //!            [--path direct|via_otap] [--format parquet|arrow] [--bloom traceid|none|all]
 //!            [--zstd 3] [--batches 30] [--warmup 3] [--out FILE] [--label NAME]
+//!            [--layout clickstack|series] [--files LIST|DIR]
 
 use otap_s3pq::Signal;
 use otap_s3pq::batch::{Encoder, Format, Input};
@@ -19,6 +28,7 @@ use otap_s3pq::encode::ParquetOptions;
 use otap_s3pq::flatten::Envelope;
 use otap_s3pq::proto::{Lane, PutOutcome, new_epoch};
 use otap_s3pq::runner::{self, EncodedCache, Stats, Timeouts};
+use otap_s3pq::series::{MetricsLayout, SeriesOptions};
 use otap_s3pq::store::{Meta, S3Config, SlotStore, StoreError};
 use otel_arrow_dfe_pdata::{OtapArrowRecords, OtlpProtoBytes, TryIntoWithOptions};
 use std::cell::Cell;
@@ -78,7 +88,20 @@ fn main() {
     let t_main = Instant::now();
     otel_arrow_dfe_otap::crypto::install_crypto_provider().expect("crypto provider");
     let args: Vec<String> = std::env::args().collect();
-    let file = arg(&args, "--file").expect("--file");
+    let files: Vec<String> = match arg(&args, "--files") {
+        Some(f) if std::path::Path::new(&f).is_dir() => {
+            let mut v: Vec<String> = std::fs::read_dir(&f)
+                .expect("--files dir")
+                .map(|e| e.unwrap().path().to_string_lossy().into_owned())
+                .filter(|p| p.ends_with(".pb"))
+                .collect();
+            v.sort();
+            v
+        }
+        Some(f) => f.split(',').map(str::to_string).collect(),
+        None => vec![arg(&args, "--file").expect("--file or --files")],
+    };
+    let series = arg(&args, "--layout").as_deref() == Some("series");
     let is_metrics = arg(&args, "--signal").as_deref() == Some("metrics");
     let signal = match arg(&args, "--signal").as_deref() {
         Some("logs") => Signal::Logs,
@@ -104,12 +127,16 @@ fn main() {
         opts.writer_version = v;
     }
     let mut enc = Encoder::new(opts.clone(), format);
+    if series {
+        enc = enc.with_metrics_layout(MetricsLayout::SeriesTable, SeriesOptions::default());
+    }
     match arg(&args, "--bloom").as_deref() {
         Some("none") => enc.opts.bloom_columns.clear(),
         Some("all") => enc.opts.bloom_columns = ParquetOptions::all_blooms(enc.schemas(signal)),
         _ => {}
     }
-    let body = bytes::Bytes::from(std::fs::read(&file).expect("read --file"));
+    let bodies: Vec<bytes::Bytes> = files.iter().map(|f| bytes::Bytes::from(std::fs::read(f).expect("read --file"))).collect();
+    let body = bodies[0].clone();
     let otlp = |b: &bytes::Bytes| match signal {
         Signal::Traces => OtlpProtoBytes::ExportTracesRequest(b.clone()),
         Signal::Logs => OtlpProtoBytes::ExportLogsRequest(b.clone()),
@@ -130,7 +157,8 @@ fn main() {
     let prefix_of = |sig: Signal| store.as_ref().map(|s| format!("{}/{}", s.inner.prefix, sig.name())).unwrap_or_default();
     let label = arg(&args, "--label").unwrap_or_else(|| {
         format!(
-            "rust-{}{}{}",
+            "rust-{}{}{}{}",
+            if series { "series-" } else { "" },
             if via_otap { "via-otap" } else if otap_input { "otap-input" } else { "direct" },
             if format == Format::Arrow { "-arrow" } else { "" },
             match arg(&args, "--bloom").as_deref() {
@@ -152,10 +180,12 @@ fn main() {
     let mut obj_bytes = 0usize;
     let mut rows = 0usize;
     let mut objects = 0usize;
-    let mut push = |phase: &mut [f64; 3], i: usize| {
+    let mut tot = [0usize; 3]; // objects, bytes, series objects (since the last reset)
+    let mut push = |phase: &mut [f64; 3], tot: &mut [usize; 3], i: usize| {
+        let body = &bodies[i % bodies.len()];
         let t0 = Instant::now();
         let recs: Option<OtapArrowRecords> = via_otap.then(|| {
-            let mut r: OtapArrowRecords = otlp(&body).try_into_with_default().expect("otlp -> otap");
+            let mut r: OtapArrowRecords = otlp(body).try_into_with_default().expect("otlp -> otap");
             if std::env::var_os("DECODE_IDS").is_some() {
                 r.decode_transport_optimized_ids().expect("decode ids");
             }
@@ -164,13 +194,13 @@ fn main() {
         let input = match (&recs, &prebuilt) {
             (Some(r), _) | (None, Some(r)) if is_metrics => Input::OtapMetrics(r),
             (Some(r), _) | (None, Some(r)) => Input::Otap(signal, r),
-            (None, None) if is_metrics => Input::OtlpMetrics(&body),
-            (None, None) => Input::Otlp(signal, &body),
+            (None, None) if is_metrics => Input::OtlpMetrics(body),
+            (None, None) => Input::Otlp(signal, body),
         };
         let mut flats = enc.flatten_all(&input).expect("flatten");
         for flat in &mut flats {
-            if via_otap {
-                flat.content = otap_s3pq::batch::content_hash_otlp(flat.signal, &body);
+            if via_otap && flat.signal != Signal::MetricsSeries {
+                flat.content = otap_s3pq::batch::content_hash_otlp(flat.signal, body);
             }
             // Every batch is a new request: make the content key unique so the
             // lane commits each one (a real stream has distinct requests).
@@ -191,6 +221,9 @@ fn main() {
                     let env = Envelope { producer: producer.clone(), epoch: lane.epoch.clone(), batch: i as u64, received_ns };
                     let o = enc.encode(flat, &env).expect("encode");
                     obj_bytes += o.body.len();
+                    if !flat.announce.is_empty() {
+                        enc.series_announced(&flat.announce, &env.epoch);
+                    }
                     if let (Some(out), 0) = (arg(&args, "--out"), i) {
                         let out = if is_metrics { format!("{out}.{}", flat.signal.name()) } else { out };
                         std::fs::write(out, &o.body).expect("write --out");
@@ -211,10 +244,14 @@ fn main() {
                         o
                     };
                     let prefix = prefix_of(flat.signal);
-                    rt.block_on(runner::append(
-                        lane, cache, st, &prefix, &producer, &flat.content, &mut encode, &timeouts, &stats,
-                    ))
-                    .expect("append");
+                    let r = rt
+                        .block_on(runner::append(
+                            lane, cache, st, &prefix, &producer, &flat.content, &mut encode, &timeouts, &stats,
+                        ))
+                        .expect("append");
+                    if !flat.announce.is_empty() {
+                        enc.series_announced(&flat.announce, &r.epoch);
+                    }
                     obj_bytes += size;
                     phase[1] += enc_ms;
                     phase[2] += t1.elapsed().as_secs_f64() * 1000.0 - enc_ms;
@@ -222,6 +259,9 @@ fn main() {
             }
         }
         objects = flats.len();
+        tot[0] += flats.len();
+        tot[1] += obj_bytes;
+        tot[2] += flats.iter().filter(|f| f.signal == Signal::MetricsSeries).count();
         if is_metrics && flats.len() == 1 {
             signal_label = flats[0].signal.name(); // one metric type: name it
         }
@@ -229,19 +269,20 @@ fn main() {
     };
 
     let t_first = Instant::now();
-    push(&mut phase, 0);
+    push(&mut phase, &mut tot, 0);
     let first_ms = t_first.elapsed().as_secs_f64() * 1000.0;
     for i in 1..warmup {
-        push(&mut phase, i);
+        push(&mut phase, &mut tot, i);
     }
     phase = [0.0; 3];
+    tot = [0; 3];
     let c0 = store.as_ref().map(|s| (s.puts.get(), s.heads.get()));
     let (cpu0, _) = rusage();
     let t0 = Instant::now();
     let mut lat = Vec::with_capacity(batches);
     for i in 0..batches {
         let s = Instant::now();
-        push(&mut phase, warmup + i);
+        push(&mut phase, &mut tot, warmup + i);
         lat.push(s.elapsed().as_secs_f64() * 1000.0);
     }
     let el = t0.elapsed().as_secs_f64();
@@ -254,6 +295,8 @@ fn main() {
         "MedianMS": lat[lat.len() / 2], "MinMS": lat[0], "MaxMS": lat[lat.len() - 1],
         "RowsPerSec": (rows * batches) as f64 / el, "CPUMSPerBatch": (cpu1 - cpu0) / n,
         "MaxRSSMB": maxrss, "RSSAfterStartMB": rss_start, "ObjectBytes": obj_bytes,
+        "ObjectsPerBatch": tot[0] as f64 / n, "BytesPerBatch": tot[1] as f64 / n,
+        "SeriesObjectsPerBatch": tot[2] as f64 / n, "Files": bodies.len(),
         "FlattenMSPerBatch": phase[0] / n, "EncodeMSPerBatch": phase[1] / n, "CommitMSPerBatch": phase[2] / n,
     });
     if let (Some(s), Some((p0, h0))) = (&store, c0) {

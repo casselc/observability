@@ -1,0 +1,5 @@
+baseline: 12 objects
+s3down: buffer after kill: 74772 KB
+s3down: 12 of 12 requests acked before the SIGKILL; after restart, ALL present; 12/12 distinct requests in S3, 12 objects (0 cross-incarnation copies)
+control (WAL wiped before the restart): 12 of 12 requests acked before the SIGKILL; after restart, MISSING [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]; 0/12 distinct requests in S3, 0 objects (0 cross-incarnation copies)
+midflight: 7 of 12 requests acked before the SIGKILL; after restart, ALL present; 12/12 distinct requests in S3, 13 objects (1 cross-incarnation copies)

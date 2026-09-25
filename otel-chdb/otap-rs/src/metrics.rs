@@ -42,8 +42,8 @@ use otel_arrow_dfe_pdata_views::views::metrics::{
 use otel_arrow_dfe_pdata_views::views::resource::ResourceView;
 use std::sync::Arc;
 
-const ZERO_SPAN: &[u8] = b"0000000000000000";
-const ZERO_TRACE: &[u8] = b"00000000000000000000000000000000";
+pub(crate) const ZERO_SPAN: &[u8] = b"0000000000000000";
+pub(crate) const ZERO_TRACE: &[u8] = b"00000000000000000000000000000000";
 
 /// A timestamp as the exporter's `DateTime` column stores it, in the
 /// milliseconds of the Parquet `dt` type: `pcommon.Timestamp.AsTime()` is
@@ -57,7 +57,7 @@ pub fn dt_ms(ns: u64) -> i64 {
 
 /// `getValue`: the double, the int as float64, 0 when the oneof is unset.
 #[inline]
-fn value_f64(v: Option<Value>) -> f64 {
+pub(crate) fn value_f64(v: Option<Value>) -> f64 {
     match v {
         Some(Value::Double(f)) => f,
         Some(Value::Integer(i)) => i as f64,
@@ -67,7 +67,7 @@ fn value_f64(v: Option<Value>) -> f64 {
 
 /// Scratch space for sorting one map's entries by key, Go's way.
 #[derive(Default)]
-struct Sorter {
+pub(crate) struct Sorter {
     keys: Bin,
     vals: Bin,
     idx: Vec<u32>,
@@ -110,7 +110,7 @@ impl Sorter {
         m.commit();
     }
 
-    fn push_attrs<A: AttributeView>(&mut self, m: &mut Map, it: impl Iterator<Item = A>) {
+    pub(crate) fn push_attrs<A: AttributeView>(&mut self, m: &mut Map, it: impl Iterator<Item = A>) {
         self.load(it);
         self.push_into(m);
     }
@@ -306,7 +306,7 @@ impl Exemplars {
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// `hex.EncodeToString` of a fixed-size id (zeros included).
-fn hex_into(b: &mut Bin, id: &[u8]) {
+pub(crate) fn hex_into(b: &mut Bin, id: &[u8]) {
     for &x in id {
         b.data.push(HEX[(x >> 4) as usize]);
         b.data.push(HEX[(x & 0xf) as usize]);

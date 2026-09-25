@@ -1,0 +1,66 @@
+version: otel_dataflow/v1
+# The edge with upstream's durable buffer (Quiver: WAL + segments) between
+# the OTLP receiver and exporter:s3pq. The client's 2xx now follows the WAL
+# write (not the S3 commit); the buffer forwards finalized segments to the
+# exporter, keeps a bundle until the exporter ACKs it (after the commit), and
+# replays what is left after a restart. Same environment as edge.yaml, plus
+# BUFFER_DIR, BUFFER_SEGMENT_OPEN, BUFFER_POLL.
+engine: { }
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      main:
+        nodes:
+          otlp_in:
+            type: receiver:otlp
+            config:
+              protocols:
+                grpc:
+                  listening_addr: "${env:OTLP_GRPC:-127.0.0.1:14317}"
+                  wait_for_result: true
+                  timeout: "${env:OTLP_TIMEOUT:-30s}"
+                  max_decoding_message_size: "${env:OTLP_MAX_BODY:-128MiB}"
+                http:
+                  listening_addr: "${env:OTLP_HTTP:-127.0.0.1:14318}"
+                  wait_for_result: true
+                  timeout: "${env:OTLP_TIMEOUT:-30s}"
+                  max_request_body_size: "${env:OTLP_MAX_BODY:-128MiB}"
+          buffer:
+            type: processor:durable_buffer
+            config:
+              path: "${env:BUFFER_DIR:-/var/lib/otap-s3pq/buffer}"
+              retention_size_cap: "${env:BUFFER_CAP:-1 GiB}"
+              size_cap_policy: backpressure
+              otlp_handling: pass_through
+              poll_interval: "${env:BUFFER_POLL:-100ms}"
+              max_segment_open_duration: "${env:BUFFER_SEGMENT_OPEN:-1s}"
+              initial_retry_interval: 1s
+              max_retry_interval: 30s
+          s3pq:
+            type: exporter:s3pq
+            config:
+              producer_id: "${env:PRODUCER:-edge-1}"
+              lanes: ${env:LANES:-1}
+              otlp_path: "${env:OTLP_PATH:-direct}"
+              format: "${env:FORMAT:-parquet}"
+              # series_table (layout B: points tables + otel_metrics_series,
+              # src/series.rs) or clickstack_tables (contrib's five tables).
+              metrics_layout: "${env:METRICS_LAYOUT:-series_table}"
+              verbose: ${env:VERBOSE:-false}
+              s3:
+                url: "${env:S3_URL:-http://127.0.0.1:18333/otel/otap-rs/edge}"
+                region: "${env:S3_REGION:-us-east-1}"
+                access_key_id: "${env:S3_KEY:-otel}"
+                secret_access_key: "${env:S3_SECRET:-otelsecret}"
+                put_timeout: "${env:PUT_TIMEOUT:-10s}"
+                head_timeout: "2s"
+        connections:
+          - from: otlp_in
+            to: buffer
+          - from: buffer
+            to: s3pq

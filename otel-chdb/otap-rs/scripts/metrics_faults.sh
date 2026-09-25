@@ -32,7 +32,7 @@ edge() { # port env...
   local port=$1; shift
   env OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port - 1)) PUT_TIMEOUT=${PUT_TIMEOUT:-1s} VERBOSE=true \
     S3_URL=http://$PROXY/otel/metrics-rs/faults/$RUN/$SCEN "$@" \
-    "$B/otap-s3pq" -c "$here/configs/edge.yaml" >> "$OUT/$SCEN.edge.log" 2>&1 &
+    METRICS_LAYOUT=${METRICS_LAYOUT:-clickstack_tables} "$B/otap-s3pq" -c "$here/configs/edge.yaml" >> "$OUT/$SCEN.edge.log" 2>&1 &
   echo $!
 }
 proxy() { "$T/faultproxy2" -listen $PROXY -target $S3 "$@" >> "$OUT/$SCEN.proxy.log" 2>&1 & echo $!; }

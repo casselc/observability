@@ -1,0 +1,87 @@
+PASS series_direct testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_direct testgen-3000: every point has its series row: 0 orphan points
+PASS series_direct testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_direct testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_direct testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_direct testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_direct testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_direct testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_direct testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_direct testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_direct testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_direct testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_direct testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_direct testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_direct testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_direct nasty-700: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_direct nasty-700: every point has its series row: 0 orphan points
+PASS series_direct nasty-700 metrics_gauge view vs contrib rows: count+hash: view 420	13316261040059825381 contrib 420	13316261040059825381
+PASS series_direct nasty-700 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_direct nasty-700 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_direct nasty-700 metrics_sum view vs contrib rows: count+hash: view 420	9884797616156633890 contrib 420	9884797616156633890
+PASS series_direct nasty-700 metrics_sum view vs contrib rows: in view only: 0
+PASS series_direct nasty-700 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_direct nasty-700 metrics_histogram view vs contrib rows: count+hash: view 420	1689150096732993663 contrib 420	1689150096732993663
+PASS series_direct nasty-700 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_direct nasty-700 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct nasty-700 metrics_exponential_histogram view vs contrib rows: count+hash: view 420	3515706051231806645 contrib 420	3515706051231806645
+PASS series_direct nasty-700 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_direct nasty-700 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct nasty-700 metrics_summary view vs contrib rows: count+hash: view 420	6839203533190612488 contrib 420	6839203533190612488
+PASS series_direct nasty-700 metrics_summary view vs contrib rows: in view only: 0
+PASS series_direct nasty-700 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_direct extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_direct extra: every point has its series row: 0 orphan points
+PASS series_direct extra metrics_gauge view vs contrib rows: count+hash: view 3	4227292919050977347 contrib 3	4227292919050977347
+PASS series_direct extra metrics_gauge view vs contrib rows: in view only: 0
+PASS series_direct extra metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_direct extra metrics_sum view vs contrib rows: count+hash: view 3	1116779140941112430 contrib 3	1116779140941112430
+PASS series_direct extra metrics_sum view vs contrib rows: in view only: 0
+PASS series_direct extra metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_direct extra metrics_histogram view vs contrib rows: count+hash: view 3	4944576690454371878 contrib 3	4944576690454371878
+PASS series_direct extra metrics_histogram view vs contrib rows: in view only: 0
+PASS series_direct extra metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	3275129509484290453 contrib 3	3275129509484290453
+PASS series_direct extra metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_direct extra metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_direct extra metrics_summary view vs contrib rows: count+hash: view 3	1322674901486391569 contrib 3	1322674901486391569
+PASS series_direct extra metrics_summary view vs contrib rows: in view only: 0
+PASS series_direct extra metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_via_otap testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_via_otap testgen-3000: every point has its series row: 0 orphan points
+PASS series_via_otap testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_via_otap testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_via_otap testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_via_otap testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_via_otap testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_via_otap testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_via_otap testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_via_otap testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_via_otap testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_via_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_via_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_via_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_via_otap testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_via_otap testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_via_otap testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+FAIL series_via_otap nasty-700: no object (the request was rejected)
+PASS series_via_otap extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_via_otap extra: every point has its series row: 0 orphan points
+PASS series_via_otap extra metrics_gauge view vs contrib rows: count+hash: view 3	4227292919050977347 contrib 3	4227292919050977347
+PASS series_via_otap extra metrics_gauge view vs contrib rows: in view only: 0
+PASS series_via_otap extra metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_via_otap extra metrics_sum view vs contrib rows: count+hash: view 3	1116779140941112430 contrib 3	1116779140941112430
+PASS series_via_otap extra metrics_sum view vs contrib rows: in view only: 0
+PASS series_via_otap extra metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_via_otap extra metrics_histogram view vs contrib rows: count+hash: view 3	4944576690454371878 contrib 3	4944576690454371878
+PASS series_via_otap extra metrics_histogram view vs contrib rows: in view only: 0
+PASS series_via_otap extra metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_via_otap extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	3275129509484290453 contrib 3	3275129509484290453
+PASS series_via_otap extra metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_via_otap extra metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_via_otap extra metrics_summary view vs contrib rows: count+hash: view 3	1322674901486391569 contrib 3	1322674901486391569
+PASS series_via_otap extra metrics_summary view vs contrib rows: in view only: 0
+PASS series_via_otap extra metrics_summary view vs contrib rows: in contrib only: 0
+1 failed

@@ -10,13 +10,16 @@
 //! - `proto`:   the commit protocol's writer lane and consumer (sans-IO)
 //! - `runner`:  the protocol's I/O loop
 //! - `store`:   S3 via object_store, credentials, an in-memory store
+//! - `creds`:   shared config/credentials profiles, AssumeRole chaining, SigV4 for STS
 //! - `exporter`: the otap-dataflow node (`urn:otel:exporter:s3pq`)
 //! - `batch`:   one request → content hash + flattened columns → encoded slot object
+//! - `series`:  metrics layout B: narrow points + series objects, edge series ids
 //! - `central`: the ClickHouse side of the consumer
 
 pub mod batch;
 pub mod central;
 pub mod columns;
+pub mod creds;
 pub mod encode;
 pub mod exporter;
 pub mod flatten;
@@ -26,6 +29,7 @@ pub mod proto;
 pub mod render;
 pub mod runner;
 pub mod schema;
+pub mod series;
 pub mod store;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -39,10 +43,23 @@ pub enum Signal {
     MetricsHistogram,
     MetricsExpHistogram,
     MetricsSummary,
+    /// Layout B (`series`): narrow points objects keyed by an edge-computed
+    /// series id, one namespace per points table, and the series objects.
+    /// Gauge and sum share `metrics_number_points` unless the exporter's
+    /// `series.merge_number_points` is off.
+    MetricsNumberPoints,
+    MetricsGaugePoints,
+    MetricsSumPoints,
+    MetricsHistogramPoints,
+    MetricsExpHistogramPoints,
+    MetricsSummaryPoints,
+    /// The series objects: keyed by the object's own content hash, not the
+    /// request's, because what a request announces depends on the cache.
+    MetricsSeries,
 }
 
 impl Signal {
-    pub const ALL: [Signal; 7] = [
+    pub const ALL: [Signal; 14] = [
         Signal::Traces,
         Signal::Logs,
         Signal::MetricsGauge,
@@ -50,6 +67,23 @@ impl Signal {
         Signal::MetricsHistogram,
         Signal::MetricsExpHistogram,
         Signal::MetricsSummary,
+        Signal::MetricsNumberPoints,
+        Signal::MetricsGaugePoints,
+        Signal::MetricsSumPoints,
+        Signal::MetricsHistogramPoints,
+        Signal::MetricsExpHistogramPoints,
+        Signal::MetricsSummaryPoints,
+        Signal::MetricsSeries,
+    ];
+    /// Layout B's namespaces (`series.rs`).
+    pub const SERIES_LAYOUT: [Signal; 7] = [
+        Signal::MetricsNumberPoints,
+        Signal::MetricsGaugePoints,
+        Signal::MetricsSumPoints,
+        Signal::MetricsHistogramPoints,
+        Signal::MetricsExpHistogramPoints,
+        Signal::MetricsSummaryPoints,
+        Signal::MetricsSeries,
     ];
     /// The metric types, in the order a request's objects are listed.
     pub const METRICS: [Signal; 5] = [
@@ -71,6 +105,13 @@ impl Signal {
             Signal::MetricsHistogram => "metrics_histogram",
             Signal::MetricsExpHistogram => "metrics_exponential_histogram",
             Signal::MetricsSummary => "metrics_summary",
+            Signal::MetricsNumberPoints => "metrics_number_points",
+            Signal::MetricsGaugePoints => "metrics_gauge_points",
+            Signal::MetricsSumPoints => "metrics_sum_points",
+            Signal::MetricsHistogramPoints => "metrics_histogram_points",
+            Signal::MetricsExpHistogramPoints => "metrics_exponential_histogram_points",
+            Signal::MetricsSummaryPoints => "metrics_summary_points",
+            Signal::MetricsSeries => "metrics_series",
         }
     }
 
@@ -88,11 +129,23 @@ impl Signal {
             Signal::MetricsHistogram => "otel_metrics_histogram",
             Signal::MetricsExpHistogram => "otel_metrics_exponential_histogram",
             Signal::MetricsSummary => "otel_metrics_summary",
+            Signal::MetricsNumberPoints => "otel_metrics_number_points",
+            Signal::MetricsGaugePoints => "otel_metrics_gauge_points",
+            Signal::MetricsSumPoints => "otel_metrics_sum_points",
+            Signal::MetricsHistogramPoints => "otel_metrics_histogram_points",
+            Signal::MetricsExpHistogramPoints => "otel_metrics_exponential_histogram_points",
+            Signal::MetricsSummaryPoints => "otel_metrics_summary_points",
+            Signal::MetricsSeries => "otel_metrics_series",
         }
     }
 
     pub fn is_metrics(self) -> bool {
         !matches!(self, Signal::Traces | Signal::Logs)
+    }
+
+    /// One of layout B's namespaces (points or series).
+    pub fn is_series_layout(self) -> bool {
+        Signal::SERIES_LAYOUT.contains(&self)
     }
 }
 

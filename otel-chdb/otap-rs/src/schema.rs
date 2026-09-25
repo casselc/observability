@@ -180,6 +180,7 @@ pub fn metrics(signal: crate::Signal, s: &DataType) -> Schema {
             f.push(col("Flags", DataType::UInt32));
         }
         S::Traces | S::Logs => unreachable!("not a metrics signal"),
+        s => unreachable!("{s:?} is layout B: series::schemas"),
     }
     f.extend(envelope(s));
     Schema::new(f)
@@ -198,10 +199,18 @@ pub struct Schemas {
     pub dt_elem: FieldRef,
     pub f64_elem: FieldRef,
     pub u64_elem: FieldRef,
+    pub u32_elem: FieldRef,
+    /// Leaf columns written without a dictionary, besides `HIGH_CARDINALITY`.
+    pub plain: Vec<Vec<String>>,
+    /// Leaf columns written DELTA_BINARY_PACKED (no dictionary).
+    pub delta: Vec<Vec<String>>,
 }
 
 impl Schemas {
     pub fn new(signal: crate::Signal) -> Self {
+        if signal.is_series_layout() {
+            return crate::series::schemas(signal, &crate::series::SeriesOptions::default());
+        }
         let (b, u) = match signal {
             crate::Signal::Traces => (traces(&DataType::Binary), traces(&DataType::Utf8)),
             crate::Signal::Logs => (logs(&DataType::Binary), logs(&DataType::Utf8)),
@@ -210,9 +219,16 @@ impl Schemas {
         let parquet = ArrowSchemaConverter::new()
             .convert(&u)
             .expect("published schema converts to Parquet");
+        Self::with(Arc::new(b), parquet, Vec::new())
+    }
+
+    /// From an Arrow schema (strings as Binary) and the published Parquet schema.
+    pub fn with(arrow: SchemaRef, parquet: SchemaDescriptor, plain: Vec<Vec<String>>) -> Self {
         Self {
-            arrow: Arc::new(b),
+            arrow,
             parquet,
+            plain,
+            delta: Vec::new(),
             entries: map_entries(&DataType::Binary),
             ts_elem: Arc::new(Field::new("element", ts_type(), false)),
             str_elem: Arc::new(Field::new("element", DataType::Binary, false)),
@@ -220,6 +236,7 @@ impl Schemas {
             dt_elem: Arc::new(Field::new("element", dt_type(), false)),
             f64_elem: Arc::new(Field::new("element", DataType::Float64, false)),
             u64_elem: Arc::new(Field::new("element", DataType::UInt64, false)),
+            u32_elem: Arc::new(Field::new("element", DataType::UInt32, false)),
         }
     }
 }

@@ -421,8 +421,14 @@ func (e *Encoder) Encode(md pmetric.Metrics, env *Envelope) (rows [NumTypes]int)
 					e.seen[h] = struct{}{}
 					e.New = append(e.New, h)
 					e.win = append(e.win, w)
+					// Rendered once per resource and once per scope. (The scope
+					// part used to sit under the resource's check, so every scope
+					// after a resource's first lost its attributes in the series
+					// row; the id was right. Found by ../otap-rs/tests/series.rs.)
 					if sc.resK == nil {
 						sc.resK, sc.resV = render(resKVs)
+					}
+					if sc.scK == nil {
 						sc.scK, sc.scV = render(scKVsCopy)
 					}
 					ak, av := render(kvs)

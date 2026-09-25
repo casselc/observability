@@ -20,14 +20,25 @@
 //!    `aws_signing_helper serve` (Roles Anywhere as a local IMDS) works with
 //!    the same environment as for the Go publisher and ClickHouse.
 //!
-//! A private CA: `ca_bundle` (PEM, one or more certificates) is added to the
-//! roots; `SSL_CERT_FILE` / `SSL_CERT_DIR` are honoured by the native-roots
-//! loader as well.
+//!
+//! Before 3, the SDKs' shared files and role chaining (`creds.rs`): a named
+//! profile (`profile`, or `AWS_PROFILE`) wins over the environment, as in
+//! aws-sdk-go-v2; the `default` profile comes after environment keys and
+//! web identity. `role_arn` (config) assumes a role on top of whichever base
+//! credentials were resolved (STS `AssumeRole`, signed here).
+//!
+//! A private CA: `ca_bundle` (PEM, one or more certificates), else
+//! `AWS_CA_BUNDLE`, else the profile's `ca_bundle`, is added to the roots;
+//! `SSL_CERT_FILE` / `SSL_CERT_DIR` are honoured by the native-roots loader
+//! as well. Proxies: `proxy_url` / `AWS_PROXY_URL` with `proxy_excludes`;
+//! otherwise reqwest's system proxy applies, which is the SDKs' contract:
+//! `HTTPS_PROXY` for https, `HTTP_PROXY` for http, `NO_PROXY` (both object
+//! store and STS requests; checked in tests/creds.rs).
 
 use crate::proto::PutOutcome;
 use async_trait::async_trait;
 use bytes::Bytes;
-use object_store::aws::{AmazonS3Builder, AwsCredential};
+use object_store::aws::{AmazonS3Builder, AwsCredential, AwsCredentialProvider};
 use object_store::path::Path;
 use object_store::{
     Attribute, AttributeValue, Attributes, ClientOptions, CredentialProvider, GetOptions,
@@ -97,6 +108,14 @@ pub struct S3Config {
     pub proxy_url: Option<String>,
     /// Hosts that bypass the proxy (default: $AWS_PROXY_EXCLUDES).
     pub proxy_excludes: Option<String>,
+    /// A shared config / credentials profile (default: $AWS_PROFILE).
+    pub profile: Option<String>,
+    /// Assume this role on top of the base credentials (role chaining).
+    pub role_arn: Option<String>,
+    pub role_session_name: Option<String>,
+    pub external_id: Option<String>,
+    /// STS endpoint (default: $AWS_ENDPOINT_URL_STS, else the regional one).
+    pub sts_endpoint: Option<String>,
     #[serde(with = "humantime_serde")]
     pub put_timeout: Duration,
     #[serde(with = "humantime_serde")]
@@ -118,6 +137,11 @@ impl Default for S3Config {
             path_style: None,
             proxy_url: None,
             proxy_excludes: None,
+            profile: None,
+            role_arn: None,
+            role_session_name: None,
+            external_id: None,
+            sts_endpoint: None,
             put_timeout: Duration::from_secs(10),
             head_timeout: Duration::from_secs(2),
             connect_timeout: Duration::from_secs(5),
@@ -155,28 +179,18 @@ impl S3Config {
         if bucket.is_empty() {
             return Err(err(&"url has no bucket"));
         }
-        let mut b = AmazonS3Builder::from_env();
-        // The SDKs' IMDS endpoint variable (aws_signing_helper serve, IMDS stand-ins).
-        if std::env::var_os("AWS_METADATA_ENDPOINT").is_none() {
-            if let Ok(v) = std::env::var("AWS_EC2_METADATA_SERVICE_ENDPOINT") {
-                b = b.with_metadata_endpoint(v.trim_end_matches('/'));
-            }
-        }
-        b = b.with_bucket_name(&bucket).with_region(&self.region);
-        if custom {
-            b = b
-                .with_endpoint(&endpoint)
-                .with_virtual_hosted_style_request(!self.path_style.unwrap_or(true));
-        } else if self.path_style == Some(true) {
-            b = b.with_virtual_hosted_style_request(false);
-        }
-        if let (Some(k), Some(s)) = (&self.access_key_id, &self.secret_access_key) {
-            b = b.with_access_key_id(k).with_secret_access_key(s);
-            if let Some(t) = &self.session_token {
-                b = b.with_token(t);
-            }
-        } else if let Some(cmd) = &self.credential_process {
-            b = b.with_credentials(Arc::new(ProcessCredentials::new(cmd.clone())));
+        let profiles = crate::creds::load_profiles();
+        let named = self.profile.clone().or_else(|| std::env::var("AWS_PROFILE").ok()).filter(|p| !p.is_empty());
+        let prof = profiles.get(named.as_deref().unwrap_or("default"));
+        let ca_bundle = self
+            .ca_bundle
+            .clone()
+            .or_else(|| std::env::var("AWS_CA_BUNDLE").ok().filter(|v| !v.is_empty()))
+            .or_else(|| prof.and_then(|p| p.get("ca_bundle").cloned()));
+        let mut roots = Vec::new();
+        if let Some(path) = &ca_bundle {
+            let pem = std::fs::read(path).map_err(|e| err(&format!("{path}: {e}")))?;
+            roots = object_store::Certificate::from_pem_bundle(&pem).map_err(|e| err(&e))?;
         }
         // (allow_http lives in ClientOptions: with_client_options below
         // replaces anything set through the builder's own with_allow_http.)
@@ -186,26 +200,90 @@ impl S3Config {
             .with_connect_timeout(self.connect_timeout);
         // The builder's client options (from AWS_* env) are replaced below,
         // so carry the proxy settings over explicitly.
-        if let Some(p) = self.proxy_url.clone().or_else(|| std::env::var("AWS_PROXY_URL").ok()) {
+        let proxy = self.proxy_url.clone().or_else(|| std::env::var("AWS_PROXY_URL").ok());
+        let excludes = self.proxy_excludes.clone().or_else(|| std::env::var("AWS_PROXY_EXCLUDES").ok());
+        if let Some(p) = &proxy {
             co = co.with_proxy_url(p);
         }
-        if let Some(e) = self.proxy_excludes.clone().or_else(|| std::env::var("AWS_PROXY_EXCLUDES").ok()) {
+        if let Some(e) = &excludes {
             co = co.with_proxy_excludes(e);
         }
-        if let Some(path) = &self.ca_bundle {
-            let pem = std::fs::read(path).map_err(|e| err(&format!("{path}: {e}")))?;
-            for c in object_store::Certificate::from_pem_bundle(&pem).map_err(|e| err(&e))? {
-                co = co.with_root_certificate(c);
-            }
+        for c in &roots {
+            co = co.with_root_certificate(c.clone());
         }
-        b = b.with_client_options(co).with_retry(RetryConfig {
-            // The protocol resolves ambiguity itself (HEAD the slot); keep
-            // the client's own retries short so a PUT's outcome is decided
-            // within put_timeout.
-            max_retries: 2,
-            retry_timeout: self.put_timeout,
-            ..Default::default()
-        });
+        let base = || {
+            let mut b = AmazonS3Builder::from_env();
+            // The SDKs' IMDS endpoint variable (aws_signing_helper serve, IMDS stand-ins).
+            if std::env::var_os("AWS_METADATA_ENDPOINT").is_none() {
+                if let Ok(v) = std::env::var("AWS_EC2_METADATA_SERVICE_ENDPOINT") {
+                    b = b.with_metadata_endpoint(v.trim_end_matches('/'));
+                }
+            }
+            b = b.with_bucket_name(&bucket).with_region(&self.region);
+            if custom {
+                b = b.with_endpoint(&endpoint).with_virtual_hosted_style_request(!self.path_style.unwrap_or(true));
+            } else if self.path_style == Some(true) {
+                b = b.with_virtual_hosted_style_request(false);
+            }
+            b.with_client_options(co.clone()).with_retry(RetryConfig {
+                // The protocol resolves ambiguity itself (HEAD the slot); keep
+                // the client's own retries short so a PUT's outcome is decided
+                // within put_timeout.
+                max_retries: 2,
+                retry_timeout: self.put_timeout,
+                ..Default::default()
+            })
+        };
+        // Where the credentials come from, in aws-sdk-go-v2's order.
+        use crate::creds::Source;
+        let env_has = |v: &str| std::env::var_os(v).is_some_and(|x| !x.is_empty());
+        let source: Option<Source> = if let (Some(k), Some(s)) = (&self.access_key_id, &self.secret_access_key) {
+            Some(Source::Static { key: k.clone(), secret: s.clone(), token: self.session_token.clone() })
+        } else if let Some(cmd) = &self.credential_process {
+            Some(Source::Process(cmd.clone()))
+        } else if let Some(n) = &named {
+            Some(crate::creds::resolve_profile(&profiles, n).map_err(|e| err(&e))?)
+        } else if env_has("AWS_ACCESS_KEY_ID") || env_has("AWS_WEB_IDENTITY_TOKEN_FILE") {
+            None // object_store's chain: environment keys, then IRSA
+        } else {
+            crate::creds::resolve_profile(&profiles, "default").ok()
+        };
+        let mut b = base();
+        if source.is_some() || self.role_arn.is_some() {
+            let sts_region = prof.and_then(|p| p.get("region").cloned()).unwrap_or_else(|| self.region.clone());
+            let mut hc = reqwest::Client::builder().connect_timeout(self.connect_timeout).timeout(self.put_timeout);
+            if let Some(p) = &proxy {
+                let mut px = reqwest::Proxy::all(p).map_err(|e| err(&e))?;
+                if let Some(e) = &excludes {
+                    px = px.no_proxy(reqwest::NoProxy::from_string(e));
+                }
+                hc = hc.proxy(px);
+            }
+            if let Some(path) = &ca_bundle {
+                let pem = std::fs::read(path).map_err(|e| err(&format!("{path}: {e}")))?;
+                for c in reqwest::Certificate::from_pem_bundle(&pem).map_err(|e| err(&e))? {
+                    hc = hc.add_root_certificate(c);
+                }
+            }
+            let sts = crate::creds::Sts::new(hc.build().map_err(|e| err(&e))?, &sts_region, self.sts_endpoint.as_deref());
+            let env_chain = || -> Result<AwsCredentialProvider, String> {
+                base().build().map(|s| s.credentials().clone()).map_err(|e| e.to_string())
+            };
+            let mut p = match &source {
+                Some(src) => crate::creds::provider(src, &sts, &env_chain).map_err(|e| err(&e))?,
+                None => env_chain().map_err(|e| err(&e))?,
+            };
+            if let Some(role) = &self.role_arn {
+                p = Arc::new(crate::creds::AssumeRole::new(
+                    sts,
+                    role.clone(),
+                    self.role_session_name.clone().unwrap_or_else(|| format!("otap-s3pq-{}", std::process::id())),
+                    self.external_id.clone(),
+                    p,
+                ));
+            }
+            b = b.with_credentials(p);
+        }
         let store = b.build().map_err(|e| err(&e))?;
         Ok(S3Store {
             store: Arc::new(store),
@@ -325,7 +403,7 @@ struct ProcessOutput {
     expiration: Option<String>,
 }
 
-fn parse_rfc3339(s: &str) -> Option<std::time::SystemTime> {
+pub(crate) fn parse_rfc3339(s: &str) -> Option<std::time::SystemTime> {
     // YYYY-MM-DDTHH:MM:SS[.frac](Z|+HH:MM)
     let b = s.as_bytes();
     if b.len() < 20 {

@@ -23,7 +23,7 @@ TYPES="gauge sum histogram exponential_histogram summary"
 pipeline() {
   local port=14618
   env OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port-1)) PRODUCER=bench-pipe \
-    S3_URL=$S3/metrics-rs/bench/pipeline "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
+    S3_URL=$S3/metrics-rs/bench/pipeline METRICS_LAYOUT=${METRICS_LAYOUT:-clickstack_tables} "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
   local pid=$!
   sleep 1.5
   local rss0; rss0=$(awk '/VmRSS/{print $2/1024}' /proc/$pid/status)

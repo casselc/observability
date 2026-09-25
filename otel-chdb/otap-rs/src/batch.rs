@@ -7,6 +7,7 @@ use crate::metrics::MetricsBuf;
 use crate::proto;
 use crate::runner::Encoded;
 use crate::schema::{SCHEMA_VERSION, Schemas};
+use crate::series::{MetricsLayout, SeriesBuf, SeriesOptions};
 use crate::Signal;
 use arrow::array::ArrayRef;
 use bytes::Bytes;
@@ -47,6 +48,9 @@ pub struct Flat {
     pub content: String,
     pub cols: Vec<ArrayRef>,
     pub stats: Stats,
+    /// A series object's new series (id, cache window): mark them announced
+    /// once this object has committed (`Encoder::series_announced`).
+    pub announce: Vec<(u64, i32)>,
 }
 
 /// Content hash of an OTLP request: BLAKE3 over "{signal}\0{protobuf}",
@@ -93,6 +97,10 @@ pub struct Encoder {
     traces: TracesBuf,
     logs: LogsBuf,
     metrics: MetricsBuf,
+    /// Layout B (`series.rs`): its encoder and series cache, and schemas.
+    series: SeriesBuf,
+    series_sc: Vec<Schemas>,
+    pub layout: MetricsLayout,
     pub opts: ParquetOptions,
     pub format: Format,
 }
@@ -114,12 +122,40 @@ impl Encoder {
             traces: TracesBuf::default(),
             logs: LogsBuf::default(),
             metrics: MetricsBuf::default(),
+            series: SeriesBuf::new(SeriesOptions::default()),
+            series_sc: Signal::SERIES_LAYOUT.iter().map(|s| crate::series::schemas(*s, &SeriesOptions::default())).collect(),
+            layout: MetricsLayout::ClickstackTables,
             opts,
             format,
         }
     }
 
+    /// Metrics as layout B (`series_table`) with these options, or as the
+    /// ClickStack tables. The series cache starts empty.
+    pub fn with_metrics_layout(mut self, layout: MetricsLayout, o: SeriesOptions) -> Self {
+        self.layout = layout;
+        self.series_sc = Signal::SERIES_LAYOUT.iter().map(|s| crate::series::schemas(*s, &o)).collect();
+        self.series = SeriesBuf::new(o);
+        self
+    }
+
+    pub fn series_options(&self) -> &SeriesOptions {
+        &self.series.opts
+    }
+
+    /// Marks a committed series object's series as announced, in its epoch.
+    pub fn series_announced(&mut self, ids: &[(u64, i32)], epoch: &str) {
+        self.series.announced(ids, epoch);
+    }
+
+    pub fn series_cache_len(&self) -> usize {
+        self.series.cache_len()
+    }
+
     pub fn schemas(&self, s: Signal) -> &Schemas {
+        if let Some(i) = Signal::SERIES_LAYOUT.iter().position(|x| *x == s) {
+            return &self.series_sc[i];
+        }
         match s {
             Signal::Traces => &self.traces_sc,
             Signal::Logs => &self.logs_sc,
@@ -133,6 +169,16 @@ impl Encoder {
     pub fn flatten_all(&mut self, input: &Input<'_>) -> Result<Vec<Flat>, EncodeError> {
         let e = |m: &dyn std::fmt::Display| EncodeError(m.to_string());
         match input {
+            Input::OtlpMetrics(b) if self.layout == MetricsLayout::SeriesTable => {
+                let v = RawMetricsData::try_new(b).map_err(|x| e(&x))?;
+                self.series.fill(&v).map_err(|x| EncodeError(x.0))?;
+                Ok(self.series_flats(|sig, _| content_hash_otlp(sig, b)))
+            }
+            Input::OtapMetrics(r) if self.layout == MetricsLayout::SeriesTable => {
+                let v = OtapMetricsView::try_from(*r).map_err(|x| e(&x))?;
+                self.series.fill(&v).map_err(|x| EncodeError(x.0))?;
+                Ok(self.series_flats(content_hash_cols))
+            }
             Input::OtlpMetrics(b) => {
                 let v = RawMetricsData::try_new(b).map_err(|x| e(&x))?;
                 self.metrics.fill(&v).map_err(|x| EncodeError(x.0))?;
@@ -155,7 +201,32 @@ impl Encoder {
             let cols = self.metrics.content_arrays(sig, &self.metrics_sc[i]);
             if stats.rows > 0 {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats });
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new() });
+            }
+        }
+        out
+    }
+
+    /// Layout B's objects: the non-empty points objects, keyed like the
+    /// ClickStack ones (`key`: the request's hash per namespace), then the
+    /// series object if any series is new, keyed by its own content.
+    fn series_flats(&mut self, key: impl Fn(Signal, &[ArrayRef]) -> String) -> Vec<Flat> {
+        let mut out = Vec::new();
+        let mut sigs = self.series.opts.point_signals();
+        sigs.push(Signal::MetricsSeries);
+        for sig in sigs {
+            let stats = self.series.stats(sig);
+            let i = Signal::SERIES_LAYOUT.iter().position(|x| *x == sig).expect("layout B");
+            let cols = self.series.content_arrays(sig, &self.series_sc[i]);
+            if stats.rows == 0 {
+                continue;
+            }
+            if sig == Signal::MetricsSeries {
+                let content = content_hash_cols(sig, &cols);
+                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new() });
+            } else {
+                let content = key(sig, &cols);
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new() });
             }
         }
         out
@@ -192,7 +263,7 @@ impl Encoder {
             Input::Otap(s, _) => content_hash_cols(*s, &cols),
             _ => unreachable!(),
         };
-        Ok(Flat { signal, content, cols, stats })
+        Ok(Flat { signal, content, cols, stats, announce: Vec::new() })
     }
 
     /// The object for one slot: envelope added, encoded, described.

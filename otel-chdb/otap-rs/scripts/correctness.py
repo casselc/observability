@@ -9,13 +9,18 @@ The envelope columns that identify the producer run (producer_id,
 producer_epoch, batch_id, received_at) differ by construction and are
 checked separately; row_ordinal and schema_version are compared.
 
-  correctness.py RUN [direct|via_otap ...]
+  correctness.py RUN [direct|via_otap|otapgrpc ...]
+
+(otapgrpc: the objects of scripts/otap_e2e.sh, sent as OTAP by the Go
+otelarrow producer into the upstream OTAP receiver.) S3_PREFIX (default
+otap-rs) is the prefix the run's objects are under, in the bucket.
 """
 import os, sys, requests
 
 CH = os.environ.get("CH_URL", "http://127.0.0.1:18123")
 S3 = os.environ.get("S3_ROOT", "http://127.0.0.1:18333/otel")
 KEY, SECRET = os.environ.get("S3_KEY", "otel"), os.environ.get("S3_SECRET", "otelsecret")
+PREFIX = os.environ.get("S3_PREFIX", "otap-rs")
 
 ENV_ST = ", producer_id String, producer_epoch String, batch_id UInt64, row_ordinal UInt32, received_at DateTime64(9), schema_version UInt16"
 TRACE_ST = ("Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String, SpanName String, "
@@ -83,7 +88,7 @@ def main():
     try:
         for path in paths:
             for sig, st, cols in [("traces", TRACE_ST, TRACE_COLS), ("logs", LOG_ST, LOG_COLS)]:
-                keys = [k for k in ls(f"otap-rs/corr/{run}/{path}/{sig}") if k.endswith(".parquet")]
+                keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{sig}") if k.endswith(".parquet")]
                 for ds, seq in [("testgen-3000", 0), ("nasty-700", 1)]:
                     mine = [k for k in keys if k.endswith(f"/{seq:020d}.parquet")]
                     if not mine:
@@ -94,7 +99,7 @@ def main():
 
                     def src(which, structured=True):
                         url = (f"{S3}/{key}" if which == "rust" else
-                               f"{S3}/otap-rs/corr/{run}/ref/cmp/{sig}/v1/{ds}/{run}/*/*.parquet")
+                               f"{S3}/{PREFIX}/corr/{run}/ref/cmp/{sig}/v1/{ds}/{run}/*/*.parquet")
                         return f"s3('{url}', '{KEY}', '{SECRET}', 'Parquet'" + (f", '{st}')" if structured else ")")
 
                     c = cols + CMP_ENV

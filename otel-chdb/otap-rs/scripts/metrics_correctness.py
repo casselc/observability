@@ -17,7 +17,16 @@ Checks per (type, dataset), as correctness.py does for traces and logs:
     against the exporter's rows. The same for parquetgo's objects, so a
     disagreement between the two references shows up too.
 
-  metrics_correctness.py RUN DATADIR [direct|via_otap]
+  metrics_correctness.py RUN DATADIR [direct|via_otap|series_direct|series_via_otap ...]
+
+A path series_X holds layout B's objects (the edge's metrics_layout
+series_table: points under metrics_*_points, series under metrics_series).
+For those, every object is inserted into layout B's tables
+(sql/series_tables.sql, the importer's statements) in a private database,
+and the compatibility views over them (sql/series_views.sql) are checked
+against contrib's rows exactly as the objects of the other paths are: count +
+sum(cityHash64(every column)) and EXCEPT in both directions, through a table
+created AS the exporter's. Also: every point finds its series row.
 
 RUN names the S3 prefix metrics-rs/corr/RUN/{path,ref}; the Rust objects must
 already be there (scripts/metrics_e2e.sh sends them): one exporter run per
@@ -28,6 +37,8 @@ import os, sys, subprocess, requests
 CH = os.environ.get("CH_URL", "http://127.0.0.1:18123")
 S3 = os.environ.get("S3_ROOT", "http://127.0.0.1:18333/otel")
 KEY, SECRET = os.environ.get("S3_KEY", "otel"), os.environ.get("S3_SECRET", "otelsecret")
+PREFIX = os.environ.get("S3_PREFIX", "metrics-rs")
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 TYPES = ["metrics_gauge", "metrics_sum", "metrics_histogram", "metrics_exponential_histogram", "metrics_summary"]
 DATASETS = [("testgen-3000", 0), ("nasty-700", 1), ("extra", 2)]
@@ -84,6 +95,83 @@ def ls(prefix):
     return ch(f"SELECT DISTINCT _path FROM s3('{S3}/{prefix}/**', '{KEY}', '{SECRET}', 'One') ORDER BY _path FORMAT TSV").splitlines()
 
 
+SERIES_LANES = ["metrics_number_points", "metrics_gauge_points", "metrics_sum_points", "metrics_histogram_points",
+                "metrics_exponential_histogram_points", "metrics_summary_points", "metrics_series"]
+
+
+def statements(path):
+    out, cur = [], []
+    for line in open(path):
+        if line.strip().startswith("--"):
+            continue
+        cur.append(line)
+        if line.rstrip().endswith(";"):
+            st = "".join(cur).strip().rstrip(";")
+            if st:
+                out.append(st)
+            cur = []
+    return out
+
+
+def series_insert(lane, bdb, url):
+    """The importer's statement for one layout-B object (series::insert_select)."""
+    src = f"s3('{url}', '{KEY}', '{SECRET}', 'Parquet')"
+    names = [l.split("\t")[0] for l in ch(f"DESCRIBE {src} FORMAT TSV").splitlines()]
+    if lane == "metrics_series":
+        cols, sel, i = [], [], 0
+        while i < len(names):
+            n = names[i]
+            if n.endswith("Keys"):
+                cols.append(f"`{n[:-4]}`"); sel.append(f"mapFromArrays(`{n}`, `{names[i + 1]}`)"); i += 2; continue
+            cols.append(f"`{n}`"); sel.append(f"`{n}`")
+            if n == "FirstSeen":  # the envelope that follows isn't stored
+                cols.append("`LastSeen`"); sel.append("`FirstSeen`")
+                break
+            i += 1
+        return f"INSERT INTO {bdb}.otel_metrics_series ({', '.join(cols)}) SELECT {', '.join(sel)} FROM {src}"
+    c = ", ".join(f"`{n}`" for n in names)
+    return f"INSERT INTO {bdb}.otel_{lane} ({c}) SELECT {c} FROM {src}"
+
+
+def series_checks(run, path, ds, seq, refdb, db, check):
+    """Layout B: import every object, then the views against contrib's rows."""
+    bdb = f"{db}_{path}_{seq}"
+    ch(f"DROP DATABASE IF EXISTS {bdb}")
+    ch(f"CREATE DATABASE {bdb}")
+    for st in statements(f"{HERE}/../sql/series_tables.sql") + statements(f"{HERE}/../sql/series_views.sql"):
+        ch(st.replace("{db}", bdb).replace("{vdb}", bdb))
+    n_obj = {}
+    for lane in SERIES_LANES:
+        keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/{lane}") if k.endswith(".parquet")]
+        n_obj[lane] = len(keys)
+        for k in keys:
+            ch(series_insert(lane, bdb, f"{S3}/{k.split('/', 1)[1]}"), **SETTINGS)
+    tag = f"{path} {ds}"
+    if not any(n_obj.values()):
+        check(tag, False, "no object (the request was rejected)")
+        return
+    check(f"{tag}: objects per lane", n_obj["metrics_series"] >= 1, str({k: v for k, v in n_obj.items() if v}))
+    orphans = sum(int(ch(f"SELECT count() FROM {bdb}.otel_{lane} AS p LEFT ANTI JOIN {bdb}.otel_metrics_series AS s "
+                         f"USING (MetricName, ServiceName, series_id)")) for lane in SERIES_LANES[:-1])
+    check(f"{tag}: every point has its series row", orphans == 0, f"{orphans} orphan points")
+    for t in TYPES:
+        cols = cols_of(t)
+        reft = f"{refdb}_{seq}.otel_{t}"
+        tt = f"{bdb}.cmp_{t}"
+        ch(f"CREATE TABLE {tt} AS {reft}")
+        ch(f"INSERT INTO {tt} ({', '.join(cols)}) SELECT {', '.join(cols)} FROM {bdb}.otel_{t}")
+        h = {w: ch(f"SELECT count(), sum(cityHash64({', '.join(cols)})) FROM {x}") for w, x in (("view", tt), ("contrib", reft))}
+        check(f"{tag} {t} view vs contrib rows: count+hash", h["view"] == h["contrib"], f"view {h['view']} contrib {h['contrib']}")
+        for a, b in [(tt, reft), (reft, tt)]:
+            n = ch(f"SELECT count() FROM (SELECT {', '.join(cols)} FROM {a} EXCEPT SELECT {', '.join(cols)} FROM {b})")
+            check(f"{tag} {t} view vs contrib rows: in {'view' if a == tt else 'contrib'} only", n == "0", n)
+
+
+# The importer's single-block insert settings (central.rs FASTPATH).
+SETTINGS = {"max_insert_threads": 1, "max_threads": 1, "min_insert_block_size_rows": 0, "min_insert_block_size_bytes": 0,
+            "input_format_parquet_max_block_size": 1048576}
+
+
 def main():
     run, data = sys.argv[1], sys.argv[2]
     paths = sys.argv[3:] or ["direct"]
@@ -107,18 +195,21 @@ def main():
         sys.exit("metricsref failed")
     ch(f"CREATE DATABASE IF NOT EXISTS {db}")
     try:
-        for path in paths:
+        for path in [p for p in paths if p.startswith("series_")]:
+            for ds, seq in DATASETS:
+                series_checks(run, path, ds, seq, refdb, db, check)
+        for path in [p for p in paths if not p.startswith("series_")]:
             for t in TYPES:
                 for ds, seq in DATASETS:
                     tag = f"{path} {t} {ds}"
-                    keys = [k for k in ls(f"metrics-rs/corr/{run}/{path}/{ds}/{t}") if k.endswith(".parquet")]
+                    keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/{t}") if k.endswith(".parquet")]
                     mine = [k for k in keys if k.endswith(f"/{0:020d}.parquet")]
                     if not mine:
                         check(tag, False, "no object (the request was rejected)")
                         continue
                     key = mine[0].split("/", 1)[1]
                     epoch = key.split("/")[-2]
-                    ref_url = f"{S3}/metrics-rs/corr/{run}/ref/cmp/{t}/v1/{ds}/{run}/*/*.parquet"
+                    ref_url = f"{S3}/{PREFIX}/corr/{run}/ref/cmp/{t}/v1/{ds}/{run}/*/*.parquet"
 
                     def src(which, structured=True):
                         url = f"{S3}/{key}" if which == "rust" else ref_url
@@ -160,6 +251,9 @@ def main():
     finally:
         if not os.environ.get("KEEP"):
             ch(f"DROP DATABASE IF EXISTS {db}")
+            for path in paths:
+                for _, seq in DATASETS:
+                    ch(f"DROP DATABASE IF EXISTS {db}_{path}_{seq}")
             for _, seq in DATASETS:
                 ch(f"DROP DATABASE IF EXISTS {refdb}_{seq}")
     print(f"{fails} failed")

@@ -56,6 +56,24 @@ larger. Keep parquetgo where the edge is, or must stay, a Go collector.**
   - maturity matters: otap-dataflow is pre-1.0, and this exporter is a
     spike-quality component on top of it. parquetgo has had more exposure
     (pyarrow, Spark, chDB).
+- **Added since, each with its section below [M]:**
+  - **Metrics default to layout B** of ../metrics-layout (series table +
+    narrow points, the series id computed at the edge): the Go prototype's
+    rows and ids exactly, the views equal to contrib's rows, **1.8 µs of edge
+    CPU per point against 5.0** for the ClickStack tables, 4 objects per
+    request instead of 5 (gauge and sum merged). No smaller on the wire than
+    this crate's ClickStack objects: its gain is central, as the spike found.
+    See [Metrics layout B](#metrics-layout-b-the-series-table-the-default).
+  - **Edge durability:** upstream's durable buffer works in this pipeline;
+    requests acked before a SIGKILL are all committed after the restart,
+    for +35% edge CPU and 2× the request bytes written to local disk.
+  - **Credentials:** `AWS_CA_BUNDLE`, `HTTPS_PROXY` / `NO_PROXY` (already
+    honoured, now tested), `AWS_PROFILE` and the shared files, AssumeRole
+    chaining (`role_arn`), SigV4 signed here.
+  - **Inputs:** upstream's OTAP receiver works end to end with the Go
+    otelarrow producer, after decoding its transport-optimized ids (a bug
+    here that blew up memory); OTLP/gRPC costs the same as HTTP; OTAP input
+    costs the edge 14–55% more than OTLP.
 - **The saving isn't where the money is.** Central ingest is the larger
   cost ([../bench/central/REPORT.md](../bench/central/REPORT.md)), and both
   paths leave it where it is. At 500 producers × one batch per 10 s, 28 ms
@@ -107,8 +125,12 @@ worth it for S3 transfer.
 
 ```
 otap-s3pq (one binary)
-  receiver:otlp (upstream core-nodes, `otlp` feature only; gRPC + HTTP, wait_for_result)
+  receiver:otlp (upstream core-nodes; gRPC + HTTP, wait_for_result)
+  receiver:otap (upstream; OTel Arrow gRPC streams; configs/edge-otap.yaml)
+    [-> processor:durable_buffer (upstream Quiver WAL + segments; configs/edge-durable.yaml)]
     -> exporter:s3pq (this crate)
+         metrics       layout B by default (series.rs): points objects + a series object for
+                       series new this hour, announced only once it commits; or the ClickStack tables
          content key   BLAKE3("{signal}\0" + the OTLP request bytes), 128 bits hex
          flatten       otap-dataflow's view traits: RawTraceData / RawLogsData (OTLP bytes,
                        zero-copy) or OtapTracesView / OtapLogsView (OTAP records), one walker
@@ -218,6 +240,13 @@ Found upstream, not patched here:
   - A gotcha: `with_client_options` replaces `allow_http` set earlier
     through `with_allow_http`. The first build failed with "URL scheme is not
     allowed".
+- **The OTAP receiver hands on records with transport-optimized ids**
+  (delta-encoded parent ids), and the views don't decode them: a consumer
+  must call `decode_transport_optimized_ids()` first, as the parquet
+  exporter does. This crate didn't, which went unnoticed until a real OTAP
+  sender was used ([Inputs](#inputs-otap-end-to-end-otlpgrpc-m)).
+- **The OTAP receiver closes the whole stream on a batch it can't decode**
+  (invalid UTF-8 in an Arrow `Utf8` column), instead of NACKing that batch.
 - **A NACK's status matters.** The OTLP receiver maps a permanent NACK
   without `NackCause::Refused` to HTTP 500 / INTERNAL. This exporter marks
   undecodable input `Refused` (400 / INVALID_ARGUMENT), so a client doesn't
@@ -409,21 +438,27 @@ OTAPRS_MUTANT=retry_new_key QUINT_SEED=0x5eed cargo test --release --test mbt_s3
 | **IAM Roles Anywhere, `credential_process`** | `s3.credential_process: "aws_signing_helper credential-process --certificate … --role-arn …"` → `store::ProcessCredentials`, which is this crate's (object_store has none). It is cached until 5 minutes before `Expiration`. | ✓. The helper ran once for 3 requests. |
 | static keys, plain http (SeaweedFS, MinIO) | `access_key_id` / `secret_access_key` | ✓ |
 
-**Gaps and differences from the Go publisher (aws-sdk-go-v2):**
+**What `src/creds.rs` adds** (the same test, `results/creds.txt`: 19 modes
+pass, plus the signer check) [M]:
 
-- object_store reads **no shared config or credentials files**, so
-  `AWS_PROFILE` does nothing. `credential_process` is set in the exporter's
-  config instead.
-- It ignores `HTTPS_PROXY`: use `s3.proxy_url` or `AWS_PROXY_URL`, with
-  `proxy_excludes`.
-- It ignores `AWS_CA_BUNDLE`: use `ca_bundle` or `SSL_CERT_FILE`.
-- STS must be https.
-- There is no AssumeRole chaining on top of the resolved credentials (the Go
-  publisher's `RoleARN`).
-- As in parquetgo's tests, the stand-ins hand out an empty session token,
-  because SeaweedFS rejects tokens its own STS didn't issue. So the token
-  header wasn't exercised against the store [E: object_store signs it as the
-  SDKs do].
+| Mode | How | Result [M] |
+|---|---|---|
+| `AWS_CA_BUNDLE` | read when `ca_bundle` isn't set (then the profile's `ca_bundle`); added to the roots of the S3 and STS clients | ✓ through the private-CA TLS proxy |
+| `HTTPS_PROXY` / `NO_PROXY` | **already honoured**: reqwest's system proxy applies whenever no `proxy_url` / `AWS_PROXY_URL` is set, with the SDKs' contract (`HTTPS_PROXY` for https, `HTTP_PROXY` for http, `NO_PROXY`). The old "ignores HTTPS_PROXY" line here was wrong. Now tested | ✓ S3 requests tunneled (a CONNECT proxy in the test logs `CONNECT 127.0.0.1:18903`); with `NO_PROXY=127.0.0.1` nothing reaches the proxy; STS through `HTTPS_PROXY` too (last row) |
+| `AWS_PROFILE`, shared files | `AWS_CONFIG_FILE` / `AWS_SHARED_CREDENTIALS_FILE` (default `~/.aws/…`), or `s3.profile`: static keys, `credential_process`, `role_arn` + `source_profile` (chained, any depth) or `credential_source`, `role_arn` + `web_identity_token_file`, `external_id`, `role_session_name`, `region` (for STS), `ca_bundle`. SSO profiles are refused with a message. Order as aws-sdk-go-v2: a named profile, then env keys, env web identity, the `default` profile, then container / IMDS | ✓ `AWS_PROFILE=edge` (credentials file); ✓ the default profile without `AWS_PROFILE`; ✓ `credential_process` in the config file (the helper ran once); ✓ `sso` refused; ✓ `chained` → STS `AssumeRole` with the role ARN, session name and `ExternalId` |
+| **AssumeRole chaining** | `s3.role_arn` (+ `role_session_name`, `external_id`, `sts_endpoint`) on top of whatever the base is: config keys, `credential_process`, a profile, or object_store's own chain. STS `AssumeRole` is signed here (SigV4), cached until 5 min before `Expiration`. An `http://` STS is allowed when named (`sts_endpoint`, `AWS_ENDPOINT_URL_STS`) | ✓ on `credential_process` (helper once, one AssumeRole for 3 requests); ✓ on IMDS (`aws_signing_helper serve`: token, role, credentials, then AssumeRole); ✓ via the default `https://sts.us-east-1.amazonaws.com` reached through `HTTPS_PROXY`, CA from `AWS_CA_BUNDLE` |
+| SigV4 signer | `creds::sign` | ✓ AWS's documented example (IAM ListUsers, signature `5d672d79…`) in `creds::tests`; ✓ SeaweedFS, which checks signatures, answers a signed ListObjectsV2 200 and the same with a wrong secret 403 (the STS stand-in doesn't check signatures) |
+
+**Gaps and differences from the Go publisher (aws-sdk-go-v2) that remain:**
+
+- SSO profiles (`sso_session`, `sso_start_url`): refused; use
+  `credential_process` (`aws configure export-credentials --format process`).
+- The IRSA path is still object_store's: it only talks https to STS (an
+  `http://` `AWS_ENDPOINT_URL_STS` is refused there, not in `creds.rs`).
+- The stand-ins hand out an empty session token (SeaweedFS rejects tokens
+  its own STS didn't issue), so the token header wasn't exercised against
+  the store [E: object_store signs it as the SDKs do]. STS is a stand-in
+  that answers any action; no real AWS, EKS or STS was used.
 
 Configuration, per deployment (`configs/edge.yaml` substitutes these from
 the environment):
@@ -440,6 +475,9 @@ s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1",
       credential_process: "aws_signing_helper credential-process --certificate /etc/ra/cert.pem --private-key /etc/ra/key.pem --trust-anchor-arn arn:… --profile-arn arn:… --role-arn arn:…" }
 # … or, with `aws_signing_helper serve` running beside it: no s3 credential
 # fields, and AWS_EC2_METADATA_SERVICE_ENDPOINT=http://127.0.0.1:9911 in the env
+# A shared-config profile (AWS_PROFILE=edge works too), and a role on top of it
+s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1", profile: "edge",
+      role_arn: "arn:aws:iam::111122223333:role/otel-writer", external_id: "…" }
 ```
 
 The exporter needs `s3:PutObject` and `s3:GetObject` on the prefix, and
@@ -589,6 +627,10 @@ controller, admin server or receivers, is 22 MB stripped [M]. A static musl
 build wasn't tried.
 
 ## Metrics
+
+(This section is the `metrics_layout: clickstack_tables` layout, the contrib
+exporter's five tables. The default is now layout B: see
+[Metrics layout B](#metrics-layout-b-the-series-table-the-default).)
 
 **Metrics are supported, OTLP direct by default, OTAP too. The rows are
 identical to the contrib clickhouseexporter v0.161.0's own rows, including
@@ -834,31 +876,296 @@ as server CPU (`results/metrics/central.md`).
 - **The raw temporality enum and the double-plus-int oneof** differ from
   contrib, as noted above. The OTLP views don't expose raw values, and
   fixing that would take an upstream patch.
-- **No OTAP receiver was run.** The OTAP input is covered by the via-OTAP
-  path and by `--path otap` in-process.
+- ~~No OTAP receiver was run.~~ Done: metrics over upstream's OTAP receiver
+  from the Go otelarrow producer equal contrib's rows on testgen, in both
+  layouts (see [Inputs](#inputs-otap-end-to-end-otlpgrpc-m)); hostile input
+  closes the stream, duplicate keys are dropped by the producer.
 - **One lane per type was measured.** A mixed request holds five lanes, one
   per type, at once.
 
+## Metrics layout B: the series table (the default)
+
+**The edge now writes metrics as layout B of
+[../metrics-layout](../metrics-layout/README.md) by default
+(`metrics_layout: series_table`; `clickstack_tables` keeps the five contrib
+tables): narrow points objects keyed by a series id computed at the edge,
+plus a series object for series not announced yet this hour. It is the Go
+prototype's layout exactly, row for row and id for id, the compatibility
+views return exactly the contrib exporter's rows, and edge CPU per point
+drops by 50–65%. On the wire it is no smaller than this crate's ClickStack
+objects.**
+
+### What was built
+
+- `src/series.rs`: one walk over the view traits (OTLP bytes or OTAP
+  records), a port of `../metrics-layout/seriesenc/seriesenc.go`:
+  - **series id v1**, xxh3-64 over the prototype's length-prefixed
+    canonical encoding, two-level (resource+scope hashed once per scope);
+  - **points objects** per type; with `series.merge_number_points` (default
+    on) gauge and sum share `metrics_number_points`, with a `MetricType`
+    column after `series_id`;
+  - **the series object** (`metrics_series`): every non-point field of the
+    contrib row, maps as key/value arrays in contrib's order;
+  - `Exemplars.FilteredAttributes` in the points objects
+    (`series.exemplar_attributes`, default on), which the prototype drops
+    and contrib has;
+  - `SeriesOptions::prototype()` turns both additions off: the objects are
+    then the prototype's, column for column.
+- **The series cache** (per exporter, window `series.window`, default 1 h
+  of the point's `TimeUnix`): a series is announced once per window, and
+  within a request once.
+  - **A series counts as announced only after its series object has
+    committed** (`exporter.rs` `commit_one` → `Encoder::series_announced`,
+    with the lane's epoch). Until then every request re-announces it, so a
+    NACKed or crashed request's retry carries the series again.
+  - A commit in an epoch the cache hasn't seen empties it (a new epoch
+    re-announces everything). Entries older than the previous window are
+    pruned, so the cache doesn't grow with series churn; a point more than a
+    window late may be re-announced (harmless: the table is idempotent).
+- **Lanes:** the points objects are keyed like the ClickStack ones,
+  `BLAKE3("{namespace}\0" + request)`. The series object is keyed by **its
+  own content hash** (`content_hash_cols`): what a request announces depends
+  on the cache, so a retry may carry a different series object, or none. It
+  goes on its own `metrics_series` lane(s). The request is ACKed when every
+  object, the series object included, has committed.
+- **Central** (`sql/series_tables.sql`, `sql/series_views.sql`): the spike's
+  DDL plus `otel_metrics_number_points` and the exemplar attributes; the
+  views read gauge and sum from the merged table, split on the point's
+  `MetricType`. `series::structure` / `series::insert_select` are the
+  importer's `s3()` structure and statement per namespace (the series
+  object: `mapFromArrays`, `LastSeen = FirstSeen`, no envelope stored).
+- **Gauge + sum merge: kept, compatible with the views.** The views need to
+  know a point's type without the series row (which may land later, and the
+  views keep such a point with empty maps rather than hiding it), so the
+  merged points carry `MetricType`: one UInt8 per point, constant per
+  series, ≈0 B stored and <0.1 B/point in Parquet. It saves one object
+  (and one ~16 ms central insert) per request.
+- Encoding: dictionaries on, none on the near-unique numbers, and
+  `row_ordinal` DELTA_BINARY_PACKED (as the prototype's `delta` tag): plain
+  it was 2.3 B/point of every object.
+
+### Rust = Go [M] (`tests/series.rs`, `tools/cmd/seriesref`)
+
+`seriesref` runs the prototype over the same OTLP requests with the same
+envelope, one encoder and `Announced()` after each request; the test does
+the same with `SeriesOptions::prototype()` and compares every object: the
+set of objects per request, the Parquet schema (root name, every leaf's
+path, physical and logical type, levels) and every leaf column's values and
+levels (doubles by bits, strings as bytes).
+
+| Input | Result |
+|---|---|
+| the spike's fleet (`seriesref -fleet`): 130 consecutive 10k-point batches of 20 pods, crossing an hourly window | **identical**: 652 objects, 1,320,000 rows, 20,000 series rows (the initial announce and the hourly re-announce), so every series id |
+| testgen, nasty (NaN, invalid UTF-8, extreme timestamps, exemplars…), extra (duplicate keys) | **identical**: 18 objects, 27,034 rows, 9,919 series rows, except 40 series-row maps of `metrics-extra.pb` that differ only in the order of duplicate keys: contrib's (unstable) order here, the prototype's stable order there. The entries are the same; the ids are equal |
+
+**A bug in the Go prototype, found and fixed:** it rendered the scope
+attributes under the resource's once-per-resource check, so for every scope
+after a resource's first the series row had **empty scope attributes** (the
+id was right). The fleet data has no scope attributes, so the spike's
+numbers are unaffected; `seriesenc.go` is fixed (3 lines).
+
+### Central correctness [M]
+
+`scripts/metrics_e2e.sh` with `PATHS="series:direct series:via_otap"` runs
+the pipeline with `metrics_layout: series_table`;
+`scripts/metrics_correctness.py` imports every object with the importer's
+statements into layout B's tables and compares **the views** with the
+contrib exporter's own rows (`tools/cmd/metricsref`) exactly as the
+ClickStack objects are compared: count + `sum(cityHash64(every column))` and
+`EXCEPT` both ways through a table created `AS` contrib's, plus "every point
+has its series row" (`results/series/correctness.txt`).
+
+| | testgen | nasty | extra (duplicate keys) |
+|---|---|---|---|
+| OTLP direct, views vs contrib, ×5 types | **equal** | **equal** | **equal** |
+| via OTAP | equal | rejected (CBOR UTF-8, as before) | equal |
+| OTAP input from the Go otelarrow producer (below) | equal | rejected (Arrow UTF-8) | differs: the producer drops duplicate keys |
+
+### Edge cost [M] (`scripts/series_bench.sh`, `results/series/bench.md`)
+
+3 processes each, in-process (encbench, to SeaweedFS through the real
+lanes) and the whole `otap-s3pq` process (OTLP/HTTP); load 1.5–2.0.
+
+| | layout B (series table) | ClickStack tables | |
+|---|---|---|---|
+| **edge CPU per point**, fleet | **1.76 µs** (17.6 ms / 10k) | 5.04 µs | −65% |
+| edge CPU per point, testgen (mostly unique series) | 2.45 µs | 4.87 µs | −50% |
+| whole process, fleet over OTLP/HTTP | **1.67 µs** | 4.65 µs | −64% |
+| flatten / encode / commit ms per 10k, fleet | 6.1 / 10.5 / 12.0 | 9.8 / 39.5 / 14.5 | encode is 4× cheaper |
+| **Parquet bytes per point**, fleet | 20.3 B | 19.8 B | +2.5% |
+| Parquet bytes per point, testgen | 20.3 B | 18.4 B | +10% |
+| **objects (PUTs) per request** | **4** + a series object on 0.8% of requests (the hourly re-announce) | 5 | −20% |
+
+- **The wire saving the spike measured is gone** against this crate's
+  writer. The spike's 1.6× was against parquet-go's ClickStack objects
+  (38 B/point); the Rust ClickStack writer already dictionary-encodes the
+  repeated maps (the fleet's 21 resource attributes cost ~1 KB per 2,800
+  rows). B's points carry an 8-byte random `series_id` per point, which
+  zstd can't shrink: 64 KB of the 89 KB number object per 10k points. The
+  prototype's own gap (a dense per-epoch ordinal in the points, the id in the
+  series object) is the fix [E].
+- **Central is where B pays** (the spike's measurements, not re-run here):
+  4.1× fewer stored bytes and 7× less insert CPU per point; the per-object
+  fixed cost (~16 ms) now dominates, and the gauge+sum merge removes one of
+  five objects per request.
+- The series object is 97 KB for 10k new series (the first request and
+  each hourly re-announce): ~10 B/series, 0.1 B/point amortized.
+- Peak RSS 242 MB in the fleet encbench rows is the 130 input files held in
+  memory; the whole process peaks at 72 MB.
+
+## Edge durability: upstream's durable buffer (Quiver) [M]
+
+**It builds and works in this pipeline, and requests acknowledged to the
+client survive a SIGKILL of the edge. It costs about a third more edge CPU
+and writes twice the OTLP bytes to local disk.** `configs/edge-durable.yaml`
+is the OTLP receiver → `processor:durable_buffer` → `exporter:s3pq`; the
+feature (`durable-buffer`, on by default in this crate) and the processor
+compile with no patch (+Quiver; the release binary with it and the OTAP
+receiver is 53.8 MB stripped, against 50 MB before).
+
+How it changes the contract:
+
+- the client's 2xx now follows the **WAL write**, not the S3 commit. The
+  buffer forwards finalized segments (`max_segment_open_duration`, 1 s) to
+  the exporter and deletes a bundle only when the exporter ACKs it, i.e.
+  after the create-only commit; a retryable NACK is retried with backoff,
+  forever (bounded by `retention_size_cap` + `size_cap_policy`), a permanent
+  one (undecodable input) is dropped;
+- Quiver acknowledges after `write()`, and fsyncs the WAL every 25 ms
+  (`WalConfig::flush_interval`, not exposed by the processor's config): a
+  process kill loses nothing acknowledged, **a host crash or power loss can
+  lose the last ≤25 ms** of acknowledged requests;
+- a replayed request is the same OTLP bytes, so it has the same content key:
+  if the first incarnation's commit landed, the new epoch's copy is dropped
+  by the consumer's content check, as in the non-durable crash scenario.
+
+**Crash test** (`scripts/durable.sh`, `results/durable/summary.txt`): 12
+distinct 10k-span requests; each object's rows are fingerprinted and matched
+to the request that produced it through a baseline run.
+
+| Scenario | Acked to the client before the SIGKILL | In S3 after the restart |
+|---|---|---|
+| S3 unreachable (closed port) while sending: every PUT fails, so nothing can commit; SIGKILL; restart with S3 up | 12 of 12 (from the WAL; 75 MB of buffer) | **all 12**, 12 objects |
+| control: the same, but the restart gets an empty buffer directory | 12 of 12 | **0 of 12**: the check does catch loss |
+| mid-flight: every PUT's answer held 5 s by faultproxy2 (the objects land, the exporter doesn't learn it), SIGKILL 0.8 s into a stream of 12, restart, the sender resends what it had no answer for | 7 of 12 | **all 12**; 13 objects (one request committed by both incarnations: the consumer skips it) |
+
+Without the buffer the S3-down scenario acks nothing: the exporter NACKs
+(503) and the client keeps the data, which is the design above; the buffer
+moves that custody to the edge's disk.
+
+**Cost** (30 distinct 10k-span requests over OTLP/HTTP, 3 processes each,
+`results/durable/cost.md`):
+
+| | edge CPU per request | disk written per request | client ack, median | 30 requests sent → all 30 committed |
+|---|---|---|---|---|
+| `edge.yaml` | 31.7 ms | 0 | 36 ms (after the commit) | 1.27 s |
+| `edge-durable.yaml` | **42.7 ms (+35%)** | **6.3 MB** (the 3.2 MB request, twice: WAL + segment) | **19 ms** (after the WAL write) | 1.67 s: the segment's 1 s open window, then the commit |
+
+- At the calculator's traces rate that is +1.1 µs of edge CPU per span and
+  ~630 B of local writes per span; size the buffer volume for the outage it
+  should ride out (`retention_size_cap`, default here 1 GiB).
+- Visibility gets up to `max_segment_open_duration` + `poll_interval`
+  (1.1 s by default) later; lower values cost more I/O.
+- Not measured: a real power cut (the fsync window is from the source),
+  disk-full behaviour (`backpressure` vs `drop_oldest`), and metrics through
+  the buffer (the payload is opaque OTLP bytes, so no difference is
+  expected).
+
+## Inputs: OTAP end to end, OTLP/gRPC [M]
+
+**Upstream's OTAP receiver works end to end with the Go otelarrow producer,
+after one fix in this exporter; OTLP/gRPC costs the same as OTLP/HTTP at the
+edge; OTAP input costs the edge more, not less.**
+
+- `configs/edge-otap.yaml` adds `receiver:otap` (OTel Arrow gRPC streams,
+  `wait_for_result`) next to the OTLP receiver. The sender is
+  `tools/cmd/otapsend`: otel-arrow's Go `arrow_record.Producer` (what the
+  collector's otelarrowexporter uses), one stream per signal kept for the
+  whole run (so later batches carry dictionary deltas), each BatchStatus
+  awaited.
+- **Found and fixed:** records from the OTAP receiver keep the
+  *transport-optimized* id encoding (delta-encoded parent ids), which
+  otap-dataflow's views don't undo. Walked as they came, every span matched
+  ~9,000 attribute rows (3,000 spans took 2.7 s, and one metrics batch drove
+  the edge to 13.5 GB and the OOM killer). `exporter.rs` now calls
+  `decode_transport_optimized_ids()` on OTAP input (a shallow clone; the
+  parquet exporter upstream does the same). The in-process "OTAP input"
+  numbers above were unaffected: upstream's Rust encoder hands out plain ids.
+- **Correctness** (`scripts/otap_e2e.sh`, `results/otap/`):
+  - traces and logs, testgen: **the same rows as OTLP input, except order**:
+    the producer sorts rows and each map's entries (by type and key), so the
+    row-level checks against parquetgo fail on `row_ordinal` and map order.
+    With every map sorted and rows compared as a multiset, OTAP = OTLP in
+    both directions (`order-insensitive.txt`). Contrib's traces and logs keep
+    map order as received, so this is a real difference in the stored maps'
+    order, not in their content;
+  - metrics, testgen: **equal to the contrib exporter's rows** for both
+    layouts (contrib sorts metrics maps itself, and row order doesn't enter
+    the check);
+  - `metrics-extra.pb`: differs: the producer drops duplicate keys;
+  - the hostile datasets: **the receiver closes the whole stream**
+    ("Invalid UTF8 sequence", Arrow's IPC reader validates `Utf8`), so a
+    client that reconnects and resends would be stuck on that batch. The same
+    limit as the via-OTAP path's CBOR error, but worse in effect.
+- **Cost** (`scripts/input_bench.sh`, `results/inputs/bench.md`: the same
+  process and exporter, 30 distinct 10k-item requests, 3 processes each,
+  load 0.5–0.9; metrics in layout B):
+
+  | 10k items per request | OTLP/HTTP | OTLP/gRPC | OTAP/gRPC (Go producer) |
+  |---|---|---|---|
+  | traces: edge CPU / client ack | **31.3 ms** / 36 ms | 33.3 ms / 42 ms | 42.3 ms / 47 ms, +79 ms to encode at the sender |
+  | logs | 26.0 / 31 | 26.7 / 32 | 29.7 / 33, +51 |
+  | metrics | 15.3 / 14 | 15.7 / 17 | 23.7 / 24, +56 |
+
+  - OTLP/gRPC is within 2–6% of HTTP at the edge: both hand the exporter the
+    same protobuf bytes.
+  - OTAP costs the edge 14–55% more than OTLP: IPC decode, the id decoding,
+    and the column-hash content key replace a walk over bytes that were
+    already there. Its gain is on the wire (compression, dictionaries), not
+    at a ClickStack edge.
+
 ## Remaining gaps
 
+Closed in this round (each has its section above): metrics layout B at the
+edge, `AWS_CA_BUNDLE` / `HTTPS_PROXY` / `NO_PROXY` / `AWS_PROFILE` and
+AssumeRole chaining, a persistent queue at the edge (Quiver), the OTAP
+receiver end to end, and OTLP/gRPC input measured.
+
 - **Not tested against:**
-  - real AWS S3, EKS or STS;
+  - real AWS S3, EKS or STS (STS is a stand-in that answers any action and
+    checks no signature; the signer was checked against AWS's documented
+    example and SeaweedFS);
   - Nutanix Objects, whose conditional-write support is still unknown
     (../awss3, "Deployment");
   - a real `aws_signing_helper`.
-
-  The credential tests use the same local stand-ins as parquetgo.
-- **Signals and inputs:** see [Metrics](#metrics) for what metrics
-  leave open. OTLP/gRPC input
-  isn't benchmarked; only HTTP is (the receiver hands the exporter the same
-  bytes).
-- **Queueing:** there is no persistent queue at the edge.
-  - A crash loses what the receiver holds unacknowledged. With
-    `wait_for_result` the client still holds it and resends, which is the
-    crash scenario above.
-  - Upstream's durable buffer (Quiver) would add a local WAL. It isn't
-    enabled in this lean build (`durable-buffer` feature).
-- **The consumer** is a prototype:
+- **Credentials:** SSO profiles are refused; IRSA's STS must still be https
+  (object_store's path); a non-empty session token wasn't exercised against
+  the store.
+- **Layout B:**
+  - **no importer yet**: the consumer (`consume`, being extended separately)
+    doesn't know the `metrics_*_points` / `metrics_series` namespaces;
+    `series::structure` and `series::insert_select` are its statements, and
+    `scripts/metrics_correctness.py` does the same imports for the check.
+    The series lane needs no count check and no dedup token (the table is
+    idempotent);
+  - **no wire saving** against this crate's ClickStack objects (the 8-byte
+    `series_id` per point); a per-epoch dense ordinal is the untried fix;
+  - the model extension the spike proposed (the invariant "every ingested
+    point's series row is eventually ingested", and the mutation "announce
+    before the series commit resolves") isn't written; the rule is enforced
+    in `commit_one` and covered by `tests/series.rs`'s cache test only;
+  - central CPU and stored bytes were not re-measured on the Rust objects
+    (the spike's are for the prototype's objects, which are the same rows);
+  - the views filter merged gauge/sum on the point's `MetricType`; HyperDX's
+    fast paths still refuse views (the spike's findings stand).
+- **Durable buffer:** a host crash can lose the last ≤25 ms of acknowledged
+  requests (WAL fsync interval, not configurable through the processor);
+  disk-full behaviour and a real power cut weren't tested; +35% edge CPU and
+  2× the request bytes written locally.
+- **OTAP input:** invalid UTF-8 in any string closes the whole stream (a
+  poison batch for a resending client); map entry and row order are the
+  producer's, not the client's; the edge spends 14–55% more CPU than on OTLP.
+- **The consumer** is a prototype (being reworked separately):
   - its checkpoint is a local file, not the CAS'd object of S3NATIVE.md;
   - there is no lease and no GC;
   - it runs one statement per object.
@@ -872,12 +1179,8 @@ as server CPU (`results/metrics/central.md`).
   (SHA-256 there, BLAKE3 here). A client that re-batches differently after a
   restart produces new keys. The consumer then relies on
   `insert_deduplication_token` only, which is ../awss3's documented caveat
-  for post-queue batching.
-- **OTAP input:**
-  - `--path otap` measures walking prebuilt records;
-  - the exporter accepts `OtapArrowRecords` payloads, keyed by a hash of the
-    flattened columns;
-  - no OTAP receiver was run end to end.
+  for post-queue batching. (OTAP input and layout B's series objects are
+  keyed by a hash of their columns instead.)
 
 ## Reproduce
 
@@ -910,9 +1213,23 @@ cargo test --release --test mbt_s3inline_metrics -- --nocapture       # OTAPRS_M
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata OUT=results/metrics/bench.jsonl scripts/metrics_bench.sh
 python3 scripts/metrics_central_bench.py $CARGO_TARGET_DIR/release $S/bin $S/mdata results/metrics/central.md
 cargo build --profile dist --bin otap-s3pq           # thin LTO, stripped: the size number
+# metrics layout B (series table): Rust = Go, views = contrib, edge cost
+$S/bin/seriesref -out $S/series/go/corr $S/mdata/metrics-{testgen-3000,nasty-700,extra}.pb
+$S/bin/seriesref -fleet $S/series/fleet -services 2 -rounds 130 -pods-per-batch 20 && $S/bin/seriesref -out $S/series/go/fleet $S/series/fleet/*.pb
+OTAPRS_DATA=$S/mdata OTAPRS_SERIES_GO=$S/series/go OTAPRS_SERIES_FLEET=$S/series/fleet cargo test --release --test series -- --nocapture
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata RUN=ms$(date +%s) PREFIX=otap-rs-edge PATHS="series:direct series:via_otap" OUT=results/series scripts/metrics_e2e.sh
+B=$CARGO_TARGET_DIR/release T=$S/bin FLEET=$S/series/fleet D=$S/mdata OUT=results/series/bench.jsonl scripts/series_bench.sh && python3 scripts/series_summarize.py results/series/bench.jsonl
+# durable buffer: crash test and cost
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data OUT=results/durable scripts/durable.sh && python3 scripts/input_summarize.py --durable results/durable/cost.jsonl
+# OTAP input end to end (Go otelarrow producer), OTLP/gRPC and OTAP benchmarks
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data RUN=o$(date +%s) PREFIX=otap-rs-edge OUT=results/otap scripts/otap_e2e.sh
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata RUN=mo$(date +%s) PREFIX=otap-rs-edge PATHS="otapgrpc series:otapgrpc" OUT=results/otap scripts/metrics_e2e.sh
+B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data MD=$S/mdata OUT=results/inputs/bench.jsonl scripts/input_bench.sh && python3 scripts/input_summarize.py results/inputs/bench.jsonl
+$S/bin/seriesref -rm otap-rs-edge/                   # clean up the run's objects
 ```
 
-Everything writes under `s3://otel/otap-rs/` (metrics: `s3://otel/metrics-rs/`) on the local SeaweedFS. Every
+Everything writes under `s3://otel/otap-rs/` (metrics: `s3://otel/metrics-rs/`; this round's runs:
+`s3://otel/otap-rs-edge/`, deleted afterwards) on the local SeaweedFS. Every
 ClickHouse database is private and dropped afterwards.
 
 ## Files
@@ -921,19 +1238,23 @@ ClickHouse database is private and dropped afterwards.
 |---|---|
 | `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` | the crate (path dependencies on `.upstream`), pinned to upstream's toolchain and lock |
 | `UPSTREAM`, `patches/`, `scripts/fetch-upstream.sh` | the pinned upstream commit and the two patches |
-| `src/main.rs` | the `otap-s3pq` engine binary: upstream controller + OTLP receiver + this exporter |
-| `src/exporter.rs` | `urn:otel:exporter:s3pq`: config, lanes, ack/nack |
+| `src/main.rs` | the `otap-s3pq` engine binary: upstream controller + OTLP and OTAP receivers + the durable buffer + this exporter |
+| `src/exporter.rs` | `urn:otel:exporter:s3pq`: config (`metrics_layout`, `series`), lanes, ack/nack, the announce-after-commit rule, OTAP id decoding |
+| `src/series.rs` | metrics layout B: series id, points and series objects, the series cache, schemas, the importer's structure and statements |
+| `src/creds.rs` | shared config / credentials profiles, AssumeRole and web identity via STS, SigV4 |
 | `src/metrics.rs`, `src/gosort.rs` | the metrics walker (five types, one pass); Go's `slices.SortFunc` for contrib's map order |
 | `src/flatten.rs`, `src/render.rs`, `src/schema.rs`, `src/columns.rs` | the view walker, contrib-compatible rendering, the published schema, zero-copy column buffers |
 | `src/batch.rs`, `src/encode.rs` | content key, flatten + encode per slot; Parquet and Arrow IPC writers |
 | `src/proto.rs` | the commit protocol: `Lane`, `Consumer`, keys, metadata, mutations |
-| `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential_process, in-memory store with faults |
+| `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential order, CA bundle, credential_process, in-memory store with faults |
 | `src/central.rs`, `src/bin/consume.rs` | the central consumer |
 | `src/bin/encbench.rs` | the in-process edge benchmark |
 | `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt` and `../model/s3InlineMetrics.qnt`; the shared log driver |
 | `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
-| `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes, deterministic encoding, the upstream view bug |
-| `configs/edge.yaml` | the pipeline (env-substituted) |
-| `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows) |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries |
-| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt` |
+| `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes (19, plus the signer against SeaweedFS), deterministic encoding, the upstream view bug |
+| `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules |
+| `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
+| `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
+| `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc` |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench) |

@@ -23,6 +23,7 @@ use crate::encode::ParquetOptions;
 use crate::flatten::Envelope;
 use crate::proto::{self, Lane, PartOutcome, Ref, Verdict};
 use crate::runner::{self, AppendError, EncodedCache, Stats, Timeouts};
+use crate::series::{MetricsLayout, SeriesOptions};
 use crate::store::{S3Config, S3Store};
 use crate::Signal;
 use async_trait::async_trait;
@@ -77,6 +78,13 @@ pub struct Config {
     pub otlp_path: OtlpPath,
     #[serde(default)]
     pub parquet: ParquetOptions,
+    /// Metrics as layout B (`series_table`, the default: points tables plus
+    /// a series table, `series.rs`) or as the contrib exporter's five tables
+    /// (`clickstack_tables`).
+    #[serde(default)]
+    pub metrics_layout: MetricsLayout,
+    #[serde(default)]
+    pub series: SeriesOptions,
     /// Write each batch's stats line to stderr.
     #[serde(default)]
     pub verbose: bool,
@@ -173,8 +181,9 @@ fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, 
                     let recs: OtapArrowRecords = b.clone().try_into_with_default().map_err(|e| format!("{e}"))?;
                     let input = if signal.is_metrics() { Input::OtapMetrics(&recs) } else { Input::Otap(signal, &recs) };
                     let mut fs = enc.flatten_all(&input).map_err(|e| e.0)?;
-                    // Keep the request's content keys, so both paths dedup alike.
-                    for f in &mut fs {
+                    // Keep the request's content keys, so both paths dedup alike
+                    // (a series object is keyed by its own content on both).
+                    for f in fs.iter_mut().filter(|f| f.signal != Signal::MetricsSeries) {
                         f.content = crate::batch::content_hash_otlp(f.signal, bytes);
                     }
                     Ok(fs)
@@ -182,7 +191,15 @@ fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, 
             }
         }
         PayloadData::OtapArrowRecords(r) => {
-            let input = if signal.is_metrics() { Input::OtapMetrics(r) } else { Input::Otap(signal, r) };
+            // From an OTAP receiver the parent ids are still in the transport-
+            // optimized (delta, quasi-delta) encoding, which the views don't
+            // undo: without this every span's attribute lookup matches
+            // thousands of rows (found with the Go otelarrow producer:
+            // ~9,000 attributes per span and a 13 GB RSS on metrics). The
+            // record batches are Arc'd, so the clone is shallow.
+            let mut r = r.clone();
+            r.decode_transport_optimized_ids().map_err(|e| format!("decode OTAP ids: {e}"))?;
+            let input = if signal.is_metrics() { Input::OtapMetrics(&r) } else { Input::Otap(signal, &r) };
             enc.flatten_all(&input).map_err(|e| e.0)
         }
     }
@@ -223,6 +240,12 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
         &sh.stats,
     )
     .await;
+    // The one new rule of layout B: a series counts as announced only once
+    // the series object that carried it has committed (here, as ours or
+    // found committed), in that lane's epoch.
+    if let (Ok(r), false) = (&res, flat.announce.is_empty()) {
+        sh.encoder.borrow_mut().series_announced(&flat.announce, &r.epoch);
+    }
     if sh.verbose {
         match &res {
             Ok(r) => crate::log(&format!(
@@ -291,7 +314,9 @@ impl Exporter<OtapPdata> for S3pqExporter {
         let sh = Rc::new(Shared {
             timeouts: Timeouts { put: cfg.s3.put_timeout, head: cfg.s3.head_timeout },
             store,
-            encoder: RefCell::new(Encoder::new(cfg.parquet.clone(), cfg.format)),
+            encoder: RefCell::new(
+                Encoder::new(cfg.parquet.clone(), cfg.format).with_metrics_layout(cfg.metrics_layout, cfg.series.clone()),
+            ),
             stats: Stats::default(),
             producer: cfg.producer_id.clone(),
             lanes,
@@ -362,7 +387,16 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         continue;
                     }
                     let received_ns = now_ns();
-                    match prepare(&sh, &pdata, cfg.otlp_path) {
+                    let t_prep = Instant::now();
+                    let prepared = prepare(&sh, &pdata, cfg.otlp_path);
+                    if sh.verbose {
+                        crate::log(&format!(
+                            "prepare ({}): {:?}",
+                            if matches!(pdata.payload_ref().data(), PayloadData::OtapArrowRecords(_)) { "otap" } else { "otlp" },
+                            t_prep.elapsed()
+                        ));
+                    }
+                    match prepared {
                         // A metrics request without data points: nothing to write.
                         Ok(flats) if flats.is_empty() => effect_handler.notify_ack(AckMsg::new(pdata)).await?,
                         Ok(flats) => in_flight.push(commit(sh.clone(), pdata, flats, received_ns)),

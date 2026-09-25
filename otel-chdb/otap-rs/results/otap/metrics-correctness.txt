@@ -1,0 +1,161 @@
+PASS series_otapgrpc testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_otapgrpc testgen-3000: every point has its series row: 0 orphan points
+PASS series_otapgrpc testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_otapgrpc testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_otapgrpc testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_otapgrpc testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_otapgrpc testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_otapgrpc testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_otapgrpc testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_otapgrpc testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_otapgrpc testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_otapgrpc testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_otapgrpc testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_otapgrpc testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_otapgrpc testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_otapgrpc testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_otapgrpc testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+FAIL series_otapgrpc nasty-700: no object (the request was rejected)
+PASS series_otapgrpc extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_otapgrpc extra: every point has its series row: 0 orphan points
+FAIL series_otapgrpc extra metrics_gauge view vs contrib rows: count+hash: view 3	4490723421173458469 contrib 3	4227292919050977347
+FAIL series_otapgrpc extra metrics_gauge view vs contrib rows: in view only: 3
+FAIL series_otapgrpc extra metrics_gauge view vs contrib rows: in contrib only: 3
+FAIL series_otapgrpc extra metrics_sum view vs contrib rows: count+hash: view 3	8104565068502900964 contrib 3	1116779140941112430
+FAIL series_otapgrpc extra metrics_sum view vs contrib rows: in view only: 3
+FAIL series_otapgrpc extra metrics_sum view vs contrib rows: in contrib only: 3
+FAIL series_otapgrpc extra metrics_histogram view vs contrib rows: count+hash: view 3	14340393706393314748 contrib 3	4944576690454371878
+FAIL series_otapgrpc extra metrics_histogram view vs contrib rows: in view only: 3
+FAIL series_otapgrpc extra metrics_histogram view vs contrib rows: in contrib only: 3
+FAIL series_otapgrpc extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	6442143736301014150 contrib 3	3275129509484290453
+FAIL series_otapgrpc extra metrics_exponential_histogram view vs contrib rows: in view only: 3
+FAIL series_otapgrpc extra metrics_exponential_histogram view vs contrib rows: in contrib only: 3
+FAIL series_otapgrpc extra metrics_summary view vs contrib rows: count+hash: view 3	11242966142048636194 contrib 3	1322674901486391569
+FAIL series_otapgrpc extra metrics_summary view vs contrib rows: in view only: 3
+FAIL series_otapgrpc extra metrics_summary view vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_gauge testgen-3000 vs parquetgo: count+hash (structure): rust 3000	5663827533500885388 parquetgo 3000	6098184764966214442
+FAIL otapgrpc metrics_gauge testgen-3000 vs parquetgo: count+hash (inferred): rust 3000	10199887434743643639 parquetgo 3000	2865929625593390862
+PASS otapgrpc metrics_gauge testgen-3000 vs parquetgo: inferred schema
+FAIL otapgrpc metrics_gauge testgen-3000 vs parquetgo: rows in rust not in ref: 2990
+FAIL otapgrpc metrics_gauge testgen-3000 vs parquetgo: rows in ref not in rust: 2990
+PASS otapgrpc metrics_gauge testgen-3000 envelope: producer=corr-otapgrpc epoch=20260925T154245.738Z-c7103823 batch_id=0 ordinals 0..2999 rows=3000 schema=1
+PASS otapgrpc metrics_gauge testgen-3000 rust vs contrib rows: count+hash: rust 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS otapgrpc metrics_gauge testgen-3000 rust vs contrib rows: in object only: 0
+PASS otapgrpc metrics_gauge testgen-3000 rust vs contrib rows: in contrib only: 0
+PASS otapgrpc metrics_gauge testgen-3000 parquetgo vs contrib rows: count+hash: parquetgo 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS otapgrpc metrics_gauge testgen-3000 parquetgo vs contrib rows: in object only: 0
+PASS otapgrpc metrics_gauge testgen-3000 parquetgo vs contrib rows: in contrib only: 0
+FAIL otapgrpc metrics_gauge nasty-700: no object (the request was rejected)
+FAIL otapgrpc metrics_gauge extra vs parquetgo: count+hash (structure): rust 3	18253478744697349030 parquetgo 3	12263489329389636937
+FAIL otapgrpc metrics_gauge extra vs parquetgo: count+hash (inferred): rust 3	12945841906259647989 parquetgo 3	4155808368945743764
+PASS otapgrpc metrics_gauge extra vs parquetgo: inferred schema
+FAIL otapgrpc metrics_gauge extra vs parquetgo: rows in rust not in ref: 3
+FAIL otapgrpc metrics_gauge extra vs parquetgo: rows in ref not in rust: 3
+PASS otapgrpc metrics_gauge extra envelope: producer=corr-otapgrpc epoch=20260925T154249.601Z-867d7e63 batch_id=0 ordinals 0..2 rows=3 schema=1
+FAIL otapgrpc metrics_gauge extra rust vs contrib rows: count+hash: rust 3	4490723421173458469 contrib 3	4227292919050977347
+FAIL otapgrpc metrics_gauge extra rust vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_gauge extra rust vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_gauge extra parquetgo vs contrib rows: count+hash: parquetgo 3	483454782726875491 contrib 3	4227292919050977347
+FAIL otapgrpc metrics_gauge extra parquetgo vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_gauge extra parquetgo vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_sum testgen-3000 vs parquetgo: count+hash (structure): rust 3000	7233991444503917177 parquetgo 3000	8295834091073119813
+FAIL otapgrpc metrics_sum testgen-3000 vs parquetgo: count+hash (inferred): rust 3000	15013167457364349128 parquetgo 3000	13846367793019586068
+PASS otapgrpc metrics_sum testgen-3000 vs parquetgo: inferred schema
+FAIL otapgrpc metrics_sum testgen-3000 vs parquetgo: rows in rust not in ref: 2970
+FAIL otapgrpc metrics_sum testgen-3000 vs parquetgo: rows in ref not in rust: 2970
+PASS otapgrpc metrics_sum testgen-3000 envelope: producer=corr-otapgrpc epoch=20260925T154245.738Z-0d4be751 batch_id=0 ordinals 0..2999 rows=3000 schema=1
+PASS otapgrpc metrics_sum testgen-3000 rust vs contrib rows: count+hash: rust 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS otapgrpc metrics_sum testgen-3000 rust vs contrib rows: in object only: 0
+PASS otapgrpc metrics_sum testgen-3000 rust vs contrib rows: in contrib only: 0
+PASS otapgrpc metrics_sum testgen-3000 parquetgo vs contrib rows: count+hash: parquetgo 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS otapgrpc metrics_sum testgen-3000 parquetgo vs contrib rows: in object only: 0
+PASS otapgrpc metrics_sum testgen-3000 parquetgo vs contrib rows: in contrib only: 0
+FAIL otapgrpc metrics_sum nasty-700: no object (the request was rejected)
+FAIL otapgrpc metrics_sum extra vs parquetgo: count+hash (structure): rust 3	4613181703178209597 parquetgo 3	13249596083646128296
+FAIL otapgrpc metrics_sum extra vs parquetgo: count+hash (inferred): rust 3	13056153586306755729 parquetgo 3	15088541175368951610
+PASS otapgrpc metrics_sum extra vs parquetgo: inferred schema
+FAIL otapgrpc metrics_sum extra vs parquetgo: rows in rust not in ref: 3
+FAIL otapgrpc metrics_sum extra vs parquetgo: rows in ref not in rust: 3
+PASS otapgrpc metrics_sum extra envelope: producer=corr-otapgrpc epoch=20260925T154249.601Z-095cf2f1 batch_id=0 ordinals 0..2 rows=3 schema=1
+FAIL otapgrpc metrics_sum extra rust vs contrib rows: count+hash: rust 3	8104565068502900964 contrib 3	1116779140941112430
+FAIL otapgrpc metrics_sum extra rust vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_sum extra rust vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_sum extra parquetgo vs contrib rows: count+hash: parquetgo 3	4735269057652553870 contrib 3	1116779140941112430
+FAIL otapgrpc metrics_sum extra parquetgo vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_sum extra parquetgo vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_histogram testgen-3000 vs parquetgo: count+hash (structure): rust 3000	16433957309349405066 parquetgo 3000	12208969120883536347
+FAIL otapgrpc metrics_histogram testgen-3000 vs parquetgo: count+hash (inferred): rust 3000	18078030418672615041 parquetgo 3000	10213159697056452654
+PASS otapgrpc metrics_histogram testgen-3000 vs parquetgo: inferred schema
+FAIL otapgrpc metrics_histogram testgen-3000 vs parquetgo: rows in rust not in ref: 2950
+FAIL otapgrpc metrics_histogram testgen-3000 vs parquetgo: rows in ref not in rust: 2950
+PASS otapgrpc metrics_histogram testgen-3000 envelope: producer=corr-otapgrpc epoch=20260925T154245.738Z-8d8f3e09 batch_id=0 ordinals 0..2999 rows=3000 schema=1
+PASS otapgrpc metrics_histogram testgen-3000 rust vs contrib rows: count+hash: rust 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS otapgrpc metrics_histogram testgen-3000 rust vs contrib rows: in object only: 0
+PASS otapgrpc metrics_histogram testgen-3000 rust vs contrib rows: in contrib only: 0
+PASS otapgrpc metrics_histogram testgen-3000 parquetgo vs contrib rows: count+hash: parquetgo 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS otapgrpc metrics_histogram testgen-3000 parquetgo vs contrib rows: in object only: 0
+PASS otapgrpc metrics_histogram testgen-3000 parquetgo vs contrib rows: in contrib only: 0
+FAIL otapgrpc metrics_histogram nasty-700: no object (the request was rejected)
+FAIL otapgrpc metrics_histogram extra vs parquetgo: count+hash (structure): rust 3	13088317849889874669 parquetgo 3	8465478672273239289
+FAIL otapgrpc metrics_histogram extra vs parquetgo: count+hash (inferred): rust 3	440838559742760321 parquetgo 3	12090632077591045677
+PASS otapgrpc metrics_histogram extra vs parquetgo: inferred schema
+FAIL otapgrpc metrics_histogram extra vs parquetgo: rows in rust not in ref: 3
+FAIL otapgrpc metrics_histogram extra vs parquetgo: rows in ref not in rust: 3
+PASS otapgrpc metrics_histogram extra envelope: producer=corr-otapgrpc epoch=20260925T154249.601Z-6d623efd batch_id=0 ordinals 0..2 rows=3 schema=1
+FAIL otapgrpc metrics_histogram extra rust vs contrib rows: count+hash: rust 3	14340393706393314748 contrib 3	4944576690454371878
+FAIL otapgrpc metrics_histogram extra rust vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_histogram extra rust vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_histogram extra parquetgo vs contrib rows: count+hash: parquetgo 3	15146657086514441455 contrib 3	4944576690454371878
+FAIL otapgrpc metrics_histogram extra parquetgo vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_histogram extra parquetgo vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_exponential_histogram testgen-3000 vs parquetgo: count+hash (structure): rust 3000	7892883826566207292 parquetgo 3000	15401386789905243003
+FAIL otapgrpc metrics_exponential_histogram testgen-3000 vs parquetgo: count+hash (inferred): rust 3000	8948645308929636178 parquetgo 3000	7384921829236998407
+PASS otapgrpc metrics_exponential_histogram testgen-3000 vs parquetgo: inferred schema
+FAIL otapgrpc metrics_exponential_histogram testgen-3000 vs parquetgo: rows in rust not in ref: 2980
+FAIL otapgrpc metrics_exponential_histogram testgen-3000 vs parquetgo: rows in ref not in rust: 2980
+PASS otapgrpc metrics_exponential_histogram testgen-3000 envelope: producer=corr-otapgrpc epoch=20260925T154245.738Z-9cff7861 batch_id=0 ordinals 0..2999 rows=3000 schema=1
+PASS otapgrpc metrics_exponential_histogram testgen-3000 rust vs contrib rows: count+hash: rust 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS otapgrpc metrics_exponential_histogram testgen-3000 rust vs contrib rows: in object only: 0
+PASS otapgrpc metrics_exponential_histogram testgen-3000 rust vs contrib rows: in contrib only: 0
+PASS otapgrpc metrics_exponential_histogram testgen-3000 parquetgo vs contrib rows: count+hash: parquetgo 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS otapgrpc metrics_exponential_histogram testgen-3000 parquetgo vs contrib rows: in object only: 0
+PASS otapgrpc metrics_exponential_histogram testgen-3000 parquetgo vs contrib rows: in contrib only: 0
+FAIL otapgrpc metrics_exponential_histogram nasty-700: no object (the request was rejected)
+FAIL otapgrpc metrics_exponential_histogram extra vs parquetgo: count+hash (structure): rust 3	8282697297268900299 parquetgo 3	15603694448332516010
+FAIL otapgrpc metrics_exponential_histogram extra vs parquetgo: count+hash (inferred): rust 3	2234712830635130544 parquetgo 3	1515301067884003613
+PASS otapgrpc metrics_exponential_histogram extra vs parquetgo: inferred schema
+FAIL otapgrpc metrics_exponential_histogram extra vs parquetgo: rows in rust not in ref: 3
+FAIL otapgrpc metrics_exponential_histogram extra vs parquetgo: rows in ref not in rust: 3
+PASS otapgrpc metrics_exponential_histogram extra envelope: producer=corr-otapgrpc epoch=20260925T154249.601Z-748f479f batch_id=0 ordinals 0..2 rows=3 schema=1
+FAIL otapgrpc metrics_exponential_histogram extra rust vs contrib rows: count+hash: rust 3	6442143736301014150 contrib 3	3275129509484290453
+FAIL otapgrpc metrics_exponential_histogram extra rust vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_exponential_histogram extra rust vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_exponential_histogram extra parquetgo vs contrib rows: count+hash: parquetgo 3	12785753758473899669 contrib 3	3275129509484290453
+FAIL otapgrpc metrics_exponential_histogram extra parquetgo vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_exponential_histogram extra parquetgo vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_summary testgen-3000 vs parquetgo: count+hash (structure): rust 3000	11517410276123340557 parquetgo 3000	6710942512809771724
+FAIL otapgrpc metrics_summary testgen-3000 vs parquetgo: count+hash (inferred): rust 3000	12684916603478807401 parquetgo 3000	18386785498332604188
+PASS otapgrpc metrics_summary testgen-3000 vs parquetgo: inferred schema
+FAIL otapgrpc metrics_summary testgen-3000 vs parquetgo: rows in rust not in ref: 2960
+FAIL otapgrpc metrics_summary testgen-3000 vs parquetgo: rows in ref not in rust: 2960
+PASS otapgrpc metrics_summary testgen-3000 envelope: producer=corr-otapgrpc epoch=20260925T154245.738Z-c18af12a batch_id=0 ordinals 0..2999 rows=3000 schema=1
+PASS otapgrpc metrics_summary testgen-3000 rust vs contrib rows: count+hash: rust 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS otapgrpc metrics_summary testgen-3000 rust vs contrib rows: in object only: 0
+PASS otapgrpc metrics_summary testgen-3000 rust vs contrib rows: in contrib only: 0
+PASS otapgrpc metrics_summary testgen-3000 parquetgo vs contrib rows: count+hash: parquetgo 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS otapgrpc metrics_summary testgen-3000 parquetgo vs contrib rows: in object only: 0
+PASS otapgrpc metrics_summary testgen-3000 parquetgo vs contrib rows: in contrib only: 0
+FAIL otapgrpc metrics_summary nasty-700: no object (the request was rejected)
+FAIL otapgrpc metrics_summary extra vs parquetgo: count+hash (structure): rust 3	6288614557275547164 parquetgo 3	8447557402465248774
+FAIL otapgrpc metrics_summary extra vs parquetgo: count+hash (inferred): rust 3	3078637331790583779 parquetgo 3	7883842695075780319
+PASS otapgrpc metrics_summary extra vs parquetgo: inferred schema
+FAIL otapgrpc metrics_summary extra vs parquetgo: rows in rust not in ref: 3
+FAIL otapgrpc metrics_summary extra vs parquetgo: rows in ref not in rust: 3
+PASS otapgrpc metrics_summary extra envelope: producer=corr-otapgrpc epoch=20260925T154249.601Z-4fa6ae34 batch_id=0 ordinals 0..2 rows=3 schema=1
+FAIL otapgrpc metrics_summary extra rust vs contrib rows: count+hash: rust 3	11242966142048636194 contrib 3	1322674901486391569
+FAIL otapgrpc metrics_summary extra rust vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_summary extra rust vs contrib rows: in contrib only: 3
+FAIL otapgrpc metrics_summary extra parquetgo vs contrib rows: count+hash: parquetgo 3	6037067172543739674 contrib 3	1322674901486391569
+FAIL otapgrpc metrics_summary extra parquetgo vs contrib rows: in object only: 3
+FAIL otapgrpc metrics_summary extra parquetgo vs contrib rows: in contrib only: 3
+91 failed

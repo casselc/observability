@@ -1,0 +1,13 @@
+{"seq":0,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v00.pb","attempts":1,"sent_ns":1790350409656479918,"ack_ms":13.752}
+{"seq":1,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v01.pb","attempts":1,"sent_ns":1790350409670343829,"ack_ms":12.39}
+{"seq":2,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v02.pb","attempts":1,"sent_ns":1790350409682772518,"ack_ms":5.014}
+{"seq":3,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v03.pb","attempts":1,"sent_ns":1790350409687807988,"ack_ms":19.041}
+{"seq":4,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v04.pb","attempts":1,"sent_ns":1790350409706867631,"ack_ms":8.591}
+{"seq":5,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v05.pb","attempts":1,"sent_ns":1790350409715476428,"ack_ms":5.318}
+{"seq":6,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v06.pb","attempts":1,"sent_ns":1790350409720815761,"ack_ms":10.61}
+{"seq":7,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v07.pb","attempts":1,"sent_ns":1790350409731445579,"ack_ms":25.484}
+{"seq":8,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v08.pb","attempts":1,"sent_ns":1790350409756947471,"ack_ms":10.635}
+{"seq":9,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v09.pb","attempts":1,"sent_ns":1790350409767601274,"ack_ms":5.126}
+{"seq":10,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v10.pb","attempts":1,"sent_ns":1790350409772744917,"ack_ms":189.289}
+{"seq":11,"file":"/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otaprs/data/traces-bench-v11.pb","attempts":1,"sent_ns":1790350409962060995,"ack_ms":17.295}
+{"attempts":12,"elapsed_s":0.322900916,"max_ack_ms":189.289,"median_ack_ms":12.39,"min_ack_ms":5.014,"requests":12,"summary":true}

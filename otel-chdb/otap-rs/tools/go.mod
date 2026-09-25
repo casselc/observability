@@ -14,6 +14,7 @@ require (
 	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare v0.0.0-00010101000000-000000000000
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.161.0
+	github.com/open-telemetry/otel-arrow/go v0.57.0
 	go.opentelemetry.io/collector/component v1.67.0
 	go.opentelemetry.io/collector/component/componenttest v0.161.0
 	go.opentelemetry.io/collector/config/configoptional v1.67.0
@@ -22,6 +23,21 @@ require (
 	go.opentelemetry.io/collector/exporter/exportertest v0.161.0
 	go.opentelemetry.io/collector/pdata v1.67.0
 	google.golang.org/protobuf v1.36.12
+)
+
+require (
+	github.com/HdrHistogram/hdrhistogram-go v1.2.0 // indirect
+	github.com/axiomhq/hyperloglog v0.2.6 // indirect
+	github.com/dgryski/go-metro v0.0.0-20250106013310-edb8663e5e33 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
+	github.com/go-ini/ini v1.67.0 // indirect
+	github.com/kamstrup/intmap v0.5.2 // indirect
+	github.com/minio/crc64nvme v1.0.1 // indirect
+	github.com/minio/md5-simd v1.1.2 // indirect
+	github.com/minio/minio-go/v7 v7.0.91 // indirect
+	github.com/rs/xid v1.6.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 )
 
 require (
@@ -51,6 +67,7 @@ require (
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000 // indirect
+	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/foxboron/go-tpm-keyfiles v0.0.0-20250903184740-5d135037bd4d // indirect
 	github.com/go-faster/city v1.0.1 // indirect
@@ -119,11 +136,13 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
+	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260610212136-7ab31c22f7ad // indirect
-	google.golang.org/grpc v1.83.2 // indirect
+	google.golang.org/grpc v1.83.2
 )
+
+replace github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout => ../../metrics-layout

@@ -1,0 +1,18 @@
+quint 0.32.0, rust evaluator v0.6.0, seed 0x5eed, 60 steps
+design s3InlineConsumerDesign safety (5000 traces): [ok] No violation found (80243ms at 62 traces/second).
+design designQuiet safety (5000 traces): [ok] No violation found (91197ms at 55 traces/second).
+mutant noTimeBound / atMostOnce: [violation] Found an issue (40181ms at 51 traces/second).
+mutant noVerify / neverSkipsCommitted: [violation] Found an issue (1104ms at 47 traces/second).
+mutant gcTombs / noCommitAfterClose: [violation] Found an issue (479ms at 27 traces/second).
+mutant gcTombs / neverSkipsCommitted: [violation] Found an issue (419ms at 31 traces/second).
+mutant announceEarly / announcedOnlyAfterCommit: [violation] Found an issue (142ms at 7 traces/second).
+witness wTakeover (design): 
+witness wLapsed (design): 
+witness wFenced (design): 
+witness wPartial (design): 
+witness wCasLost (design): 
+witness wClosed (design): 
+witness wGc (design): 
+witness wAllIngested (design): 
+witness wTakeoverIngest (design): 
+witness wAnnounced (design): 

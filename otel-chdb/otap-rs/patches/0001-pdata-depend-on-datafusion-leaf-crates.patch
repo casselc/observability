@@ -1,0 +1,45 @@
+diff --git a/rust/otap-dataflow/crates/pdata/Cargo.toml b/rust/otap-dataflow/crates/pdata/Cargo.toml
+index b519ec9..aa1ac7f 100644
+--- a/rust/otap-dataflow/crates/pdata/Cargo.toml
++++ b/rust/otap-dataflow/crates/pdata/Cargo.toml
+@@ -18,7 +18,9 @@ ahash = { workspace = true }
+ arrow = { workspace = true }
+ arrow-ipc = { workspace = true }
+ arrow-schema = { workspace = true }
+-datafusion = { workspace = true }
++# datafusion facade replaced by its two leaf crates (otap-s3pq patch 0001)
++datafusion-common = { version = "53.0.0", default-features = false }
++datafusion-expr-common = { version = "53.0.0" }
+ ciborium = { workspace = true }
+ itertools = { workspace = true }
+ otel-arrow-dfe-config = { workspace = true }
+diff --git a/rust/otap-dataflow/crates/pdata/src/otap/transform.rs b/rust/otap-dataflow/crates/pdata/src/otap/transform.rs
+index 709b1ba..f67b824 100644
+--- a/rust/otap-dataflow/crates/pdata/src/otap/transform.rs
++++ b/rust/otap-dataflow/crates/pdata/src/otap/transform.rs
+@@ -21,8 +21,8 @@ use arrow::datatypes::{
+ };
+ use arrow::row::{RowConverter, SortField};
+ use arrow::util::bit_iterator::{BitIndexIterator, BitSliceIterator};
+-use datafusion::logical_expr::ColumnarValue;
+-use datafusion::scalar::ScalarValue;
++use datafusion_expr_common::columnar_value::ColumnarValue;
++use datafusion_common::scalar::ScalarValue;
+ use sha2::{Digest, Sha256};
+ 
+ use crate::OtapArrowRecords;
+diff --git a/rust/otap-dataflow/crates/pdata/src/otap/transform/upsert_attributes.rs b/rust/otap-dataflow/crates/pdata/src/otap/transform/upsert_attributes.rs
+index d892a77..d7ca3d1 100644
+--- a/rust/otap-dataflow/crates/pdata/src/otap/transform/upsert_attributes.rs
++++ b/rust/otap-dataflow/crates/pdata/src/otap/transform/upsert_attributes.rs
+@@ -22,8 +22,8 @@ use arrow::array::{
+ use arrow::buffer::{MutableBuffer, NullBuffer, OffsetBuffer, ScalarBuffer};
+ use arrow::compute::{SlicesIterator, cast};
+ use arrow::datatypes::{DataType, Field, Schema, UInt8Type, UInt16Type};
+-use datafusion::logical_expr::ColumnarValue;
+-use datafusion::scalar::ScalarValue;
++use datafusion_expr_common::columnar_value::ColumnarValue;
++use datafusion_common::scalar::ScalarValue;
+ 
+ use crate::error::{Error, Result};
+ 

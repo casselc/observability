@@ -1,0 +1,25 @@
+diff --git a/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs b/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
+index fd8e2ea..8bf04cb 100644
+--- a/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
++++ b/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
+@@ -792,6 +792,20 @@ pub(crate) fn build_attribute_index_u32(batch: &RecordBatch) -> BTreeMap<u32, Ve
+ 
+     let mut index: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+ 
++    // otap-s3pq patch 0002: accept every encoding the OTAP encoder produces,
++    // Dictionary(UInt16, UInt32) included (as build_attribute_index does for
++    // u16 ids). Without this, event and link attributes read back empty.
++    if let Ok(accessor) =
++        MaybeDictArrayAccessor::<arrow::array::UInt32Array>::try_new(&parent_id_col.clone())
++    {
++        for i in 0..batch.num_rows() {
++            if let Some(pid) = accessor.value_at(i) {
++                index.entry(pid).or_default().push(i);
++            }
++        }
++        return index;
++    }
++
+     if let Some(parent_id_array) = parent_id_col
+         .as_any()
+         .downcast_ref::<arrow::array::UInt32Array>()

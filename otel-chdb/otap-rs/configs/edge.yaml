@@ -1,0 +1,46 @@
+version: otel_dataflow/v1
+# The lean edge: OTLP receiver (gRPC + HTTP, responds only after the S3
+# commit resolves) -> exporter:s3pq (ClickStack Parquet, create-only slots).
+engine: { }
+policies:
+  resources:
+    core_allocation:
+      type: core_count
+      count: 1
+groups:
+  default:
+    pipelines:
+      main:
+        nodes:
+          otlp_in:
+            type: receiver:otlp
+            config:
+              protocols:
+                grpc:
+                  listening_addr: "${env:OTLP_GRPC:-127.0.0.1:14317}"
+                  wait_for_result: true
+                  timeout: "${env:OTLP_TIMEOUT:-30s}"
+                  max_decoding_message_size: "${env:OTLP_MAX_BODY:-128MiB}"
+                http:
+                  listening_addr: "${env:OTLP_HTTP:-127.0.0.1:14318}"
+                  wait_for_result: true
+                  timeout: "${env:OTLP_TIMEOUT:-30s}"
+                  max_request_body_size: "${env:OTLP_MAX_BODY:-128MiB}"
+          s3pq:
+            type: exporter:s3pq
+            config:
+              producer_id: "${env:PRODUCER:-edge-1}"
+              lanes: ${env:LANES:-1}
+              otlp_path: "${env:OTLP_PATH:-direct}"
+              format: "${env:FORMAT:-parquet}"
+              verbose: ${env:VERBOSE:-false}
+              s3:
+                url: "${env:S3_URL:-http://127.0.0.1:18333/otel/otap-rs/edge}"
+                region: "${env:S3_REGION:-us-east-1}"
+                access_key_id: "${env:S3_KEY:-otel}"
+                secret_access_key: "${env:S3_SECRET:-otelsecret}"
+                put_timeout: "${env:PUT_TIMEOUT:-10s}"
+                head_timeout: "2s"
+        connections:
+          - from: otlp_in
+            to: s3pq

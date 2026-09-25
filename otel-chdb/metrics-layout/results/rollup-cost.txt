@@ -1,0 +1,14 @@
+cpu_ms=0 wall_ms=6 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_main.rollup5m_number_b ( MetricName LowCardinality(String) CODEC(ZSTD(1)), ServiceName LowCard
+cpu_ms=8151 wall_ms=3208 read_rows=20160000 read_bytes=443520000 written_rows=2021180 | INSERT INTO ml_main.rollup5m_number_b SELECT MetricName, ServiceName, series_id, toStartOfFiveMinutes(TimeUnix
+cpu_ms=15359 wall_ms=5970 read_rows=37440000 read_bytes=823680000 written_rows=3753620 | INSERT INTO ml_main.rollup5m_number_b SELECT MetricName, ServiceName, series_id, toStartOfFiveMinutes(TimeUnix
+cpu_ms=0 wall_ms=7 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_main.rollup5m_histogram_b ( MetricName LowCardinality(String) CODEC(ZSTD(1)), ServiceName LowC
+cpu_ms=19706 wall_ms=13441 read_rows=11520000 read_bytes=1808640000 written_rows=1154960 | INSERT INTO ml_main.rollup5m_histogram_b SELECT MetricName, ServiceName, series_id, toStartOfFiveMinutes(TimeU
+cpu_ms=0 wall_ms=8 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_main.rollup5m_number_a ( ServiceName LowCardinality(String) CODEC(ZSTD(1)), MetricName LowCard
+cpu_ms=168369 wall_ms=47975 read_rows=20160000 read_bytes=10941408960 written_rows=2021180 | INSERT INTO ml_main.rollup5m_number_a SELECT ServiceName, MetricName, cityHash64(ResourceAttributes, Attribute
+cpu_ms=340617 wall_ms=109832 read_rows=37440000 read_bytes=21228624000 written_rows=3753620 | INSERT INTO ml_main.rollup5m_number_a SELECT ServiceName, MetricName, cityHash64(ResourceAttributes, Attribute
+cpu_ms=0 wall_ms=86 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_main.rollup5m_histogram_a ( ServiceName LowCardinality(String) CODEC(ZSTD(1)), MetricName LowC
+cpu_ms=136648 wall_ms=50804 read_rows=11520000 read_bytes=9543312000 written_rows=1154960 | INSERT INTO ml_main.rollup5m_histogram_a SELECT ServiceName, MetricName, cityHash64(ResourceAttributes, Attrib
+cpu_ms=0 wall_ms=4472 read_rows=0 read_bytes=0 written_rows=0 | OPTIMIZE TABLE ml_main.rollup5m_number_b FINAL
+cpu_ms=0 wall_ms=3898 read_rows=0 read_bytes=0 written_rows=0 | OPTIMIZE TABLE ml_main.rollup5m_histogram_b FINAL
+cpu_ms=0 wall_ms=98902 read_rows=0 read_bytes=0 written_rows=0 | OPTIMIZE TABLE ml_main.rollup5m_number_a FINAL
+cpu_ms=0 wall_ms=24075 read_rows=0 read_bytes=0 written_rows=0 | OPTIMIZE TABLE ml_main.rollup5m_histogram_a FINAL

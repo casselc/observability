@@ -1,0 +1,1 @@
+{"db":"ml_ts","edgeCPUusPerPoint":28.596841944444446,"insertWallMsPerRound":925.3986111111111,"layout":"C","otelPoints":10800000,"parquetBytesPerPoint":92.93000555555555,"rounds":720,"samples":39312000,"samplesPerPoint":3.64,"serverCPUusPerPoint":60.274460833333336,"serverCPUusPerSample":16.55891781135531,"services":3}

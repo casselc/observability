@@ -1,0 +1,33 @@
+cpu_ms=0 wall_ms=63 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_fixed.g_one AS ml_fixed.otel_metrics_gauge_points
+cpu_ms=0 wall_ms=8 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_fixed.g_many AS ml_fixed.otel_metrics_gauge_points
+cpu_ms=0 wall_ms=2 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_fixed.g_null AS ml_fixed.otel_metrics_gauge_points ENG
+cpu_ms=0 wall_ms=13 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_fixed.a_one AS ml_fixed.otel_metrics_gauge
+cpu_ms=0 wall_ms=12 read_rows=0 read_bytes=0 written_rows=0 | CREATE TABLE ml_fixed.a_many AS ml_fixed.otel_metrics_gauge
+cpu_ms=3 wall_ms=14 read_rows=5600 read_bytes=10 written_rows=0 | SELECT count() FROM s3('http://127.0.0.1:18333/otel/metrics-layout/loa
+cpu_ms=2 wall_ms=12 read_rows=5600 read_bytes=14475 written_rows=0 | SELECT sum(Value) FROM s3('http://127.0.0.1:18333/otel/metrics-layout/
+cpu_ms=12 wall_ms=17 read_rows=5600 read_bytes=61553 written_rows=5600 | INSERT INTO ml_fixed.g_null SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=18 wall_ms=24 read_rows=5600 read_bytes=61553 written_rows=5600 | INSERT INTO ml_fixed.g_one SETTINGS max_threads = 1, max_insert_thread
+2026/09/25 08:52:40 INSERT INTO ml_fixed.a_one SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, s: handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)
+cpu_ms=2 wall_ms=11 read_rows=5600 read_bytes=10 written_rows=0 | SELECT count() FROM s3('http://127.0.0.1:18333/otel/metrics-layout/loa
+cpu_ms=2 wall_ms=13 read_rows=5600 read_bytes=14548 written_rows=0 | SELECT sum(Value) FROM s3('http://127.0.0.1:18333/otel/metrics-layout/
+cpu_ms=14 wall_ms=20 read_rows=5600 read_bytes=61633 written_rows=5600 | INSERT INTO ml_fixed.g_null SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=19 wall_ms=24 read_rows=5600 read_bytes=61633 written_rows=5600 | INSERT INTO ml_fixed.g_one SETTINGS max_threads = 1, max_insert_thread
+2026/09/25 08:52:40 INSERT INTO ml_fixed.a_one SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, s: handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)
+cpu_ms=3 wall_ms=11 read_rows=5600 read_bytes=10 written_rows=0 | SELECT count() FROM s3('http://127.0.0.1:18333/otel/metrics-layout/loa
+cpu_ms=2 wall_ms=17 read_rows=5600 read_bytes=14505 written_rows=0 | SELECT sum(Value) FROM s3('http://127.0.0.1:18333/otel/metrics-layout/
+cpu_ms=17 wall_ms=20 read_rows=5600 read_bytes=61568 written_rows=5600 | INSERT INTO ml_fixed.g_null SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=14 wall_ms=22 read_rows=5600 read_bytes=61568 written_rows=5600 | INSERT INTO ml_fixed.g_one SETTINGS max_threads = 1, max_insert_thread
+2026/09/25 08:52:40 INSERT INTO ml_fixed.a_one SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, s: handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)
+cpu_ms=2 wall_ms=8 read_rows=5600 read_bytes=10 written_rows=0 | SELECT count() FROM s3('http://127.0.0.1:18333/otel/metrics-layout/loa
+cpu_ms=1 wall_ms=11 read_rows=5600 read_bytes=14549 written_rows=0 | SELECT sum(Value) FROM s3('http://127.0.0.1:18333/otel/metrics-layout/
+cpu_ms=11 wall_ms=14 read_rows=5600 read_bytes=61625 written_rows=5600 | INSERT INTO ml_fixed.g_null SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=17 wall_ms=21 read_rows=5600 read_bytes=61625 written_rows=5600 | INSERT INTO ml_fixed.g_one SETTINGS max_threads = 1, max_insert_thread
+2026/09/25 08:52:40 INSERT INTO ml_fixed.a_one SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, s: handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)
+cpu_ms=2 wall_ms=12 read_rows=5600 read_bytes=10 written_rows=0 | SELECT count() FROM s3('http://127.0.0.1:18333/otel/metrics-layout/loa
+cpu_ms=2 wall_ms=11 read_rows=5600 read_bytes=14617 written_rows=0 | SELECT sum(Value) FROM s3('http://127.0.0.1:18333/otel/metrics-layout/
+cpu_ms=11 wall_ms=14 read_rows=5600 read_bytes=61695 written_rows=5600 | INSERT INTO ml_fixed.g_null SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=14 wall_ms=20 read_rows=5600 read_bytes=61695 written_rows=5600 | INSERT INTO ml_fixed.g_one SETTINGS max_threads = 1, max_insert_thread
+2026/09/25 08:52:40 INSERT INTO ml_fixed.a_one SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, s: handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)
+cpu_ms=135 wall_ms=166 read_rows=56000 read_bytes=616338 written_rows=56000 | INSERT INTO ml_fixed.g_many SETTINGS max_threads = 1, max_insert_threa
+cpu_ms=115 wall_ms=124 read_rows=56000 read_bytes=616343 written_rows=56000 | INSERT INTO ml_fixed.g_many SETTINGS max_threads = 1, max_insert_threa
+2026/09/25 08:52:41 INSERT INTO ml_fixed.a_many SELECT * EXCEPT (producer_id, producer_epoch, batch_id, row_ordinal, received_at, : handle packet: NUMBER_OF_COLUMNS_DOESNT_MATCH (20): DB::Exception: Number of columns doesn't match (source: 21 and result: 27)

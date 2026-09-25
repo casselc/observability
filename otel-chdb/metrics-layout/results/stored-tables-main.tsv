@@ -1,0 +1,12 @@
+table	r	comp_bpp	disk_bpp	unc_bpp
+otel_metrics_exponential_histogram	1440000	57.26	57.32	1067.5
+otel_metrics_exponential_histogram_points	1440000	38.05	38.08	406.8
+otel_metrics_gauge	20160000	19.06	19.06	731.5
+otel_metrics_gauge_points	20160000	1.45	1.46	54
+otel_metrics_histogram	11520000	38.11	38.12	1077.2
+otel_metrics_histogram_points	11520000	13.81	13.82	210.3
+otel_metrics_series	120000	39.58	40.01	644.7
+otel_metrics_sum	37440000	20.37	20.37	779
+otel_metrics_sum_points	37440000	1.36	1.37	58
+otel_metrics_summary	1440000	33.84	33.89	761.6
+otel_metrics_summary_points	1440000	11.72	11.75	114

@@ -1,0 +1,8 @@
+{"Query":"Q1","Layout":"C","Window":"1h","WallMs":70.91,"CPUms":63.333,"WallMsAll":[72.748,73.582,70.91,61.748,61.017],"ReadRows":319488,"ReadBytes":13626652,"ResultRows":10}
+{"Query":"Q1","Layout":"C","Window":"6h","WallMs":75.998,"CPUms":95.507,"WallMsAll":[75.998,78.639,78.09,71.03,68.738],"ReadRows":909312,"ReadBytes":28962076,"ResultRows":10}
+{"Query":"Q2","Layout":"C","Window":"1h","WallMs":183.002,"CPUms":330.156,"WallMsAll":[169.929,180.432,196.403,197.279,183.002],"ReadRows":3284992,"ReadBytes":101212883,"ResultRows":1}
+{"Query":"Q2","Layout":"C","Window":"6h","WallMs":305.443,"CPUms":757.165,"WallMsAll":[305.443,312.627,295.483,287.565,307.574],"ReadRows":9773056,"ReadBytes":269683619,"ResultRows":1}
+{"Query":"Q3","Layout":"C","Window":"1h","WallMs":60.928,"CPUms":15.675,"WallMsAll":[66.334,60.928,49.428,63.263,50.478],"ReadRows":24636,"ReadBytes":5441358,"ResultRows":10}
+{"Query":"Q3","Layout":"C","Window":"6h","WallMs":46.29,"CPUms":14.077,"WallMsAll":[43.287,43.245,47.74,53.593,46.29],"ReadRows":49232,"ReadBytes":6080834,"ResultRows":10}
+{"Query":"Q4","Layout":"C","Window":"1h","WallMs":63.815,"CPUms":57.979,"WallMsAll":[57.736,54.189,66.628,69.511,63.815],"ReadRows":303104,"ReadBytes":13184272,"ResultRows":1}
+{"Query":"Q4","Layout":"C","Window":"6h","WallMs":73.117,"CPUms":93.496,"WallMsAll":[73.117,86.974,74.3,72.287,69.364],"ReadRows":876544,"ReadBytes":28093712,"ResultRows":1}

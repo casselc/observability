@@ -1,0 +1,12 @@
+{"case": "target built", "parts_rows_size_partitions": "34\t10000000\t122.29 MiB\t8", "projection_size": "74.06 KiB", "bloom_index_size": "14.35 KiB", "build_s": 90.2, "ts": "2026-09-25T01:47:40"}
+{"case": "check one batch", "variant": "raw columns, no index (projection and skip index disabled)", "wall_ms_median": 15.19, "wall_ms_max": 36.06, "read_rows_median": 880000.0, "read_bytes_median": 2408228.0, "answers": ["8000"], "ts": "2026-09-25T01:47:40"}
+{"case": "check one batch", "variant": "raw columns + event-time range from the commit record", "wall_ms_median": 15.48, "wall_ms_max": 52.96, "read_rows_median": 732915.0, "read_bytes_median": 2391880.0, "answers": ["8000"], "ts": "2026-09-25T01:47:41"}
+{"case": "check one batch", "variant": "bloom_filter skip index on batch_id", "wall_ms_median": 12.62, "wall_ms_max": 23.39, "read_rows_median": 73728.0, "read_bytes_median": 533392.0, "answers": ["8000"], "ts": "2026-09-25T01:47:41"}
+{"case": "check one batch", "variant": "aggregating projection (producer, epoch, batch) -> count()", "wall_ms_median": 12.04, "wall_ms_max": 20.79, "read_rows_median": 220.0, "read_bytes_median": 6852.0, "answers": ["8000"], "ts": "2026-09-25T01:47:41"}
+{"case": "check one batch", "variant": "ledger table (MV), FINAL", "wall_ms_median": 7.24, "wall_ms_max": 16.16, "read_rows_median": 1250.0, "read_bytes_median": 15330.0, "answers": ["1"], "ts": "2026-09-25T01:47:41"}
+{"case": "check 100 batches", "variant": "projection, 100 batches in one query", "wall_ms_median": 52.15, "read_rows": 2470, "read_bytes": 80100, "found": 100, "ts": "2026-09-25T01:47:42"}
+{"case": "check 100 batches", "variant": "ledger, 100 batches in one query", "wall_ms_median": 17.13, "read_rows": 1250, "read_bytes": 25330, "found": 100, "ts": "2026-09-25T01:47:42"}
+{"case": "check 100 batches", "variant": "raw columns, 100 batches in one query", "wall_ms_median": 544.3, "read_rows": 9880000, "read_bytes": 98800000, "found": 100, "ts": "2026-09-25T01:47:44"}
+{"case": "importer insert, one 8k batch", "variant": "full importer insert (new token)", "wall_ms_median": 85.9, "wall_ms_all": [80.1, 114.7, 85.9, 69.5, 121.4], "written_rows": "8001", "ts": "2026-09-25T01:47:45"}
+{"case": "importer insert, one 8k batch", "variant": "token-only re-insert (dedup drops it)", "wall_ms_median": 63.1, "wall_ms_all": [78.3, 59.1, 57.6, 94.3, 63.1], "written_rows": "8001", "ts": "2026-09-25T01:47:45"}
+{"case": "rows after insert probes", "rows": 10048000, "ts": "2026-09-25T01:47:45"}

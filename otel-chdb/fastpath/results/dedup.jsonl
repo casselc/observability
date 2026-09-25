@@ -1,0 +1,30 @@
+{"case": "async twice, same token, wait=1, Parquet", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:20"}
+{"case": "async twice, same token, wait=1, Native", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:20"}
+{"case": "async twice, same token, wait=1, legacy async_insert_deduplicate=0", "rows": 16000, "expect": null, "ok": false, "parts": "[8000,8000]", "ts": "2026-09-25T01:43:21"}
+{"case": "async twice, same token, wait=1, legacy async_insert_deduplicate=1", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:21"}
+{"case": "async twice, same token, wait=0, Parquet", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:21"}
+{"case": "async twice, same token, wait=0, Native", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:22"}
+{"case": "async twice, same token, wait=0, legacy async_insert_deduplicate=0", "rows": 16000, "expect": null, "ok": false, "parts": "[8000,8000]", "ts": "2026-09-25T01:43:22"}
+{"case": "async twice, same token, wait=0, legacy async_insert_deduplicate=1", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:22"}
+{"case": "async twice, same token, window=0", "rows": 16000, "expect": 16000, "ok": true, "parts": "[8000,8000]", "ts": "2026-09-25T01:43:22"}
+{"case": "async twice, no token", "rows": 8000, "expect": null, "ok": false, "parts": "[8000]", "ts": "2026-09-25T01:43:23"}
+{"case": "async(wait=1) then importer, same token, one-block settings", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:23"}
+{"case": "importer then async(wait=1), same token", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:23"}
+{"case": "async Native then importer, same token", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:24"}
+{"case": "async(wait=0) buffered, importer commits first, then flush", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "visible_before_importer": 0, "ts": "2026-09-25T01:43:27"}
+{"case": "async then importer with default settings", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "ts": "2026-09-25T01:43:27"}
+{"case": "async then importer forced into 1000-row blocks", "rows": 8000, "expect": null, "ok": false, "parts": "[8000]", "ts": "2026-09-25T01:43:28"}
+{"case": "importer in 1000-row blocks, then async", "rows": 8000, "expect": null, "ok": false, "parts": "[8000]", "ts": "2026-09-25T01:43:28"}
+{"case": "two-partition batch: async then importer, same token", "rows": 8000, "expect": 8000, "ok": true, "parts": "[4000,4000]", "ts": "2026-09-25T01:43:28"}
+{"case": "two-partition batch: importer then async, same token", "rows": 8000, "expect": 8000, "ok": true, "parts": "[4000,4000]", "ts": "2026-09-25T01:43:28"}
+{"case": "three exporters, wait=1, one busy window", "rows": 24000, "expect": 24000, "ok": true, "parts": "[24000]", "ts": "2026-09-25T01:43:30"}
+{"case": "dup of batch 2 + new batch 4 in one flush", "rows": 32000, "expect": 32000, "ok": true, "parts": "[24000,8000]", "ts": "2026-09-25T01:43:32"}
+{"case": "per-batch rows after combined flush", "per": "[(1,8000),(2,8000),(3,8000),(4,8000)]", "ts": "2026-09-25T01:43:32"}
+{"case": "good + truncated Parquet entries in one busy window", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "status": {"truncated": 400, "good": 200}, "ts": "2026-09-25T01:43:34"}
+{"case": "JSONEachRow entry with one bad row (row 50 of 100)", "rows": 0, "expect": 0, "ok": true, "parts": "[]", "status": 400, "err": "Code: 27. DB::Exception: Cannot parse input: expected '\"' before: 'notanumber\"}\\n{\"Timestamp\": \"2026-09-24 12:00:00\", \"TraceId\": \"t51\", \"SpanId\": \"s\", \"producer", "ts": "2026-09-25T01:43:34"}
+{"case": "wait=1, wait_for_async_insert_timeout=1s < busy timeout 5s", "status": 408, "wall_s": 1.01, "err": "Code: 159. DB::Exception: Wait for async insert timeout (1000 ms) exceeded: While executing WaitForAsyncInsert. (TIMEOUT_EXCEEDED) (version 26.10.1.618 (official build))\n", "rows_at_error": 0, "rows_after_flush": 8000, "ts": "2026-09-25T01:43:41"}
+{"case": "client retries the timed-out insert with the same token", "rows": 8000, "expect": 8000, "ok": true, "parts": "[8000]", "status": 200, "ts": "2026-09-25T01:43:41"}
+{"case": "wait=0 visibility, busy_timeout=200ms", "ack_s": 0.0048, "visible_after_s": 0.266, "ts": "2026-09-25T01:43:41"}
+{"case": "wait=1 ack latency, busy_timeout=200ms", "ack_s": 0.254, "ts": "2026-09-25T01:43:41"}
+{"case": "wait=0 visibility, busy_timeout=1000ms", "ack_s": 0.0088, "visible_after_s": 1.08, "ts": "2026-09-25T01:43:43"}
+{"case": "wait=1 ack latency, busy_timeout=1000ms", "ack_s": 1.06, "ts": "2026-09-25T01:43:44"}

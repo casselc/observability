@@ -71,7 +71,7 @@ func hexOrEmpty(x string) string {
 // (max_threads = 1); otherwise key order inside a Map depends on scheduling.
 func attrAgg(src string) string {
 	return fmt.Sprintf("(SELECT batch_id, parent_id, mapFromArrays(groupArray(key), groupArray(v)) AS m FROM "+
-		"(SELECT batch_id, parent_id, key, %s AS v FROM %s) GROUP BY batch_id, parent_id)", renderSQL(""), src)
+		"(SELECT batch_id, parent_id, key, ifNull(%s, '') AS v FROM %s) GROUP BY batch_id, parent_id)", renderSQL(""), src)
 }
 
 // StarTracesSelect rebuilds otel_traces rows from the star tables. src maps

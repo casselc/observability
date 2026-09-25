@@ -1,0 +1,70 @@
+# OTLP in; every request exported twice, to compare: by the stock contrib
+# awss3exporter (random key per attempt) and by the patched one
+# (key_mode: sequence, create-only slots, no manifests). Both encode with the
+# parquet_encoding extension and both use a persistent sending queue.
+# Env: S3_ENDPOINT (through faultproxy in the demo), RUN, DATA, AWS_* credentials.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:14318
+
+extensions:
+  file_storage/queue:
+    directory: ${env:DATA}/queue
+    create_directory: true
+  parquet_encoding:
+    producer_id: edge-1
+    schema_version: 1
+    compression: zstd
+
+exporters:
+  awss3:
+    s3uploader:
+      region: us-east-1
+      s3_bucket: otel
+      s3_prefix: s3inline/demo/${env:RUN}/stock
+      endpoint: ${env:S3_ENDPOINT}
+      s3_force_path_style: true
+      disable_ssl: true
+    encoding: parquet_encoding
+    encoding_file_extension: parquet
+    timeout: 5s
+    retry_on_failure:
+      initial_interval: 1s
+      max_elapsed_time: 0        # never drop: retry until exported
+    sending_queue:
+      storage: file_storage/queue
+      num_consumers: 2
+  awss3inline:
+    s3uploader:
+      region: us-east-1
+      s3_bucket: otel
+      s3_prefix: s3inline/demo/${env:RUN}/inline
+      endpoint: ${env:S3_ENDPOINT}
+      s3_force_path_style: true
+      disable_ssl: true
+      key_mode: sequence
+      lanes: 2
+      file_prefix: edge-1        # producer id in the slot metadata
+    encoding: parquet_encoding
+    encoding_file_extension: parquet
+    timeout: 5s
+    retry_on_failure:
+      initial_interval: 1s
+      max_elapsed_time: 0
+    sending_queue:
+      storage: file_storage/queue
+      num_consumers: 2
+
+service:
+  extensions: [file_storage/queue, parquet_encoding]
+  telemetry:
+    metrics:
+      level: none
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [awss3, awss3inline]

@@ -116,7 +116,9 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type host struct{ ext map[component.ID]component.Component }
+type host struct {
+	ext map[component.ID]component.Component
+}
 
 func (h host) GetExtensions() map[component.ID]component.Component { return h.ext }
 

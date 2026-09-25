@@ -1,0 +1,23 @@
+# A collector with the stock contrib awss3exporter, the patched one
+# (awss3inline, key_mode: sequence) and the Parquet encoding extension.
+#   B=<build dir>; sed "s#@AWSS3@#$(cd .. && pwd)#; s#@OUT@#$B#" builder-config.yaml > $B/builder.yaml
+#   go run go.opentelemetry.io/collector/cmd/builder@v0.161.0 --config $B/builder.yaml
+dist:
+  name: otelcol-awss3
+  description: OTLP to S3 as Parquet, stock awss3 and the manifest-less awss3inline
+  output_path: @OUT@
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
+exporters:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awss3exporter v0.161.0
+  - gomod: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 v0.0.0
+    import: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.161.0
+  - gomod: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 v0.0.0
+    import: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/parquetencoding
+
+replaces:
+  - github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 => @AWSS3@
+  - github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => @AWSS3@/../parquetgo

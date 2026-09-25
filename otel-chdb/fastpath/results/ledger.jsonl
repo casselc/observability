@@ -1,0 +1,7 @@
+{"case": "async, async retry, importer (same token)", "target": 8000, "ledger": "[(1,8000),(1,8000),(1,8000)]", "ts": "2026-09-25T01:44:56"}
+{"case": "two-partition batch: async then importer", "target": 8000, "ledger": "[(100,8000),(100,8000)]", "parts": "[4000,4000]", "ts": "2026-09-25T01:44:57"}
+{"case": "combined flushes: 1,2,3 then dup 2 + new 4", "target": 32000, "ledger": "[(1,8000),(2,8000),(2,8000),(3,8000),(4,8000)]", "parts": "[24000,8000]", "ts": "2026-09-25T01:45:00"}
+{"case": "MV throws for batch 7 (async)", "status": 500, "err": "Code: 395. DB::Exception: mv failure: while executing 'FUNCTION throwIf(equals(__table1.batch_id, 7_UInt8) :: 2, 'mv fai", "target": 8000, "ledger": "[]", "ts": "2026-09-25T01:45:00"}
+{"case": "MV throws for batch 7 (importer)", "status": 500, "err": "Code: 395. DB::Exception: mv failure: while executing 'FUNCTION throwIf(equals(__table1.batch_id, 7_UInt8) :: 2, 'mv fai", "target": 8000, "ledger": "[]", "ts": "2026-09-25T01:45:00"}
+{"case": "target constraint rejects batch 8 (async)", "status": 500, "err": "Code: 469. DB::Exception: Constraint `c` for table fastpath_test.t (7cd2b7b0-a8d1-4a5b-9101-36c5cf704d1d) is violated at", "target": 0, "ledger": "[]", "ts": "2026-09-25T01:45:01"}
+{"case": "target constraint rejects batch 8 (importer)", "status": 500, "err": "Code: 469. DB::Exception: Constraint `c` for table fastpath_test.t (887e3f62-2808-4cbf-a578-b94872d4a5da) is violated at", "target": 0, "ledger": "[]", "ts": "2026-09-25T01:45:01"}

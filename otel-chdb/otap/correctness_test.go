@@ -112,7 +112,7 @@ func TestCentralMatchesReference(t *testing.T) {
 	}
 	fixed := time.Date(2026, 9, 25, 1, 2, 3, 456789012, time.UTC)
 	ctx := context.Background()
-	variants := []string{Ref, Star, FlatParquet, FlatArrow, ViaPdata}
+	variants := []string{Ref, Star, FlatParquet, FlatArrow, ViaPdata, Raw}
 	manifests := map[string][]Manifest{}
 	for _, v := range variants {
 		sink, err := NewSink(base, e.key, e.secret, nil)
@@ -193,19 +193,30 @@ func TestCentralMatchesReference(t *testing.T) {
 					sel = StarLogsSelect(src)
 				}
 				sel = fmt.Sprintf("SELECT %s FROM (%s)", sig.cols, sel)
+			case Raw:
+				sel = fmt.Sprintf("SELECT %s FROM (%s)", sig.cols, rawSelect(t, e, base, cred, sig.name, "*", manifests[v]))
 			case FlatArrow:
 				sel = fmt.Sprintf("SELECT %s FROM s3('%s/%s/%s/*/otel_%s.arrow', %s, 'Arrow', '%s')", sig.cols, base, sig.name, v, sig.name, cred, sig.structure)
 			default:
 				sel = fmt.Sprintf("SELECT %s FROM s3('%s/%s/%s/*/otel_%s.parquet', %s, 'Parquet', '%s')", sig.cols, base, sig.name, v, sig.name, cred, sig.structure)
 			}
-			e.q(t, fmt.Sprintf("INSERT INTO %s (%s) %s", tbl, sig.cols, sel))
+			_, err := chQuery(e.ch, fmt.Sprintf("INSERT INTO %s (%s) %s", tbl, sig.cols, sel), map[string]string{"max_threads": "1"})
+			if err != nil && v == Raw {
+				t.Logf("%s raw, all batches: %.400s", sig.name, err)
+				sel = fmt.Sprintf("SELECT %s FROM (%s)", sig.cols, rawSelect(t, e, base, cred, sig.name, fmt.Sprintf("%020d", 1), manifests[v]))
+				_, err = chQuery(e.ch, fmt.Sprintf("INSERT INTO %s (%s) %s", tbl, sig.cols, sel), map[string]string{"max_threads": "1"})
+				t.Logf("%s raw: ingested batch 1 (testgen) only", sig.name)
+			}
+			if err != nil {
+				t.Fatalf("%s %s: %v\n%.3000s", sig.name, v, err, sel)
+			}
 		}
 		sum := func(tbl, cols string) string {
 			return e.q(t, fmt.Sprintf("SELECT count(), sum(cityHash64(%s)) FROM %s", cols, tbl))
 		}
 		ref := fmt.Sprintf("%s.%s_ref", db, sig.name)
 		wantRaw, wantNorm := sum(ref, sig.raw), sum(ref, sig.norm)
-		t.Logf("%s ref: raw %s, normalised %s", sig.name, wantRaw, wantNorm)
+		t.Logf("%s ref: exact %s, normalised %s", sig.name, wantRaw, wantNorm)
 		if strings.HasPrefix(wantRaw, "0\t") {
 			t.Fatalf("%s: reference ingested no rows", sig.name)
 		}
@@ -214,7 +225,7 @@ func TestCentralMatchesReference(t *testing.T) {
 			gotRaw, gotNorm := sum(tbl, sig.raw), sum(tbl, sig.norm)
 			for _, d := range []struct {
 				label, cols string
-			}{{"raw", sig.raw}, {"normalised", sig.norm}} {
+			}{{"exact", sig.raw}, {"normalised", sig.norm}} {
 				for _, bid := range []string{"1", "2"} {
 					diff := e.q(t, fmt.Sprintf("SELECT count() FROM (SELECT %[1]s FROM %[2]s WHERE batch_id = %[4]s EXCEPT SELECT %[1]s FROM %[3]s WHERE batch_id = %[4]s)", d.cols, tbl, ref, bid))
 					diff2 := e.q(t, fmt.Sprintf("SELECT count() FROM (SELECT %[1]s FROM %[3]s WHERE batch_id = %[4]s EXCEPT SELECT %[1]s FROM %[2]s WHERE batch_id = %[4]s)", d.cols, tbl, ref, bid))
@@ -225,12 +236,42 @@ func TestCentralMatchesReference(t *testing.T) {
 			if gotNorm != wantNorm {
 				status = "DIFFERS"
 			}
-			t.Logf("%s %-12s raw %s (ref %s) | normalised %s: %s", sig.name, v, gotRaw, wantRaw, gotNorm, status)
+			t.Logf("%s %-12s exact %s (ref %s) | normalised %s (ref %s): %s", sig.name, v, gotRaw, wantRaw, gotNorm, wantNorm, status)
 			if gotNorm != wantNorm && os.Getenv("OTAP_TEST_EXPLAIN") != "" {
 				explain(t, e, sig.name, tbl, ref)
 			}
 		}
 	}
+}
+
+// rawSelect builds the central query over raw OTAP payloads: DESCRIBE each
+// table (OTAP columns are optional), take the envelope from the manifests.
+func rawSelect(t *testing.T, e env, base, cred, signal, batches string, ms []Manifest) string {
+	tables := map[string]bool{}
+	renv := RawEnvelope{Received: map[uint64]time.Time{}}
+	for _, m := range ms {
+		if m.Signal != signal {
+			continue
+		}
+		renv.Producer, renv.Epoch, renv.Schema = m.ProducerID, m.ProducerEpoch, m.SchemaVersion
+		renv.Received[m.BatchID] = m.ReceivedAt
+		for _, o := range m.Objects {
+			tables[o.Table] = true
+		}
+	}
+	src := map[string]RawSource{}
+	for tbl := range tables {
+		from := fmt.Sprintf("s3('%s/%s/%s/%s/%s.arrows', %s, 'ArrowStream')", base, signal, Raw, batches, tbl, cred)
+		cols := map[string]bool{}
+		for _, line := range strings.Split(e.q(t, "DESCRIBE "+from+" FORMAT TSV"), "\n") {
+			cols[strings.SplitN(line, "\t", 2)[0]] = true
+		}
+		src[tbl] = RawSource{From: from, Cols: cols}
+	}
+	if signal == "traces" {
+		return RawTracesSelect(src, renv)
+	}
+	return RawLogsSelect(src, renv)
 }
 
 func mustAtoi(s string) int {

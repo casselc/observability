@@ -153,6 +153,9 @@ func (l *Log) Epoch() string {
 
 const recentCap = 4096
 
+// headTimeout bounds the HEAD that resolves an unknown outcome.
+var headTimeout = 2 * time.Second
+
 func (l *Log) remember(content string, r Ref) {
 	if _, ok := l.recent[content]; ok {
 		return
@@ -212,7 +215,12 @@ func (l *Log) Append(ctx context.Context, content string, enc Encoder) (Ref, err
 		}
 		// 412, or no answer: read the slot. With no answer the request may
 		// still be in flight; If-None-Match lets at most one copy land.
-		m, _, found, herr := l.st.Head(ctx, key)
+		// The exporter's deadline has usually passed when the PUT timed out;
+		// HEAD on a short detached deadline so the outcome is still resolved
+		// in this call when S3 answers.
+		hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), headTimeout)
+		m, _, found, herr := l.st.Head(hctx, key)
+		cancel()
 		if herr != nil {
 			return Ref{}, fmt.Errorf("put %s: %v; head: %w", key, err, herr)
 		}

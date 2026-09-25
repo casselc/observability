@@ -80,6 +80,7 @@ AWS's own guidance [a13] covers 409 and 412 but not timeouts.
 | MinIO | from RELEASE.2024-09-13 (earlier releases **silently accepted** the second write) | yes | — | [s4] |
 | Ceph RGW | yes | yes; reported to answer 412 to a *quoted* `If-Match` on some builds | — | [s5] |
 | Tigris | yes | yes | — | [s6] |
+| Nutanix Objects | **unknown** | **unknown** | **unknown** | Nutanix's API and consistency docs (the "Supported APIs" pages for Objects 4.x/5.x) are behind the support portal's JavaScript and login and could not be read here; public material (Nutanix Bible, product pages) doesn't mention conditional headers. The metadata store is a Paxos-based Cassandra derivative, which suggests strong consistency is *possible*; that is not a documented guarantee. See Section 9. |
 | Garage | **no, by design**: no consensus, so it "cannot implement a safe and consistent way to reject" a concurrent overwrite | no | no | [s7] |
 | SeaweedFS 4.47 | **yes, atomic (tested)** | **yes, atomic (tested)** | **yes (tested)** | Section 2. Conditional multipart completion is **not** atomic. No bucket-policy condition keys for conditional writes. |
 
@@ -176,8 +177,15 @@ AWS's own guidance [a13] covers 409 and 412 but not timeouts.
 ## 2. What the local S3 supports (tested)
 
 `../s3cas/probe_test.go` and `protocol_test.go`, aws-sdk-go-v2 against
-SeaweedFS 4.47 at `127.0.0.1:18333` (`S3CAS_ENDPOINT=http://127.0.0.1:18333
-go test -v -count=1 .`). Raw output is in the scratch directory; the results:
+SeaweedFS 4.47 at `127.0.0.1:18333`. The client uses the default credential
+chain:
+
+```
+S3CAS_BUCKET=otel S3CAS_ENDPOINT=http://127.0.0.1:18333 \
+  AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret go test -v -count=1 .
+```
+
+Raw output is in the scratch directory; the results:
 
 | Probe | Result |
 | --- | --- |
@@ -598,8 +606,10 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
 4. **Prefer Parquet-only publishing.** It removes F2 for live readers and
    about 90% of the edge's PUTs (bench `REPORT.md`).
 5. **Before production:**
-   - run `../s3cas` against real S3, R2 and GCS (the latter through its XML
-     API or a GCS client);
+   - run `../s3cas` against real S3 (under IRSA, Pod Identity and Roles
+     Anywhere) and, above all, **against Nutanix Objects**. Its conditional
+     support is unknown; if it fails, use the Keeper-backed `Coordinator`
+     (Section 9);
    - report the SeaweedFS multipart race upstream, and avoid conditional
      multipart until it's fixed. The design doesn't need it; log entries are
      small.
@@ -609,6 +619,131 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
    - group commit (several payloads per entry);
    - generations with concurrent pushes (the model serialises one push per
      writer, which is what the lock plus the sequential appender give).
+
+## 9. Deployment targets: Nutanix Objects and refreshing credentials
+
+Production runs in three ways:
+
+1. EKS with IRSA or EKS Pod Identity, against AWS S3;
+2. Nutanix, with static keys against Nutanix Objects;
+3. IAM Roles Anywhere (`credential_process` with `aws_signing_helper`), for
+   AWS S3 from outside AWS.
+
+### Nutanix Objects: support unknown, so make it a checked requirement
+
+**What is unknown.** Whether Nutanix Objects supports any of the following:
+
+- `If-None-Match: *` on PUT;
+- `If-Match` on PUT or DELETE;
+- conditional CompleteMultipartUpload;
+- strong read-after-write and LIST consistency.
+
+The Objects "Supported APIs" and release-notes pages (4.3–5.2) need a portal
+login that wasn't available here, and nothing public says either way. Assume
+nothing: older MinIO answered 200 to a second `If-None-Match: *` PUT, and
+Garage ignores the headers. A store that ignores the header *looks* like one
+that supports it until two writers race.
+
+**Requirement.** The S3-native mode needs:
+
+- atomic `If-None-Match: *` on single-part PUT (log slots, the fence);
+- atomic `If-Match` on single-part PUT (leases, checkpoint, `gc.json`);
+- strong read-after-write on GET.
+
+It doesn't need conditional multipart, conditional DELETE (GC can delete
+unconditionally below a CAS'd horizon), or consistent LIST (slots are probed
+by GET, not listed).
+
+**Check it, don't assume it.**
+
+- Run `../s3cas` against the Nutanix bucket as the acceptance test (static
+  keys through `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, or `S3CAS_KEY`).
+  `TestPutIfNoneMatch`, `TestCreateRace`, `TestPutIfMatch`, `TestCASRace` and
+  the two `TestAmbiguous…` tests must pass. The race tests catch a store that
+  checks the condition outside the write.
+- The writer does the same at startup: two `If-None-Match: *` PUTs of a
+  scratch key, and the second must be 412. Refuse the S3-native mode
+  otherwise. This is cheap, and it catches a gateway or proxy that drops the
+  header.
+
+**Fallback if Nutanix lacks it.** Put the control plane (log slots, leases,
+checkpoint, GC state) behind a small `Coordinator` interface: `CreateIfAbsent`,
+`CompareAndSwap`, `Get`. Implement it on:
+
+- (a) S3 conditional writes (AWS, SeaweedFS, and Nutanix if it passes);
+- (b) **ClickHouse Keeper or ZooKeeper**, which a replicated central already
+  runs. `create` fails if the node exists, and `set(path, data, version)` is
+  CAS on the node version. These are exactly the two primitives, with
+  linearizable writes; add a `sync` before a read that must see the latest;
+- (c) etcd (`Txn` with `CreateRevision == 0`, or `ModRevision` compare).
+
+Data objects stay in Nutanix Objects. Their keys are content-addressed inside
+a namespace one epoch owns, so they need only plain PUTs and read-after-write
+for new keys. The model is unchanged: it assumes an atomic create-only
+register and CAS, not S3 in particular. This is the Bufstream and WarpStream
+shape: object storage for data, a small consistent store for metadata.
+
+The last resort, with no consistent store at all, is today's design plus the
+PBT fixes (epoch in table names, generation under the lock, retried seals),
+content-hash commit records, and consumer-side dedup by content key. It loses
+zombie fencing and exact seals across crashes (F3 via a crashed epoch).
+
+### Refreshing credentials: IRSA, Pod Identity and Roles Anywhere
+
+The client is built with `config.LoadDefaultConfig`. It picks up:
+
+- IRSA (`AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE`);
+- Pod Identity (`AWS_CONTAINER_CREDENTIALS_FULL_URI` +
+  `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`);
+- Roles Anywhere (a profile with `credential_process = aws_signing_helper
+  credential-process …`);
+- static keys (environment or shared file);
+- `AWS_ENDPOINT_URL_S3`.
+
+Static keys are only an override, for Nutanix. SDK retries are off in the
+probes, so every outcome is visible. The SDK refreshes expiring credentials
+before they expire.
+
+**How expiry interacts with the protocol.**
+
+- **Safety doesn't depend on a writer keeping its credentials.** An expired
+  or revoked writer gets 403 (`ExpiredToken`, `AccessDenied`) on every
+  request. S3 rejects those before evaluating the condition, so nothing is
+  applied. A zombie whose credentials have expired is simply a zombie that
+  can't write, which is the harmless case. Writer fencing is by collision in
+  the log, never by the writer's lease timing out, so a writer that loses its
+  credentials is never assumed dead.
+- **The one hazard is conflating 403 with "not committed".** A 403 says the
+  *current* request didn't apply. It says nothing about an earlier attempt at
+  the same slot that timed out. The writer has to keep the append unresolved
+  and retry the *same* entry once credentials are back. It must never
+  acknowledge or drop the payload, and never move to another slot.
+  Resolution needs a GET, which also needs credentials. So an outage of the
+  credential source stalls the writer, and the persistent queue absorbs it.
+  `s3cas.Classify` maps 403 to `Unauthorized`, and `Writer.Append` returns
+  without touching `Next`.
+- **The consumer is where expiry bites.** A worker whose S3 credentials
+  expire can't renew its consumer lease (a CAS on `consumer/lease.json`).
+  But its **ClickHouse** connection is separate and may still work, so it is
+  exactly the `unboundedZombieInsert` case. The rule has to be time-based and
+  local: stop issuing inserts at `lease_acquired_at + TTL − margin`, by the
+  worker's own monotonic clock, whether or not the renewal failed. It must
+  not be "until a CAS fails". The margin covers the longest INSERT plus clock
+  drift, and GC's horizon should trail by at least one TTL (model finding 2).
+- **SigV4 needs a roughly correct wall clock**: requests more than 15
+  minutes off fail with `RequestTimeTooSkewed`. The design already tolerates
+  clock steps for generations (PBT 2), but a badly skewed edge node will
+  stall on S3, not corrupt it.
+- **Long multipart uploads** can outlive a credential's validity between
+  parts. The control plane never uses multipart. Data through a Go writer
+  should use single PUTs for batch-sized objects.
+- **chDB's own `s3()` calls**: the exporter passes static keys in SQL today,
+  which can't follow rotating credentials. ClickHouse's S3 client has its own
+  credential chain (environment, web identity, instance metadata). Whether it
+  covers Pod Identity's container endpoint and Roles Anywhere's
+  `credential_process` in chDB 26.7 is **unverified**. If it doesn't, data
+  PUTs have to move to the Go client too, the Go Parquet writer route. That
+  also puts data and control plane on one credential source.
 
 ## Sources
 
@@ -637,4 +772,5 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
 - [p6] https://github.com/delta-io/delta-rs/discussions/4482 ; [p7] https://github.com/delta-io/delta/issues/3596
 - [p8] ClickHouse `src/Storages/ObjectStorage/DataLakes/Iceberg/Utils.cpp`, `src/IO/WriteSettings.h` (master); https://github.com/ClickHouse/ClickHouse/issues/112077
 - [p9] https://docs.warpstream.com/warpstream/overview/architecture ; [p10] https://buf.build/docs/bufstream/architecture/kafka-flow/
+- [n1] Nutanix Objects docs (login-gated): https://portal.nutanix.com/docs/Objects-v5_2:top-supported-apis-r.html ; Nutanix Bible, Objects: https://www.nutanixbible.com/11c-book-of-storage-services-objects.html
 - [c1] ClickHouse master: `WriteSettings.h` (`object_storage_write_if_none_match`, `object_storage_write_if_match`), `WriteBufferFromS3.cpp`, `BackupIO_S3.cpp`, Iceberg `Utils.cpp`.

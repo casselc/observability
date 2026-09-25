@@ -1,0 +1,66 @@
+2026/09/25 01:54:22 PUT #1 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015422.619Z-b2f1cccc/00000000000000000000.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:22 PUT #2 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_302464756.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #3 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015422.619Z-b2f1cccc/00000000000000000001.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:23 PUT #4 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_378781244.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #5 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_858442515.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #6 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_380501258.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #7 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_586793698.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #8 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_710442398.parquet If-None-Match="" -> 200
+2026/09/25 01:54:23 PUT #9 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_442535062.parquet If-None-Match="" -> 200
+2026/09/25 01:54:27 PUT #9: client gave up before the answer (context canceled)
+2026/09/25 01:54:27 PUT #6: client gave up before the answer (context canceled)
+2026/09/25 01:54:27 PUT #3: client gave up before the answer (context canceled)
+2026/09/25 01:54:36 PUT #10 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000000.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:36 PUT #12 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_186615567.parquet If-None-Match="" -> 200
+2026/09/25 01:54:36 PUT #11 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000000.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:36 PUT #13 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_657433696.parquet If-None-Match="" -> 200
+2026/09/25 01:54:36 PUT #14 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000001.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:36 PUT #15 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000002.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:36 PUT #16 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_734648192.parquet If-None-Match="" -> 200
+2026/09/25 01:54:36 PUT #17 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_506898821.parquet If-None-Match="" -> 200
+2026/09/25 01:54:36 PUT #18 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_489270341.parquet If-None-Match="" -> 200
+2026/09/25 01:54:41 PUT #12: client gave up before the answer (context canceled)
+2026/09/25 01:54:41 PUT #15: client gave up before the answer (context canceled)
+2026/09/25 01:54:41 PUT #19 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000003.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:41 PUT #20 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000004.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:41 PUT #21 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000001.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:41 PUT #22 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000005.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:41 PUT #18: client gave up before the answer (context canceled)
+2026/09/25 01:54:42 PUT #23 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_341649464.parquet If-None-Match="" -> 200
+2026/09/25 01:54:42 PUT #24 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_600797706.parquet If-None-Match="" -> 200
+2026/09/25 01:54:42 PUT #25 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_767177552.parquet If-None-Match="" -> 200
+2026/09/25 01:54:42 PUT #26 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_215016536.parquet If-None-Match="" -> 200
+2026/09/25 01:54:42 PUT #27 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_111168878.parquet If-None-Match="" -> 200
+2026/09/25 01:54:46 PUT #21: client gave up before the answer (context canceled)
+2026/09/25 01:54:46 PUT #28 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000002.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:46 PUT #29 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000006.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:46 PUT #30 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000003.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:47 PUT #24: client gave up before the answer (context canceled)
+2026/09/25 01:54:47 PUT #31 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_718003344.parquet If-None-Match="" -> 200
+2026/09/25 01:54:47 PUT #32 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_882437561.parquet If-None-Match="" -> 200
+2026/09/25 01:54:47 PUT #33 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_535622072.parquet If-None-Match="" -> 200
+2026/09/25 01:54:47 PUT #27: client gave up before the answer (context canceled)
+2026/09/25 01:54:48 PUT #34 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_799078454.parquet If-None-Match="" -> 200
+2026/09/25 01:54:48 PUT #35 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_827831948.parquet If-None-Match="" -> 200
+2026/09/25 01:54:48 PUT #36 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_968652827.parquet If-None-Match="" -> 200
+2026/09/25 01:54:51 PUT #30: client gave up before the answer (context canceled)
+2026/09/25 01:54:51 PUT #37 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000004.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:51 PUT #38 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000005.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:51 PUT #39 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000006.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:52 PUT #33: client gave up before the answer (context canceled)
+2026/09/25 01:54:53 PUT #36: client gave up before the answer (context canceled)
+2026/09/25 01:54:53 PUT #40 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_331479762.parquet If-None-Match="" -> 200
+2026/09/25 01:54:53 PUT #41 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_944643027.parquet If-None-Match="" -> 200
+2026/09/25 01:54:53 PUT #42 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_427735378.parquet If-None-Match="" -> 200
+2026/09/25 01:54:54 PUT #43 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_189622849.parquet If-None-Match="" -> 200
+2026/09/25 01:54:54 PUT #44 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_713597170.parquet If-None-Match="" -> 200
+2026/09/25 01:54:56 PUT #39: client gave up before the answer (context canceled)
+2026/09/25 01:54:56 PUT #45 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000007.parquet If-None-Match="*" -> 200
+2026/09/25 01:54:58 PUT #42: client gave up before the answer (context canceled)
+2026/09/25 01:54:59 PUT #46 /otel/s3inline/demo/20260925T015422/stock/year=2026/month=09/day=25/hour=01/minute=54/traces_195321558.parquet If-None-Match="" -> 200
+2026/09/25 01:55:01 PUT #45: client gave up before the answer (context canceled)
+2026/09/25 01:55:01 PUT #47 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000007.parquet If-None-Match="*" -> 200
+2026/09/25 01:55:01 PUT #48 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-b76b46fb/00000000000000000008.parquet If-None-Match="*" -> 200
+2026/09/25 01:55:01 PUT #49 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000008.parquet If-None-Match="*" -> 200
+2026/09/25 01:55:01 PUT #50 /otel/s3inline/demo/20260925T015422/inline/traces/20260925T015436.384Z-27d43b4a/00000000000000000009.parquet If-None-Match="*" -> 200
+2026/09/25 01:55:02 PUT #48: client gave up before the answer (context canceled)

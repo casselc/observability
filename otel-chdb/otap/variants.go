@@ -125,6 +125,9 @@ func (p *Publisher) PublishRef(ctx context.Context, td *ptrace.Traces, ld *plog.
 
 // PublishBAR publishes one OTAP batch in the given variant.
 func (p *Publisher) PublishBAR(ctx context.Context, variant string, bar *pb.BatchArrowRecords) (Manifest, error) {
+	if variant == Raw {
+		return p.PublishRaw(ctx, bar)
+	}
 	signal := "logs"
 	for _, pl := range bar.ArrowPayloads {
 		if pl.Type == Spans {

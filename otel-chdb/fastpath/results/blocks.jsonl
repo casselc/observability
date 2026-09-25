@@ -1,0 +1,11 @@
+{"case": "importer split into 1000-row blocks: parts formed", "parts": "[1000,1000,1000,1000,1000,1000,1000,1000]", "rows": 8000, "ts": "2026-09-25T01:44:31"}
+{"case": "  ...retried with the same split", "rows": 8000, "ts": "2026-09-25T01:44:31"}
+{"case": "  ...retried as one block", "rows": 8000, "ts": "2026-09-25T01:44:31"}
+{"case": "  ...then the async fast path, same token", "rows": 8000, "ts": "2026-09-25T01:44:31"}
+{"case": "async first, then importer split into 1000-row blocks", "rows": 15000, "parts": "[8000,1000,1000,1000,1000,1000,1000,1000]", "ts": "2026-09-25T01:44:31"}
+{"case": "async first, then importer with only input_format_parquet_max_block_size=1000", "rows": 16000, "parts": "[8000,8000]", "ts": "2026-09-25T01:44:32"}
+{"case": "async entry parsed in 1000-row chunks: parts formed", "parts": "[8000]", "rows": 8000, "ts": "2026-09-25T01:44:32"}
+{"case": "  ...then importer as one block", "rows": 8000, "parts": "[8000]", "ts": "2026-09-25T01:44:32"}
+{"case": "  ...then async parsed as one chunk", "rows": 8000, "parts": "[8000]", "ts": "2026-09-25T01:44:32"}
+{"case": "async first, then importer with prefer_block_bytes=1MB (else default)", "rows": 16000, "parts": "[8000,8000]", "ts": "2026-09-25T01:44:32"}
+{"case": "uncompressed bytes of the table (2 copies of the batch if duplicated)", "bytes": "8113848", "ts": "2026-09-25T01:44:32"}

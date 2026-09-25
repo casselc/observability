@@ -1,0 +1,10 @@
+deb2e735-c0e2-4051-a0e8-a7999d78b15c	zx.t_zc	lock part nodes 0	part nodes with no blob-id children 0	s3 parts: 0 active, 0 outdated
+8312e8b7-1f12-4898-9616-3ab9072e81b5	zexp.otel_traces_zc	lock part nodes 2	part nodes with no blob-id children 0	s3 parts: 2 active, 0 outdated
+7b24e002-6562-4fa2-b874-77b2cb472f2b	rsoak_rsoak1790373757.otel_traces	lock part nodes 81	part nodes with no blob-id children 0	s3 parts: 4 active, 0 outdated
+fba805b1-82df-4db7-bef0-8e264dd70d8f	rsoak_rsoak1790373757.otel_metrics_histogram_points	lock part nodes 130	part nodes with no blob-id children 0	s3 parts: 2 active, 0 outdated
+87c56230-e4f5-4d2b-8d43-e60a2f4e47d4	rsoak_rsoak1790373757.otel_metrics_exponential_histogram_points	lock part nodes 81	part nodes with no blob-id children 0	s3 parts: 1 active, 0 outdated
+03b240eb-994c-4e4a-a67c-d36ca74cb7c1	rsoak_rsoak1790373757.otel_metrics_summary_points	lock part nodes 19	part nodes with no blob-id children 1	s3 parts: 2 active, 0 outdated
+b9864eae-0ce2-4afb-bf4a-2f3f81fc9b30	rsoak_rsoak1790373757.otel_logs	lock part nodes 8	part nodes with no blob-id children 1	s3 parts: 3 active, 0 outdated
+af150faa-082c-4b04-a401-8db532152b66	rsoak_rsoak1790373757.otel_metrics_series	lock part nodes 99	part nodes with no blob-id children 0	s3 parts: 4 active, 0 outdated
+62678d05-f276-4a5e-810d-6c4bf49f4a86	rsoak_rsoak1790373757.otel_metrics_number_points	lock part nodes 76	part nodes with no blob-id children 0	s3 parts: 3 active, 0 outdated
+688fad49-c2c3-4b13-a675-e29c7e2bfb38	zx.t_kill	lock part nodes 2	part nodes with no blob-id children 0	s3 parts: 0 active, 1 outdated

@@ -8,6 +8,8 @@
 //!           [--ttl 30s --margin 2s --budget 10s] [--poll 1s] [--discover 2s] [--quiet 30s]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
+//!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
+//!           [--no-ddl] [--insert-setting k=v ...]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 40s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!
 //! Checkpoints are compacted: once `consume gc` has retired a closed epoch
@@ -235,6 +237,21 @@ async fn main() {
     let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
     let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), &key, &secret, cfg.timing.budget_ms + 5000);
     central.squash = !flag(&args, "--no-squash");
+    // A replicated central (central-replicated/README.md): `--ch r1,r2` fails
+    // over between replicas, `--sync-replica` syncs before a check that may
+    // follow statements committed on another replica, `--no-ddl` leaves the
+    // tables to the operator's replicated DDL, `--insert-setting k=v` adds
+    // settings to every insert (e.g. insert_quorum=2).
+    central.sync_replica = flag(&args, "--sync-replica");
+    central.sync_timeout_ms = opt_ms(&args, "--sync-timeout", "5s");
+    central.switch_hold_ms = arg(&args, "--switch-hold").map_or(cfg.timing.budget_ms + 12_000, |s| dur_ms(&s));
+    central.no_ddl = flag(&args, "--no-ddl");
+    central.insert_settings = args
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| *a == "--insert-setting")
+        .filter_map(|(i, _)| args.get(i + 1)?.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+        .collect();
     let central = Rc::new(central);
     if let (Some(t), Some(s)) = (&table_override, &legacy_signal) {
         central.table_override.borrow_mut().insert(s.clone(), t.split_once('.').map_or(t.clone(), |(_, n)| n.to_string()));
@@ -250,6 +267,10 @@ async fn main() {
         let _ = m.insert("elapsed_ms".into(), (consumer::mono_ms() - t0).into());
         let _ = m.insert("ch_statements".into(), central.statements.get().into());
         let _ = m.insert("ch_checks".into(), central.checks.get().into());
+        let _ = m.insert("ch_syncs".into(), central.syncs.get().into());
+        let _ = m.insert("ch_sync_errors".into(), central.sync_errors.get().into());
+        let _ = m.insert("ch_switches".into(), central.switches.get().into());
+        let _ = m.insert("ch_replica".into(), central.cur.get().into());
         let _ = m.insert("summary".into(), final_.into());
         v.to_string()
     };

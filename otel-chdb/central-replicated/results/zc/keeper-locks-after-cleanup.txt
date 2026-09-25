@@ -1,0 +1,8 @@
+rsoak_rsoak1790373757.otel_metrics_histogram_points	lock part nodes 26	parts on s3_zc (any state) 2
+rsoak_rsoak1790373757.otel_metrics_exponential_histogram_points	lock part nodes 14	parts on s3_zc (any state) 1
+rsoak_rsoak1790373757.otel_metrics_number_points	lock part nodes 26	parts on s3_zc (any state) 3
+rsoak_rsoak1790373757.otel_traces	lock part nodes 19	parts on s3_zc (any state) 4
+rsoak_rsoak1790373757.otel_metrics_summary_points	lock part nodes 19	parts on s3_zc (any state) 2
+rsoak_rsoak1790373757.otel_logs	lock part nodes 8	parts on s3_zc (any state) 3
+zexp.otel_traces_zc	lock part nodes 4	parts on s3_zc (any state) 4
+rsoak_rsoak1790373757.otel_metrics_series	lock part nodes 25	parts on s3_zc (any state) 2

@@ -117,6 +117,32 @@ pub trait Central {
 
 pub struct ClickHouseCentral<B: Bucket> {
     pub ch: ClickHouse,
+    /// A replicated central: every replica's URL, `ch` first (`--ch a,b`).
+    /// The worker sticks to one; a transport error moves it to the next
+    /// (central-replicated/README.md).
+    pub replicas: Vec<ClickHouse>,
+    pub cur: Cell<usize>,
+    /// `--sync-replica`: before a check that doesn't follow this worker's
+    /// own statement on the same replica, `SYSTEM SYNC REPLICA … LIGHTWEIGHT`,
+    /// so the check sees every statement a previous lane holder (or this
+    /// worker, before a switch) committed on another replica.
+    pub sync_replica: bool,
+    pub sync_timeout_ms: u64,
+    /// After a switch, checks fail until this long has passed, so a
+    /// statement still running on the old replica has ended (budget plus
+    /// the Keeper operation timeout: a commit can outlive max_execution_time
+    /// by one Keeper request).
+    pub switch_hold_ms: u64,
+    switched_at: Cell<u64>,
+    /// Tables whose last operation on the current replica was our own statement.
+    own_last: RefCell<std::collections::HashSet<String>>,
+    /// `--no-ddl`: tables must exist (created by the operator's replicated DDL).
+    pub no_ddl: bool,
+    /// `--insert-setting k=v`: extra settings on every insert (e.g. insert_quorum).
+    pub insert_settings: Vec<(String, String)>,
+    pub syncs: Cell<u64>,
+    pub sync_errors: Cell<u64>,
+    pub switches: Cell<u64>,
     pub db: String,
     pub bucket: Rc<B>,
     pub s3_key: String,
@@ -131,14 +157,31 @@ pub struct ClickHouseCentral<B: Bucket> {
 }
 
 impl<B: Bucket> ClickHouseCentral<B> {
+    /// `url` may list several replicas, comma-separated.
     pub fn new(url: &str, db: &str, bucket: Rc<B>, key: &str, secret: &str, timeout_ms: u64) -> Self {
-        let mut ch = ClickHouse::new(url);
-        ch.http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_millis(timeout_ms))
-            .build()
-            .expect("http client");
+        let mk = |u: &str| {
+            let mut ch = ClickHouse::new(u);
+            ch.http = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(timeout_ms))
+                .build()
+                .expect("http client");
+            ch
+        };
+        let replicas: Vec<ClickHouse> = url.split(',').filter(|u| !u.is_empty()).map(mk).collect();
         Self {
-            ch,
+            ch: mk(url.split(',').next().unwrap_or(url)),
+            replicas,
+            cur: Cell::new(0),
+            sync_replica: false,
+            sync_timeout_ms: 5000,
+            switch_hold_ms: 0,
+            switched_at: Cell::new(0),
+            own_last: RefCell::new(Default::default()),
+            no_ddl: false,
+            insert_settings: Vec::new(),
+            syncs: Cell::new(0),
+            sync_errors: Cell::new(0),
+            switches: Cell::new(0),
             db: db.into(),
             bucket,
             s3_key: key.into(),
@@ -148,6 +191,42 @@ impl<B: Bucket> ClickHouseCentral<B> {
             table_override: RefCell::new(HashMap::new()),
             squash: true,
         }
+    }
+
+    /// A query on the current replica. A transport error (no HTTP answer)
+    /// moves the worker to the next replica.
+    async fn q(&self, sql: &str, settings: &[(&str, &str)]) -> Result<String, String> {
+        let i = self.cur.get();
+        let ch = self.replicas.get(i).unwrap_or(&self.ch);
+        let r = ch.query(sql, settings).await;
+        if let Err(e) = &r {
+            if self.replicas.len() > 1 && !e.starts_with("clickhouse ") && self.cur.get() == i {
+                self.cur.set((i + 1) % self.replicas.len());
+                self.switched_at.set(super::mono_ms());
+                self.switches.set(self.switches.get() + 1);
+                self.own_last.borrow_mut().clear();
+                eprintln!("central: {} unreachable ({e}); switching to {}", ch.url, self.replicas[self.cur.get()].url);
+            }
+        }
+        r
+    }
+
+    /// Makes the current replica hold everything committed on any replica
+    /// before now (for a check that doesn't follow our own statement here).
+    async fn sync(&self, fq: &str) -> Result<(), String> {
+        if !self.sync_replica || self.own_last.borrow_mut().remove(fq) {
+            return Ok(());
+        }
+        let since = super::mono_ms().saturating_sub(self.switched_at.get());
+        if self.switches.get() > 0 && since < self.switch_hold_ms {
+            return Err(format!("switched replica {since} ms ago; waiting out statements on the old one"));
+        }
+        self.syncs.set(self.syncs.get() + 1);
+        let t = format!("{:.3}", self.sync_timeout_ms as f64 / 1000.0);
+        self.q(&format!("SYSTEM SYNC REPLICA {fq} LIGHTWEIGHT"), &[("receive_timeout", &t)]).await.map(|_| ()).map_err(|e| {
+            self.sync_errors.set(self.sync_errors.get() + 1);
+            format!("sync replica: {e}")
+        })
     }
 
     pub fn fq(&self, k: &LaneKind) -> String {
@@ -185,8 +264,9 @@ impl<B: Bucket> ClickHouseCentral<B> {
         format!("INSERT INTO {} ({}, content_key) SELECT {}, {ck} FROM {src} WHERE {guard}", self.fq(k), k.cols, k.select)
     }
 
-    async fn run_insert(&self, sql: &str, fence: Fence, token: &str) -> Result<(), String> {
+    async fn run_insert(&self, fq: &str, sql: &str, fence: Fence, token: &str) -> Result<(), String> {
         self.statements.set(self.statements.get() + 1);
+        let at = (self.cur.get(), self.switches.get());
         let qid = format!("otaprs-consumer-{token}-{:08x}", rand::random::<u32>());
         let budget_s = format!("{:.3}", fence.budget_ms as f64 / 1000.0);
         let mut st: Vec<(&str, &str)> = ONE_BLOCK.to_vec();
@@ -210,23 +290,48 @@ impl<B: Bucket> ClickHouseCentral<B> {
             ("timeout_overflow_mode", "throw"),
             ("query_id", &qid),
         ]);
-        match self.ch.query(sql, &st).await {
+        for (k, v) in &self.insert_settings {
+            st.push((k.as_str(), v.as_str()));
+        }
+        let r = match self.q(sql, &st).await {
             Ok(_) => Ok(()),
             Err(e) => {
                 // Ambiguous: make sure it isn't still running before anyone verifies.
+                // (After a switch this reaches the new replica, harmlessly; the
+                // switch hold covers the old one.)
                 let kill = format!("KILL QUERY WHERE query_id = {} SYNC", sq(&qid));
-                let _ = self.ch.query(&kill, &[]).await;
+                let _ = self.q(&kill, &[]).await;
                 Err(e)
             }
+        };
+        // The verify that follows reads the replica this statement ran on:
+        // no sync needed, unless the worker switched meanwhile.
+        if (self.cur.get(), self.switches.get()) == at {
+            let _ = self.own_last.borrow_mut().insert(fq.to_string());
         }
+        r
     }
 }
 
 #[async_trait(?Send)]
 impl<B: Bucket> Central for ClickHouseCentral<B> {
     async fn ensure(&self, k: &LaneKind) -> Result<(), String> {
-        self.ch.query(&format!("CREATE DATABASE IF NOT EXISTS {}", self.db), &[]).await?;
-        self.ch.query(&k.create_table(&self.fq(k)), &[]).await.map(|_| ())
+        if self.no_ddl {
+            // A replicated central's tables are the operator's (ReplicatedMergeTree,
+            // storage policy, TTL): creating the plain one here would silently
+            // make an unreplicated table on this replica.
+            let fq = self.fq(k);
+            let (db, t) = fq.split_once('.').unwrap_or(("default", &fq));
+            let e = self
+                .q(&format!("SELECT engine FROM system.tables WHERE database = {} AND name = {}", sq(db), sq(t)), &[])
+                .await?;
+            return match e.trim() {
+                "" => Err(format!("{fq} does not exist (--no-ddl: create it with the replicated DDL)")),
+                _ => Ok(()),
+            };
+        }
+        self.q(&format!("CREATE DATABASE IF NOT EXISTS {}", self.db), &[]).await?;
+        self.q(&k.create_table(&self.fq(k)), &[]).await.map(|_| ())
     }
 
     async fn counts(&self, k: &LaneKind, contents: &[&str]) -> Result<HashMap<String, u64>, String> {
@@ -234,11 +339,12 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
         if contents.is_empty() || !k.counted {
             return Ok(out);
         }
+        let fq = self.fq(k);
+        self.sync(&fq).await?;
         self.checks.set(self.checks.get() + 1);
         let list: Vec<String> = contents.iter().map(|c| sq(c)).collect();
         let r = self
-            .ch
-            .query(
+            .q(
                 &format!(
                     "SELECT content_key, count() FROM {} WHERE content_key IN ({}) GROUP BY content_key FORMAT TSV",
                     self.fq(k),
@@ -256,7 +362,7 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
 
     async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), String> {
         let sql = self.insert_sql(k, objs, fence);
-        self.run_insert(&sql, fence, token).await
+        self.run_insert(&self.fq(k), &sql, fence, token).await
     }
 
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), String> {
@@ -269,7 +375,7 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
             c = sq(&obj.content),
             f = fence.wall_ms
         );
-        self.run_insert(&sql, fence, token).await
+        self.run_insert(&self.fq(k), &sql, fence, token).await
     }
 }
 

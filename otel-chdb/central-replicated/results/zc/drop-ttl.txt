@@ -1,0 +1,15 @@
+# before
+{'listed_objects': 14247, 'listed_bytes': 330344083, 'orphans': 4126, 'orphan_bytes': 20106820, 'missing': 24} zx active [274, 274, 274, 107231838] {'r1': {'zx/active': [274, 107231838], 'zx/outdated': [274, 82375815]}, 'r2': {'zx/active': [274, 107231838]}}
+# right after DROP PARTITION (t_zc 137 blobs / 25.7 MB)
+{'listed_objects': 14110, 'listed_bytes': 304604356, 'orphans': 4126, 'orphan_bytes': 20106820, 'missing': 24} zx active [137, 137, 137, 81492111] {'r1': {'zx/active': [137, 81492111], 'zx/outdated': [274, 82375815]}, 'r2': {'zx/active': [137, 81492111]}}
+r1: 0
+r2: 0
+r1: 0	1
+r2: 0	1
+# right after TTL DELETE of t_kill (274 blobs / 107 MB)
+{'listed_objects': 14130, 'listed_bytes': 304623816, 'orphans': 4126, 'orphan_bytes': 20106820, 'missing': 24} zx active [10, 10, 10, 9350] {'r1': {'zx/active': [10, 9350], 'zx/outdated': [421, 163878036]}, 'r2': {'zx/active': [10, 9350], 'zx/outdated': [147, 81502221]}}
+# 200 s later
+{'listed_objects': 13719, 'listed_bytes': 140755890, 'orphans': 4126, 'orphan_bytes': 20106820, 'missing': 24} zx active None {'r1': {'zx/outdated': [10, 9350]}, 'r2': {'zx/outdated': [20, 19460]}}
+r1: t_kill	2	0
+r2: t_kill	3	0
+t_zc	1	0

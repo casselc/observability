@@ -1,0 +1,16 @@
+# before
+{'listed_objects': 13719, 'listed_bytes': 140755890, 'orphans': 4126, 'orphan_bytes': 20106820, 'missing': 24} rsoak active [1148, 1148, 1148, 88819778] {'r1': {'rsoak_rsoak1790373757/active': [1148, 88819778], 'rsoak_rsoak1790373757/detached': [528, 393184]}, 'r2': {'rsoak_rsoak1790373757/active': [1148, 88819778], 'rsoak_rsoak1790373757/detached': [7952, 22615984]}}
+r1: 22
+r2: 604
+# after DROP DETACHED PARTITION ALL on both replicas
+{'listed_objects': 5767, 'listed_bytes': 118139906, 'orphans': 4438, 'orphan_bytes': 20249387, 'missing': 0} rsoak active [1148, 1148, 1148, 88819778] {'r1': {'rsoak_rsoak1790373757/active': [1148, 88819778]}, 'r2': {'rsoak_rsoak1790373757/active': [1148, 88819778]}}
+r1: 0
+r2: 0
+r1: otel_traces	912000	4560
+r2: otel_traces	912000	4560
+r1: otel_logs	1049800	5249
+r2: otel_logs	1049800	5249
+r1: otel_metrics_number_points	170800	4270
+r2: otel_metrics_number_points	170800	4270
+checks r1: 1 1 1 1 1 1 1  r2: 1 1 1 1 1 1 1 
+168

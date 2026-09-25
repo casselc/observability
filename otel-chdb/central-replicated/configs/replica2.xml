@@ -1,0 +1,83 @@
+<clickhouse>
+  <!-- Replica r2 of shard 01, cluster "central" (scratchpad/start-replicas.sh).
+       Ports: HTTP 38123, TCP 39000, interserver 39009. -->
+  <logger><level>debug</level><log>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/server.log</log><errorlog>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/server.err.log</errorlog><size>50M</size><count>2</count></logger>
+  <listen_host>127.0.0.1</listen_host>
+  <http_port>38123</http_port>
+  <tcp_port>39000</tcp_port>
+  <interserver_http_port>39009</interserver_http_port>
+  <interserver_http_host>127.0.0.1</interserver_http_host>
+  <path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/</path>
+  <tmp_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/tmp/</tmp_path>
+  <user_files_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/user_files/</user_files_path>
+  <format_schema_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/format_schemas/</format_schema_path>
+  <user_directories><users_xml><path>/home/user/oscope/spike/otel-chdb/central-replicated/configs/users.xml</path></users_xml></user_directories>
+
+  <!-- Shared 4-vCPU / 15 GB box: about 3 GB per replica, small caches and pools. -->
+  <max_server_memory_usage_to_ram_ratio>0.2</max_server_memory_usage_to_ram_ratio>
+  <mark_cache_size>134217728</mark_cache_size>
+  <index_mark_cache_size>67108864</index_mark_cache_size>
+  <uncompressed_cache_size>0</uncompressed_cache_size>
+  <background_fetches_pool_size>4</background_fetches_pool_size>
+  <background_move_pool_size>2</background_move_pool_size>
+  <background_common_pool_size>4</background_common_pool_size>
+  <max_concurrent_queries>100</max_concurrent_queries>
+
+  <zookeeper>
+    <node><host>127.0.0.1</host><port>29181</port></node>
+    <node><host>127.0.0.1</host><port>29182</port></node>
+    <node><host>127.0.0.1</host><port>29183</port></node>
+    <session_timeout_ms>30000</session_timeout_ms>
+    <operation_timeout_ms>10000</operation_timeout_ms>
+  </zookeeper>
+  <macros><cluster>central</cluster><shard>01</shard><replica>r2</replica></macros>
+  <remote_servers>
+    <central>
+      <shard>
+        <internal_replication>true</internal_replication>
+        <replica><host>127.0.0.1</host><port>29000</port></replica>
+        <replica><host>127.0.0.1</host><port>39000</port></replica>
+      </shard>
+    </central>
+  </remote_servers>
+  <distributed_ddl><path>/clickhouse/task_queue/ddl</path></distributed_ddl>
+
+  <storage_configuration>
+    <disks>
+      <!-- Zero-copy: both replicas point at the SAME prefix; a part's blobs are shared. -->
+      <s3_zc>
+        <type>s3</type>
+        <endpoint>http://127.0.0.1:18333/central-zc/zc/</endpoint>
+        <access_key_id>otel</access_key_id>
+        <secret_access_key>otelsecret</secret_access_key>
+        <region>us-east-1</region>
+      </s3_zc>
+      <!-- Baseline: plain replication, each replica keeps its own copy under its own prefix. -->
+      <s3_own>
+        <type>s3</type>
+        <endpoint>http://127.0.0.1:18333/central-zc/own-r2/</endpoint>
+        <access_key_id>otel</access_key_id>
+        <secret_access_key>otelsecret</secret_access_key>
+        <region>us-east-1</region>
+      </s3_own>
+    </disks>
+    <policies>
+      <tiered_zc>
+        <volumes>
+          <hot><disk>default</disk></hot>
+          <cold><disk>s3_zc</disk></cold>
+        </volumes>
+      </tiered_zc>
+      <tiered_own>
+        <volumes>
+          <hot><disk>default</disk></hot>
+          <cold><disk>s3_own</disk></cold>
+        </volumes>
+      </tiered_own>
+    </policies>
+  </storage_configuration>
+
+  <query_log><database>system</database><table>query_log</table><flush_interval_milliseconds>2000</flush_interval_milliseconds><ttl>event_date + INTERVAL 2 DAY DELETE</ttl></query_log>
+  <part_log><database>system</database><table>part_log</table><flush_interval_milliseconds>2000</flush_interval_milliseconds><ttl>event_date + INTERVAL 2 DAY DELETE</ttl></part_log>
+  <zookeeper_log><database>system</database><table>zookeeper_log</table><flush_interval_milliseconds>5000</flush_interval_milliseconds><ttl>event_date + INTERVAL 1 DAY DELETE</ttl></zookeeper_log>
+</clickhouse>

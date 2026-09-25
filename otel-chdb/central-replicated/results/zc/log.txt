@@ -1,0 +1,87 @@
+22:30:30 --- E1: 10 inserts x 30k rows on r1 (hot volume)
+r1: t_zc	default	1	30000	2699744
+t_zc	s3_zc	9	270000	24287747
+r2: t_zc	default	2	60000	5398223
+t_zc	s3_zc	8	240000	21589268
+r1: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+r2: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+  s3 zc	14197	165099529
+  s3 own-r1	353	33273047
+  s3 own-r2	353	33273047
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14197, "listed_bytes": 165099529, "ref_r1": 2341, "ref_r2": 9741, "ref_r1_bytes": 122745355, "ref_r2_bytes": 142264725, "shared": 1981, "only_r1": 360, "only_r2": 7760, "orphans": 4120, "orphan_bytes": 19988807, "missing": 24, "missing_examples": [["zc/avl/xzmokwilhaopdmjyolbyzvvcjssjb", ["store/fba/fba805b1-82df-4db7-bef0-8e264dd70d8f/detached/ignored_20260925_0_112_22/ttl.txt"]], ["zc/btn/xdmmpoidorxhzwpsfdadornijdvoo", ["store/fba/fba805b1-82df-4db7-bef0-8e264dd70d8f/detached/ignored_20260925_0_112_22/checksums.txt"]], ["zc/csd/fesmpseygiwpifgmcaqumybzrurju", ["store/fba/fba805b1-82df-4db7-bef0-8e264dd70d8f/detached/ignored_20260925_0_112_22/metadata_version.txt"]], ["zc/dnu/vdajndakzsyyqkkcsuazbzzhyswbw", ["store/fba/fba805b1-82df-4db7-bef0-8e264dd70d8f/detached/ignored_20260925_0_112_22/primary.cidx"]], ["zc/how/kmvqkrenwtswdsmdewbohrnifylxf", ["store/fba/fba805b1-82df-4db7-bef0-8e264dd70d8f/detached/ignored_20260925_0_112_22/statistics.packed"]]], "active_blobs_r1_r2_shared": [1813, 1789, 1789], "active_bytes_one_copy": 122352171, "by_db_kind": {"r1": {"rsoak_rsoak1790373757/active": [1436, 88968584], "rsoak_rsoak1790373757/detached": [528, 393184], "zexp/active": [161, 9051281], "zx/active": [216, 24332306]}, "r2": {"rsoak_rsoak1790373757/active": [1436, 88968584], "rsoak_rsoak1790373757/detached": [7952, 22615984], "zexp/active": [161, 9051281], "zx/active": [192, 21628876]}}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 706, "listed_bytes": 66546094, "ref_r1": 353, "ref_r2": 353, "ref_r1_bytes": 33273047, "ref_r2_bytes": 33273047, "shared": 0, "only_r1": 353, "only_r2": 353, "orphans": 0, "orphan_bytes": 0, "missing": 0, "missing_examples": [], "active_blobs_r1_r2_shared": [353, 353, 0], "active_bytes_one_copy": 66546094, "by_db_kind": {"r1": {"zexp/active": [137, 8937655], "zx/active": [216, 24335392]}, "r2": {"zexp/active": [137, 8937655], "zx/active": [216, 24335392]}}}
+22:30:50 events E1:
+  r1: S3PutObject 360, S3GetObject 399, S3HeadObject 3, ZooKeeperTransactions 471, ReplicatedPartFetches 3
+  r2: S3PutObject 288, S3GetObject 418, S3HeadObject 5, S3DeleteObjects 8, ZooKeeperTransactions 602, ReplicatedPartFetches 25
+22:30:59 --- E1b
+r1: t_zc	default	1	30000	2699744
+t_zc	s3_zc	9	270000	24287747
+r2: t_zc	default	2	60000	5398223
+t_zc	s3_zc	8	240000	21589268
+r1: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+r2: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+  s3 zc	14197	165099529
+  s3 own-r1	353	33273047
+  s3 own-r2	353	33273047
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14197, "listed_bytes": 165099529, "ref_r1": 2341, "ref_r2": 9741, "ref_r1_bytes": 122745355, "ref_r2_bytes": 142264725, "shared": 1981, "only_r1": 360, "only_r2": 7760, "orphans": 4120, "orphan_bytes": 19988807, "missing": 24, "active_blobs_r1_r2_shared": [1813, 1789, 1789], "active_bytes_one_copy": 122352171, "active_by_db_r1_r2_shared_bytes": {"rsoak_rsoak1790373757": [1436, 1436, 1436, 88968584], "zexp": [161, 161, 161, 9051281], "zx": [216, 192, 192, 24332306]}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 706, "listed_bytes": 66546094, "ref_r1": 353, "ref_r2": 353, "ref_r1_bytes": 33273047, "ref_r2_bytes": 33273047, "shared": 0, "only_r1": 353, "only_r2": 353, "orphans": 0, "orphan_bytes": 0, "missing": 0, "active_blobs_r1_r2_shared": [353, 353, 0], "active_bytes_one_copy": 66546094, "active_by_db_r1_r2_shared_bytes": {"zx": [216, 216, 0, 48670784], "zexp": [137, 137, 0, 17875310]}}
+22:36:29 --- E2: after TTL moves (90 s)
+r1: t_zc	default	1	30000	2699744
+t_zc	s3_zc	9	270000	24287747
+r2: t_zc	default	2	60000	5398223
+t_zc	s3_zc	8	240000	21589268
+r1: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+r2: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+22:36:35 --- E2: after TTL moves (the 0_5 merge entry pins the hot parts)
+r1: t_zc	default	1	30000	2699744
+t_zc	s3_zc	9	270000	24287747
+r2: t_zc	default	2	60000	5398223
+t_zc	s3_zc	8	240000	21589268
+r1: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+r2: t_own	default	1	30000	2699844
+t_own	s3_own	9	270000	24290833
+  s3 zc	14197	165099529
+  s3 own-r1	353	33273047
+  s3 own-r2	353	33273047
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14197, "listed_bytes": 165099529, "ref_r1": 2341, "ref_r2": 9741, "ref_r1_bytes": 122745355, "ref_r2_bytes": 142264725, "shared": 1981, "only_r1": 360, "only_r2": 7760, "orphans": 4120, "orphan_bytes": 19988807, "missing": 24, "active_blobs_r1_r2_shared": [1813, 1789, 1789], "active_bytes_one_copy": 122352171, "active_by_db_r1_r2_shared_bytes": {"rsoak_rsoak1790373757": [1436, 1436, 1436, 88968584], "zx": [216, 192, 192, 24332306], "zexp": [161, 161, 161, 9051281]}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 706, "listed_bytes": 66546094, "ref_r1": 353, "ref_r2": 353, "ref_r1_bytes": 33273047, "ref_r2_bytes": 33273047, "shared": 0, "only_r1": 353, "only_r2": 353, "orphans": 0, "orphan_bytes": 0, "missing": 0, "active_blobs_r1_r2_shared": [353, 353, 0], "active_bytes_one_copy": 66546094, "active_by_db_r1_r2_shared_bytes": {"zx": [216, 216, 0, 48670784], "zexp": [137, 137, 0, 17875310]}}
+22:37:17 --- E3: OPTIMIZE FINAL (merges), after old_parts_lifetime
+r1: t_zc	s3_zc	1	300000	25731640
+r2: t_zc	s3_zc	1	300000	25731640
+r1: t_own	s3_own	1	300000	25748613
+r2: t_own	s3_own	1	300000	25748613
+  s3 zc	14471	206407154
+  s3 own-r1	627	74603815
+  s3 own-r2	507	61085123
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14471, "listed_bytes": 206407154, "ref_r1": 2615, "ref_r2": 10015, "ref_r1_bytes": 164052980, "ref_r2_bytes": 183572350, "shared": 2255, "only_r1": 360, "only_r2": 7760, "orphans": 4120, "orphan_bytes": 19988807, "missing": 24, "active_blobs_r1_r2_shared": [1734, 1734, 1734], "active_bytes_one_copy": 123759592, "active_by_db_r1_r2_shared_bytes": {"rsoak_rsoak1790373757": [1436, 1436, 1436, 88968584], "zexp": [161, 161, 161, 9051281], "zx": [137, 137, 137, 25739727]}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 1134, "listed_bytes": 135688938, "ref_r1": 627, "ref_r2": 507, "ref_r1_bytes": 74603815, "ref_r2_bytes": 61085123, "shared": 0, "only_r1": 627, "only_r2": 507, "orphans": 0, "orphan_bytes": 0, "missing": 0, "active_blobs_r1_r2_shared": [274, 274, 0], "active_bytes_one_copy": 69388714, "active_by_db_r1_r2_shared_bytes": {"zexp": [137, 137, 0, 17875310], "zx": [137, 137, 0, 51513404]}}
+22:37:36 events E2->E3:
+  r1: S3PutObject 548, S3GetObject 1722, ZooKeeperTransactions 136, ReplicatedPartMerges 4
+  r2: S3PutObject 274, S3GetObject 899, S3HeadObject 2, S3DeleteObjects 10, ZooKeeperTransactions 121, ReplicatedPartFetches 2, ReplicatedPartMerges 2
+22:39:18 --- E3b: 90 s later: outdated parts removed?
+r1: t_zc	s3_zc	1	300000	25731640
+r2: t_zc	s3_zc	1	300000	25731640
+r1: t_own	s3_own	1	300000	25748613
+r2: t_own	s3_own	1	300000	25748613
+  s3 zc	14543	206547114
+  s3 own-r1	627	74603815
+  s3 own-r2	507	61085123
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14543, "listed_bytes": 206547114, "ref_r1": 2687, "ref_r2": 10087, "ref_r1_bytes": 164192940, "ref_r2_bytes": 183712310, "shared": 2327, "only_r1": 360, "only_r2": 7760, "orphans": 4120, "orphan_bytes": 19988807, "missing": 24, "active_blobs_r1_r2_shared": [1518, 1518, 1518], "active_bytes_one_copy": 123671443, "active_by_db_r1_r2_shared_bytes": {"rsoak_rsoak1790373757": [1220, 1220, 1220, 88880435], "zexp": [161, 161, 161, 9051281], "zx": [137, 137, 137, 25739727]}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 1134, "listed_bytes": 135688938, "ref_r1": 627, "ref_r2": 507, "ref_r1_bytes": 74603815, "ref_r2_bytes": 61085123, "shared": 0, "only_r1": 627, "only_r2": 507, "orphans": 0, "orphan_bytes": 0, "missing": 0, "active_blobs_r1_r2_shared": [274, 274, 0], "active_bytes_one_copy": 69388714, "active_by_db_r1_r2_shared_bytes": {"zx": [137, 137, 0, 51513404], "zexp": [137, 137, 0, 17875310]}}
+22:45:24 --- E3c: outdated parts removed after the merge (zx.t_zc, zx.t_own each one 300k-row part now)
+r1: t_zc	s3_zc	1	300000	25731640
+r2: t_zc	s3_zc	1	300000	25731640
+r1: t_own	s3_own	1	300000	25748613
+r2: t_own	s3_own	1	300000	25748613
+  s3 zc	15889	416280789
+  s3 own-r1	274	34694357
+  s3 own-r2	274	34694357
+  zc  {"disk": "s3_zc", "prefix": "zc", "listed_objects": 14287, "listed_bytes": 330382713, "ref_r1": 2385, "ref_r2": 9535, "ref_r1_bytes": 287871896, "ref_r2_bytes": 227718881, "shared": 1775, "only_r1": 610, "only_r2": 7760, "orphans": 4166, "orphan_bytes": 20145450, "missing": 24, "active_blobs_r1_r2_shared": [1583, 1583, 1583], "active_bytes_one_copy": 205102897, "active_by_db_r1_r2_shared_bytes": {"rsoak_rsoak1790373757": [1148, 1148, 1148, 88819778], "zx": [274, 274, 274, 107231838], "zexp": [161, 161, 161, 9051281]}}
+  own {"disk": "s3_own", "prefix": "own-{r}", "listed_objects": 548, "listed_bytes": 69388714, "ref_r1": 274, "ref_r2": 274, "ref_r1_bytes": 34694357, "ref_r2_bytes": 34694357, "shared": 0, "only_r1": 274, "only_r2": 274, "orphans": 0, "orphan_bytes": 0, "missing": 0, "active_blobs_r1_r2_shared": [274, 274, 0], "active_bytes_one_copy": 69388714, "active_by_db_r1_r2_shared_bytes": {"zexp": [137, 137, 0, 17875310], "zx": [137, 137, 0, 51513404]}}

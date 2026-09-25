@@ -1,0 +1,4 @@
+# Raw soak logs and per-object ledgers stay local; the summaries are kept.
+results/**/*.log
+results/**/committed.jsonl
+results/**/acked-*.jsonl

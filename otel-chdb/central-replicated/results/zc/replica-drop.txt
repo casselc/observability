@@ -1,0 +1,10 @@
+# before
+{'listed_objects': 14765, 'listed_bytes': 151094304, 'orphans': 4120, 'orphan_bytes': 19988807, 'missing': 24} {'r1': {'rsoak_rsoak1790373584/active': [592, 9745589], 'rsoak_rsoak1790373584/outdated': [96, 432432]}, 'r2': {'rsoak_rsoak1790373584/active': [592, 9745589], 'rsoak_rsoak1790373584/outdated': [96, 432432]}}
+276736
+# after DROP DATABASE on r2 only
+{'listed_objects': 14765, 'listed_bytes': 151094304, 'orphans': 4120, 'orphan_bytes': 19988807, 'missing': 24} {'r1': {'rsoak_rsoak1790373584/active': [592, 9745589], 'rsoak_rsoak1790373584/outdated': [96, 432432]}, 'r2': {}}
+r1 rows: 231040
+r1 check: 20260925_54_54_0	1	 20260925_53_53_0	1	 20260925_37_52_3	1	 
+96200
+# after DROP DATABASE on r1 too
+{'listed_objects': 14077, 'listed_bytes': 140916283, 'orphans': 4120, 'orphan_bytes': 19988807, 'missing': 24} {'r1': {}, 'r2': {}}

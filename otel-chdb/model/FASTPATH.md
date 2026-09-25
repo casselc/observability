@@ -318,7 +318,13 @@ witness "every batch ingested with zero importer inserts" is reached.
 - **`happyPath`** reaches "all ingested, zero importer inserts" and never
   reaches an importer insert.
 
-**Apalache:** APALACHE_RESULT
+**Apalache:** `quint verify --main recommended --invariant safety`: no
+violation within **10 steps** (881 s) or 8 steps (150 s). A 12-step run
+crashed in the tool while another agent's Apalache was running. Ten steps is
+a shallow bound, because the grace alone takes 4 ticks. It reaches a
+committed batch that the importer checks and advances past, but not the
+deeper crash-and-repair stories. Those are covered by simulation and by
+the scenarios.
 
 ### The counterexamples in plain terms
 
@@ -603,8 +609,8 @@ These fall out of this work and apply to the importer-only plan:
 ## 7. Limits of this work
 
 - **The model is small and bounded:** 2 batches × 2 partitions, integer
-  time, and simulation (✓ isn't a proof). Apalache wasn't run on it (see
-  `APALACHE_NOTE`).
+  time, and simulation (✓ isn't a proof). Apalache covers the recommended
+  design only to 10 steps.
 - **Not tested:**
   - a central crash mid-flush [D];
   - replicated or SharedMergeTree central (different dedup storage;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sweep model/fastPath.qnt: every instance x every invariant, by simulation.
 # Usage: SAMPLES=2000 STEPS=40 JOBS=3 ./run_model.sh [instance ...]
-# Output: results/model/<instance>.<invariant>.txt and results/model/summary.tsv
+# Output: results/model/<instance>.<invariant>.txt (raw, not kept) and results/model/summary.tsv
 set -u
 cd "$(dirname "$0")"
 SAMPLES=${SAMPLES:-2000}

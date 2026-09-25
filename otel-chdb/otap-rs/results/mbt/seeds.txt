@@ -1,0 +1,9 @@
+seed 0x1:    Generating 300 traces using `0x1` as random seed ...
+seed 0x1:    [OK] s3inline_design_simulation
+seed 0x1: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.85s
+seed 0x2:    Generating 300 traces using `0x2` as random seed ...
+seed 0x2:    [OK] s3inline_design_simulation
+seed 0x2: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.51s
+seed 0xdeadbeef:    Generating 300 traces using `0xdeadbeef` as random seed ...
+seed 0xdeadbeef:    [OK] s3inline_design_simulation
+seed 0xdeadbeef: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.28s

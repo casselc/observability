@@ -1,0 +1,27 @@
+run f1790308881, 6 requests of 10k spans per scenario
+PASS ambiguous: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: exporter stop: committed=3 resolved_own=3 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=6 puts=6 heads=3 abandoned=0
+  consumer: {"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":6418.84058,"visible_after_ms_p50":5411.025682,"visible_after_ms_p90":6418.84058}
+  proxy PUT lines: 9
+PASS applylate: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: exporter stop: committed=6 resolved_own=0 resent=5 learned_other=0 halted=0 known_skipped=0 encodes=6 puts=11 heads=5 abandoned=0
+  consumer: {"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":11445.121778,"visible_after_ms_p50":10446.641896,"visible_after_ms_p90":11445.121778}
+  proxy PUT lines: 21
+PASS dropped: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: exporter stop: committed=6 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=6 puts=6 heads=0 abandoned=0
+  consumer: {"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":4033.004866,"visible_after_ms_p50":4022.66938,"visible_after_ms_p90":4033.004866}
+  proxy PUT lines: 8
+PASS crash: requests=6 objects=7 tombstones=1 central(rows, distinct content, epochs)=60000 6 1
+  edge: exporter stop: committed=1 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=1 puts=1 heads=0 abandoned=0
+  consumer: {"central_count_distinct_content":"60000 6","dedup_skipped":1,"epochs_closed_by_tombstone":1,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":8868.223393,"visible_after_ms_p50":7863.676664,"visible_after_ms_p90":8868.223393}
+  proxy PUT lines: 9
+PASS zombie: requests=6 objects=6 tombstones=2 central(rows, distinct content, epochs)=60000 6 3
+  edge: exporter stop: committed=4 resolved_own=0 resent=0 learned_other=0 halted=1 known_skipped=0 encodes=5 puts=5 heads=1 abandoned=0
+  edge: exporter stop: committed=2 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=2 puts=2 heads=0 abandoned=0
+  consumer: {"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":1,"inserted":2,"repaired":0,"rows":20000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":221.376179,"visible_after_ms_p50":221.376179,"visible_after_ms_p90":221.376179}
+  proxy PUT lines: 0
+  closed 20260925T040204.294Z-31e3e9f0 at slot 2 (our tombstone)
+  {"central_count_distinct_content":"40000 4","dedup_skipped":0,"epochs_closed_by_tombstone":1,"inserted":4,"repaired":0,"rows":40000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":2352.253466,"visible_after_ms_p50":2349.383932,"visible_after_ms_p90":2352.253466}
+  closed 20260925T040205.928Z-888423c4 at slot 2 (our tombstone)
+  {"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":1,"inserted":2,"repaired":0,"rows":20000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":221.376179,"visible_after_ms_p50":221.376179,"visible_after_ms_p90":221.376179}
+  1790308934.810 otap-s3pq: exporter stop: committed=4 resolved_own=0 resent=0 learned_other=0 halted=1 known_skipped=0 encodes=5 puts=5 heads=1 abandoned=0

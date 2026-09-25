@@ -92,6 +92,11 @@ pub struct S3Config {
     pub ca_bundle: Option<String>,
     /// Force path-style (default: true for a custom endpoint, false for s3://).
     pub path_style: Option<bool>,
+    /// An HTTP(S) proxy for S3 and STS requests (default: $AWS_PROXY_URL).
+    /// object_store does not read HTTPS_PROXY.
+    pub proxy_url: Option<String>,
+    /// Hosts that bypass the proxy (default: $AWS_PROXY_EXCLUDES).
+    pub proxy_excludes: Option<String>,
     #[serde(with = "humantime_serde")]
     pub put_timeout: Duration,
     #[serde(with = "humantime_serde")]
@@ -111,6 +116,8 @@ impl Default for S3Config {
             credential_process: None,
             ca_bundle: None,
             path_style: None,
+            proxy_url: None,
+            proxy_excludes: None,
             put_timeout: Duration::from_secs(10),
             head_timeout: Duration::from_secs(2),
             connect_timeout: Duration::from_secs(5),
@@ -177,6 +184,14 @@ impl S3Config {
             .with_allow_http(custom && endpoint.starts_with("http://"))
             .with_timeout(self.put_timeout)
             .with_connect_timeout(self.connect_timeout);
+        // The builder's client options (from AWS_* env) are replaced below,
+        // so carry the proxy settings over explicitly.
+        if let Some(p) = self.proxy_url.clone().or_else(|| std::env::var("AWS_PROXY_URL").ok()) {
+            co = co.with_proxy_url(p);
+        }
+        if let Some(e) = self.proxy_excludes.clone().or_else(|| std::env::var("AWS_PROXY_EXCLUDES").ok()) {
+            co = co.with_proxy_excludes(e);
+        }
         if let Some(path) = &self.ca_bundle {
             let pem = std::fs::read(path).map_err(|e| err(&format!("{path}: {e}")))?;
             for c in object_store::Certificate::from_pem_bundle(&pem).map_err(|e| err(&e))? {

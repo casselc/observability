@@ -1,0 +1,26 @@
+2026/09/25 04:01:33 PUT #1 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 04:01:33 PUT #2 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000001.parquet inm="*": held 2.5s before forwarding
+2026/09/25 04:01:34 PUT #2: client gave up; the request is still on its way
+2026/09/25 04:01:34 HEAD /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000001.parquet inm="" -> 404
+2026/09/25 04:01:34 PUT #3 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000001.parquet inm="*" -> 200
+2026/09/25 04:01:34 PUT #4 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000002.parquet inm="*": held 2.5s before forwarding
+2026/09/25 04:01:35 PUT #4: client gave up; the request is still on its way
+2026/09/25 04:01:35 HEAD /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000002.parquet inm="" -> 404
+2026/09/25 04:01:35 PUT #5 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 04:01:35 PUT #6 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000003.parquet inm="*": held 2.5s before forwarding
+2026/09/25 04:01:35 PUT #2 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000001.parquet (late) -> 412
+2026/09/25 04:01:36 PUT #6: client gave up; the request is still on its way
+2026/09/25 04:01:36 HEAD /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000003.parquet inm="" -> 404
+2026/09/25 04:01:36 PUT #7 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000003.parquet inm="*" -> 200
+2026/09/25 04:01:36 PUT #8 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000004.parquet inm="*": held 2.5s before forwarding
+2026/09/25 04:01:36 PUT #4 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000002.parquet (late) -> 412
+2026/09/25 04:01:37 PUT #8: client gave up; the request is still on its way
+2026/09/25 04:01:37 HEAD /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000004.parquet inm="" -> 404
+2026/09/25 04:01:37 PUT #9 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 04:01:37 PUT #10 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000005.parquet inm="*": held 2.5s before forwarding
+2026/09/25 04:01:37 PUT #6 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000003.parquet (late) -> 412
+2026/09/25 04:01:38 PUT #10: client gave up; the request is still on its way
+2026/09/25 04:01:38 HEAD /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000005.parquet inm="" -> 404
+2026/09/25 04:01:38 PUT #11 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000005.parquet inm="*" -> 200
+2026/09/25 04:01:38 PUT #8 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000004.parquet (late) -> 412
+2026/09/25 04:01:40 PUT #10 /otel/otap-rs/faults/f1790308881/applylate/traces/20260925T040131.177Z-c126fef4/00000000000000000005.parquet (late) -> 412

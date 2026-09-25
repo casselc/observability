@@ -1,7 +1,8 @@
 // otlpsend posts OTLP/HTTP protobuf requests read from files, the way a
 // collector's exporter with a persistent queue and retry_on_failure
 // (max_elapsed_time: 0) behaves: each request is resent, with identical
-// bytes, until it gets a 2xx. It prints one JSON line per request (attempts,
+// bytes, until it gets a 2xx; a non-retryable status (OTLP/HTTP: anything
+// but 429, 502, 503, 504) drops it. It prints one JSON line per request (attempts,
 // latency to the final 2xx) and a summary.
 //
 //	otlpsend -url http://127.0.0.1:4318 -signal traces -file traces-testgen-10000.pb -n 30 [-timeout 5s]
@@ -28,6 +29,7 @@ type reqResult struct {
 	SentNS   int64   `json:"sent_ns"`
 	AckMS    float64 `json:"ack_ms"`
 	LastErr  string  `json:"last_err,omitempty"`
+	Dropped  bool    `json:"dropped,omitempty"`
 }
 
 func main() {
@@ -69,6 +71,12 @@ func main() {
 					break
 				}
 				err = fmt.Errorf("HTTP %d: %.200s", resp.StatusCode, body)
+				// OTLP/HTTP: only 429, 502, 503 and 504 are retryable.
+				if c := resp.StatusCode; c != 429 && c != 502 && c != 503 && c != 504 {
+					r.LastErr, r.Dropped = err.Error(), true
+					log.Printf("request %d attempt %d: %v (permanent: dropped)", i, r.Attempts, err)
+					break
+				}
 			}
 			r.LastErr = err.Error()
 			log.Printf("request %d attempt %d: %v", i, r.Attempts, err)

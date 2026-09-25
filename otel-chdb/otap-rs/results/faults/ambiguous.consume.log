@@ -1,0 +1,7 @@
+ingest 20260925T040121.862Z-b1ca7392/0 content=2aa717f4c1bd104b2b51f0fb54144499 rows=10000 visible_after_ms=6418.8
+ingest 20260925T040121.862Z-b1ca7392/1 content=fb93cb570624bee094d3cec65c10b449 rows=10000 visible_after_ms=6404.0
+ingest 20260925T040121.862Z-b1ca7392/2 content=74d375a90a28cccdfa0f888342b9000e rows=10000 visible_after_ms=5408.1
+ingest 20260925T040121.862Z-b1ca7392/3 content=7b510fd0283014a0d6ecf61688ebf33a rows=10000 visible_after_ms=5411.0
+ingest 20260925T040121.862Z-b1ca7392/4 content=bf5f461779544393e63b5af6cc1f8186 rows=10000 visible_after_ms=4411.8
+ingest 20260925T040121.862Z-b1ca7392/5 content=c96bf8bd99b4e341953516692b1c63e2 rows=10000 visible_after_ms=4405.7
+{"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":0,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":6418.84058,"visible_after_ms_p50":5411.025682,"visible_after_ms_p90":6418.84058}

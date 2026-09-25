@@ -1,0 +1,9 @@
+ingest 20260925T040152.508Z-c2501206/0 content=2aa717f4c1bd104b2b51f0fb54144499 rows=10000 visible_after_ms=8868.2
+ingest 20260925T040152.508Z-c2501206/1 content=fb93cb570624bee094d3cec65c10b449 rows=10000 visible_after_ms=8865.9
+ingest 20260925T040152.508Z-c2501206/2 content=74d375a90a28cccdfa0f888342b9000e rows=10000 visible_after_ms=7863.7
+ingest 20260925T040152.508Z-c2501206/3 content=7b510fd0283014a0d6ecf61688ebf33a rows=10000 visible_after_ms=7830.2
+ingest 20260925T040152.508Z-c2501206/4 content=bf5f461779544393e63b5af6cc1f8186 rows=10000 visible_after_ms=6825.0
+ingest 20260925T040152.508Z-c2501206/5 content=c96bf8bd99b4e341953516692b1c63e2 rows=10000 visible_after_ms=6819.4
+closed 20260925T040152.508Z-c2501206 at slot 6 (our tombstone)
+skip   20260925T040200.024Z-eb06f0e7/0 content=c96bf8bd99b4e341953516692b1c63e2: already in central (a copy from another epoch)
+{"central_count_distinct_content":"60000 6","dedup_skipped":1,"epochs_closed_by_tombstone":1,"inserted":6,"repaired":0,"rows":60000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":8868.223393,"visible_after_ms_p50":7863.676664,"visible_after_ms_p90":8868.223393}

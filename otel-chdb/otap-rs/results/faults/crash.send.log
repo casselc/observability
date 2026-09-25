@@ -1,0 +1,10 @@
+2026/09/25 04:01:57 request 5 attempt 1: Post "http://127.0.0.1:14318/v1/traces": EOF
+2026/09/25 04:01:57 request 5 attempt 2: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:58 request 5 attempt 3: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:58 request 5 attempt 4: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:58 request 5 attempt 5: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:59 request 5 attempt 6: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:59 request 5 attempt 7: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:59 request 5 attempt 8: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+2026/09/25 04:01:59 request 5 attempt 9: Post "http://127.0.0.1:14318/v1/traces": dial tcp 127.0.0.1:14318: connect: connection refused
+{"attempts":15,"elapsed_s":5.764674441,"max_ack_ms":3440.953,"median_ack_ms":1054.092,"min_ack_ms":58.176,"requests":6,"summary":true}

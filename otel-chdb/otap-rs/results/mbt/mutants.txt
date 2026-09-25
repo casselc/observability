@@ -1,0 +1,65 @@
+### OTAPRS_MUTANT=none QUINT_SEED=0x5eed
+== Running model based tests for s3inline_design_simulation
+   Generating 300 traces using `0x5eed` as random seed ...
+   [OK] s3inline_design_simulation
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.06s
+
+### OTAPRS_MUTANT=retry_new_key QUINT_SEED=0x5eed
+== Running model based tests for s3inline_design_simulation
+   Generating 300 traces using `0x5eed` as random seed ...
+   [FAIL] s3inline_design_simulation 
+   Reproduce this error with `QUINT_SEED=0x5eed`
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.46s
+   [Trace 1]
+   [Step 36]
+   Action taken: timeout
+   Nondet picks:
+   + e: 3
+   + p: 2
+   + z: false
+   Next state:
+   (diff, specification vs implementation:)
+   -            phase: WUnresolved,
+   -            next_slot: 1,
+   +            phase: WReady,
+   +            next_slot: 2,
+
+### OTAPRS_MUTANT=no_halt QUINT_SEED=0x5eed
+== Running model based tests for s3inline_design_simulation
+   Generating 300 traces using `0x5eed` as random seed ...
+   [FAIL] s3inline_design_simulation 
+   Reproduce this error with `QUINT_SEED=0x5eed`
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.30s
+   [Trace 4]
+   [Step 58]
+   Action taken: receive
+   Nondet picks:
+   + e: 2
+   + p: 1
+   + r: { entry: { epoch: 2, kind: Data, payload: 1 }, epoch: 2, ok: false, slot: 1 }
+   + z: false
+   Next state:
+   (diff, specification vs implementation:)
+   -            phase: WHalted,
+   -            next_slot: 1,
+   +            phase: WReady,
+   +            next_slot: 2,
+
+### OTAPRS_MUTANT=no_check_central QUINT_SEED=0x5eed
+== Running model based tests for s3inline_design_simulation
+   Generating 300 traces using `0x5eed` as random seed ...
+   [FAIL] s3inline_design_simulation 
+   Reproduce this error with `QUINT_SEED=0x5eed`
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.23s
+   [Trace 2]
+   [Step 39]
+   Action taken: cCheck
+   Nondet picks:
+   + e: 3
+   + p: 2
+   + z: false
+   Next state:
+   (diff, specification vs implementation:)
+   -        saw_present: true,
+   +        saw_present: false,
+

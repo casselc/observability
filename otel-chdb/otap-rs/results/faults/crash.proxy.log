@@ -1,0 +1,12 @@
+2026/09/25 04:01:54 PUT #1 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000000.parquet inm="*" -> 200
+2026/09/25 04:01:54 PUT #2 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000001.parquet inm="*" -> 200 (applied; answer held 8s)
+2026/09/25 04:01:55 PUT #2: client gave up before the answer
+2026/09/25 04:01:55 HEAD /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000001.parquet inm="" -> 200
+2026/09/25 04:01:55 PUT #3 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000002.parquet inm="*" -> 200
+2026/09/25 04:01:55 PUT #4 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000003.parquet inm="*" -> 200 (applied; answer held 8s)
+2026/09/25 04:01:56 PUT #4: client gave up before the answer
+2026/09/25 04:01:56 HEAD /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000003.parquet inm="" -> 200
+2026/09/25 04:01:56 PUT #5 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000004.parquet inm="*" -> 200
+2026/09/25 04:01:56 PUT #6 /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040152.508Z-c2501206/00000000000000000005.parquet inm="*" -> 200 (applied; answer held 8s)
+2026/09/25 04:01:57 PUT #6: client gave up before the answer
+2026/09/25 04:02:00 PUT /otel/otap-rs/faults/f1790308881/crash/traces/20260925T040200.024Z-eb06f0e7/00000000000000000000.parquet inm="*" -> 200

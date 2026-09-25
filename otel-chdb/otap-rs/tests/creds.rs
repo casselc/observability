@@ -130,15 +130,24 @@ async fn credential_modes() {
     let r = roundtrip("ca-sslcertfile", keys(&tls)).await;
     run("private CA via SSL_CERT_FILE", r, stub_tail(&dir, n), true);
 
-    // 3. EKS IRSA: web identity token file + role ARN, STS at the stand-in.
+    // 3. EKS IRSA: web identity token file + role ARN. object_store only
+    //    talks https to STS (it refuses AWS_ENDPOINT_URL_STS=http://...), so
+    //    the default https://sts.us-east-1.amazonaws.com is reached through
+    //    the stand-in's CONNECT proxy, which terminates TLS with a
+    //    certificate from ca.pem and answers as STS; S3 bypasses the proxy.
     clear_env();
     set("AWS_ROLE_ARN", "arn:aws:iam::111122223333:role/otel-edge");
     set("AWS_WEB_IDENTITY_TOKEN_FILE", &token_file);
-    set("AWS_ENDPOINT_URL_STS", "http://127.0.0.1:18901");
     set("AWS_REGION", "us-east-1");
+    set("AWS_PROXY_URL", "http://127.0.0.1:18902");
+    set("AWS_PROXY_EXCLUDES", "127.0.0.1");
     let n = stub_lines(&dir);
-    let r = roundtrip("irsa", S3Config { url: plain.clone(), ..Default::default() }).await;
-    run("EKS IRSA (AssumeRoleWithWebIdentity)", r, stub_tail(&dir, n), true);
+    let r = roundtrip("irsa", S3Config { url: plain.clone(), ca_bundle: Some(ca.clone()), ..Default::default() }).await;
+    run("EKS IRSA (AssumeRoleWithWebIdentity via https STS)", r, stub_tail(&dir, n), true);
+    unsafe {
+        std::env::remove_var("AWS_PROXY_URL");
+        std::env::remove_var("AWS_PROXY_EXCLUDES");
+    }
 
     // 4. EKS Pod Identity: container credentials, full URI + token file.
     clear_env();

@@ -1,0 +1,45 @@
+PASS direct traces testgen-3000 count+hash (structure): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS direct traces testgen-3000 count+hash (inferred): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS direct traces testgen-3000 inferred schema
+PASS direct traces testgen-3000 rows in rust not in ref: 0
+PASS direct traces testgen-3000 rows in ref not in rust: 0
+PASS direct traces testgen-3000 envelope: producer=edge-1 epoch=20260925T043826.087Z-7eb8b575 batch_id=0 ordinals 0..2999 schema=1
+PASS direct traces testgen-3000 central insert: rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS direct traces nasty-700 count+hash (structure): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS direct traces nasty-700 count+hash (inferred): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS direct traces nasty-700 inferred schema
+PASS direct traces nasty-700 rows in rust not in ref: 0
+PASS direct traces nasty-700 rows in ref not in rust: 0
+PASS direct traces nasty-700 envelope: producer=edge-1 epoch=20260925T043826.087Z-7eb8b575 batch_id=1 ordinals 0..699 schema=1
+PASS direct traces nasty-700 central insert: rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS direct logs testgen-3000 count+hash (structure): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS direct logs testgen-3000 count+hash (inferred): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS direct logs testgen-3000 inferred schema
+PASS direct logs testgen-3000 rows in rust not in ref: 0
+PASS direct logs testgen-3000 rows in ref not in rust: 0
+PASS direct logs testgen-3000 envelope: producer=edge-1 epoch=20260925T043826.087Z-72de927e batch_id=0 ordinals 0..2999 schema=1
+PASS direct logs testgen-3000 central insert: rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS direct logs nasty-700 count+hash (structure): rust 700	169455814989046443 ref 700	169455814989046443
+PASS direct logs nasty-700 count+hash (inferred): rust 700	169455814989046443 ref 700	169455814989046443
+PASS direct logs nasty-700 inferred schema
+PASS direct logs nasty-700 rows in rust not in ref: 0
+PASS direct logs nasty-700 rows in ref not in rust: 0
+PASS direct logs nasty-700 envelope: producer=edge-1 epoch=20260925T043826.087Z-72de927e batch_id=1 ordinals 0..699 schema=1
+PASS direct logs nasty-700 central insert: rust 700	169455814989046443 ref 700	169455814989046443
+PASS via_otap traces testgen-3000 count+hash (structure): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS via_otap traces testgen-3000 count+hash (inferred): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS via_otap traces testgen-3000 inferred schema
+PASS via_otap traces testgen-3000 rows in rust not in ref: 0
+PASS via_otap traces testgen-3000 rows in ref not in rust: 0
+PASS via_otap traces testgen-3000 envelope: producer=edge-1 epoch=20260925T043830.685Z-5544a27e batch_id=0 ordinals 0..2999 schema=1
+PASS via_otap traces testgen-3000 central insert: rust 3000	2144364149278328350 ref 3000	2144364149278328350
+FAIL via_otap traces nasty-700: no object (the request was rejected)
+PASS via_otap logs testgen-3000 count+hash (structure): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS via_otap logs testgen-3000 count+hash (inferred): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS via_otap logs testgen-3000 inferred schema
+PASS via_otap logs testgen-3000 rows in rust not in ref: 0
+PASS via_otap logs testgen-3000 rows in ref not in rust: 0
+PASS via_otap logs testgen-3000 envelope: producer=edge-1 epoch=20260925T043830.685Z-eb7d6888 batch_id=0 ordinals 0..2999 schema=1
+PASS via_otap logs testgen-3000 central insert: rust 3000	5106966708203243416 ref 3000	5106966708203243416
+FAIL via_otap logs nasty-700: no object (the request was rejected)
+2 failed

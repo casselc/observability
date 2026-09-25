@@ -69,7 +69,7 @@ def main():
     base = f"otap-rs/central/{run}"
     env = dict(os.environ, CHDB_TEST_S3=S3, CHDB_TEST_S3_KEY=KEY, CHDB_TEST_S3_SECRET=SECRET)
     layouts = {}
-    for sig in ["traces", "logs"]:
+    for sig in os.environ.get("SIGS", "traces,logs").split(","):
         f = f"{data}/{sig}-testgen-10000.pb"
         for name, extra in [("rust (TraceId bloom)", []), ("rust, no bloom", ["--bloom", "none"])]:
             tag = "rust" if not extra else "rust-nobloom"
@@ -98,7 +98,7 @@ def main():
             ch(f"CREATE TABLE {tbl} {cc.CENTRAL[sig]} SETTINGS non_replicated_deduplication_window = 1000")
             n_rows, _ = ch(f"SELECT count() FROM s3('{url(10)}', '{KEY}', '{SECRET}', 'Parquet', '{st}')")
             assert n_rows == "100000", (name, n_rows)
-            for n in [1, 10]:
+            for n in [int(x) for x in os.environ.get("NS", "1,10").split(",")]:
                 for sname, s in [("default", default), ("single-thread", single)]:
                     xs = []
                     for _ in range(REPS):

@@ -1,0 +1,10 @@
+ingest 20260925T040204.294Z-31e3e9f0/0 content=593794af7cd83f4982395553a19e9c77 rows=10000 visible_after_ms=2349.4
+ingest 20260925T040204.294Z-31e3e9f0/1 content=f2f61a08448c3c15641fb7733598bbbd rows=10000 visible_after_ms=2352.3
+ingest 20260925T040205.928Z-888423c4/0 content=d1001132dc79644c6c8ee175c32bf6f9 rows=10000 visible_after_ms=323.9
+ingest 20260925T040205.928Z-888423c4/1 content=6fb456b6ee6e243281a4b4d1310f51a5 rows=10000 visible_after_ms=314.6
+closed 20260925T040204.294Z-31e3e9f0 at slot 2 (our tombstone)
+{"central_count_distinct_content":"40000 4","dedup_skipped":0,"epochs_closed_by_tombstone":1,"inserted":4,"repaired":0,"rows":40000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":2352.253466,"visible_after_ms_p50":2349.383932,"visible_after_ms_p90":2352.253466}
+ingest 20260925T040211.486Z-b673e127/0 content=b4a01456448a1c90169e569e73135db7 rows=10000 visible_after_ms=221.4
+ingest 20260925T040211.486Z-b673e127/1 content=bcfd9079ec5fd6841869cf737898eb7c rows=10000 visible_after_ms=189.5
+closed 20260925T040205.928Z-888423c4 at slot 2 (our tombstone)
+{"central_count_distinct_content":"60000 6","dedup_skipped":0,"epochs_closed_by_tombstone":1,"inserted":2,"repaired":0,"rows":20000,"summary":true,"tombstones_lost_to_data":0,"visible_after_ms_max":221.376179,"visible_after_ms_p50":221.376179,"visible_after_ms_p90":221.376179}

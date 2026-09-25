@@ -1,0 +1,3 @@
+{"attempts":2,"elapsed_s":0.114409987,"max_ack_ms":63.2,"median_ack_ms":63.2,"min_ack_ms":51.165,"requests":2,"summary":true}
+{"attempts":2,"elapsed_s":0.130251393,"max_ack_ms":70.496,"median_ack_ms":70.496,"min_ack_ms":59.743,"requests":2,"summary":true}
+{"attempts":2,"elapsed_s":0.142238699,"max_ack_ms":83.715,"median_ack_ms":83.715,"min_ack_ms":58.518,"requests":2,"summary":true}

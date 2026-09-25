@@ -28,7 +28,7 @@ use otel_arrow_dfe_config::SignalType;
 use otel_arrow_dfe_config::node::NodeUserConfig;
 use otel_arrow_dfe_engine::config::ExporterConfig;
 use otel_arrow_dfe_engine::context::PipelineContext;
-use otel_arrow_dfe_engine::control::{AckMsg, NackMsg, NodeControlMsg};
+use otel_arrow_dfe_engine::control::{AckMsg, NackCause, NackMsg, NodeControlMsg};
 use otel_arrow_dfe_engine::error::{Error, ExporterErrorKind};
 use otel_arrow_dfe_engine::exporter::ExporterWrapper;
 use otel_arrow_dfe_engine::local::exporter::{EffectHandler, Exporter};
@@ -276,7 +276,10 @@ impl Exporter<OtapPdata> for S3pqExporter {
             async move {
                 match res {
                     Ok(_) => eh.notify_ack(AckMsg::new(pdata)).await,
-                    Err(AppendError::Encode(e)) => eh.notify_nack(NackMsg::new_permanent(e, pdata)).await,
+                    // The data can't be encoded: a client error (OTLP 400 / INVALID_ARGUMENT).
+                    Err(AppendError::Encode(e)) => {
+                        eh.notify_nack(NackMsg::new_permanent_with_cause(e, pdata, NackCause::Refused)).await
+                    }
                     Err(e @ AppendError::Unresolved(_)) => eh.notify_nack(NackMsg::new(e.to_string(), pdata)).await,
                 }
             }
@@ -321,7 +324,9 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         Ok(flat) => in_flight.push(commit(sh.clone(), pdata, flat, received_ns)),
                         Err(e) => {
                             crate::log(&format!("rejecting request: {e}"));
-                            effect_handler.notify_nack(NackMsg::new_permanent(e, pdata)).await?;
+                            effect_handler
+                                .notify_nack(NackMsg::new_permanent_with_cause(e, pdata, NackCause::Refused))
+                                .await?;
                         }
                     }
                 }

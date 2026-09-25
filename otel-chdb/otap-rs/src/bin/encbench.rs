@@ -82,6 +82,9 @@ fn main() {
     let batches: usize = arg(&args, "--batches").map_or(30, |s| s.parse().unwrap());
     let warmup: usize = arg(&args, "--warmup").map_or(3, |s| s.parse().unwrap());
     let via_otap = arg(&args, "--path").as_deref() == Some("via_otap");
+    // --path otap: the input is already OTAP (as from an OTAP receiver): the
+    // records are built once, outside the timed loop, and walked per batch.
+    let otap_input = arg(&args, "--path").as_deref() == Some("otap");
     let format = match arg(&args, "--format").as_deref() {
         Some("arrow") => Format::Arrow,
         _ => Format::Parquet,
@@ -100,6 +103,13 @@ fn main() {
         _ => {}
     }
     let body = bytes::Bytes::from(std::fs::read(&file).expect("read --file"));
+    let prebuilt: Option<OtapArrowRecords> = otap_input.then(|| {
+        let p = match signal {
+            Signal::Traces => OtlpProtoBytes::ExportTracesRequest(body.clone()),
+            Signal::Logs => OtlpProtoBytes::ExportLogsRequest(body.clone()),
+        };
+        p.try_into_with_default().expect("otlp -> otap")
+    });
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let store = arg(&args, "--s3").map(|url| {
         let cfg = S3Config {
@@ -114,7 +124,7 @@ fn main() {
     let label = arg(&args, "--label").unwrap_or_else(|| {
         format!(
             "rust-{}{}{}",
-            if via_otap { "via-otap" } else { "direct" },
+            if via_otap { "via-otap" } else if otap_input { "otap-input" } else { "direct" },
             if format == Format::Arrow { "-arrow" } else { "" },
             match arg(&args, "--bloom").as_deref() {
                 Some("none") => "-nobloom",
@@ -147,9 +157,9 @@ fn main() {
             }
             r
         });
-        let mut flat = match &recs {
-            Some(r) => enc.flatten(&Input::Otap(signal, r)).expect("flatten"),
-            None => enc.flatten(&Input::Otlp(signal, &body)).expect("flatten"),
+        let mut flat = match (&recs, &prebuilt) {
+            (Some(r), _) | (None, Some(r)) => enc.flatten(&Input::Otap(signal, r)).expect("flatten"),
+            (None, None) => enc.flatten(&Input::Otlp(signal, &body)).expect("flatten"),
         };
         if via_otap {
             flat.content = otap_s3pq::batch::content_hash_otlp(signal, &body);

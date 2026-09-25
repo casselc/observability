@@ -40,3 +40,5 @@ tokenOnlyNoFastPath	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (789ms a
 tokenOnly	onlyCommittedIngested	ok	127s	
 tokenOnlyNoFastPath	importerNeverInserts	VIOLATED	13s	Found an issue (476ms at 6 traces/second)
 tokenOnly	noLostBehindCheckpoint	ok	102s	
+tokenOnlyNoFastPath	noLostBehindCheckpoint	ok	96s	
+tokenOnlyNoFastPath	onlyCommittedIngested	ok	114s	

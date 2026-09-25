@@ -430,7 +430,117 @@ Results are in Section 5.
 
 ## 5. Model results
 
-MODEL_RESULTS_PLACEHOLDER
+`quint run --backend typescript`, 120 steps, seed `0x5eed`. **✓** means no
+violation was found in that sampling, which is not a proof. **✗** means a
+counterexample was found; the number is how many traces it took. Commands
+and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
+`which.sh`).
+
+**The design** (`s3NativeDesign`, hostile environment):
+
+- The environment: ambiguous, late and lost appends; zombie writers; a clock
+  that steps back; worker crashes and lease takeovers; token eviction.
+- All 13 invariants hold together over **3,000 traces** (7 min), and again
+  over a second 3,000 with seed `0x1`. That second run was on an earlier
+  revision without the `SHARED_LOG` flag, which is inert when it is true.
+- Every witness is reached. Per 3,000 traces:
+
+  | Witness | Traces |
+  | --- | --- |
+  | committed | 1,800 |
+  | sealed | 1,951 |
+  | fenced | 2,913 |
+  | zombie halted | 185 |
+  | ambiguous append resolved as ours | 2,548 |
+  | resend | 2,664 |
+  | known payload skipped after a restart | 5 |
+  | ingested | 1,401 |
+  | dedup hit | 4 |
+  | checkpoint CAS lost | 17 |
+  | GC delete | 1,926 |
+  | orphan swept | 1,323 |
+  | reader read | 833 |
+  | commit after a clock step back | 1,800 |
+  | commit after a restart | 1,569 |
+  | **every payload committed** | **201** |
+  | **every payload ingested** | **85** |
+  | **every generation closed** | **35** |
+
+- Apalache: APALACHE_PLACEHOLDER
+
+**Mutations.** Each flips one design choice:
+
+| Instance | What changes | Violated (traces to find it) |
+| --- | --- | --- |
+| `nonConditionalLog` | Plain PUT for log slots | `noWriteFromFencedWriter` (3), `noCommitLost` (39), `logNoDuplicatePayload` (188) |
+| `leaseWithoutFencing` | Per-epoch logs; a CAS'd lease is the only exclusion | `noWriteFromFencedWriter` (4), `logNoDuplicatePayload` (19) |
+| `noFenceEntry` | Shared log, but no fence entry | none: ✓ all 13 over 3,000. See below. |
+| `restartReusesTable` (PBT 1) | Namespace without the epoch; local tables persist | `nsSingleWriter` (7), `commitImpliesData` (39) |
+| `genFromClock` (PBT 2) | The generation is read from the clock at push | `generationsSealedOrPending` (3), `sealMatchesManifests` (8), `sealOnce` (48) |
+| `noSealRetry` (PBT 3) | A timed-out seal is abandoned | `generationsSealedOrPending` (4) |
+| `blindCheckpoint` | Checkpoint without If-Match | not found by simulation: ✓ over 3,000 × 120 steps and 5,000 × 150 (seed `0x2`), because the interleaving is rare. The scenario `blindCheckpointTest.zombieCheckpointRegressesTest` shows `gcKeepsLiveData` violated: a zombie moves the checkpoint back below data GC has deleted. |
+| `gcBlindWrite` | GC state written back blindly | `gcKeepsLiveData` (220), `noReadOfDeleted` (273) |
+| `gcIgnoresLeases` | GC horizon = the checkpoint | `gcKeepsLiveData` (180), `noReadOfDeleted` (206) |
+| `noCheckCentral` | No check before insert | `payloadIngestedAtMostOnce` (789): F4 returns |
+| `unboundedZombieInsert` | A worker inserts after losing its lease; the window is evicted | `payloadIngestedAtMostOnce` (9), `noReadOfDeleted` (8: the zombie reads data GC already removed) |
+| `unboundedZombieTokenHolds` | The same, with no other traffic | `payloadIngestedAtMostOnce` ✓ over 3,000: the content token covers it; `noReadOfDeleted` (29) |
+
+**Two model findings:**
+
+1. **Fencing comes from the collision, not the fence entry.** A zombie's
+   next append targets a slot at or below its successor's first entry, and
+   reads what is there. A newer epoch halts it. A writer that collides with
+   a commit of the same content acknowledges it instead of committing again.
+   So `noFenceEntry` keeps every safety property. The fence entry buys:
+   - a complete replay at startup, so no append-and-collide is needed to
+     learn old commits;
+   - the zombie halting on its next append;
+   - closing the dead epoch's generations. Without it they stay open, and
+     their orphans are never swept. That is liveness, which a safety run
+     can't see (`noFenceEntryTest.collisionStillFencesTest` shows the open
+     generation).
+
+   `leaseWithoutFencing` isolates the classic failure: when epochs don't
+   share keys, a lease alone doesn't stop a zombie.
+2. **The consumer's time bound protects GC too.** A worker that inserts
+   after losing its lease can read data GC has already deleted
+   (`noReadOfDeleted` in both unbounded-zombie instances). That's harmless
+   for the data, because the INSERT fails, but GC's horizon should trail the
+   checkpoint by at least one lease TTL.
+
+**Deterministic scenarios** (`quint test s3Native_test.qnt --main <module>
+--backend typescript`): 24 tests, all passing.
+
+- `designTest` (14): F1 ambiguous and late appends; F1 across a crash; the
+  zombie fenced; a late zombie request losing; PBT 1–3; the fence closing
+  abandoned generations; F4 with the check; a zombie checkpoint losing its
+  CAS; a reader lease stopping GC; an orphan swept; every payload committed
+  and ingested.
+- One or two per mutation, each showing its counterexample:
+  - `restartReusesTableTest`
+  - `genFromClockTest`
+  - `noSealRetryTest`
+  - `nonConditionalLogTest`
+  - `leaseWithoutFencingTest`
+  - `noFenceEntryTest`
+  - `blindCheckpointTest`
+  - `gcBlindWriteTest`
+  - `unboundedZombieInsertTest` (two, including the within-window control)
+  - `noCheckCentralTest`
+
+**Caveats:**
+
+- Small domains and bounded runs, as with edgePublish.
+- One push at a time per writer, so no group commit.
+- Log truncation, lease expiry, reader lease expiry and DETACH are not
+  modelled.
+- The central check-before-insert assumes read-your-writes (on a replicated
+  central, `select_sequential_consistency`).
+- The consumer's time bound is an assumption, encoded as
+  `ZOMBIE_INSERT_BOUNDED`.
+- SeaweedFS's multipart race is outside the model, which assumes atomic
+  single PUTs, as tested.
+
 
 ## 6. What it closes
 

@@ -231,6 +231,9 @@ After the switch the correctness test (below) passes again, `-race` clean,
 and per-batch cost is unchanged within noise: 71.6–73.7 ms CPU against
 72.4–74.3 ms with minio-go, the same 2 PUTs per batch, about 240 more Go
 allocations and 4 MB more resident at start (`compare/results/s3client.md`).
+Per PUT the SDK makes about 500 allocations regardless of settings, and over
+https it already sends `UNSIGNED-PAYLOAD`, so no body SHA-256 is computed;
+`compare/s3put_bench_test.go` measures both clients and a bare SigV4 floor.
 
 ### Size, startup, portability [M]
 

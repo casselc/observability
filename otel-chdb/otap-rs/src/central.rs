@@ -166,6 +166,103 @@ SETTINGS non_replicated_deduplication_window = 1000"
     )
 }
 
+// ---- metrics layout B (../metrics-layout/sql/b_tables.sql) -------------------------
+//
+// The objects' structures and the select lists come from `series.rs`
+// (`structure`, `insert_select`); these are the consumer's central tables.
+
+/// A points table (`metrics_number_points`, `metrics_*_points`) for an
+/// object `structure` from `series::structure`: the same columns with
+/// central types (LowCardinality names, B's codecs), plus `content_key` and
+/// the content projection, partitioned by the batch-constant
+/// `toDate(received_at)`.
+pub fn points_create_table(table: &str, structure: &str) -> String {
+    let mut cols = Vec::new();
+    for c in split_top(structure) {
+        let c = c.trim();
+        let (name, ty) = c.split_once(' ').unwrap_or((c, "String"));
+        let bare = name.trim_matches('`');
+        let ty = match (bare, ty) {
+            ("MetricName" | "ServiceName" | "producer_id" | "producer_epoch", _) => "LowCardinality(String)".to_string(),
+            (_, "Array(Map(String, String))") => "Array(Map(LowCardinality(String), String))".to_string(),
+            (_, t) => t.to_string(),
+        };
+        let codec = match bare {
+            "TimeUnix" | "received_at" => "DoubleDelta, ZSTD(1)",
+            "StartTimeUnix" => "Delta(4), ZSTD(1)",
+            "batch_id" | "Sum" => "Delta, ZSTD(1)",
+            "Count" => "DoubleDelta, ZSTD(1)",
+            _ => "ZSTD(1)",
+        };
+        cols.push(format!("    {name} {ty} CODEC({codec})"));
+    }
+    format!(
+        "CREATE TABLE IF NOT EXISTS {table}
+(
+{},
+    content_key LowCardinality(String),
+    PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
+)
+ENGINE = MergeTree
+PARTITION BY toDate(received_at)
+ORDER BY (MetricName, ServiceName, series_id, TimeUnix)
+SETTINGS non_replicated_deduplication_window = 1000, index_granularity = 8192",
+        cols.join(",\n")
+    )
+}
+
+/// Splits a structure at its top-level commas.
+fn split_top(s: &str) -> Vec<&str> {
+    let (mut out, mut depth, mut start, mut tick) = (Vec::new(), 0i32, 0, false);
+    for (i, c) in s.char_indices() {
+        match c {
+            '`' => tick = !tick,
+            '(' if !tick => depth += 1,
+            ')' if !tick => depth -= 1,
+            ',' if !tick && depth == 0 => {
+                out.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&s[start..]);
+    out
+}
+
+/// The series table: an AggregatingMergeTree where every non-key column is
+/// a function of `series_id`, so inserting an object twice changes nothing
+/// after a merge. That is why the series lane needs no count check.
+pub fn series_create_table(table: &str) -> String {
+    format!(
+        "CREATE TABLE IF NOT EXISTS {table}
+(
+    series_id UInt64,
+    MetricType Enum8('gauge' = 0, 'sum' = 1, 'histogram' = 2, 'exponential_histogram' = 3, 'summary' = 4),
+    MetricName LowCardinality(String) CODEC(ZSTD(1)),
+    MetricDescription String CODEC(ZSTD(1)),
+    MetricUnit LowCardinality(String) CODEC(ZSTD(1)),
+    ServiceName LowCardinality(String) CODEC(ZSTD(1)),
+    ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    ResourceSchemaUrl LowCardinality(String) CODEC(ZSTD(1)),
+    ScopeName LowCardinality(String) CODEC(ZSTD(1)),
+    ScopeVersion LowCardinality(String) CODEC(ZSTD(1)),
+    ScopeAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    ScopeDroppedAttrCount UInt32 CODEC(ZSTD(1)),
+    ScopeSchemaUrl LowCardinality(String) CODEC(ZSTD(1)),
+    Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    AggregationTemporality Int32 CODEC(ZSTD(1)),
+    IsMonotonic Bool CODEC(ZSTD(1)),
+    ExplicitBounds Array(Float64) CODEC(ZSTD(1)),
+    FirstSeen SimpleAggregateFunction(min, DateTime) CODEC(ZSTD(1)),
+    LastSeen SimpleAggregateFunction(max, DateTime) CODEC(ZSTD(1))
+)
+ENGINE = AggregatingMergeTree
+ORDER BY (MetricName, ServiceName, series_id)
+SETTINGS index_granularity = 1024, allow_dimensions_outside_sorting_key = 1, non_replicated_deduplication_window = 1000"
+    )
+}
+
 /// Single-quoted ClickHouse string literal.
 pub fn sq(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))

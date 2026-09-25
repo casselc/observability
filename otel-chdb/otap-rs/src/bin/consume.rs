@@ -1,219 +1,274 @@
-//! The central consumer for the manifest-less layout: a port of
-//! ../awss3/cmd/inlineconsume onto `proto::Consumer`, with the importer
-//! rules of ../model/FASTPATH.md: a full count check against an aggregating
-//! projection before insert, single-block inserts with the content key as
-//! dedup token, and a batch-constant partition key.
+//! The central consumer: a fleet of workers sharing producer lanes through
+//! leases and checkpoints on S3 (conditional writes), ingesting committed
+//! objects into ClickHouse several per statement, and a separate GC step.
+//! See `src/consumer/mod.rs` and the README's "Consumer" section.
 //!
-//! It follows every epoch's log in slot order, HEADs each slot (content key,
-//! rows), checks central, inserts with s3(), and closes superseded epochs
-//! whose head slot stays free for `--quiet` by racing a create-only
-//! tombstone into it. Progress (checkpoints, closed epochs) goes to
-//! `--state` after every step, standing in for S3NATIVE.md's CAS'd object.
+//!   consume --s3 http://127.0.0.1:18333/otel/prefix/edges --ch http://127.0.0.1:18123 --db central
+//!           [--depth 2] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
+//!           [--ttl 30s --margin 2s --budget 10s] [--poll 1s] [--discover 2s] [--quiet 30s]
+//!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
+//!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
+//!   consume gc --s3 ... [--ctl PREFIX] --delay 40s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!
-//! Metrics: one consumer per type (`--signal metrics_gauge`, `metrics_sum`,
-//! `metrics_histogram`, `metrics_exponential_histogram`, `metrics_summary`),
-//! each following its own type's logs into a contrib-typed table.
+//! Lanes are `{root}/{producer}/{signal}` (`--depth 2`, the default) or
+//! `{root}/{signal}` (`--depth 1`). The control prefix defaults to
+//! `{root}/_consumer`.
 //!
-//!   consume --s3 http://127.0.0.1:18333/otel/otap-rs/edge --signal traces
-//!           --ch http://127.0.0.1:18123 --table db.otel_traces [--once] [--poll 200ms] [--quiet 5s]
-//!           [--state FILE] [--key K --secret S]
+//! The prototype's flags still work: `--signal S --table db.t [--state F]`
+//! is `--depth 1 --signals S` with that table (the state file is ignored:
+//! progress is on S3 now), and the leases are released on exit so the next
+//! run can take them at once.
 
-use otap_s3pq::Signal;
-use otap_s3pq::central::{self, ClickHouse, ONE_BLOCK, sq};
-use otap_s3pq::proto::{self, Consumer, Insert, Slot};
-use otap_s3pq::runner::read_slot;
-use otap_s3pq::store::{S3Config, SlotStore};
-use std::collections::{BTreeMap, HashMap};
-use std::time::{Duration, Instant, SystemTime};
+#[path = "../consumer/mod.rs"]
+mod consumer;
+
+use consumer::bucket::{Bucket, S3Bucket};
+use consumer::coord::{self, Timing};
+use consumer::gc::{GcConfig, gc_step};
+use consumer::sql::ClickHouseCentral;
+use consumer::worker::{Config, RealClock, Worker};
+use otap_s3pq::store::S3Config;
+use std::rc::Rc;
+use std::time::Duration;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned())
 }
 
-fn dur(s: &str) -> Duration {
+fn flag(args: &[String], name: &str) -> bool {
+    args.iter().any(|a| a == name)
+}
+
+fn dur_ms(s: &str) -> u64 {
     if let Some(ms) = s.strip_suffix("ms") {
-        Duration::from_millis(ms.parse().unwrap())
+        ms.parse().expect("duration")
+    } else if let Some(m) = s.strip_suffix('m') {
+        (m.parse::<f64>().expect("duration") * 60_000.0) as u64
     } else {
-        Duration::from_secs_f64(s.trim_end_matches('s').parse().unwrap())
+        (s.trim_end_matches('s').parse::<f64>().expect("duration") * 1000.0) as u64
     }
 }
 
-fn save(path: &Option<String>, c: &Consumer) {
-    if let Some(p) = path {
-        let j = serde_json::json!({"ckpt": c.ckpt, "closed": c.closed});
-        let tmp = format!("{p}.tmp");
-        std::fs::write(&tmp, j.to_string()).unwrap();
-        std::fs::rename(&tmp, p).unwrap();
+fn opt_ms(args: &[String], name: &str, default: &str) -> u64 {
+    dur_ms(&arg(args, name).unwrap_or_else(|| default.to_string()))
+}
+
+fn write_atomic(path: &str, s: &str) {
+    let tmp = format!("{path}.tmp");
+    if std::fs::write(&tmp, s).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
     }
 }
 
-fn now_ns() -> u64 {
-    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64
+/// `consume audit --s3 … --out FILE [--every 2s --run-for 30m]`: records
+/// every object under the root (LIST, then HEAD each new key) as one JSON
+/// line: the ground truth of what was committed, kept even after GC deletes
+/// the objects. A test tool for the soak.
+async fn audit(args: &[String], b: &S3Bucket, root: &str) {
+    use std::io::Write;
+    let out = arg(args, "--out").expect("--out");
+    let every = opt_ms(args, "--every", "2s");
+    let run_for = opt_ms(args, "--run-for", "0s");
+    let mut seen = std::collections::HashSet::new();
+    if let Ok(s) = std::fs::read_to_string(&out) {
+        for l in s.lines() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(l) {
+                let _ = seen.insert(v["key"].as_str().unwrap_or("").to_string());
+            }
+        }
+    }
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&out).expect("--out");
+    let t0 = consumer::mono_ms();
+    loop {
+        match b.list(root, None).await {
+            Ok(items) => {
+                for it in items {
+                    if seen.contains(&it.key) || it.key.contains("/_consumer/") {
+                        continue;
+                    }
+                    let Ok(Some(meta)) = b.head(&it.key).await else { continue };
+                    let rest = it.key.strip_prefix(root).unwrap_or(&it.key).trim_start_matches('/');
+                    let parts: Vec<&str> = rest.split('/').collect();
+                    if parts.len() < 3 {
+                        continue;
+                    }
+                    let n = parts.len();
+                    let v = serde_json::json!({
+                        "key": it.key, "size": it.size, "signal": parts[n - 3], "epoch": parts[n - 2],
+                        "lane": parts[..n - 2].join("/"),
+                        "kind": meta.get(otap_s3pq::proto::META_KIND), "content": meta.get(otap_s3pq::proto::META_CONTENT),
+                        "rows": meta.get(otap_s3pq::proto::META_ROWS).and_then(|r| r.parse::<u64>().ok()),
+                        "seen_wall_ms": consumer::wall_ms(),
+                    });
+                    let _ = writeln!(f, "{v}");
+                    let _ = seen.insert(it.key);
+                }
+            }
+            Err(e) => eprintln!("audit: {e}"),
+        }
+        if consumer::mono_ms() - t0 >= run_for {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(every)).await;
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     otel_arrow_dfe_otap::crypto::install_crypto_provider().expect("crypto provider");
     let args: Vec<String> = std::env::args().collect();
-    let signal = arg(&args, "--signal").map_or(Signal::Traces, |s| Signal::from_name(&s).expect("--signal: traces, logs, metrics_gauge, ..."));
-    let cfg = S3Config {
+    // For scripts: a lane kind's s3() structure / target columns / DDL.
+    for (f, what) in [("--print-structure", 0), ("--print-cols", 1), ("--print-ddl", 2)] {
+        if let Some(s) = arg(&args, f) {
+            let k = consumer::sql::LaneKind::for_signal(&s).expect("a known signal");
+            println!("{}", [k.structure.clone(), k.cols.clone(), k.create_table(&format!("db.{}", k.table))][what]);
+            return;
+        }
+    }
+    let legacy_signal = arg(&args, "--signal");
+    let (key, secret) = (arg(&args, "--key").unwrap_or("otel".into()), arg(&args, "--secret").unwrap_or("otelsecret".into()));
+    let s3cfg = S3Config {
         url: arg(&args, "--s3").expect("--s3"),
-        access_key_id: arg(&args, "--key").or(Some("otel".into())),
-        secret_access_key: arg(&args, "--secret").or(Some("otelsecret".into())),
+        access_key_id: Some(key.clone()),
+        secret_access_key: Some(secret.clone()),
+        put_timeout: Duration::from_millis(opt_ms(&args, "--s3-timeout", "5s")),
         ..Default::default()
     };
-    let store = cfg.build().expect("s3");
-    let prefix = format!("{}/{}", store.prefix, signal.name());
-    let ch = ClickHouse::new(&arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into()));
-    let table = arg(&args, "--table").expect("--table");
-    let once = args.iter().any(|a| a == "--once");
-    let poll = dur(&arg(&args, "--poll").unwrap_or("1s".into()));
-    let quiet = dur(&arg(&args, "--quiet").unwrap_or("5s".into()));
-    let max_idle = arg(&args, "--exit-after-idle").map(|s| dur(&s));
-    let state = arg(&args, "--state");
-    let (key, secret) = (cfg.access_key_id.clone().unwrap(), cfg.secret_access_key.clone().unwrap());
+    let store = s3cfg.build().expect("s3");
+    let root = store.prefix.clone();
+    let mut bucket = S3Bucket::new(store);
+    bucket.ch_endpoint = arg(&args, "--ch-s3");
+    let bucket = Rc::new(bucket);
+    let ctl = arg(&args, "--ctl").unwrap_or_else(|| coord::join(&root, "_consumer"));
 
-    ch.query(&central::create_table(&table, signal), &[]).await.expect("create table");
-    let mut c = Consumer::default();
-    if let Some(p) = &state {
-        if let Ok(s) = std::fs::read_to_string(p) {
-            let v: serde_json::Value = serde_json::from_str(&s).unwrap();
-            c.ckpt = serde_json::from_value(v["ckpt"].clone()).unwrap();
-            c.closed = serde_json::from_value(v["closed"].clone()).unwrap();
-        }
-    }
-    let mut last_seen: HashMap<String, Instant> = HashMap::new();
-    let (mut inserted, mut dedup, mut repaired, mut rows_total, mut tombs, mut tomb_lost) = (0, 0, 0, 0u64, 0, 0);
-    let mut lat_ms: Vec<f64> = Vec::new();
-    let mut idle_since = Instant::now();
-    let cols = central::cols(signal);
-    let structure = central::structure(signal);
-    loop {
-        let epochs = store.list_dirs(&prefix).await.expect("list epochs");
-        let mut progressed = false;
-        for (i, e) in epochs.iter().enumerate() {
-            let _ = last_seen.entry(e.clone()).or_insert_with(Instant::now);
-            while !c.is_closed(e) {
-                let s = c.next_slot(e);
-                let k = proto::slot_key(&prefix, e, s);
-                let head = store.head(&k).await.expect("head");
-                let found = head.as_ref().map(Slot::from_meta).unwrap_or(Slot::Free);
-                match &found {
-                    Slot::Tomb => {
-                        c.see_tomb(e);
-                        save(&state, &c);
-                        println!("closed {e} at slot {s} (tombstone)");
-                    }
-                    Slot::Data { content, .. } => {
-                        let meta = head.as_ref().unwrap();
-                        let rows: u64 = meta.get(proto::META_ROWS).and_then(|r| r.parse().ok()).unwrap_or(0);
-                        let n: u64 = ch
-                            .query(&format!("SELECT count() FROM {table} WHERE content_key = {}", sq(content)), &[])
-                            .await
-                            .expect("check")
-                            .parse()
-                            .unwrap();
-                        let src = format!(
-                            "s3({}, {}, {}, 'Parquet', {})",
-                            sq(&store.object_url(&k)),
-                            sq(&key),
-                            sq(&secret),
-                            sq(&structure)
-                        );
-                        if n > 0 && n < rows {
-                            // Only possible if the batch spanned partitions (not with
-                            // toDate(received_at)): insert the missing rows only.
-                            let token = format!("{content}/repair");
-                            let mut st: Vec<(&str, &str)> = ONE_BLOCK.to_vec();
-                            st.push(("insert_deduplication_token", &token));
-                            ch.query(&format!(
-                                "INSERT INTO {table} ({cols}, content_key) SELECT {cols}, {} FROM {src} WHERE row_ordinal NOT IN (SELECT row_ordinal FROM {table} WHERE content_key = {})",
-                                sq(content), sq(content)), &st).await.expect("repair");
-                            repaired += 1;
-                        }
-                        c.check(e, content, n > 0);
-                        match c.insert(&found) {
-                            Insert::Rows { content } => {
-                                let mut st: Vec<(&str, &str)> = ONE_BLOCK.to_vec();
-                                st.push(("insert_deduplication_token", &content));
-                                ch.query(
-                                    &format!("INSERT INTO {table} ({cols}, content_key) SELECT {cols}, {} FROM {src}", sq(&content)),
-                                    &st,
-                                )
-                                .await
-                                .expect("insert");
-                                inserted += 1;
-                                rows_total += rows;
-                                let recv: u64 = meta.get(proto::META_RECEIVED).and_then(|r| r.parse().ok()).unwrap_or(0);
-                                let l = (now_ns().saturating_sub(recv)) as f64 / 1e6;
-                                lat_ms.push(l);
-                                println!("ingest {e}/{s} content={content} rows={rows} visible_after_ms={l:.1}");
-                            }
-                            Insert::DedupHit => {
-                                dedup += 1;
-                                println!("skip   {e}/{s} content={content}: already in central (a copy from another epoch)");
-                            }
-                            Insert::Replaced => println!("slot {e}/{s} no longer holds data"),
-                        }
-                        c.advance();
-                        save(&state, &c);
-                        let _ = last_seen.insert(e.clone(), Instant::now());
-                        progressed = true;
-                        continue;
-                    }
-                    Slot::Free => {
-                        let superseded = i + 1 < epochs.len();
-                        if !superseded || (!once && last_seen[e].elapsed() < quiet) {
-                            break;
-                        }
-                        // Race a create-only tombstone into the free head slot.
-                        let _ = c.tomb(e);
-                        let mut meta = BTreeMap::new();
-                        let _ = meta.insert(proto::META_KIND.to_string(), proto::KIND_TOMB.to_string());
-                        let _ = meta.insert(proto::META_EPOCH.to_string(), e.clone());
-                        loop {
-                            let o = store.put_create(&k, bytes::Bytes::new(), "application/octet-stream", &meta).await;
-                            match c.on_tomb_put(o) {
-                                Some(_) => break,
-                                None => {
-                                    let now = read_slot(&store, &k).await.expect("head tombstone slot");
-                                    if !c.on_tomb_head(&now) {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        if c.is_closed(e) {
-                            tombs += 1;
-                            println!("closed {e} at slot {s} (our tombstone)");
-                        } else {
-                            tomb_lost += 1;
-                            println!("tombstone {e}/{s} lost to a late batch: ingesting it");
-                        }
-                        save(&state, &c);
-                    }
+    if args.get(1).map(String::as_str) == Some("gc") {
+        let cfg = GcConfig {
+            root,
+            ctl,
+            delay_ms: opt_ms(&args, "--delay", "40s"),
+            zombie_ms: opt_ms(&args, "--zombie", "10m"),
+            dry_run: flag(&args, "--dry-run"),
+        };
+        let every = arg(&args, "--every").map(|s| dur_ms(&s));
+        let run_for = opt_ms(&args, "--run-for", "0s");
+        let t0 = consumer::mono_ms();
+        loop {
+            let before = bucket.counts().snap();
+            match gc_step(&*bucket, &cfg, consumer::wall_ms()).await {
+                Ok(r) => {
+                    let after = bucket.counts().snap();
+                    println!(
+                        "{}",
+                        serde_json::json!({"gc": r, "s3": {"list": after.list - before.list, "get": after.get - before.get,
+                            "delete": after.delete - before.delete, "put_cas": after.put_cas - before.put_cas + after.put_create - before.put_create}})
+                    )
                 }
+                Err(e) => eprintln!("gc: {e}"),
+            }
+            match every {
+                Some(d) if consumer::mono_ms() - t0 < run_for => tokio::time::sleep(Duration::from_millis(d)).await,
+                _ => break,
             }
         }
+        return;
+    }
+
+    if args.get(1).map(String::as_str) == Some("audit") {
+        audit(&args, &*bucket, &root).await;
+        return;
+    }
+
+    let worker = arg(&args, "--worker").unwrap_or_else(|| "w".into());
+    let worker = format!("{worker}-{}", coord::nonce());
+    let mut cfg = Config::new(&root, &ctl, &worker);
+    cfg.depth = arg(&args, "--depth").map_or(2, |d| d.parse().expect("--depth"));
+    cfg.signals = arg(&args, "--signals").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
+    let mut table_override = None;
+    if let Some(s) = &legacy_signal {
+        cfg.depth = 1;
+        cfg.signals = vec![s.clone()];
+        table_override = arg(&args, "--table");
+    }
+    cfg.timing = Timing {
+        ttl_ms: opt_ms(&args, "--ttl", "30s"),
+        margin_ms: opt_ms(&args, "--margin", "2s"),
+        budget_ms: opt_ms(&args, "--budget", "10s"),
+        mutation: coord::Mutation::None,
+    };
+    cfg.timing.check().expect("lease timing");
+    cfg.discover_ms = opt_ms(&args, "--discover", "2s");
+    cfg.full_list_ms = opt_ms(&args, "--full-list", "30s");
+    cfg.quiet_ms = opt_ms(&args, "--quiet", "30s");
+    cfg.limits.max_objects = arg(&args, "--max-batch").map_or(32, |s| s.parse().expect("--max-batch"));
+    cfg.limits.max_bytes = arg(&args, "--max-mb").map_or(16, |s| s.parse::<u64>().expect("--max-mb")) << 20;
+    cfg.limits.max_rows = arg(&args, "--max-rows").map_or(200_000, |s| s.parse().expect("--max-rows"));
+    cfg.verbose = flag(&args, "--verbose") || flag(&args, "-v");
+    let once = flag(&args, "--once");
+    if once {
+        cfg.quiet_ms = 0; // as the prototype: close superseded free heads at once
+        cfg.discover_ms = 0;
+        cfg.solo = true;
+    }
+    let poll = opt_ms(&args, "--poll", "1s");
+    let idle_exit = arg(&args, "--exit-after-idle").map(|s| dur_ms(&s));
+    let run_for = arg(&args, "--run-for").map(|s| dur_ms(&s));
+    let stats_path = arg(&args, "--stats");
+    let stats_every = opt_ms(&args, "--stats-every", "5s");
+
+    let db = match (&table_override, arg(&args, "--db")) {
+        (Some(t), _) => t.split_once('.').map(|(d, _)| d.to_string()).unwrap_or("default".into()),
+        (None, Some(d)) => d,
+        (None, None) => panic!("--db"),
+    };
+    let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
+    let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), &key, &secret, cfg.timing.budget_ms + 5000);
+    central.squash = !flag(&args, "--no-squash");
+    let central = Rc::new(central);
+    if let (Some(t), Some(s)) = (&table_override, &legacy_signal) {
+        central.table_override.borrow_mut().insert(s.clone(), t.split_once('.').map_or(t.clone(), |(_, n)| n.to_string()));
+    }
+    let mut w = Worker::new(cfg, bucket.clone(), central.clone(), RealClock);
+    let (cpu0, t0) = (consumer::cpu_ms(), consumer::mono_ms());
+    let mut last_progress = consumer::mono_ms();
+    let mut last_stats = 0;
+    let dump = |w: &Worker<S3Bucket, ClickHouseCentral<S3Bucket>, RealClock>, final_: bool| {
+        let mut v = w.stats_json();
+        let m = v.as_object_mut().expect("object");
+        let _ = m.insert("cpu_ms".into(), (consumer::cpu_ms() - cpu0).into());
+        let _ = m.insert("elapsed_ms".into(), (consumer::mono_ms() - t0).into());
+        let _ = m.insert("ch_statements".into(), central.statements.get().into());
+        let _ = m.insert("ch_checks".into(), central.checks.get().into());
+        let _ = m.insert("summary".into(), final_.into());
+        v.to_string()
+    };
+    loop {
+        let t = consumer::mono_ms();
+        let progressed = w.step().await;
+        let now = consumer::mono_ms();
         if progressed {
-            idle_since = Instant::now();
+            last_progress = now;
         }
-        if once || max_idle.is_some_and(|d| idle_since.elapsed() >= d) {
+        if let Some(p) = &stats_path {
+            if now >= last_stats + stats_every {
+                write_atomic(p, &dump(&w, false));
+                last_stats = now;
+            }
+        }
+        let done = (once && !progressed)
+            || idle_exit.is_some_and(|d| now - last_progress >= d)
+            || run_for.is_some_and(|d| now - t0 >= d);
+        if done {
             break;
         }
-        tokio::time::sleep(poll).await;
+        if !(once && progressed) {
+            let spent = now - t;
+            tokio::time::sleep(Duration::from_millis(poll.saturating_sub(spent))).await;
+        }
     }
-    let total = ch
-        .query(&format!("SELECT count(), uniqExact(content_key) FROM {table} FORMAT TSV"), &[])
-        .await
-        .unwrap();
-    lat_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let pct = |p: f64| lat_ms.get(((lat_ms.len() as f64 - 1.0) * p).round() as usize).copied().unwrap_or(0.0);
-    println!(
-        "{}",
-        serde_json::json!({"summary": true, "inserted": inserted, "rows": rows_total, "dedup_skipped": dedup,
-            "repaired": repaired, "epochs_closed_by_tombstone": tombs, "tombstones_lost_to_data": tomb_lost,
-            "central_count_distinct_content": total.replace('\t', " "),
-            "visible_after_ms_p50": pct(0.5), "visible_after_ms_p90": pct(0.9), "visible_after_ms_max": pct(1.0)})
-    );
+    w.release_all().await;
+    let s = dump(&w, true);
+    if let Some(p) = &stats_path {
+        write_atomic(p, &s);
+    }
+    println!("{s}");
 }

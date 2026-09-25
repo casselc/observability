@@ -51,3 +51,4 @@ ledgerCheck	importerNeverInserts	VIOLATED	15s	Found an issue (603ms at 5 traces/
 ledgerCheckMvReliable	batchIngestedAtMostOnce	VIOLATED	15s	Found an issue (1040ms at 4 traces/second)
 ledgerCheck	noLostBehindCheckpoint	ok	96s	
 ledgerCheck	onlyCommittedIngested	ok	123s	
+ledgerCheckMvReliable	importerNeverInserts	VIOLATED	13s	Found an issue (643ms at 5 traces/second)

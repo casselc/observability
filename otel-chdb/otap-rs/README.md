@@ -1125,10 +1125,15 @@ CAS'd on S3; it ingests up to 32 committed objects per `INSERT … SELECT
 FROM s3()`, verifies every statement against the content projection, and
 closes dead epochs with tombstones; a separate GC step deletes behind the
 checkpoints. Under chaos (ambiguous, slow and dropped PUTs, edge SIGKILLs,
-worker SIGKILLs and pauses past their lease) every committed batch reached
-central exactly once and nothing uncommitted did [M]. Batching cuts server
-CPU per small object 8× (19.6 → 2.4 ms). Visibility is 211 ms p50 / 320 ms p90 at a 200 ms poll and 663 / 1,061 ms at 1 s.
-The cost that remains is LIST: one per lane per poll.**
+worker SIGKILLs and pauses past their lease), a 30-minute soak of 77k
+committed objects put every committed batch into central exactly once and
+nothing uncommitted [M]. The run before it found a liveness bug (lanes
+orphaned after a worker's pause), now fixed and tested. Batching cuts server
+CPU per small object 8× (19.6 → 2.4 ms at 32 objects per statement), but
+only when a poll finds several objects per table. Visibility is 211 ms p50 /
+320 ms p90 at a 200 ms poll (about 1 object per statement there) and 663 /
+1,061 ms at 1 s (3.7). What remains costly is LIST: one per lane per
+poll.**
 
 Labels as above. Code: `src/consumer/` (mounted by `src/bin/consume.rs`),
 `src/central.rs`; tests: `src/consumer/tests.rs`,
@@ -1333,11 +1338,52 @@ returning.
   a zombie), or SIGKILL an edge (restarted at once; its senders resend into
   new epochs).
 
-{{SOAK}}
+**Result (30 minutes, after one fix): PASS.** Every committed batch is in
+central exactly once, and nothing uncommitted is
+(`results/consumer/soak/summary.txt`):
+
+| | |
+|---|---|
+| chaos events | 29 worker SIGKILLs, 35 worker pauses past the lease, 30 edge SIGKILLs |
+| requests acked to the senders | 38,428 (38,620 attempts; none dropped) |
+| committed objects (audit) | 77,284 in 1,089 epochs: traces 14,388, logs 14,395, and 9,697–9,702 per layout-B namespace; 156 cross-epoch copies |
+| tombstones | 1,068 (1,067 won by the workers; 5 races lost to a late batch, which was then ingested) |
+| central, per table | traces 14,373 batches / 2,874,600 rows; logs 14,380 / 2,876,000; number points 9,675 / 387,000; histogram, exp. histogram and summary points 9,675 / 193,500 each: **missing 0, partial 0, duplicated 0, uncommitted 0** |
+| per request | every acked traces and logs request's rows exactly once (by `soak.req`); every metrics request's points exactly once through its series; **0 points without a series row** |
+| workers (32 incarnations) | 47,755 statements; 357 copies skipped by the check; 735 lanes taken, 267 released, 210 lapsed on their own clock, 34 checkpoint CASes lost to a new holder; `over_count` 0, gaps 0 |
+| worker CPU | 117 s over 5,430 s of worker time: 1.5 ms per object, 17 µs per row (at a 200 ms poll, with 21 lanes busy polling) |
+| GC | 344 runs; 77,284 data objects and 1,044 tombstones (retired epochs) deleted; 0 CAS conflicts |
+
+The faults the edges saw: 3,520 answers held past `put_timeout` and 4,865
+PUTs delayed 2.5 s (proxy logs), plus dropped PUTs; the edges resolved
+them by HEAD and resend.
+
+**The first 30-minute run failed, and found a real bug**
+(`results/consumer/soak-30min-before-fix/`): 43 committed batches (20
+traces, 17 number points, 6 summary points, in 5 epochs) were never
+ingested. No duplicate, nothing uncommitted. All sat in lanes whose lease
+still named worker `w1`:
+
+- `w1` had been paused past its leases and dropped them on resume.
+- The other workers were at their fair share, since `w1` was alive again,
+  so they didn't take the lanes.
+- `w1` itself skipped any lease whose owner was itself when looking for
+  lanes to take. So the lanes stayed orphaned for as long as `w1` lived.
+
+It was a liveness bug, not a safety one. The fix: a worker takes back an
+expired lease that names it, like anyone else's. The regression test
+`a_worker_retakes_lanes_it_let_lapse` fails on the old code. The model
+missed it because its `wAcquire` has no such exclusion, and quint-connect
+drives `coord`, not `Worker::balance`. Two earlier 5- and 6-minute runs
+passed (`results/consumer/soak-6min/`, `soak-5min-b/`); both were stopped
+early by the disk guard, before `old_parts_lifetime` was shortened on the
+test tables.
 
 "Hours-equivalent": the lease timing is compressed 5× against a 30 s
 production TTL, and the chaos rate (one fault every 14 s on average) is
-far above production's; {{SOAK_EQUIV}}.
+far above production's; counted in lease lifetimes it is 30 min / 6 s = 300 TTLs, about 2.5 hours
+of a 30 s-TTL deployment, with a restart or pause every ~20 s instead of
+every few hours.
 
 ### Model and model-based test [M]
 

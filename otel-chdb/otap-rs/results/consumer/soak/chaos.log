@@ -1,0 +1,192 @@
+16:45:38.921 run soak1790354738: db otaprs_consumer_soak1790354738, prefix otel/otap-rs-consumer/soak1790354738/edges, duration 1800s
+16:45:50.460 SIGSTOP worker w2 for 11s (lease ttl 6s)
+16:46:01.465 SIGCONT w2
+16:46:19.478 SIGKILL worker w2 (pid 11402)
+16:46:20.484 restarted w2 (incarnation 2)
+16:46:35.496 SIGSTOP worker w3 for 10s (lease ttl 6s)
+16:46:45.504 SIGCONT w3
+16:47:04.519 SIGKILL worker w1 (pid 11401)
+16:47:07.523 restarted w1 (incarnation 2)
+16:47:20.535 SIGKILL edge-2 (pid 11371)
+16:47:21.243 restarted edge-2
+16:47:31.251 SIGKILL edge-3 (pid 11372)
+16:47:32.161 restarted edge-3
+16:47:48.170 SIGKILL worker w3 (pid 11403)
+16:47:49.176 restarted w3 (incarnation 2)
+16:48:06.185 SIGKILL edge-3 (pid 11641)
+16:48:06.891 restarted edge-3
+16:48:18.902 SIGSTOP worker w3 for 7s (lease ttl 6s)
+16:48:25.912 SIGCONT w3
+16:48:45.925 SIGKILL worker w3 (pid 11672)
+16:48:46.931 restarted w3 (incarnation 3)
+16:48:55.946 SIGKILL edge-2 (pid 11613)
+16:48:56.453 restarted edge-2
+16:49:08.464 SIGKILL edge-2 (pid 11772)
+16:49:08.673 restarted edge-2
+16:49:23.683 SIGKILL edge-3 (pid 11695)
+16:49:23.996 restarted edge-3
+16:49:39.010 SIGKILL worker w3 (pid 11753)
+16:49:41.015 restarted w3 (incarnation 4)
+16:50:01.025 SIGSTOP worker w3 for 8s (lease ttl 6s)
+16:50:09.035 SIGCONT w3
+16:50:17.049 SIGSTOP worker w3 for 12s (lease ttl 6s)
+16:50:29.054 SIGCONT w3
+16:50:47.065 SIGKILL edge-2 (pid 11798)
+16:50:47.375 restarted edge-2
+16:50:56.384 SIGKILL worker w2 (pid 11509)
+16:50:57.390 restarted w2 (incarnation 3)
+16:51:08.402 SIGSTOP worker w1 for 12s (lease ttl 6s)
+16:51:20.407 SIGCONT w1
+16:51:40.417 SIGKILL worker w1 (pid 11594)
+16:51:43.425 restarted w1 (incarnation 3)
+16:51:53.438 SIGSTOP worker w2 for 12s (lease ttl 6s)
+16:52:05.446 SIGCONT w2
+16:52:13.457 SIGKILL worker w1 (pid 12007)
+16:52:14.466 restarted w1 (incarnation 4)
+16:52:26.480 SIGKILL edge-2 (pid 11929)
+16:52:27.291 restarted edge-2
+16:52:39.306 SIGSTOP worker w2 for 10s (lease ttl 6s)
+16:52:49.314 SIGCONT w2
+16:52:57.324 SIGSTOP worker w3 for 7s (lease ttl 6s)
+16:53:04.333 SIGCONT w3
+16:53:14.355 SIGKILL edge-2 (pid 12069)
+16:53:14.570 restarted edge-2
+16:53:33.626 SIGKILL edge-1 (pid 11370)
+16:53:34.036 restarted edge-1
+16:53:53.044 SIGSTOP worker w1 for 10s (lease ttl 6s)
+16:54:03.048 SIGCONT w1
+16:54:19.063 SIGSTOP worker w3 for 11s (lease ttl 6s)
+16:54:30.070 SIGCONT w3
+16:54:47.079 SIGKILL worker w2 (pid 11956)
+16:54:48.084 restarted w2 (incarnation 4)
+16:54:58.095 SIGSTOP worker w1 for 12s (lease ttl 6s)
+16:55:10.099 SIGCONT w1
+16:55:18.109 SIGKILL worker w1 (pid 12050)
+16:55:21.115 restarted w1 (incarnation 5)
+16:55:37.127 SIGKILL edge-1 (pid 12173)
+16:55:37.334 restarted edge-1
+16:55:51.342 SIGKILL edge-1 (pid 12321)
+16:55:52.150 restarted edge-1
+16:56:11.162 SIGSTOP worker w3 for 8s (lease ttl 6s)
+16:56:19.167 SIGCONT w3
+16:56:29.180 SIGSTOP worker w3 for 7s (lease ttl 6s)
+16:56:36.185 SIGCONT w3
+16:56:55.197 SIGSTOP worker w2 for 8s (lease ttl 6s)
+16:57:03.203 SIGCONT w2
+16:57:19.236 SIGKILL worker w1 (pid 12299)
+16:57:22.244 restarted w1 (incarnation 6)
+16:57:42.259 SIGKILL edge-2 (pid 12142)
+16:57:43.073 restarted edge-2
+16:58:01.087 SIGSTOP worker w2 for 11s (lease ttl 6s)
+16:58:12.092 SIGCONT w2
+16:58:21.102 SIGSTOP worker w3 for 9s (lease ttl 6s)
+16:58:30.110 SIGCONT w3
+16:58:49.122 SIGKILL worker w3 (pid 11860)
+16:58:51.137 restarted w3 (incarnation 5)
+16:59:10.153 SIGKILL worker w2 (pid 12257)
+16:59:12.158 restarted w2 (incarnation 5)
+16:59:20.166 SIGKILL edge-2 (pid 12487)
+16:59:20.574 restarted edge-2
+16:59:34.589 SIGSTOP worker w1 for 7s (lease ttl 6s)
+16:59:41.596 SIGCONT w1
+16:59:54.609 SIGKILL worker w3 (pid 12566)
+16:59:55.614 restarted w3 (incarnation 6)
+17:00:05.625 SIGKILL edge-1 (pid 12350)
+17:00:06.233 restarted edge-1
+17:00:16.248 SIGSTOP worker w3 for 8s (lease ttl 6s)
+17:00:24.255 SIGCONT w3
+17:00:40.264 SIGSTOP worker w3 for 7s (lease ttl 6s)
+17:00:47.269 SIGCONT w3
+17:01:01.285 SIGKILL edge-1 (pid 12682)
+17:01:02.101 restarted edge-1
+17:01:18.120 SIGKILL edge-3 (pid 11825)
+17:01:19.035 restarted edge-3
+17:01:38.044 SIGKILL worker w1 (pid 12458)
+17:01:41.050 restarted w1 (incarnation 7)
+17:01:59.067 SIGKILL worker w1 (pid 12825)
+17:02:00.075 restarted w1 (incarnation 8)
+17:02:15.088 SIGSTOP worker w1 for 12s (lease ttl 6s)
+17:02:27.092 SIGCONT w1
+17:02:43.102 SIGSTOP worker w3 for 10s (lease ttl 6s)
+17:02:53.108 SIGCONT w3
+17:03:07.123 SIGKILL worker w3 (pid 12665)
+17:03:08.138 restarted w3 (incarnation 7)
+17:03:26.150 SIGKILL worker w1 (pid 12844)
+17:03:29.156 restarted w1 (incarnation 9)
+17:03:46.179 SIGKILL worker w3 (pid 12916)
+17:03:47.185 restarted w3 (incarnation 8)
+17:04:05.198 SIGKILL edge-2 (pid 12609)
+17:04:05.706 restarted edge-2
+17:04:19.717 SIGKILL worker w3 (pid 12969)
+17:04:22.722 restarted w3 (incarnation 9)
+17:04:42.752 SIGKILL worker w2 (pid 12594)
+17:04:44.758 restarted w2 (incarnation 6)
+17:04:54.768 SIGSTOP worker w1 for 12s (lease ttl 6s)
+17:05:06.773 SIGCONT w1
+17:05:25.784 SIGSTOP worker w3 for 7s (lease ttl 6s)
+17:05:32.790 SIGCONT w3
+17:05:42.804 SIGSTOP worker w3 for 10s (lease ttl 6s)
+17:05:52.818 SIGCONT w3
+17:06:10.833 SIGKILL edge-2 (pid 12991)
+17:06:11.243 restarted edge-2
+17:06:25.261 SIGKILL edge-3 (pid 12789)
+17:06:25.569 restarted edge-3
+17:06:43.577 SIGKILL edge-2 (pid 13146)
+17:06:44.185 restarted edge-2
+17:07:02.193 SIGSTOP worker w1 for 8s (lease ttl 6s)
+17:07:10.198 SIGCONT w1
+17:07:28.210 SIGKILL worker w3 (pid 13020)
+17:07:30.215 restarted w3 (incarnation 10)
+17:07:43.236 SIGSTOP worker w2 for 8s (lease ttl 6s)
+17:07:51.242 SIGCONT w2
+17:08:10.253 SIGKILL edge-2 (pid 13206)
+17:08:10.660 restarted edge-2
+17:08:28.669 SIGSTOP worker w2 for 11s (lease ttl 6s)
+17:08:39.677 SIGCONT w2
+17:08:59.693 SIGKILL worker w3 (pid 13260)
+17:09:01.701 restarted w3 (incarnation 11)
+17:09:17.712 SIGKILL worker w1 (pid 12944)
+17:09:20.717 restarted w1 (incarnation 10)
+17:09:30.726 SIGSTOP worker w1 for 10s (lease ttl 6s)
+17:09:40.730 SIGCONT w1
+17:09:59.739 SIGKILL edge-3 (pid 13174)
+17:09:59.950 restarted edge-3
+17:10:07.963 SIGKILL edge-2 (pid 13310)
+17:10:08.578 restarted edge-2
+17:10:27.589 SIGSTOP worker w2 for 11s (lease ttl 6s)
+17:10:38.593 SIGCONT w2
+17:10:49.605 SIGKILL edge-3 (pid 13437)
+17:10:50.014 restarted edge-3
+17:11:07.029 SIGSTOP worker w3 for 9s (lease ttl 6s)
+17:11:16.037 SIGCONT w3
+17:11:35.051 SIGKILL edge-2 (pid 13462)
+17:11:35.158 restarted edge-2
+17:11:49.170 SIGKILL edge-1 (pid 12757)
+17:11:49.278 restarted edge-1
+17:12:09.290 SIGSTOP worker w1 for 8s (lease ttl 6s)
+17:12:17.297 SIGCONT w1
+17:12:34.308 SIGSTOP worker w2 for 8s (lease ttl 6s)
+17:12:42.316 SIGCONT w2
+17:13:02.331 SIGKILL edge-1 (pid 13605)
+17:13:02.743 restarted edge-1
+17:13:14.755 SIGKILL worker w3 (pid 13367)
+17:13:15.763 restarted w3 (incarnation 12)
+17:13:31.781 SIGSTOP worker w2 for 12s (lease ttl 6s)
+17:13:43.787 SIGCONT w2
+17:14:01.809 SIGKILL edge-1 (pid 13692)
+17:14:02.618 restarted edge-1
+17:14:15.632 SIGKILL worker w2 (pid 13049)
+17:14:18.640 restarted w2 (incarnation 7)
+17:14:28.657 SIGSTOP worker w1 for 8s (lease ttl 6s)
+17:14:36.665 SIGCONT w1
+17:14:52.674 SIGKILL worker w3 (pid 13720)
+17:14:55.682 restarted w3 (incarnation 13)
+17:15:07.704 SIGKILL worker w3 (pid 13841)
+17:15:09.716 restarted w3 (incarnation 14)
+17:15:28.730 SIGKILL worker w2 (pid 13800)
+17:15:29.735 restarted w2 (incarnation 8)
+17:15:48.773 SIGKILL edge-1 (pid 13771)
+17:15:49.282 restarted edge-1
+17:15:49.290 chaos over: 29 worker kills, 35 worker pauses, 30 edge kills
+17:15:50.400 senders done: 38428 requests acked
+17:16:15.834 central stable: 14373 2874600 14380 2876000 9675 387000 9675 193500 9675 193500 9675 193500 

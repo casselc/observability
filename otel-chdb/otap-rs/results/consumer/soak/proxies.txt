@@ -1,0 +1,8 @@
+proxy-1 faulted: 28164
+     68 503
+   3520 answer held
+proxy-2 faulted: 34058
+    692 503
+   4865 held 2.5s before
+proxy-3 faulted: 40323
+    123 503

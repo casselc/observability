@@ -1,0 +1,15 @@
+committed objects: 77284 ({'logs': 14395, 'metrics_exponential_histogram_points': 9702, 'metrics_histogram_points': 9699, 'metrics_number_points': 9701, 'metrics_series': 9702, 'metrics_summary_points': 9697, 'traces': 14388}); tombstones 1068; epochs 1089; cross-epoch copies 156 ({'metrics_histogram_points': 24, 'metrics_number_points': 26, 'metrics_series': 27, 'logs': 15, 'metrics_exponential_histogram_points': 27, 'traces': 15, 'metrics_summary_points': 22})
+PASS traces: committed batches 14373, central batches 14373, rows 2874600 (committed 2874600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 14380, central batches 14380, rows 2876000 (committed 2876000); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 9675, central batches 9675, rows 387000 (committed 387000); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 9675, central batches 9675, rows 193500 (committed 193500); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 9675, central batches 9675, rows 193500 (committed 193500); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 9675, central batches 9675, rows 193500 (committed 193500); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 14373: rows exactly once for 14373
+PASS logs requests acked 14380: rows exactly once for 14380
+PASS metrics requests acked 9675: points exactly once per request through its series for 9675; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 38428 (dropped as permanent: 0), attempts 38620
+workers: 32 incarnations; objects_inserted 67274, series_objects_inserted 9693, rows_inserted 6701360, dedup_skipped 357, statements 47755, statement_objects 76972, insert_errors 6, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 41, tombstones_won 1067, tombstones_lost_to_data 5, epochs_closed 1067, gaps_seen 0, head_missing 0, lanes_taken 735, lanes_released 267, lanes_lapsed 210, lanes_lost_cas 34, renewals 16705, ckpt_writes 51561, errors 7, cpu_ms 116671.6, elapsed_ms 5429621
+worker S3 requests: {'delete': 28, 'get': 10036, 'head': 77377, 'list': 249513, 'put_cas': 69962, 'put_create': 1141, 'put_plain': 4988}
+gc: 344 runs, deleted data 77284, tombstones 1044, epochs retired 1044, CAS conflicts 0
+VERDICT: PASS

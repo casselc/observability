@@ -1,0 +1,4 @@
+[toolchain]
+# Same as upstream otap-dataflow at the pinned commit.
+channel = "1.98.1"
+profile = "minimal"

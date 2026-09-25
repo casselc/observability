@@ -1,0 +1,74 @@
+{
+ "t0": 1790376924.9594653,
+ "t_ins_end": 1790377512.0740697,
+ "t_after": 1790377632.7117562,
+ "t_end": 1790377632.7325976,
+ "reason": "db size",
+ "errors": [],
+ "n_errors": 0,
+ "final_parts": [
+  [
+   "otel_metrics_series",
+   4,
+   400000,
+   15546130,
+   258615652,
+   "[(12,100000),(1,100000),(1,100000),(1,100000)]"
+  ],
+  [
+   "otel_metrics_summary_points",
+   3,
+   17700000,
+   162859991,
+   2603160807,
+   "[(5,17000000),(1,600000),(0,100000)]"
+  ],
+  [
+   "otel_metrics_exponential_histogram_points",
+   5,
+   11800000,
+   200595503,
+   4923048229,
+   "[(3,9300000),(2,2200000),(0,100000),(0,100000),(0,100000)]"
+  ],
+  [
+   "otel_metrics_histogram_points",
+   4,
+   28224000,
+   205829418,
+   6221529978,
+   "[(4,27936000),(0,96000),(0,96000),(0,96000)]"
+  ],
+  [
+   "otel_metrics_number_points",
+   7,
+   47040000,
+   50350984,
+   3228076894,
+   "[(8,24640000),(8,11280000),(7,6560000),(6,3920000),(1,480000),(0,80000),(0,80000)]"
+  ]
+ ],
+ "base_threads": {
+  "clickhouse": 41.580000000000005,
+  "AsyncLogger": 9.940000000000001,
+  "SignalListnr": 0.0,
+  "HTTPHandler": 810.58,
+  "MemoryWorker": 7.13,
+  "BgSchPool": 18.700000000000003,
+  "PoolDelayExec": 3.5999999999999996,
+  "BgBufSchPool": 0.0,
+  "BgMBSchPool": 0.0,
+  "BgDistSchPool": 0.0,
+  "BgStrmSchPool": 2.02,
+  "CgrpMemUsgObsr": 0.03,
+  "MergeMutate": 2171.2000000000003,
+  "Move": 0.0,
+  "Fetch": 0.0,
+  "Common": 0.0,
+  "ThreadPool": 317.7799999999998,
+  "AsyncMetrics": 37.82,
+  "ExternalLoader": 0.8400000000000001,
+  "ConfigReloader": 0.24,
+  "RuntimeData": 33.480000000000004
+ }
+}

@@ -1,0 +1,43 @@
+{
+ "run": "metrics-100k",
+ "tables": "number,histogram,exponential_histogram,summary,series",
+ "rows": "100k",
+ "rate": [
+  "number=1,histogram=0.5,exponential_histogram=0.2,summary=0.3,series=0.1"
+ ],
+ "duration": 600.0,
+ "drain": 120.0,
+ "workers": 3,
+ "ids": "random",
+ "partition": "toDate(received_at)",
+ "ttl": "",
+ "setting": [],
+ "time_scale": 1.0,
+ "max_db_gb": 0.6,
+ "min_free_gb": 2.6,
+ "keep": false,
+ "after": "",
+ "after_wait": 0,
+ "db": "mrg_metrics_100k",
+ "argv": [
+  "merges.py",
+  "--run",
+  "metrics-100k",
+  "--tables",
+  "number,histogram,exponential_histogram,summary,series",
+  "--rows",
+  "100k",
+  "--rate",
+  "number=1,histogram=0.5,exponential_histogram=0.2,summary=0.3,series=0.1",
+  "--workers",
+  "3",
+  "--duration",
+  "600",
+  "--drain",
+  "120",
+  "--max-db-gb",
+  "0.6"
+ ],
+ "pid": 3489,
+ "start": 1790376924.9592133
+}

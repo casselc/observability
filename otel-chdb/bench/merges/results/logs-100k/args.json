@@ -1,0 +1,43 @@
+{
+ "run": "logs-100k",
+ "tables": "logs",
+ "rows": "100k",
+ "rate": [
+  "1"
+ ],
+ "duration": 420.0,
+ "drain": 120.0,
+ "workers": 3,
+ "ids": "random",
+ "partition": "toDate(received_at)",
+ "ttl": "",
+ "setting": [],
+ "time_scale": 1.0,
+ "max_db_gb": 0.9,
+ "min_free_gb": 2.6,
+ "keep": false,
+ "after": "",
+ "after_wait": 0,
+ "db": "mrg_logs_100k",
+ "argv": [
+  "merges.py",
+  "--run",
+  "logs-100k",
+  "--tables",
+  "logs",
+  "--rows",
+  "100k",
+  "--rate",
+  "1",
+  "--workers",
+  "3",
+  "--duration",
+  "420",
+  "--drain",
+  "120",
+  "--max-db-gb",
+  "0.9"
+ ],
+ "pid": 3489,
+ "start": 1790375383.7031262
+}

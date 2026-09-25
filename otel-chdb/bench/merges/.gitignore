@@ -1,0 +1,4 @@
+# Raw system-table dumps stay local; the summaries are kept.
+results/**/part_log.jsonl
+results/**/query_log.jsonl
+results/**/inserts.jsonl

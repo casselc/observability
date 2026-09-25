@@ -193,8 +193,8 @@ type Writer struct {
 	C      *Client
 	Prefix string
 	Epoch  int
-	Next   int              // next slot to try
-	Known  map[string]bool  // content hashes committed in the log, as far as this writer has read
+	Next   int             // next slot to try
+	Known  map[string]bool // content hashes committed in the log, as far as this writer has read
 }
 
 // Append puts e into the first free slot at or after w.Next, with If-None-Match.

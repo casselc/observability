@@ -1,5 +1,10 @@
 module github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter
 
+// Property-based tests (hegel-go), kept out of go.mod: hegel-go pins purego to
+// an alpha that would otherwise flow into every build of the exporter,
+// including collectors. Run with:
+//   go test -tags pbt -modfile=go.pbt.mod ./...
+
 go 1.26.0
 
 // The fork: upstream chdb-go plus a binary-safe streaming insert
@@ -11,6 +16,7 @@ require (
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000
 	go.opentelemetry.io/collector/component v1.67.0
 	go.opentelemetry.io/collector/component/componenttest v0.161.0
+	go.opentelemetry.io/collector/config/configopaque v1.67.0
 	go.opentelemetry.io/collector/config/configoptional v1.67.0
 	go.opentelemetry.io/collector/config/configretry v1.67.0
 	go.opentelemetry.io/collector/exporter v1.67.0
@@ -18,12 +24,13 @@ require (
 	go.opentelemetry.io/collector/exporter/exportertest v0.161.0
 	go.opentelemetry.io/collector/pdata v1.67.0
 	go.uber.org/zap v1.28.0
+	hegel.dev/go/hegel v0.9.8
 )
 
 require (
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/ebitengine/purego v0.8.2 // indirect
+	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
@@ -42,7 +49,6 @@ require (
 	github.com/stretchr/testify v1.12.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/collector/client v1.67.0 // indirect
-	go.opentelemetry.io/collector/config/configopaque v1.67.0 // indirect
 	go.opentelemetry.io/collector/confmap v1.67.0 // indirect
 	go.opentelemetry.io/collector/consumer v1.67.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror v0.161.0 // indirect

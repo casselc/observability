@@ -1,3 +1,5 @@
+//go:build pbt
+
 package chdbexporter
 
 import (

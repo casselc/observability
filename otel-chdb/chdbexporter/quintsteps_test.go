@@ -55,7 +55,7 @@ type qStep struct {
 type stepRecorder struct {
 	steps   []qStep
 	cur     map[string]string // actor|process -> current generation
-	started map[string]bool   // process|batch
+	started map[string]bool   // signal|process|batch
 	now     func() time.Time
 }
 
@@ -72,7 +72,7 @@ func (w *fakeWorld) stepPushStart(signal, epoch string, batch uint64, gen string
 	if r == nil {
 		return
 	}
-	k := fmt.Sprintf("%s|%d", epoch, batch)
+	k := fmt.Sprintf("%s|%s|%d", signal, epoch, batch) // batch ids are per signal
 	if r.started[k] {
 		return
 	}

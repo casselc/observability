@@ -402,7 +402,17 @@ Every witness is reached:
 
 **Mutations**, 500 traces × 60 steps per invariant (✗ = counterexample found):
 
-MUTATIONS
+| Instance | What it changes | ✗ (violated) | ✓ (held) |
+| --- | --- | --- | --- |
+| `plainPut` | Slots written with a plain PUT, as stock awss3exporter does | `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `consumerNeverSkipsCommitted`, `noCommitAfterClose`, `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload` | `onlyCommittedIngested`, `gapNeverTakenForLoss` |
+| `nonAtomicCond` | The condition is checked on arrival and the write happens later (SeaweedFS multipart completion) | `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | the other 4 |
+| `retryNewKey` | Timeout or 412 means retry at a new slot (stock exporterhelper retry) | `epochNoDuplicatePayload`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` (the gap breaks the tombstone close) | the other 6, including end to end, thanks to the consumer check |
+| `noHalt` | The writer steps over a tombstone | `consumerNeverSkipsCommitted`, `noCommitAfterClose` | the other 7 |
+| `skipGaps` | The consumer treats a dead epoch's free slot as lost | `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted` | the other 7 |
+| `noCheckCentral` | No content check before insert | `payloadIngestedAtMostOnce` (F4 and cross-epoch copies) | the other 8 |
+
+Each ✗ was found within 0.1–28 s of sampling; each ✓ held over 500 traces.
+Every mutation breaks something that the design keeps.
 
 **Scenario tests**: `quint test s3Inline_test.qnt --main <module> --backend
 typescript`, 16 tests, all passing.

@@ -328,7 +328,8 @@ module fastPath {
     buffer' = Set(),
     exps' = exps.keys().mapBy(x => if (exps.get(x).phase == "queued") { ...exps.get(x), phase: "idle" } else exps.get(x)),
     impInserts' = impInserts + 1, impChecks' = impChecks + 1,
-    imp' = imp, ckpt' = ckpt, ledger' = ledger, claims' = claims, claimAt' = claimAt,
+    imp' = imp, ckpt' = ckpt, ledger' = ledger,
+    claims' = if (CLAIMS) claims.set(nextBatch, 2) else claims, claimAt' = claimAt,
     events' = events.union(Set("impPartial")),
     clock' = clock, keepEdge, markers' = markers, net' = net,
   }

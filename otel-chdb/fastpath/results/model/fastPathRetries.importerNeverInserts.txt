@@ -1,0 +1,586 @@
+An example execution:
+
+[State 0]
+{
+  fastPathRetries::fastPath::abandoned: Set(),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 0,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  fastPathRetries::fastPath::abandoned: Set(),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 0,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 0,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 0,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 0,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 1,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 1,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0)],
+  fastPathRetries::fastPath::written: Set(2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 1,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 2,
+  fastPathRetries::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetries::fastPath::committed: [],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 2,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 2,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 3,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 4,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 4,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 4,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 4,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 5,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 5,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 6,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set(),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 0,
+  fastPathRetries::fastPath::impInserts: 0,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  fastPathRetries::fastPath::abandoned: Set(2),
+  fastPathRetries::fastPath::buffer: Set(),
+  fastPathRetries::fastPath::ckpt: 0,
+  fastPathRetries::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetries::fastPath::clock: 6,
+  fastPathRetries::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  fastPathRetries::fastPath::committed: [1],
+  fastPathRetries::fastPath::events: Set("impPartial"),
+  fastPathRetries::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetries::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetries::fastPath::impChecks: 1,
+  fastPathRetries::fastPath::impInserts: 1,
+  fastPathRetries::fastPath::ledger: Set(),
+  fastPathRetries::fastPath::markers: Set(),
+  fastPathRetries::fastPath::net: Set(),
+  fastPathRetries::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetries::fastPath::window: [(0, 0), (0, 0)],
+  fastPathRetries::fastPath::written: Set(1, 2),
+  fastPathRetries::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (470ms at 6 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

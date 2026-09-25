@@ -1,0 +1,441 @@
+An example execution:
+
+[State 0]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 0,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 0,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 0,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 3]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 0,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 1,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 1,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 2,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 3,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 3,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  lateArrivalTokenBackstop::fastPath::committed: [],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 9]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 3,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 10]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 4,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 11]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 5,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 12]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 6,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 13]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 7,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set(),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 0,
+  lateArrivalTokenBackstop::fastPath::impInserts: 0,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 14]
+{
+  lateArrivalTokenBackstop::fastPath::abandoned: Set(1),
+  lateArrivalTokenBackstop::fastPath::buffer: Set(),
+  lateArrivalTokenBackstop::fastPath::ckpt: 0,
+  lateArrivalTokenBackstop::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  lateArrivalTokenBackstop::fastPath::clock: 7,
+  lateArrivalTokenBackstop::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  lateArrivalTokenBackstop::fastPath::committed: [2],
+  lateArrivalTokenBackstop::fastPath::events: Set("impPartial"),
+  lateArrivalTokenBackstop::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  lateArrivalTokenBackstop::fastPath::imp: { b: 0, phase: "idle" },
+  lateArrivalTokenBackstop::fastPath::impChecks: 1,
+  lateArrivalTokenBackstop::fastPath::impInserts: 1,
+  lateArrivalTokenBackstop::fastPath::ledger: Set(),
+  lateArrivalTokenBackstop::fastPath::markers: Set(),
+  lateArrivalTokenBackstop::fastPath::net: Set(),
+  lateArrivalTokenBackstop::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  lateArrivalTokenBackstop::fastPath::window: [(2, 1)],
+  lateArrivalTokenBackstop::fastPath::written: Set(1, 2),
+  lateArrivalTokenBackstop::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[violation] Found an issue (267ms at 7 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x6197 --backend=typescript to reproduce.
+error: Invariant violated

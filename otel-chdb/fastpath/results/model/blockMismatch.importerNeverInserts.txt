@@ -1,0 +1,441 @@
+An example execution:
+
+[State 0]
+{
+  blockMismatch::fastPath::abandoned: Set(),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 0,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(),
+  blockMismatch::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  blockMismatch::fastPath::abandoned: Set(),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 0,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(),
+  blockMismatch::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  blockMismatch::fastPath::abandoned: Set(),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 0,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(),
+  blockMismatch::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 3]
+{
+  blockMismatch::fastPath::abandoned: Set(),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 0,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  blockMismatch::fastPath::abandoned: Set(),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 1,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 1,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 2,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 3,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 3,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  blockMismatch::fastPath::committed: [],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 9]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 3,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 10]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 4,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 11]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 5,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 12]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 6,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 13]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 7,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set(),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 0,
+  blockMismatch::fastPath::impInserts: 0,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 14]
+{
+  blockMismatch::fastPath::abandoned: Set(1),
+  blockMismatch::fastPath::buffer: Set(),
+  blockMismatch::fastPath::ckpt: 0,
+  blockMismatch::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  blockMismatch::fastPath::clock: 7,
+  blockMismatch::fastPath::commitAt: Map(1 -> -1, 2 -> 3),
+  blockMismatch::fastPath::committed: [2],
+  blockMismatch::fastPath::events: Set("impPartial"),
+  blockMismatch::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  blockMismatch::fastPath::imp: { b: 0, phase: "idle" },
+  blockMismatch::fastPath::impChecks: 1,
+  blockMismatch::fastPath::impInserts: 1,
+  blockMismatch::fastPath::ledger: Set(),
+  blockMismatch::fastPath::markers: Set(),
+  blockMismatch::fastPath::net: Set(),
+  blockMismatch::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  blockMismatch::fastPath::window: [(102, 1)],
+  blockMismatch::fastPath::written: Set(1, 2),
+  blockMismatch::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[violation] Found an issue (374ms at 5 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x6197 --backend=typescript to reproduce.
+error: Invariant violated

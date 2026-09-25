@@ -1,0 +1,1196 @@
+An example execution:
+
+[State 0]
+{
+  claimsNoCheck::fastPath::abandoned: Set(),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 0,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [],
+  claimsNoCheck::fastPath::written: Set(),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  claimsNoCheck::fastPath::abandoned: Set(),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 0,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 0,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 1,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 1,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 2,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 2,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 2,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 2,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 3,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 3,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 3,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 12]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 4,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 13]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 5,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 14]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 5,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 15]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 16]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 17]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 18]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 19]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 20]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 6,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 21]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 22]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 23]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 24]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 25]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 26]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 27]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 28]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 29]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 30]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 31]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 32]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  claimsNoCheck::fastPath::committed: [],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 33]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set(),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 0,
+  claimsNoCheck::fastPath::impInserts: 0,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 34]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 1,
+  claimsNoCheck::fastPath::impInserts: 1,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  claimsNoCheck::fastPath::window: [(0, 0), (2, 2)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 35]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 1,
+  claimsNoCheck::fastPath::impInserts: 1,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  claimsNoCheck::fastPath::window: [(2, 2), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 36]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 1,
+  claimsNoCheck::fastPath::impInserts: 1,
+  claimsNoCheck::fastPath::ledger: Set(),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  claimsNoCheck::fastPath::window: [(0, 0), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 37]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 2),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impInserted", "impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 2, phase: "done" },
+  claimsNoCheck::fastPath::impChecks: 2,
+  claimsNoCheck::fastPath::impInserts: 2,
+  claimsNoCheck::fastPath::ledger: Set(2),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 2),
+  claimsNoCheck::fastPath::window: [(2, 1), (2, 2)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 38]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 2),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impCrash", "impInserted", "impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 2,
+  claimsNoCheck::fastPath::impInserts: 2,
+  claimsNoCheck::fastPath::ledger: Set(2),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 2),
+  claimsNoCheck::fastPath::window: [(2, 1), (2, 2)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 39]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 2),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impCrash", "impInserted", "impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 0, phase: "idle" },
+  claimsNoCheck::fastPath::impChecks: 2,
+  claimsNoCheck::fastPath::impInserts: 2,
+  claimsNoCheck::fastPath::ledger: Set(2),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 2),
+  claimsNoCheck::fastPath::window: [(2, 2), (0, 0)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 40]
+{
+  claimsNoCheck::fastPath::abandoned: Set(1),
+  claimsNoCheck::fastPath::buffer: Set(),
+  claimsNoCheck::fastPath::ckpt: 0,
+  claimsNoCheck::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  claimsNoCheck::fastPath::claims: Map(1 -> 0, 2 -> 2),
+  claimsNoCheck::fastPath::clock: 7,
+  claimsNoCheck::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  claimsNoCheck::fastPath::committed: [2],
+  claimsNoCheck::fastPath::events: Set("impCrash", "impInserted", "impPartial"),
+  claimsNoCheck::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  claimsNoCheck::fastPath::imp: { b: 2, phase: "done" },
+  claimsNoCheck::fastPath::impChecks: 3,
+  claimsNoCheck::fastPath::impInserts: 3,
+  claimsNoCheck::fastPath::ledger: Set(2),
+  claimsNoCheck::fastPath::markers: Set(),
+  claimsNoCheck::fastPath::net: Set(),
+  claimsNoCheck::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 2, (2, 2) -> 3),
+  claimsNoCheck::fastPath::window: [(2, 1), (2, 2)],
+  claimsNoCheck::fastPath::written: Set(1, 2),
+  claimsNoCheck::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[ok] No violation found (76351ms at 20 traces/second).
+Trace length statistics: max=41, min=41, average=41.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x5eed --backend=typescript to reproduce.

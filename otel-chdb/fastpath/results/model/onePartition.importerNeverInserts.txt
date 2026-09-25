@@ -1,0 +1,566 @@
+An example execution:
+
+[State 0]
+{
+  onePartition::fastPath::abandoned: Set(),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 0,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  onePartition::fastPath::abandoned: Set(),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 0,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 0,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 0,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 0,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 1,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 1,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0)],
+  onePartition::fastPath::written: Set(2),
+  onePartition::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 1,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 2,
+  onePartition::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  onePartition::fastPath::committed: [],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 2,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 2,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 3,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 4,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 4,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 4,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 4,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 5,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 5,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 6,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set(),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 0,
+  onePartition::fastPath::impInserts: 0,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  onePartition::fastPath::abandoned: Set(2),
+  onePartition::fastPath::buffer: Set(),
+  onePartition::fastPath::ckpt: 0,
+  onePartition::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  onePartition::fastPath::clock: 6,
+  onePartition::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  onePartition::fastPath::committed: [1],
+  onePartition::fastPath::events: Set("impPartial"),
+  onePartition::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  onePartition::fastPath::imp: { b: 0, phase: "idle" },
+  onePartition::fastPath::impChecks: 1,
+  onePartition::fastPath::impInserts: 1,
+  onePartition::fastPath::ledger: Set(),
+  onePartition::fastPath::markers: Set(),
+  onePartition::fastPath::net: Set(),
+  onePartition::fastPath::target: Map((1, 1) -> 0, (2, 1) -> 0),
+  onePartition::fastPath::window: [(0, 0), (0, 0)],
+  onePartition::fastPath::written: Set(1, 2),
+  onePartition::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (454ms at 7 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

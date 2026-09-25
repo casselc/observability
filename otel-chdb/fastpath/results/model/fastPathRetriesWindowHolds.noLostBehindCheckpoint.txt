@@ -1,0 +1,1223 @@
+An example execution:
+
+[State 0]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 0,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 0,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 1,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 1,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 1,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 1,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 1 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 2,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set(),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 1 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 2,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 1 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 2,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 2,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "sent" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 2 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "sent" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 2 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 2 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 12]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 2 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 13]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set({ b: 1, sentAt: 2 }),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 14]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer:
+    Set({ at: 3, b: 1, waiter: true }),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events: Set("fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 15]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 3,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 16]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 4,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 17]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 5,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 18]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 5,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 19]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 6,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 0,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 20]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 6,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 1,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 21]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 6,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 1,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 22]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 1,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 23]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 2,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 24]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 2,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 25]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 3,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 26]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 3,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 27]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 4,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 28]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 4,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 29]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 5,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 30]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 5,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 31]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 6,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 32]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 6,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 33]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 7,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 34]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 7,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 35]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 8,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 36]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 8,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 37]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 9,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 38]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 9,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 39]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 1, phase: "done" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 10,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[State 40]
+{
+  fastPathRetriesWindowHolds::fastPath::abandoned: Set(2),
+  fastPathRetriesWindowHolds::fastPath::buffer: Set(),
+  fastPathRetriesWindowHolds::fastPath::ckpt: 0,
+  fastPathRetriesWindowHolds::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  fastPathRetriesWindowHolds::fastPath::clock: 7,
+  fastPathRetriesWindowHolds::fastPath::commitAt: Map(1 -> 1, 2 -> -1),
+  fastPathRetriesWindowHolds::fastPath::committed: [1],
+  fastPathRetriesWindowHolds::fastPath::events:
+    Set("fastLanded", "fpTimeout", "impCrash", "impSkipped", "lateArrival"),
+  fastPathRetriesWindowHolds::fastPath::exps:
+    Map(
+      1 -> { attempts: 2, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  fastPathRetriesWindowHolds::fastPath::imp: { b: 0, phase: "idle" },
+  fastPathRetriesWindowHolds::fastPath::impChecks: 10,
+  fastPathRetriesWindowHolds::fastPath::impInserts: 0,
+  fastPathRetriesWindowHolds::fastPath::ledger: Set(1),
+  fastPathRetriesWindowHolds::fastPath::markers: Set(),
+  fastPathRetriesWindowHolds::fastPath::net: Set(),
+  fastPathRetriesWindowHolds::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  fastPathRetriesWindowHolds::fastPath::window: [(1, 1), (1, 2)],
+  fastPathRetriesWindowHolds::fastPath::written: Set(1, 2),
+  fastPathRetriesWindowHolds::fastPath::writtenAt: Map(1 -> 0, 2 -> 3)
+}
+
+[ok] No violation found (59728ms at 25 traces/second).
+Trace length statistics: max=41, min=14, average=17.04
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x5b20f --backend=typescript to reproduce.

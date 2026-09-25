@@ -1,0 +1,789 @@
+An example execution:
+
+[State 0]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  markerNoWait::fastPath::committed: [],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(),
+  markerNoWait::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  markerNoWait::fastPath::committed: [],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(),
+  markerNoWait::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 2]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  markerNoWait::fastPath::committed: [],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 0),
+  markerNoWait::fastPath::committed: [2],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 0),
+  markerNoWait::fastPath::committed: [2],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 5]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 0),
+  markerNoWait::fastPath::committed: [2],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "sent" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set({ b: 2, sentAt: 0 }),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 6]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 0),
+  markerNoWait::fastPath::committed: [2],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "sent" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set({ b: 2, sentAt: 0 }),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 7]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "sent" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set({ b: 2, sentAt: 0 }),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 8]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set({ at: 0, b: 2, waiter: false }),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 0,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 9]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set({ at: 0, b: 2, waiter: false }),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 1,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 10]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set({ at: 0, b: 2, waiter: false }),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 1,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 11]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set({ at: 0, b: 2, waiter: false }),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 1,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set(),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 12]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 1,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (2, 1)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 13]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 2,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (2, 1)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 14]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 3,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (2, 1)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 15]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 3,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(2, 1), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 16]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 3,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 17]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 4,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 18]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 5,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 19]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 5,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 20]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 5,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 21]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 6,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 22]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 6,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 23]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 6,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 24]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 7,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 0,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 25]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 0,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 7,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("impSkipped", "partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 2, phase: "done" },
+  markerNoWait::fastPath::impChecks: 1,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[State 26]
+{
+  markerNoWait::fastPath::abandoned: Set(),
+  markerNoWait::fastPath::buffer: Set(),
+  markerNoWait::fastPath::ckpt: 1,
+  markerNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::clock: 7,
+  markerNoWait::fastPath::commitAt: Map(1 -> 0, 2 -> 0),
+  markerNoWait::fastPath::committed: [2, 1],
+  markerNoWait::fastPath::events: Set("impSkipped", "partialFlush"),
+  markerNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 1, phase: "ok" }
+    ),
+  markerNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  markerNoWait::fastPath::impChecks: 1,
+  markerNoWait::fastPath::impInserts: 0,
+  markerNoWait::fastPath::ledger: Set(),
+  markerNoWait::fastPath::markers: Set(2),
+  markerNoWait::fastPath::net: Set(),
+  markerNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 1, (2, 2) -> 0),
+  markerNoWait::fastPath::window: [(0, 0), (0, 0)],
+  markerNoWait::fastPath::written: Set(1, 2),
+  markerNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 0)
+}
+
+[violation] Found an issue (4578ms at 15 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x1164b --backend=typescript to reproduce.
+error: Invariant violated

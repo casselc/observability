@@ -1,54 +1,104 @@
-recommended	importerNeverInserts	VIOLATED	23s	Found an issue (850ms at 4 traces/second)
-recommended	noLostBehindCheckpoint	ok	141s	
-recommended	batchIngestedAtMostOnce	ok	159s	
-recommended	onlyCommittedIngested	ok	162s	
-recommendedNoFastPath	onlyCommittedIngested	ok	159s	
-recommendedNoFastPath	importerNeverInserts	VIOLATED	28s	Found an issue (735ms at 4 traces/second)
-recommendedNoFastPath	noLostBehindCheckpoint	ok	164s	
-recommendedNoFastPath	batchIngestedAtMostOnce	ok	195s	
-recommendedNoWait	importerNeverInserts	VIOLATED	28s	Found an issue (1124ms at 3 traces/second)
-recommendedNoWait	onlyCommittedIngested	ok	192s	
-recommendedNoWait	batchIngestedAtMostOnce	ok	195s	
-recommendedNoWait	noLostBehindCheckpoint	ok	143s	
-happyPath	onlyCommittedIngested	ok	148s	
+blockMismatch	batchIngestedAtMostOnce	VIOLATED	66s	Found an issue (55116ms at 25 traces/second)
+blockMismatch	importerNeverInserts	VIOLATED	12s	Found an issue (374ms at 5 traces/second)
+blockMismatch	noLostBehindCheckpoint	ok	74s	
+blockMismatch	onlyCommittedIngested	ok	74s	
+checkAnyRow	batchIngestedAtMostOnce	ok	125s	
+checkAnyRow	importerNeverInserts	VIOLATED	17s	Found an issue (454ms at 7 traces/second)
+checkAnyRow	noLostBehindCheckpoint	VIOLATED	17s	Found an issue (895ms at 4 traces/second)
+checkAnyRow	onlyCommittedIngested	ok	119s	
+claimsNoCheck	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (477ms at 2 traces/second)
+claimsNoCheck	importerNeverInserts	VIOLATED	12s	Found an issue (363ms at 3 traces/second)
+claimsNoCheck	noLostBehindCheckpoint	ok	75s	
+claimsNoCheck	onlyCommittedIngested	ok	89s	
+claimsWithCheck	batchIngestedAtMostOnce	ok	65s	
+claimsWithCheck	importerNeverInserts	VIOLATED	12s	Found an issue (418ms at 2 traces/second)
+claimsWithCheck	noLostBehindCheckpoint	ok	57s	
+claimsWithCheck	onlyCommittedIngested	ok	70s	
+fastPathRetries	batchIngestedAtMostOnce	VIOLATED	39s	Found an issue (25331ms at 19 traces/second)
+fastPathRetries	importerNeverInserts	VIOLATED	10s	Found an issue (470ms at 6 traces/second)
+fastPathRetries	noLostBehindCheckpoint	ok	77s	
+fastPathRetries	onlyCommittedIngested	ok	88s	
+fastPathRetriesOnePartition	batchIngestedAtMostOnce	VIOLATED	74s	Found an issue (62601ms at 23 traces/second)
+fastPathRetriesOnePartition	importerNeverInserts	VIOLATED	11s	Found an issue (543ms at 6 traces/second)
+fastPathRetriesOnePartition	noLostBehindCheckpoint	ok	77s	
+fastPathRetriesOnePartition	onlyCommittedIngested	ok	86s	
+fastPathRetriesWindowHolds	batchIngestedAtMostOnce	ok	73s	
+fastPathRetriesWindowHolds	importerNeverInserts	VIOLATED	12s	Found an issue (317ms at 6 traces/second)
+fastPathRetriesWindowHolds	noLostBehindCheckpoint	ok	70s	
+fastPathRetriesWindowHolds	onlyCommittedIngested	ok	75s	
+fireBeforeCommit	batchIngestedAtMostOnce	ok	141s	
+fireBeforeCommit	importerNeverInserts	VIOLATED	21s	Found an issue (633ms at 3 traces/second)
+fireBeforeCommit	noLostBehindCheckpoint	ok	122s	
+fireBeforeCommit	onlyCommittedIngested	VIOLATED	19s	Found an issue (252ms at 4 traces/second)
+fullNoRepair	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (780ms at 5 traces/second)
+fullNoRepair	importerNeverInserts	VIOLATED	11s	Found an issue (758ms at 4 traces/second)
+fullNoRepair	noLostBehindCheckpoint	ok	78s	
+fullNoRepair	onlyCommittedIngested	ok	88s	
+graceNoMargin	batchIngestedAtMostOnce	ok	125s	
+graceNoMargin	importerNeverInserts	VIOLATED	15s	Found an issue (620ms at 5 traces/second)
+graceNoMargin	noLostBehindCheckpoint	ok	110s	
+graceNoMargin	onlyCommittedIngested	ok	118s	
 happyPath	batchIngestedAtMostOnce	ok	150s	
+happyPath	importerNeverInserts	ok	144s	
 happyPath	noLostBehindCheckpoint	ok	142s	
+happyPath	onlyCommittedIngested	ok	148s	
 happyPathNoGrace	batchIngestedAtMostOnce	VIOLATED	25s	Found an issue (618ms at 2 traces/second)
 happyPathNoGrace	importerNeverInserts	VIOLATED	21s	Found an issue (264ms at 4 traces/second)
-happyPath	importerNeverInserts	ok	144s	
-noGrace	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (4905ms at 9 traces/second)
-happyPathNoGrace	onlyCommittedIngested	ok	163s	
 happyPathNoGrace	noLostBehindCheckpoint	ok	152s	
-noGrace	importerNeverInserts	VIOLATED	13s	Found an issue (306ms at 3 traces/second)
-noGrace	onlyCommittedIngested	ok	139s	
-noGrace	noLostBehindCheckpoint	ok	104s	
-graceNoMargin	importerNeverInserts	VIOLATED	15s	Found an issue (620ms at 5 traces/second)
-graceNoMargin	onlyCommittedIngested	ok	118s	
-graceNoMargin	batchIngestedAtMostOnce	ok	125s	
-unboundedRequests	batchIngestedAtMostOnce	VIOLATED	21s	Found an issue (4521ms at 10 traces/second)
-graceNoMargin	noLostBehindCheckpoint	ok	110s	
-unboundedRequests	importerNeverInserts	VIOLATED	17s	Found an issue (756ms at 4 traces/second)
-fireBeforeCommit	onlyCommittedIngested	VIOLATED	19s	Found an issue (252ms at 4 traces/second)
-unboundedRequests	onlyCommittedIngested	ok	140s	
-fireBeforeCommit	importerNeverInserts	VIOLATED	21s	Found an issue (633ms at 3 traces/second)
-unboundedRequests	noLostBehindCheckpoint	ok	122s	
-tokenOnly	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (678ms at 4 traces/second)
-fireBeforeCommit	noLostBehindCheckpoint	ok	122s	
-tokenOnly	importerNeverInserts	VIOLATED	13s	Found an issue (785ms at 4 traces/second)
-fireBeforeCommit	batchIngestedAtMostOnce	ok	141s	
-tokenOnlyNoFastPath	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (789ms at 4 traces/second)
-tokenOnly	onlyCommittedIngested	ok	127s	
-tokenOnlyNoFastPath	importerNeverInserts	VIOLATED	13s	Found an issue (476ms at 6 traces/second)
-tokenOnly	noLostBehindCheckpoint	ok	102s	
-tokenOnlyNoFastPath	noLostBehindCheckpoint	ok	96s	
-tokenOnlyNoFastPath	onlyCommittedIngested	ok	114s	
-checkAnyRow	noLostBehindCheckpoint	VIOLATED	17s	Found an issue (895ms at 4 traces/second)
-checkAnyRow	importerNeverInserts	VIOLATED	17s	Found an issue (454ms at 7 traces/second)
+happyPathNoGrace	onlyCommittedIngested	ok	163s	
+lateArrivalTokenBackstop	batchIngestedAtMostOnce	ok	34s	
+lateArrivalTokenBackstop	importerNeverInserts	VIOLATED	9s	Found an issue (267ms at 7 traces/second)
+lateArrivalTokenBackstop	noLostBehindCheckpoint	ok	29s	
+lateArrivalTokenBackstop	onlyCommittedIngested	ok	51s	
 ledgerCheck	batchIngestedAtMostOnce	VIOLATED	17s	Found an issue (870ms at 3 traces/second)
-checkAnyRow	onlyCommittedIngested	ok	119s	
-checkAnyRow	batchIngestedAtMostOnce	ok	125s	
 ledgerCheck	importerNeverInserts	VIOLATED	15s	Found an issue (603ms at 5 traces/second)
-ledgerCheckMvReliable	batchIngestedAtMostOnce	VIOLATED	15s	Found an issue (1040ms at 4 traces/second)
 ledgerCheck	noLostBehindCheckpoint	ok	96s	
 ledgerCheck	onlyCommittedIngested	ok	123s	
+ledgerCheckMvReliable	batchIngestedAtMostOnce	VIOLATED	15s	Found an issue (1040ms at 4 traces/second)
 ledgerCheckMvReliable	importerNeverInserts	VIOLATED	13s	Found an issue (643ms at 5 traces/second)
+ledgerCheckMvReliable	noLostBehindCheckpoint	ok	84s	
+ledgerCheckMvReliable	onlyCommittedIngested	ok	106s	
+ledgerThenTarget	batchIngestedAtMostOnce	ok	74s	
+ledgerThenTarget	importerNeverInserts	VIOLATED	11s	Found an issue (466ms at 6 traces/second)
+ledgerThenTarget	noLostBehindCheckpoint	ok	49s	
+ledgerThenTarget	onlyCommittedIngested	ok	74s	
+markerNoWait	batchIngestedAtMostOnce	VIOLATED	14s	Found an issue (570ms at 5 traces/second)
+markerNoWait	importerNeverInserts	VIOLATED	13s	Found an issue (388ms at 8 traces/second)
+markerNoWait	noLostBehindCheckpoint	VIOLATED	15s	Found an issue (4578ms at 15 traces/second)
+markerNoWait	onlyCommittedIngested	ok	94s	
+markerWait	batchIngestedAtMostOnce	VIOLATED	15s	Found an issue (648ms at 5 traces/second)
+markerWait	importerNeverInserts	VIOLATED	11s	Found an issue (394ms at 8 traces/second)
+markerWait	noLostBehindCheckpoint	ok	78s	
+markerWait	onlyCommittedIngested	ok	97s	
+noGrace	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (4905ms at 9 traces/second)
+noGrace	importerNeverInserts	VIOLATED	13s	Found an issue (306ms at 3 traces/second)
+noGrace	noLostBehindCheckpoint	ok	104s	
+noGrace	onlyCommittedIngested	ok	139s	
+onePartition	batchIngestedAtMostOnce	ok	80s	
+onePartition	importerNeverInserts	VIOLATED	12s	Found an issue (454ms at 7 traces/second)
+onePartition	noLostBehindCheckpoint	ok	76s	
+onePartition	onlyCommittedIngested	ok	80s	
+recommended	batchIngestedAtMostOnce	ok	159s	
+recommended	importerNeverInserts	VIOLATED	23s	Found an issue (850ms at 4 traces/second)
+recommended	noLostBehindCheckpoint	ok	141s	
+recommended	onlyCommittedIngested	ok	162s	
+recommendedNoFastPath	batchIngestedAtMostOnce	ok	195s	
+recommendedNoFastPath	importerNeverInserts	VIOLATED	28s	Found an issue (735ms at 4 traces/second)
+recommendedNoFastPath	noLostBehindCheckpoint	ok	164s	
+recommendedNoFastPath	onlyCommittedIngested	ok	159s	
+recommendedNoWait	batchIngestedAtMostOnce	ok	195s	
+recommendedNoWait	importerNeverInserts	VIOLATED	28s	Found an issue (1124ms at 3 traces/second)
+recommendedNoWait	noLostBehindCheckpoint	ok	143s	
+recommendedNoWait	onlyCommittedIngested	ok	192s	
+tokenOnly	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (678ms at 4 traces/second)
+tokenOnly	importerNeverInserts	VIOLATED	13s	Found an issue (785ms at 4 traces/second)
+tokenOnly	noLostBehindCheckpoint	ok	102s	
+tokenOnly	onlyCommittedIngested	ok	127s	
+tokenOnlyNoFastPath	batchIngestedAtMostOnce	VIOLATED	13s	Found an issue (789ms at 4 traces/second)
+tokenOnlyNoFastPath	importerNeverInserts	VIOLATED	13s	Found an issue (476ms at 6 traces/second)
+tokenOnlyNoFastPath	noLostBehindCheckpoint	ok	96s	
+tokenOnlyNoFastPath	onlyCommittedIngested	ok	114s	
+unboundedRequests	batchIngestedAtMostOnce	VIOLATED	21s	Found an issue (4521ms at 10 traces/second)
+unboundedRequests	importerNeverInserts	VIOLATED	17s	Found an issue (756ms at 4 traces/second)
+unboundedRequests	noLostBehindCheckpoint	ok	122s	
+unboundedRequests	onlyCommittedIngested	ok	140s	

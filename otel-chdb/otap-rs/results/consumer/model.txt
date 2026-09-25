@@ -1,3 +1,18 @@
 quint 0.32.0, rust evaluator v0.6.0, seed 0x5eed
 design s3InlineConsumerDesign safety (5000 traces x 60 steps): [ok] No violation found (37814ms at 132 traces/second).
 design designQuiet safety (5000 traces x 60 steps): [ok] No violation found (87768ms at 57 traces/second).
+mutant noTimeBound / atMostOnce (up to 20000 traces x 60 steps): [violation] Found an issue (8187ms at 55 traces/second).
+mutant noVerify / neverSkipsCommitted (up to 20000 traces x 60 steps): [violation] Found an issue (549ms at 35 traces/second).
+mutant gcTombs / noCommitAfterClose (up to 20000 traces x 60 steps): [violation] Found an issue (361ms at 39 traces/second).
+mutant gcTombs / neverSkipsCommitted (up to 20000 traces x 60 steps): [violation] Found an issue (286ms at 49 traces/second).
+mutant announceEarly / announcedOnlyAfterCommit (up to 20000 traces x 60 steps): [violation] Found an issue (156ms at 6 traces/second).
+witness wTakeover (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (217ms at 5 traces/second).
+witness wLapsed (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (321ms at 12 traces/second).
+witness wFenced (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (6715ms at 35 traces/second).
+witness wPartial (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (7633ms at 36 traces/second).
+witness wCasLost (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (52087ms at 38 traces/second).
+witness wClosed (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (288ms at 3 traces/second).
+witness wGc (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (2405ms at 33 traces/second).
+witness wAllIngested (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (2394ms at 33 traces/second).
+witness wTakeoverIngest (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (2363ms at 34 traces/second).
+witness wAnnounced (design, up to 5000 traces x 100 steps; a violation = reached): [violation] Found an issue (256ms at 4 traces/second).

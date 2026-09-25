@@ -275,11 +275,14 @@ module s3Inline {
   // INSERT INTO central ... FROM s3('{epoch}/{slot}.parquet'), content key H.
   action cInsert: bool = {
     val x = at(consumer.epoch, consumer.slot)
+    // (Only a plain PUT can replace the object between the check and the
+    // insert; the insert reads whatever is there then.)
+    val dup = consumer.sawPresent or x.kind != Data
     all {
       consumer.phase == CChecked,
-      central' = if (consumer.sawPresent) central else central.setBy(x.payload, c => c + 1),
+      central' = if (dup) central else central.setBy(x.payload, c => c + 1),
       consumer' = { ...consumer, phase: CInserted },
-      events' = events.union(Set(if (consumer.sawPresent) "dedupHit" else "inserted")),
+      events' = events.union(Set(if (x.kind != Data) "objectReplaced" else if (dup) "dedupHit" else "inserted")),
       ckpt' = ckpt, closed' = closed,
       keepEdge, log' = log, inflight' = inflight, responses' = responses, everLog' = everLog,
     }

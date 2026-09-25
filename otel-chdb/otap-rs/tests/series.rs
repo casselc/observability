@@ -273,6 +273,123 @@ fn cache_and_determinism() {
     assert_eq!(fresh.last().unwrap().announce.len(), n);
 }
 
+/// The wire encodings (`series.byte_stream_split`, `series.statistics`):
+/// the float and count columns BYTE_STREAM_SPLIT, no statistics and no page
+/// index by default, whatever `parquet.statistics` says; both switch back.
+/// The rows are the same either way.
+#[test]
+fn wire_encodings() {
+    use parquet::basic::Encoding;
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+    let Ok(data) = std::env::var("OTAPRS_DATA") else { return };
+    let req = std::fs::read(format!("{data}/metrics-testgen-3000.pb")).unwrap();
+    let env = Envelope { producer: "p".into(), epoch: "e".into(), batch: 1, received_ns: 1 };
+    let objects = |o: SeriesOptions| {
+        let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet).with_metrics_layout(MetricsLayout::SeriesTable, o);
+        let flats = enc.flatten_all(&Input::OtlpMetrics(&req)).unwrap();
+        flats.iter().map(|f| (f.signal, enc.encode(f, &env).unwrap().body)).collect::<Vec<_>>()
+    };
+    let chunk = |b: &bytes::Bytes, path: &str| {
+        let r = SerializedFileReader::new(b.clone()).unwrap();
+        let rg = r.metadata().row_group(0).clone();
+        let c = rg.columns().iter().find(|c| c.column_path().string() == path).unwrap_or_else(|| panic!("{path}")).clone();
+        c
+    };
+    let dflt = objects(SeriesOptions::default());
+    let old = objects(SeriesOptions { byte_stream_split: false, statistics: "page".into(), ..SeriesOptions::default() });
+    for ((s, a), (_, b)) in dflt.iter().zip(&old) {
+        let col = match s {
+            Signal::MetricsNumberPoints => "Value",
+            Signal::MetricsHistogramPoints => "BucketCounts.list.element",
+            Signal::MetricsExpHistogramPoints => "Count",
+            Signal::MetricsSummaryPoints => "Sum",
+            _ => "series_id",
+        };
+        let (x, y) = (chunk(a, col), chunk(b, col));
+        let bss = x.encodings().any(|e| e == Encoding::BYTE_STREAM_SPLIT);
+        assert_eq!(bss, *s != Signal::MetricsSeries, "{s:?} {col}: BYTE_STREAM_SPLIT by default");
+        assert!(!y.encodings().any(|e| e == Encoding::BYTE_STREAM_SPLIT), "{s:?} {col}: PLAIN when off");
+        assert!(x.statistics().is_none() && x.offset_index_offset().is_none() && x.column_index_offset().is_none(), "{s:?}: no statistics, no page index");
+        assert!(y.statistics().is_some() && y.column_index_offset().is_some(), "{s:?}: page statistics when asked");
+        assert_eq!(leaves(a), leaves(b), "{s:?}: the same rows");
+        assert!(a.len() < b.len(), "{s:?}: smaller ({} vs {})", a.len(), b.len());
+    }
+}
+
+/// Edge cost of the wire encodings, A/B in one process: `FILES` (in order,
+/// one encoder per configuration, every series object treated as
+/// committed) flattened and encoded REPS times, the configurations
+/// interleaved; per configuration the median thread CPU per point of
+/// flatten + encode, and the Parquet bytes per point (the first `SKIP`
+/// requests, which announce every series, excluded from both).
+///
+///   FILES=a.pb,b.pb,... [SKIP=3] [REPS=5] cargo test --release --test series wire_cost -- --ignored --nocapture
+#[test]
+#[ignore]
+fn wire_cost() {
+    fn cpu_ns() -> u64 {
+        let mut t = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+        t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+    }
+    let files: Vec<Vec<u8>> = std::env::var("FILES").unwrap().split(',').map(|f| std::fs::read(f).unwrap()).collect();
+    let skip: usize = std::env::var("SKIP").map_or(0, |s| s.parse().unwrap());
+    let reps: usize = std::env::var("REPS").map_or(5, |s| s.parse().unwrap());
+    let configs = [
+        ("before: PLAIN, page statistics", SeriesOptions { byte_stream_split: false, statistics: "page".into(), ..SeriesOptions::default() }),
+        ("after: BYTE_STREAM_SPLIT, no statistics", SeriesOptions::default()),
+    ];
+    let mut cpu: Vec<Vec<f64>> = vec![Vec::new(); configs.len()];
+    let mut bytes = vec![std::collections::BTreeMap::<&'static str, usize>::new(); configs.len()];
+    let mut points = 0usize;
+    for rep in 0..reps {
+        for (c, (_, o)) in configs.iter().enumerate() {
+            let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet).with_metrics_layout(MetricsLayout::SeriesTable, o.clone());
+            let (mut ns, mut pts) = (0u64, 0usize);
+            for (i, req) in files.iter().enumerate() {
+                let env = Envelope { producer: "p".into(), epoch: "e".into(), batch: i as u64, received_ns: 1_700_000_000_000_000_000 };
+                let t0 = cpu_ns();
+                let flats = enc.flatten_all(&Input::OtlpMetrics(req)).unwrap();
+                let objs: Vec<_> = flats.iter().map(|f| enc.encode(f, &env).unwrap().body).collect();
+                let dt = cpu_ns() - t0;
+                for f in &flats {
+                    if !f.announce.is_empty() {
+                        enc.series_announced(&f.announce, "e");
+                    }
+                }
+                if i < skip {
+                    continue;
+                }
+                ns += dt;
+                for (f, b) in flats.iter().zip(&objs) {
+                    if f.signal != Signal::MetricsSeries {
+                        pts += f.stats.rows;
+                    }
+                    if rep == 0 {
+                        *bytes[c].entry(f.signal.name()).or_default() += b.len();
+                    }
+                }
+            }
+            cpu[c].push(ns as f64 / 1000.0 / pts as f64);
+            points = pts;
+        }
+    }
+    for (c, (name, _)) in configs.iter().enumerate() {
+        let mut v = cpu[c].clone();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let total: usize = bytes[c].values().sum();
+        let per: Vec<String> = bytes[c].iter().map(|(k, b)| format!("{k} {:.2}", *b as f64 / points as f64)).collect();
+        println!(
+            "{name}: flatten+encode {:.3} µs/point (median of {reps}, [{:.3}–{:.3}]); {:.2} B/point ({})",
+            v[v.len() / 2],
+            v[0],
+            v[v.len() - 1],
+            total as f64 / points as f64,
+            per.join(", ")
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn dump_rust_corr() {
@@ -285,6 +402,36 @@ fn dump_rust_corr() {
         let env = Envelope { producer: "p".into(), epoch: "e".into(), batch: i as u64, received_ns: 1_700_000_000_000_000_000 };
         for fl in enc.flatten_all(&Input::OtlpMetrics(&req)).unwrap() {
             std::fs::write(format!("{out}/{i:04}.{}.parquet", go_name(fl.signal)), enc.encode(&fl, &env).unwrap().body).unwrap();
+            if !fl.announce.is_empty() {
+                enc.series_announced(&fl.announce, "e");
+            }
+        }
+    }
+}
+
+/// Writes layout B's objects for `FILES` (comma-separated, in order, one
+/// encoder, every series object treated as committed) to `OUT` as
+/// `{i:04}.{namespace}.parquet`, with the default options or
+/// `SERIES_BSS=0|1` / `SERIES_STATS=none|chunk|page`: the wire-size
+/// analysis's input (`scripts/series_wire.py`).
+#[test]
+#[ignore]
+fn dump_series() {
+    let files = std::env::var("FILES").unwrap();
+    let out = std::env::var("OUT").unwrap();
+    let mut o = SeriesOptions::default();
+    if let Ok(v) = std::env::var("SERIES_BSS") {
+        o.byte_stream_split = v == "1";
+    }
+    if let Ok(v) = std::env::var("SERIES_STATS") {
+        o.statistics = v;
+    }
+    let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet).with_metrics_layout(MetricsLayout::SeriesTable, o);
+    for (i, f) in files.split(',').enumerate() {
+        let req = std::fs::read(f).unwrap();
+        let env = Envelope { producer: "p".into(), epoch: "e".into(), batch: i as u64, received_ns: 1_700_000_000_000_000_000 };
+        for fl in enc.flatten_all(&Input::OtlpMetrics(&req)).unwrap() {
+            std::fs::write(format!("{out}/{i:04}.{}.parquet", fl.signal.name()), enc.encode(&fl, &env).unwrap().body).unwrap();
             if !fl.announce.is_empty() {
                 enc.series_announced(&fl.announce, "e");
             }

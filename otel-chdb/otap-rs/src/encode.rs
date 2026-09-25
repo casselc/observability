@@ -1,11 +1,12 @@
 //! Parquet (and Arrow IPC) encoding of one batch, tuned for central ingest.
 //!
 //! One row group per batch; zstd; dictionary on every column except the
-//! near-unique ones; chunk + page statistics and the page index; bloom
-//! filters only where they pay (default: TraceId, sized for the batch). No
-//! `ARROW:schema` in the footer. The batch description goes into the footer's
-//! key-value metadata (sorted keys), so the object is self-describing without
-//! its S3 metadata. Encoding is deterministic: the same rows and metadata give
+//! near-unique ones (some of those DELTA_BINARY_PACKED or BYTE_STREAM_SPLIT,
+//! per `Schemas`); chunk + page statistics and the page index (layout B:
+//! none, `series.statistics`); bloom filters only where they pay (default:
+//! TraceId, sized for the batch). No `ARROW:schema` in the footer. The batch
+//! description goes into the footer's key-value metadata (sorted keys), so
+//! the object is self-describing without its S3 metadata. Encoding is deterministic: the same rows and metadata give
 //! the same bytes.
 
 use crate::schema::{HIGH_CARDINALITY, Schemas};
@@ -26,6 +27,7 @@ pub struct ParquetOptions {
     pub zstd_level: i32,
     pub dictionary: bool,
     /// "none", "chunk" or "page" (page = chunk + page stats + column index).
+    /// A signal's schemas may override it (layout B: `series.statistics`).
     pub statistics: String,
     /// Leaf column paths (dotted, e.g. "TraceId") that get a bloom filter.
     pub bloom_columns: Vec<String>,
@@ -56,6 +58,11 @@ impl ParquetOptions {
     }
 
     fn properties(&self, sc: &Schemas, rows: usize, kv: Vec<KeyValue>) -> WriterProperties {
+        let stats = match sc.statistics.as_deref().unwrap_or(&self.statistics) {
+            "none" => EnabledStatistics::None,
+            "chunk" => EnabledStatistics::Chunk,
+            _ => EnabledStatistics::Page,
+        };
         let mut b = WriterProperties::builder()
             .set_created_by(format!("otap-s3pq {} (parquet-rs 58)", env!("CARGO_PKG_VERSION")))
             .set_writer_version(if self.writer_version == "2.0" {
@@ -67,11 +74,10 @@ impl ParquetOptions {
             .set_data_page_size_limit(self.data_page_size)
             .set_dictionary_page_size_limit(self.data_page_size)
             .set_dictionary_enabled(self.dictionary)
-            .set_statistics_enabled(match self.statistics.as_str() {
-                "none" => EnabledStatistics::None,
-                "chunk" => EnabledStatistics::Chunk,
-                _ => EnabledStatistics::Page,
-            })
+            .set_statistics_enabled(stats)
+            // A signal that turns statistics off (layout B) drops the offset
+            // index too: its objects are only ever read whole.
+            .set_offset_index_disabled(sc.statistics.as_deref() == Some("none"))
             .set_compression(if self.zstd_level > 0 {
                 Compression::ZSTD(ZstdLevel::try_new(self.zstd_level).unwrap_or_default())
             } else {
@@ -91,6 +97,11 @@ impl ParquetOptions {
             b = b
                 .set_column_dictionary_enabled(ColumnPath::new(p.clone()), false)
                 .set_column_encoding(ColumnPath::new(p.clone()), parquet::basic::Encoding::DELTA_BINARY_PACKED);
+        }
+        for p in &sc.byte_stream_split {
+            b = b
+                .set_column_dictionary_enabled(ColumnPath::new(p.clone()), false)
+                .set_column_encoding(ColumnPath::new(p.clone()), parquet::basic::Encoding::BYTE_STREAM_SPLIT);
         }
         for c in &self.bloom_columns {
             let path = ColumnPath::from(c.as_str());

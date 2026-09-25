@@ -204,6 +204,10 @@ pub struct Schemas {
     pub plain: Vec<Vec<String>>,
     /// Leaf columns written DELTA_BINARY_PACKED (no dictionary).
     pub delta: Vec<Vec<String>>,
+    /// Leaf columns written BYTE_STREAM_SPLIT (no dictionary).
+    pub byte_stream_split: Vec<Vec<String>>,
+    /// Overrides `ParquetOptions::statistics` for this signal's objects.
+    pub statistics: Option<String>,
 }
 
 impl Schemas {
@@ -229,6 +233,8 @@ impl Schemas {
             parquet,
             plain,
             delta: Vec::new(),
+            byte_stream_split: Vec::new(),
+            statistics: None,
             entries: map_entries(&DataType::Binary),
             ts_elem: Arc::new(Field::new("element", ts_type(), false)),
             str_elem: Arc::new(Field::new("element", DataType::Binary, false)),

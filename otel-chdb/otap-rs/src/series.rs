@@ -49,6 +49,14 @@
 //!   contrib's position) in the points objects, which the prototype drops.
 //!
 //! With both off the objects are the prototype's, column for column.
+//!
+//! **Wire encodings** (`SeriesOptions::byte_stream_split`, `statistics`):
+//! the float and count columns BYTE_STREAM_SPLIT, and no statistics or page
+//! index, about 10% fewer bytes. They change no row and no schema, so they
+//! stay on in `prototype()`. Every series appears once per points object
+//! (one point per scrape interval), so `series_id` doesn't repeat within an
+//! object and neither a dictionary nor sorting shrinks it: README, "Wire
+//! size".
 
 use crate::Signal;
 use crate::columns::{Bin, ListOff, Map, prim};
@@ -102,16 +110,34 @@ pub struct SeriesOptions {
     pub merge_number_points: bool,
     /// Carry `Exemplars.FilteredAttributes` in the points objects.
     pub exemplar_attributes: bool,
+    /// Write the float and count columns (`BYTE_STREAM_SPLIT`) as
+    /// BYTE_STREAM_SPLIT instead of PLAIN: zstd then finds the repeated
+    /// exponent and high bytes. 1.0–1.3 B/point less on the wire [M].
+    pub byte_stream_split: bool,
+    /// Parquet statistics in layout B's objects, overriding
+    /// `parquet.statistics`: "none" (the default), "chunk" or "page". Nothing
+    /// reads them: central ingests whole objects, and the object's time range
+    /// is in its metadata. "none" also drops the page index: 0.6–0.8 B/point
+    /// less (footer bytes per object, most of the small histogram objects) [M].
+    pub statistics: String,
 }
 
 impl Default for SeriesOptions {
     fn default() -> Self {
-        Self { window: Duration::from_secs(3600), merge_number_points: true, exemplar_attributes: true }
+        Self {
+            window: Duration::from_secs(3600),
+            merge_number_points: true,
+            exemplar_attributes: true,
+            byte_stream_split: true,
+            statistics: "none".into(),
+        }
     }
 }
 
 impl SeriesOptions {
-    /// The Go prototype's layout exactly (for the comparison test).
+    /// The Go prototype's layout exactly (for the comparison test). The
+    /// encodings (`byte_stream_split`, `statistics`) are not part of the
+    /// layout: the rows and the Parquet schema are the same either way.
     pub fn prototype() -> Self {
         Self { merge_number_points: false, exemplar_attributes: false, ..Self::default() }
     }
@@ -347,6 +373,23 @@ const PLAIN: &[&[&str]] = &[
     &["ValueAtQuantiles.Value", "list", "element"],
 ];
 
+/// Leaves written BYTE_STREAM_SPLIT with `SeriesOptions::byte_stream_split`:
+/// the doubles and the u64 counts. Measured column by column on the fleet
+/// data and testgen (README, "Wire size"): these gain; `series_id` (random),
+/// the timestamps (dictionary-encoded, near zero) and the quantile and
+/// exemplar values (testgen's summaries grow by 40%) do not.
+const BYTE_STREAM_SPLIT: &[&[&str]] = &[
+    &["Value"],
+    &["Sum"],
+    &["Min"],
+    &["Max"],
+    &["Count"],
+    &["ZeroCount"],
+    &["BucketCounts", "list", "element"],
+    &["PositiveBucketCounts", "list", "element"],
+    &["NegativeBucketCounts", "list", "element"],
+];
+
 /// The Arrow schema (strings as Binary) and the published Parquet schema.
 pub fn schemas(signal: Signal, o: &SeriesOptions) -> Schemas {
     let (root, f) = fields(signal, o);
@@ -357,6 +400,13 @@ pub fn schemas(signal: Signal, o: &SeriesOptions) -> Schemas {
     // 0, 1, 2, ...: 2.3 B/point plain + zstd, next to nothing as deltas (the
     // prototype's `delta` tag).
     sc.delta = vec![vec!["row_ordinal".to_string()]];
+    if o.byte_stream_split {
+        let path = |p: &&[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        sc.byte_stream_split = BYTE_STREAM_SPLIT.iter().map(path).collect();
+        let bss = &sc.byte_stream_split;
+        sc.plain.retain(|p| !bss.contains(p));
+    }
+    sc.statistics = Some(o.statistics.clone());
     sc
 }
 

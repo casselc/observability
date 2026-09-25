@@ -606,10 +606,12 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
    - The prototype `../s3cas` is the core: about 150 lines for the append
      loop, fence and replay.
    - Drop per-batch manifests and `_sealed.json`; the log replaces both.
-2. **Fix the three PBT defects the same way even if the log is deferred:**
-   - put the epoch in table names;
-   - decide the generation under the lock and never let it go backwards;
-   - retry seals from the retention loop.
+2. **Fix the three PBT defects the same way even if the log is deferred.**
+   Done in `../chdbexporter/publish.go` (see `../PBT.md`): the epoch is in
+   table names, the generation is decided under the lock and never goes
+   backwards, and failed seals and DETACHes are retried by the sweep and by
+   close. What the log still adds: sealing a *crashed* epoch's generations
+   (the fence), and detaching a predecessor's tables after a restart.
 3. **Consumer:**
    - a content-key column in central;
    - check-before-insert;

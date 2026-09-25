@@ -49,7 +49,6 @@ type pubOpts struct {
 	persistentPath bool
 	strictSeal     bool // _sealed.json must match the manifests (F3)
 	noOrphans      bool // no table rows without a manifest (F2)
-	housekeeping   bool // seals and detaches are not lost when their statement fails
 	oncePerPayload bool // a payload is committed at most once (F1)
 	steps          int
 	record         bool // record quint steps
@@ -117,6 +116,7 @@ func drawPubSetup(tc hegel.TestCase) pubSetup {
 }
 
 func newPubMachine(tc hegel.TestCase, o pubOpts) *pubMachine {
+	closeSealBackoff = 0 // close retries at once; the fake has no transient failures
 	m, err := buildPubMachine(o, drawPubSetup(tc))
 	if err != nil {
 		tc.Errorf("start: %v", err)
@@ -269,6 +269,12 @@ func pushExec(m *pubMachine, payload, signal string, n int, faultOp, faultMode s
 	}
 	m.p.wg.Wait() // a rotation's background seal
 	fired := m.w.disarm()
+	// The generation the push used: the clock's, or the current one when
+	// the clock reads earlier (generations never go back).
+	now := m.p.signals[signal].cur
+	if now != nil {
+		gen = now.id
+	}
 	a := attempt{epoch: m.p.epoch, signal: signal, payload: payload, gen: gen, rows: n, err: err}
 	if after := m.peekBatch(signal); after != before {
 		a.batch = after
@@ -277,7 +283,7 @@ func pushExec(m *pubMachine, payload, signal string, n int, faultOp, faultMode s
 	if err == nil {
 		delete(m.queue, payload)
 	}
-	if cur != nil && cur.id != gen && (m.p.signals[signal].cur == nil || m.p.signals[signal].cur.id != cur.id) {
+	if cur != nil && now != nil && now.id != cur.id {
 		m.rotated(signal, cur.id, fired)
 	}
 	res := "ok"
@@ -414,18 +420,28 @@ func (m *pubMachine) RuleRetention(tc hegel.TestCase) {
 	if faulty {
 		m.w.arm("detach", "fail")
 	}
-	m.p.detachExpired()
+	// The sweep retries this epoch's failed seals first (no seal faults are
+	// armed here, so they succeed), sealing them as of now.
+	for k := range m.sealFault {
+		if strings.HasSuffix(k.ns, "/"+m.p.epoch) {
+			delete(m.sealFault, k)
+			m.sealedAt[k] = m.clock
+		}
+	}
+	m.p.sweep()
 	fired := m.w.disarm()
 	for k, at := range m.sealedAt {
 		if m.clock.Sub(at) < m.cfg.ObjectStorage.LocalRetention || !strings.HasSuffix(k.ns, "/"+m.p.epoch) {
 			continue
 		}
 		for _, t := range m.storedTables(k) {
-			if !m.detachDue[t] {
-				m.detachDue[t] = true
-				m.detachErr[t] = len(fired) > 0
-			}
+			m.detachDue[t] = true
 		}
+	}
+	// A DETACH that failed in this sweep is retried by the next; one that
+	// failed earlier has been retried by this one.
+	for t := range m.detachDue {
+		m.detachErr[t] = len(fired) > 0 && m.w.tables[t] != nil && m.w.tables[t].state != "detached"
 	}
 	for _, t := range m.w.tables {
 		if t.state == "detached" {
@@ -468,6 +484,14 @@ func (m *pubMachine) RuleShutdown(tc hegel.TestCase) {
 		sig, gen, _ := strings.Cut(o, ":")
 		m.rotated(sig, gen, fired)
 	}
+	if err == nil {
+		// close retried every failed seal of this epoch until it landed.
+		for k := range m.sealFault {
+			if strings.HasSuffix(k.ns, "/"+m.p.epoch) {
+				delete(m.sealFault, k)
+			}
+		}
+	}
 	tc.Event("shutdown")
 	m.logf("shutdown (seals %v; faults %v; err %v)", open, fired, err)
 	tc.Note(m.log[len(m.log)-1])
@@ -488,8 +512,12 @@ func restartWorld(m *pubMachine) {
 	if !m.o.persistentPath {
 		// A fresh catalog attaches nothing: there is nothing left to detach.
 		m.w.crashLocal()
-		m.detachDue, m.detachErr = map[string]bool{}, map[string]bool{}
 	}
+	// With a persistent catalog the previous incarnation's tables stay
+	// attached, but the next incarnation does not know them (its tables
+	// carry its own epoch), so it never detaches them: a known gap, not
+	// checked here.
+	m.detachDue, m.detachErr = map[string]bool{}, map[string]bool{}
 }
 
 func restart(m *pubMachine, tc hegel.TestCase) {
@@ -664,19 +692,20 @@ func (m *pubMachine) InvariantNoOrphanRows(tc hegel.TestCase) {
 
 // InvariantHousekeeping: every generation rotated or closed has its
 // _sealed.json, and every sealed generation past local_retention is
-// detached (never dropped). Where a seal or DETACH statement itself failed
-// the default test excuses it (it is logged and not retried); with
-// housekeeping set it does not.
+// detached (never dropped). A seal or DETACH whose statement failed is
+// excused only until it is retried: by the next sweep, or, for seals, by
+// close. A crashed epoch's failed seals stay excused (see S3NATIVE.md: only
+// a successor that fences the epoch could seal them).
 func (m *pubMachine) InvariantHousekeeping(tc hegel.TestCase) {
 	for k := range m.sealedAt {
-		if !m.w.sealed(k.ns, k.gen) && (m.o.housekeeping || !m.sealFault[k]) {
+		if !m.w.sealed(k.ns, k.gen) && !m.sealFault[k] {
 			failf(m, tc, "generation %s of %s was rotated or closed but has no _sealed.json", k.gen, k.ns)
 			return
 		}
 	}
 	for name := range m.detachDue {
 		t := m.w.tables[name]
-		if t == nil || (t.state != "detached" && (m.o.housekeeping || !m.detachErr[name])) {
+		if t == nil || (t.state != "detached" && !m.detachErr[name]) {
 			state := "gone"
 			if t != nil {
 				state = t.state
@@ -807,47 +836,36 @@ func TestPBTFindingOrphanRows(t *testing.T) {
 		pubOpts{faults: []string{"parquet", "manifest"}, noOrphans: true}, 500)
 }
 
-// TestPBTFindingClockRegressionReopensSealedGeneration: acquire computes the
-// generation from p.now() before taking the lock, and rotates to whatever
-// generation that is, backwards included. A wall clock that steps back
-// across a boundary (or, without any clock step, a push that read the clock
-// just before the boundary and reached the lock after a push that read it
-// just after) reopens the previous generation: it writes into tables and a
-// manifest directory that already have _sealed.json, re-seals it later
-// with only the new batches, and seals the newer generation early. The
-// Quint model's generation is a counter that only goes up, so it cannot
-// produce this.
-func TestPBTFindingClockRegressionReopensSealedGeneration(t *testing.T) {
-	m := expectPublisherFinding(t, "a write into a sealed generation after the clock went back",
-		pubOpts{clockBack: true}, 500)
-	checkModelRejects(t, m)
+// TestPBTFixedClockRegression: PBT finding 2, fixed. acquire computed the
+// generation from p.now() before taking the lock and rotated to whatever
+// generation that was, backwards included, so a wall clock stepping back
+// across a boundary (or a push that read the clock just before a boundary
+// and reached the lock after one that read it just after) reopened a
+// sealed generation. Now the clock is read under the lock and generations
+// only move forward: with the clock free to step back, every invariant
+// holds, nothing is written into a sealed generation included.
+func TestPBTFixedClockRegression(t *testing.T) {
+	hegel.Test(t, func(ht *hegel.T) {
+		runPublisherMachine(ht, pubOpts{clockBack: true, faults: allFaults, ambiguous: true})
+	}, pbtOpts(300)...)
 }
 
-// TestPBTFindingRestartReusesPreviousEpochTables: table names carry the
-// generation but not the epoch, and openGeneration creates them with
-// CREATE TABLE IF NOT EXISTS. With a persistent chDB path (the edge config
-// sets path: ./data/chdb), a restart within the same generation finds the
-// previous incarnation's table, still attached, and its DDL is a no-op: the
-// new epoch's rows go to the OLD epoch's endpoint, into a generation that
-// shutdown already sealed, while its manifests name the new epoch's endpoint,
-// where nothing is. The previous incarnation's generations are also never
-// detached. The model gives every epoch fresh tables by construction.
-func TestPBTFindingRestartReusesPreviousEpochTables(t *testing.T) {
-	m := expectPublisherFinding(t, "a restarted incarnation writing where its manifests do not point",
-		pubOpts{persistentPath: true}, 500)
-	checkModelAgrees(t, m, "")
+// TestPBTFixedRestartUsesItsOwnTables: PBT finding 1, fixed. Table names
+// carried the generation but not the epoch, so with a persistent chDB path
+// (path: ./data/chdb) a restart within a generation reused the previous
+// incarnation's still-attached table, on its endpoint, in a generation it
+// had sealed. Now they carry the epoch (tableSuffix). The previous
+// incarnation's tables are still never detached by its successor.
+func TestPBTFixedRestartUsesItsOwnTables(t *testing.T) {
+	hegel.Test(t, func(ht *hegel.T) {
+		runPublisherMachine(ht, pubOpts{persistentPath: true, faults: allFaults, ambiguous: true})
+	}, pbtOpts(300)...)
 }
 
-// TestPBTFindingFailedSealIsNotRetried: a seal whose _sealed.json write
-// fails is logged and dropped; the generation is still put on the detach
-// list and nothing writes its seal later. A consumer sees a live epoch with
-// an unsealed generation that will never be sealed. The same holds for a
-// failed DETACH at retention: the generation stays attached for good. The
-// model's sealGen cannot fail, so it has nothing to say about this.
-func TestPBTFindingFailedSealIsNotRetried(t *testing.T) {
-	expectPublisherFinding(t, "a rotated generation left without _sealed.json",
-		pubOpts{faults: []string{"seal"}, housekeeping: true}, 500)
-}
+// PBT finding 3 (a failed seal or DETACH was logged and never retried) is
+// fixed and checked by TestPBTPublisherStateMachine itself:
+// InvariantHousekeeping excuses a failed seal or DETACH only until the next
+// sweep or close retries it.
 
 // checkModelAgrees validates the shrunk run's steps against edgePublish.qnt
 // with quintgo: they must be a behaviour of the model (conform), and the

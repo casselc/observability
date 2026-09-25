@@ -533,6 +533,7 @@ func TestClickHouseServerReaderFollowsWriter(t *testing.T) {
 	ns := e.pub.namespace(signalTraces)
 	ms := s3Manifests(t, root, ns, key, secret)
 	gen := ms[0].Generation
+	writerTable := ms[0].Tables[0].Table // os_server.{table}_{gen}_e{epoch}
 	db := "srv_" + strings.NewReplacer("-", "_").Replace(e.pub.epoch)
 	for _, stmt := range ReaderDDL(cfg, db, signalTraces, gen, ms[0].Tables, key, secret, 1) {
 		chHTTP(t, stmt)
@@ -598,13 +599,13 @@ func TestClickHouseServerReaderFollowsWriter(t *testing.T) {
 	}
 	poll("2500\t22\t2500", 15*time.Second)
 	parts := chHTTP(t, fmt.Sprintf("SELECT count() FROM system.parts WHERE active AND database = '%s' AND table = '%s'", db, cfg.TracesTableName+"_"+gen))
-	merges := query(t, fmt.Sprintf("SELECT count() FROM system.parts WHERE database = 'os_server' AND table = '%s_%s' AND level > 0", cfg.TracesTableName, gen))
+	merges := query(t, fmt.Sprintf("SELECT count() FROM system.parts WHERE database = 'os_server' AND table = '%s' AND level > 0", strings.TrimPrefix(writerTable, "os_server.")))
 	t.Logf("%d polls during 20 pushes, all consistent; server sees %s active parts, writer has %s merged parts", polls, parts, merges)
 
 	// Dropping the reader's table must not delete the writer's objects.
 	chHTTP(t, "DROP TABLE "+table+"_trace_id_ts SYNC")
 	chHTTP(t, "DROP TABLE "+table+" SYNC")
-	if got := query(t, fmt.Sprintf("SELECT count() FROM os_server.%s_%s", cfg.TracesTableName, gen)); got != "2500" {
+	if got := query(t, "SELECT count() FROM "+writerTable); got != "2500" {
 		t.Fatalf("writer after the reader dropped its table: %s", got)
 	}
 	for _, stmt := range ReaderDDL(cfg, db, signalTraces, gen, ms[0].Tables, key, secret, 1) {
@@ -666,7 +667,7 @@ func TestOldPartsLifetimeProtectsServerQueries(t *testing.T) {
 		// Mid-scan: the writer merges everything into one part, and its
 		// cleanup is woken now rather than on its next periodic run, so
 		// the race a long query would lose happens inside this one.
-		if err := exec(e.all[0], fmt.Sprintf("OPTIMIZE TABLE %s.%s_%s FINAL", cfg.Database, cfg.LogsTableName, gen)); err != nil {
+		if err := exec(e.all[0], "OPTIMIZE TABLE "+ms[0].Tables[0].Table+" FINAL"); err != nil {
 			t.Fatal(err)
 		}
 		if err := exec(e.all[0], "SYSTEM START CLEANUP"); err != nil {

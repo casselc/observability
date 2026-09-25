@@ -61,27 +61,46 @@ Rediscovered from the Quint model, against the real Go code (shrunk):
 
 New, outside what the model can express:
 
-1. **Restart reuses the previous epoch's tables** (persistent `path`, as in
-   `config.edge.yaml`). Table names carry the generation, not the epoch, and
-   are created `IF NOT EXISTS`, so an incarnation restarted within the same
-   generation inserts into its predecessor's table on the predecessor's
-   endpoint, after that generation was sealed, while its manifests name its
-   own endpoint, which is empty. Shrunk: push; crash; push. Confirmed on
-   chDB + SeaweedFS (`TestFindingRestartWritesIntoPreviousEpochTable`: new
-   manifest's endpoint has 0 objects; the old table holds both epochs' rows).
-   The old incarnation's generations are also never detached.
+Findings 1–3 are **fixed** in `publish.go`; their tests now assert the
+fixed behaviour (`TestPBTFixed*`, `TestFixed*`, and the default state
+machine for 3):
+
+1. **Restart reused the previous epoch's tables** (persistent `path`, as in
+   `config.edge.yaml`). Table names carried the generation, not the epoch,
+   and were created `IF NOT EXISTS`, so an incarnation restarted within the
+   same generation inserted into its predecessor's table on the
+   predecessor's endpoint, after that generation was sealed, while its
+   manifests named its own, empty endpoint. Shrunk: push; crash; push.
+   **Fix:** local table names carry the epoch (`tableSuffix`:
+   `otel_logs_g20260925T030000_e<epoch>`). `ReaderDDL` keeps naming the
+   reader's tables `{table}_{gen}` and finds the writer's from the manifest.
+   Checked by `TestPBTFixedRestartUsesItsOwnTables` and, on chDB + SeaweedFS,
+   `TestFixedRestartWritesIntoItsOwnEpochTables`. **Still open:** the
+   predecessor's tables stay attached; the successor does not know them.
 2. **Generation computed from a clock read taken before the lock.** A clock
-   step back reopens a sealed generation (shrunk: push; +1 gen; push; −1 gen;
-   push). Without any clock step, a push that read the time just before a
-   boundary and takes the lock after one that read it just after does the same
-   (`TestFindingStaleClockReadReopensGeneration`), and `acquire`'s recursive
-   re-read then rotates forward again: the old generation is re-sealed from an
-   empty struct (`_sealed.json` overwritten with 0 batches) and the current
-   one is sealed while current, which can drop its staging table under live
-   pushes. On S3 (`TestFindingClockRegressionOnS3`) the final seal of g10 says
-   1 batch [3..3] while manifests 1 and 3 exist.
-3. **Failed seal / DETACH is never retried** (`TestPBTFindingFailedSealIsNotRetried`):
-   the generation stays unsealed (or attached) in a live epoch.
+   step back reopened a sealed generation (shrunk: push; +1 gen; push; −1
+   gen; push), and without any clock step, a push that read the time just
+   before a boundary and took the lock after one that read it just after did
+   the same, re-sealing the old generation from an empty struct and sealing
+   the current one while current. **Fix:** the clock is read under the lock,
+   and a reading in an earlier generation than the current one keeps the
+   current one: generations only move forward. A generation whose retention
+   has passed keeps being retired after a clock step back (`retiring`).
+   Checked by `TestPBTFixedClockRegression` (the machine with a clock that
+   steps back, all faults on), `TestFixedClockRegressionOnS3` and
+   `TestFixedStaleClockReadReopensGeneration`.
+3. **Failed seal / DETACH was never retried**: the generation stayed
+   unsealed (or attached) in a live epoch. **Fix:** a rotated generation
+   whose seal fails goes on an `unsealed` list that the sweep (the retention
+   loop, now running in Parquet-only mode too) retries; close retries every
+   pending seal up to 3 times; a failed DETACH stays on the list for the
+   next sweep. Seal steps are repeatable: the Buffer is flushed once and
+   only dropped after that. `InvariantHousekeeping` in the default state
+   machine now excuses a failed seal or DETACH only until its retry.
+   **Still open:** a *crashed* epoch's unsealed generations stay unsealed;
+   only a successor that fences the epoch could seal them
+   (`model/S3NATIVE.md`).
+
 4. **insert_format json rejects early timestamps**
    (`TestPBTFindingJSONRejectsEarlyTimestamps`): any time before 1973-03-03
    (1e8 s), e.g. a log with Timestamp and ObservedTimestamp both 0, fails the
@@ -97,7 +116,7 @@ New, outside what the model can express:
    `generation: 1ns` passes `Validate` without object storage, although
    `generation()` still rotates by it.
 
-Finding tests pass while the defect exists and fail once it is fixed.
+Finding tests (`TestPBTFinding*`) pass while their defect exists; fixed ones were turned into `TestPBTFixed*` / `TestFixed*`, which assert the fix.
 
 ## PBT and the Quint model (quintgo)
 

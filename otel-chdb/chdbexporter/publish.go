@@ -67,14 +67,23 @@ type generation struct {
 	batches, rows atomic.Uint64
 	first, last   atomic.Uint64 // batch id range
 	sealedAt      time.Time
+	// flushed: the Buffer table's rows are in the stored table, so a
+	// retried seal may drop the Buffer. Seals run one at a time per
+	// generation (rotation, then sweep or close), so no lock.
+	flushed bool
+	// retiring: local_retention has passed and a DETACH was attempted, so
+	// retries do not wait on the clock again (which may have stepped back).
+	retiring bool
 }
 
 type signalState struct {
 	// mu: pushes hold it shared for the whole write, rotation holds it
 	// exclusively, so a generation is quiescent once it is no longer cur.
-	mu     sync.RWMutex
-	cur    *generation
-	sealed []*generation // awaiting detach
+	mu       sync.RWMutex
+	cur      *generation
+	closed   bool
+	sealed   []*generation // awaiting detach
+	unsealed []*generation // rotated, but the seal failed: retried by sweep
 }
 
 type publisher struct {
@@ -119,11 +128,7 @@ func newPublisher(e *chdbExporter) (*publisher, error) {
 			return nil, err
 		}
 	}
-	if cfg.StoreTables {
-		go p.retentionLoop()
-	} else {
-		close(p.done)
-	}
+	go p.retentionLoop()
 	return p, nil
 }
 
@@ -160,22 +165,49 @@ func genID(t time.Time, d time.Duration) (string, time.Time) {
 	return "g" + start.Format("20060102T150405"), start
 }
 
+// tableSuffix names a generation's tables in the local catalog. It carries
+// the epoch as well as the generation: with a persistent chDB path, an
+// incarnation restarted within a generation would otherwise find its
+// predecessor's tables, and CREATE TABLE IF NOT EXISTS would keep them, on
+// the predecessor's endpoint, in a generation the predecessor sealed.
+func tableSuffix(epoch, gen string) string {
+	b := []byte(epoch)
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+			b[i] = '_'
+		}
+	}
+	return gen + "_e" + string(b)
+}
+
 // acquire returns the signal's current generation with its lock held
-// shared, rotating first if the clock has moved into a new generation.
+// shared, rotating first if the clock has moved into a later generation.
+//
+// Generations only move forward. The clock is read under the lock, and a
+// reading that falls in an earlier generation than the current one (the
+// wall clock stepped back, or this push read it just before a boundary
+// that another push has already rotated past) keeps the current
+// generation: going back would reopen a sealed one.
 func (p *publisher) acquire(signal string) (*generation, func(), error) {
 	st := p.signals[signal]
 	if st == nil {
 		return nil, nil, fmt.Errorf("this exporter does not publish %s", signal)
 	}
-	id, start := genID(p.now(), p.cfg.generation())
 	st.mu.RLock()
-	if st.cur != nil && st.cur.id == id {
-		return st.cur, st.mu.RUnlock, nil
+	if g := st.cur; g != nil {
+		if _, start := genID(p.now(), p.cfg.generation()); !start.After(g.start) {
+			return g, st.mu.RUnlock, nil
+		}
 	}
 	st.mu.RUnlock()
 
 	st.mu.Lock()
-	if st.cur == nil || st.cur.id != id {
+	if st.closed {
+		st.mu.Unlock()
+		return nil, nil, fmt.Errorf("chdb publisher for %s is closed", signal)
+	}
+	id, start := genID(p.now(), p.cfg.generation())
+	if st.cur == nil || start.After(st.cur.start) {
 		g, err := p.openGeneration(signal, id, start)
 		if err != nil {
 			st.mu.Unlock()
@@ -185,11 +217,14 @@ func (p *publisher) acquire(signal string) (*generation, func(), error) {
 			p.wg.Add(1)
 			go func() {
 				defer p.wg.Done()
-				if err := p.seal(signal, old); err != nil {
-					p.e.logger.Error("seal generation", zap.String("signal", signal), zap.String("generation", old.id), zap.Error(err))
-				}
+				err := p.seal(signal, old)
 				st.mu.Lock()
-				st.sealed = append(st.sealed, old)
+				if err != nil {
+					p.e.logger.Error("seal generation; will retry", zap.String("signal", signal), zap.String("generation", old.id), zap.Error(err))
+					st.unsealed = append(st.unsealed, old)
+				} else {
+					st.sealed = append(st.sealed, old)
+				}
 				st.mu.Unlock()
 			}()
 		}
@@ -210,7 +245,7 @@ func (p *publisher) openGeneration(signal, id string, start time.Time) (*generat
 		ns := p.namespace(signal)
 		disk = func(table string) string {
 			// The table's own prefix: its generation, then its unrotated name.
-			name := strings.Replace(table, "_"+id, "", 1)
+			name := strings.Replace(table, "_"+tableSuffix(p.epoch, id), "", 1)
 			ep := joinURL(obj.Endpoint, ns, id, name) + "/"
 			g.tables = append(g.tables, ManifestTable{Table: p.cfg.Database + "." + table, Endpoint: ep})
 			extra := fmt.Sprintf(", old_parts_lifetime = %d", int(obj.OldPartsLifetime.Seconds()))
@@ -222,7 +257,7 @@ func (p *publisher) openGeneration(signal, id string, start time.Time) (*generat
 				sqlQuote(ep), sqlQuote(obj.AccessKeyID), sqlQuote(string(obj.SecretAccessKey)), extra)
 		}
 	}
-	ts := buildTableSet(p.cfg, signal, id, true, disk)
+	ts := buildTableSet(p.cfg, signal, tableSuffix(p.epoch, id), true, disk)
 	g.ts = &ts
 	err := p.withConn(func(s session) error {
 		for _, q := range ts.ddl {
@@ -362,15 +397,23 @@ func localPath(fileURL string) (string, error) {
 // optionally merge each table down, drop the process-local helpers, and
 // write _sealed.json. The stored tables stay attached (and queryable here)
 // until local_retention.
+//
+// Every step can be repeated, so a seal that failed is retried whole (by
+// sweep, and by close): the Buffer is flushed once and only dropped after
+// that, DROPs are IF EXISTS, and _sealed.json is rewritten.
 func (p *publisher) seal(signal string, g *generation) error {
 	var err error
 	if g.ts != nil {
 		err = p.withConn(func(s session) error {
-			var err error
-			if p.cfg.BufferSeconds > 0 {
+			if p.cfg.BufferSeconds > 0 && !g.flushed {
 				// Before the helpers go: the flush runs the trace-id view.
-				err = errors.Join(err, exec(s, fmt.Sprintf("OPTIMIZE TABLE %s.%s_buf", p.cfg.Database, g.ts.base)))
+				// Unflushed, the Buffer must not be dropped with its rows.
+				if err := exec(s, fmt.Sprintf("OPTIMIZE TABLE %s.%s_buf", p.cfg.Database, g.ts.base)); err != nil {
+					return err
+				}
+				g.flushed = true
 			}
+			var err error
 			for _, obj := range g.ts.local {
 				err = errors.Join(err, exec(s, "DROP TABLE IF EXISTS "+obj))
 			}
@@ -382,47 +425,87 @@ func (p *publisher) seal(signal string, g *generation) error {
 			return err
 		})
 	}
-	g.sealedAt = p.now()
+	sealedAt := p.now()
 	m := sealManifest{
 		ProducerID: p.cfg.Producer.ID, ProducerEpoch: p.epoch, Region: p.cfg.Producer.Region, Signal: signal,
 		SchemaVersion: p.cfg.Producer.SchemaVersion, Generation: g.id, GenerationStart: g.start,
-		SealedAt: g.sealedAt.UTC(), Batches: g.batches.Load(), Rows: g.rows.Load(),
+		SealedAt: sealedAt.UTC(), Batches: g.batches.Load(), Rows: g.rows.Load(),
 		FirstBatch: g.first.Load(), LastBatch: g.last.Load(), Tables: g.tables,
 	}
 	if p.cfg.parquet() {
 		m.ParquetPrefix = joinURL(p.cfg.Parquet.URL, p.namespace(signal), g.id) + "/"
 	}
-	return errors.Join(err, p.withConn(func(s session) error {
+	err = errors.Join(err, p.withConn(func(s session) error {
 		return p.writeObject(s, p.manifestPath(signal, g.id, "_sealed.json"), mustJSON(m))
 	}))
+	if err == nil {
+		// local_retention counts from the seal that completed.
+		g.sealedAt = sealedAt
+	}
+	return err
 }
 
-// retentionLoop retires sealed generations once they are older than
-// local_retention. On object storage it DETACHes them, which leaves the
-// objects in place: only the central consumer, after acknowledging a
-// generation, should delete them. On local disk (tables beside Parquet
-// export) the tables are this process's own copy, so they are dropped.
+// retentionLoop runs sweep periodically.
 func (p *publisher) retentionLoop() {
 	defer close(p.done)
-	tick := min(max(p.cfg.ObjectStorage.LocalRetention/4, 100*time.Millisecond), time.Minute)
-	t := time.NewTicker(tick)
+	every := p.cfg.generation() / 4
+	if p.cfg.StoreTables {
+		every = p.cfg.ObjectStorage.LocalRetention / 4
+	}
+	t := time.NewTicker(min(max(every, 100*time.Millisecond), time.Minute))
 	defer t.Stop()
 	for {
 		select {
 		case <-p.stop:
 			return
 		case <-t.C:
-			p.detachExpired()
+			p.sweep()
 		}
 	}
 }
 
+// sweep is the publisher's housekeeping: it retries the seals that failed,
+// then retires sealed generations past local_retention.
+func (p *publisher) sweep() {
+	p.retrySeals()
+	p.detachExpired()
+}
+
+// retrySeals seals again every rotated generation whose seal failed. One
+// that fails again waits for the next sweep.
+func (p *publisher) retrySeals() {
+	for signal, st := range p.signals {
+		st.mu.Lock()
+		pending := st.unsealed
+		st.unsealed = nil
+		st.mu.Unlock()
+		for _, g := range pending {
+			err := p.seal(signal, g)
+			st.mu.Lock()
+			if err != nil {
+				p.e.logger.Error("seal generation; will retry", zap.String("signal", signal), zap.String("generation", g.id), zap.Error(err))
+				st.unsealed = append(st.unsealed, g)
+			} else {
+				st.sealed = append(st.sealed, g)
+			}
+			st.mu.Unlock()
+		}
+	}
+}
+
+// detachExpired retires sealed generations once they are older than
+// local_retention. On object storage it DETACHes them, which leaves the
+// objects in place: only the central consumer, after acknowledging a
+// generation, should delete them. On local disk (tables beside Parquet
+// export) the tables are this process's own copy, so they are dropped. A
+// generation whose DETACH or DROP failed stays on the list for the next
+// sweep.
 func (p *publisher) detachExpired() {
 	for signal, st := range p.signals {
 		st.mu.Lock()
 		var keep, expired []*generation
 		for _, g := range st.sealed {
-			if p.now().Sub(g.sealedAt) >= p.cfg.ObjectStorage.LocalRetention {
+			if g.retiring || p.now().Sub(g.sealedAt) >= p.cfg.ObjectStorage.LocalRetention {
 				expired = append(expired, g)
 			} else {
 				keep = append(keep, g)
@@ -446,29 +529,62 @@ func (p *publisher) detachExpired() {
 				return err
 			})
 			if err != nil {
-				p.e.logger.Error("detach generation", zap.String("signal", signal), zap.String("generation", g.id), zap.Error(err))
+				p.e.logger.Error("detach generation; will retry", zap.String("signal", signal), zap.String("generation", g.id), zap.Error(err))
+				g.retiring = true
+				st.mu.Lock()
+				st.sealed = append(st.sealed, g)
+				st.mu.Unlock()
 			}
 		}
 	}
 }
 
-// close seals every open generation and waits for background seals.
+// closeSealAttempts bounds close's retries of seals that fail. A generation
+// still unsealed after them stays so: the process is going away, and only
+// a successor that fences this epoch could seal it (see model/S3NATIVE.md).
+var closeSealAttempts, closeSealBackoff = 3, 200 * time.Millisecond
+
+// close seals every open generation, and retries every seal that failed,
+// the background ones included.
 func (p *publisher) close() error {
-	var err error
-	for signal, st := range p.signals {
+	for _, st := range p.signals {
 		st.mu.Lock()
-		g := st.cur
-		st.cur = nil
-		st.mu.Unlock()
-		if g != nil {
-			err = errors.Join(err, p.seal(signal, g))
+		if g := st.cur; g != nil {
+			st.unsealed = append(st.unsealed, g)
 		}
+		st.cur, st.closed = nil, true
+		st.mu.Unlock()
 	}
 	p.wg.Wait()
 	close(p.stop)
 	<-p.done
+	for i := 0; i < closeSealAttempts; i++ {
+		if i > 0 {
+			time.Sleep(closeSealBackoff << (i - 1))
+		}
+		p.retrySeals()
+		if p.pendingSeals() == 0 {
+			break
+		}
+	}
+	var err error
+	for signal, st := range p.signals {
+		for _, g := range st.unsealed {
+			err = errors.Join(err, fmt.Errorf("seal %s generation %s: gave up after %d attempts", signal, g.id, closeSealAttempts))
+		}
+	}
 	p.release()
 	return err
+}
+
+func (p *publisher) pendingSeals() int {
+	n := 0
+	for _, st := range p.signals {
+		st.mu.Lock()
+		n += len(st.unsealed)
+		st.mu.Unlock()
+	}
+	return n
 }
 
 // ManifestTable is one published table: its name in the writer and the
@@ -532,14 +648,28 @@ func ReaderDDL(c *Config, db, signal, gen string, tables []ManifestTable, access
 	rc.Database = db
 	rc.BufferSeconds = 0
 	rc.StagingTables = false
+	// The reader's tables are named {table}_{gen}; the writer's carry its
+	// epoch too (tableSuffix), which the manifest's table names give.
+	name := c.TracesTableName
+	if signal == signalLogs {
+		name = c.LogsTableName
+	}
+	// The main table's is the shortest name with the generation in it.
+	rest, found := "", false
 	endpoint := map[string]string{}
 	for _, t := range tables {
-		endpoint[t.Table[strings.IndexByte(t.Table, '.')+1:]] = t.Endpoint
+		tn := t.Table[strings.IndexByte(t.Table, '.')+1:]
+		endpoint[tn] = t.Endpoint
+		if s, ok := strings.CutPrefix(tn, name+"_"+gen); ok && (!found || len(s) < len(rest)) {
+			rest, found = s, true
+		}
 	}
+	suffix := gen + rest
 	disk := func(table string) string {
+		writer := strings.Replace(table, name+"_"+gen, name+"_"+suffix, 1)
 		return fmt.Sprintf(", disk = disk(readonly = 1, type = object_storage, object_storage_type = 's3', metadata_type = 'plain_rewritable', "+
 			"endpoint = %s, access_key_id = %s, secret_access_key = %s), table_disk = 1, refresh_parts_interval = %d",
-			sqlQuote(endpoint[table]), sqlQuote(accessKeyID), sqlQuote(secretAccessKey), refreshSeconds)
+			sqlQuote(endpoint[writer]), sqlQuote(accessKeyID), sqlQuote(secretAccessKey), refreshSeconds)
 	}
 	ts := buildTableSet(&rc, signal, gen, true, disk)
 	out := []string{"CREATE DATABASE IF NOT EXISTS " + db, ts.ddl[0]}

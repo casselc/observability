@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
@@ -36,11 +37,12 @@ const (
 	PreconditionFailed         // 412: the condition did not hold
 	Conflict                   // 409 ConditionalRequestConflict: a concurrent op interfered; retry
 	NotFound                   // 404: If-Match on a missing key, or a missing upload
+	Unauthorized               // 403 / expired credentials: rejected before evaluation, not applied
 	Other                      // anything else, including timeouts: the outcome is unknown
 )
 
 func (o Outcome) String() string {
-	return [...]string{"OK", "412 PreconditionFailed", "409 Conflict", "404 NotFound", "other"}[o]
+	return [...]string{"OK", "412 PreconditionFailed", "409 Conflict", "404 NotFound", "403 Unauthorized", "other"}[o]
 }
 
 // Classify maps an SDK error to an Outcome, and reports the HTTP status and
@@ -66,32 +68,38 @@ func Classify(err error) (Outcome, int, string) {
 		return Conflict, status, code
 	case status == http.StatusNotFound || code == "NoSuchKey" || code == "NotFound" || code == "NoSuchUpload":
 		return NotFound, status, code
+	case status == http.StatusForbidden || code == "ExpiredToken" || code == "InvalidAccessKeyId" ||
+		code == "SignatureDoesNotMatch" || code == "RequestTimeTooSkewed" || code == "AccessDenied":
+		return Unauthorized, status, code
 	}
 	return Other, status, code
 }
 
-// Config is an S3 endpoint and bucket. FromEnv reads S3CAS_ENDPOINT,
-// S3CAS_BUCKET, S3CAS_KEY and S3CAS_SECRET.
+// Config is an S3 bucket and, for S3-compatible stores, an endpoint.
+// Credentials come from the AWS default chain unless Key is set: IRSA (web
+// identity), EKS Pod Identity (container credentials), IAM Roles Anywhere
+// (credential_process with aws_signing_helper in the shared config), the
+// environment, or the shared credentials file. Refreshing credentials are
+// renewed by the SDK; nothing here caches them.
 type Config struct {
-	Endpoint, Bucket, Key, Secret, Region string
+	Endpoint string // empty: AWS (or AWS_ENDPOINT_URL_S3); set: path-style S3-compatible store
+	Bucket   string
+	Region   string // empty: from the default chain
+	Key      string // optional static credentials (e.g. Nutanix Objects keys)
+	Secret   string
 }
 
+// FromEnv reads S3CAS_BUCKET (required), S3CAS_ENDPOINT, S3CAS_REGION and,
+// optionally, static S3CAS_KEY / S3CAS_SECRET.
 func FromEnv() (Config, bool) {
 	c := Config{
 		Endpoint: os.Getenv("S3CAS_ENDPOINT"),
-		Bucket:   envOr("S3CAS_BUCKET", "otel"),
-		Key:      envOr("S3CAS_KEY", "otel"),
-		Secret:   envOr("S3CAS_SECRET", "otelsecret"),
-		Region:   envOr("S3CAS_REGION", "us-east-1"),
+		Bucket:   os.Getenv("S3CAS_BUCKET"),
+		Region:   os.Getenv("S3CAS_REGION"),
+		Key:      os.Getenv("S3CAS_KEY"),
+		Secret:   os.Getenv("S3CAS_SECRET"),
 	}
-	return c, c.Endpoint != ""
-}
-
-func envOr(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
+	return c, c.Bucket != ""
 }
 
 // Client wraps an s3.Client with the operations the protocol needs.
@@ -100,16 +108,30 @@ type Client struct {
 	Bucket string
 }
 
-func New(c Config) *Client {
-	cl := s3.New(s3.Options{
-		Region:       c.Region,
-		BaseEndpoint: aws.String(c.Endpoint),
-		UsePathStyle: true,
-		Credentials:  credentials.NewStaticCredentialsProvider(c.Key, c.Secret, ""),
-		// Retries would hide exactly the outcomes being probed.
-		RetryMaxAttempts: 1,
+// New builds a client with config.LoadDefaultConfig, so every credential
+// source of the deployment targets works, and SDK retries off: a retry
+// would hide exactly the outcomes the protocol has to resolve itself.
+func New(ctx context.Context, c Config) (*Client, error) {
+	opts := []func(*config.LoadOptions) error{config.WithRetryMaxAttempts(1)}
+	if c.Region != "" {
+		opts = append(opts, config.WithRegion(c.Region))
+	} else if c.Endpoint != "" {
+		opts = append(opts, config.WithRegion("us-east-1"))
+	}
+	if c.Key != "" {
+		opts = append(opts, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(c.Key, c.Secret, "")))
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	cl := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		if c.Endpoint != "" {
+			o.BaseEndpoint = aws.String(c.Endpoint)
+			o.UsePathStyle = true
+		}
 	})
-	return &Client{S3: cl, Bucket: c.Bucket}
+	return &Client{S3: cl, Bucket: c.Bucket}, nil
 }
 
 // MD5ETag is the ETag S3 gives a single-part object: the hex MD5 of its body, quoted.
@@ -242,6 +264,9 @@ func (w *Writer) Append(ctx context.Context, e Entry) (slot int, alreadyCommitte
 				w.Next++
 			}
 		default:
+			// Unauthorized (e.g. credentials expired mid-refresh) was not
+			// applied, but an EARLIER attempt at this slot may have been: the
+			// caller must retry this same entry, which resolves both cases.
 			return 0, false, perr
 		}
 	}

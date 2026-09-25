@@ -2,9 +2,17 @@ package s3cas
 
 // Probes of an S3 endpoint's conditional operations, against the semantics AWS
 // documents (see ../model/S3NATIVE.md for sources). Skipped unless
-// S3CAS_ENDPOINT is set:
+// S3CAS_BUCKET is set. Credentials come from the AWS default chain:
 //
-//	S3CAS_ENDPOINT=http://127.0.0.1:18333 go test -v -count=1 .
+//	# SeaweedFS (static keys through the environment)
+//	S3CAS_BUCKET=otel S3CAS_ENDPOINT=http://127.0.0.1:18333 \
+//	  AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret go test -v -count=1 .
+//	# AWS with IRSA / Pod Identity / Roles Anywhere: just the bucket and region
+//	S3CAS_BUCKET=my-bucket S3CAS_REGION=eu-west-1 go test -v -count=1 .
+//
+// It doubles as the acceptance test for a new store (e.g. Nutanix Objects):
+// the S3-native mode requires TestPutIfNoneMatch, TestCreateRace,
+// TestPutIfMatch and TestCASRace to pass.
 //
 // Each test logs what the server answered, so a run is the evidence.
 
@@ -27,9 +35,13 @@ func client(t *testing.T) (*Client, string) {
 	t.Helper()
 	c, ok := FromEnv()
 	if !ok {
-		t.Skip("S3CAS_ENDPOINT not set")
+		t.Skip("S3CAS_BUCKET not set")
 	}
-	return New(c), fmt.Sprintf("s3cas-probe/%d/%s", time.Now().UnixNano(), t.Name())
+	cl, err := New(context.Background(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cl, fmt.Sprintf("s3cas-probe/%d/%s", time.Now().UnixNano(), t.Name())
 }
 
 func expect(t *testing.T, what string, err error, want Outcome) {

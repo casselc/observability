@@ -79,7 +79,7 @@ module inlineDesignTest {
       .then(consume(1))
       .then(cTomb(1)).then(apply(tomb(1, 1)))
       .then(cTombReceive({ epoch: 1, slot: 1, entry: tombE(1), ok: true }))
-      .then(startPush(1, 2)).then(send(1)).then(apply(req(1, 1, 2)))
+      .then(startPush(1, 2)).then(send(1)).then(apply({ ...req(1, 1, 2), sawFree: false }))
       .then(receive(1, { epoch: 1, slot: 1, entry: dataE(1, 2), ok: false }))
       .expect(and { closed.get(1), writers.get(1).phase == WHalted, queue == Set(2), noCommitAfterClose, safety })
 
@@ -174,8 +174,9 @@ module skipGapsTest {
       .then(startPush(1, 1)).then(send(1))
       .then(newIncarnation(false))
       .then(cSkipGap(1))
+      .expect(not(gapNeverTakenForLoss))
       .then(apply(req(1, 0, 1)))
-      .expect(and { central.get(1) == 0, not(gapNeverTakenForLoss), not(consumerNeverSkipsCommitted) })
+      .expect(and { central.get(1) == 0, not(consumerNeverSkipsCommitted) })
 }
 
 // A writer that finds a tombstone steps over it and commits after the close.
@@ -192,7 +193,7 @@ module noHaltTest {
       .then(newIncarnation(true))
       .then(cTomb(1)).then(apply(tomb(1, 0)))
       .then(cTombReceive({ epoch: 1, slot: 0, entry: tombE(1), ok: true }))
-      .then(startPush(1, 1)).then(send(1)).then(apply(req(1, 0, 1)))
+      .then(startPush(1, 1)).then(send(1)).then(apply({ ...req(1, 0, 1), sawFree: false }))
       .then(receive(1, { epoch: 1, slot: 0, entry: dataE(1, 1), ok: false }))
       .then(send(1)).then(apply(req(1, 1, 1)))
       .then(receive(1, { epoch: 1, slot: 1, entry: dataE(1, 1), ok: true }))

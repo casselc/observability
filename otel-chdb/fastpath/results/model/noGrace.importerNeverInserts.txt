@@ -1,0 +1,1021 @@
+An example execution:
+
+[State 0]
+{
+  noGrace::fastPath::abandoned: Set(),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 0,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [],
+  noGrace::fastPath::written: Set(),
+  noGrace::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  noGrace::fastPath::abandoned: Set(),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 0,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 0,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 1,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 1,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 2,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 2,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 2,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 2,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 3,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 3,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 3,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 12]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 4,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 13]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 5,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 14]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 5,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 15]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 16]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 17]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 18]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 19]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 20]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 6,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 21]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 22]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 23]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 24]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 25]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 26]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 27]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 28]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 29]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 30]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 31]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 32]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  noGrace::fastPath::committed: [],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 33]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  noGrace::fastPath::committed: [2],
+  noGrace::fastPath::events: Set(),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 0,
+  noGrace::fastPath::impInserts: 0,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  noGrace::fastPath::window: [(0, 0), (0, 0)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 34]
+{
+  noGrace::fastPath::abandoned: Set(1),
+  noGrace::fastPath::buffer: Set(),
+  noGrace::fastPath::ckpt: 0,
+  noGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  noGrace::fastPath::clock: 7,
+  noGrace::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  noGrace::fastPath::committed: [2],
+  noGrace::fastPath::events: Set("impPartial"),
+  noGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  noGrace::fastPath::imp: { b: 0, phase: "idle" },
+  noGrace::fastPath::impChecks: 1,
+  noGrace::fastPath::impInserts: 1,
+  noGrace::fastPath::ledger: Set(),
+  noGrace::fastPath::markers: Set(),
+  noGrace::fastPath::net: Set(),
+  noGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 1),
+  noGrace::fastPath::window: [(0, 0), (2, 2)],
+  noGrace::fastPath::written: Set(1, 2),
+  noGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[violation] Found an issue (306ms at 3 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x5eed --backend=typescript to reproduce.
+error: Invariant violated

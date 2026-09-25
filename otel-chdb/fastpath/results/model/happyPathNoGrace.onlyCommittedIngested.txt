@@ -1,0 +1,1124 @@
+An example execution:
+
+[State 0]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 0,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [],
+  happyPathNoGrace::fastPath::written: Set(),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 0,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 0,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 0,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 1, sentAt: 0 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 0,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 1, sentAt: 0 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 1,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set(),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 0,
+  happyPathNoGrace::fastPath::impInserts: 0,
+  happyPathNoGrace::fastPath::ledger: Set(),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 1, sentAt: 0 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 1,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 1, sentAt: 0 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 1,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "sent" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 1, sentAt: 0 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 1, b: 1, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 1,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "queued" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 1, b: 1, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 1,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "queued" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 1, b: 1, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 2,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "queued" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 1, b: 1, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 2,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "queued" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 1, (1, 2) -> 1, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 12]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 2,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> -1),
+  happyPathNoGrace::fastPath::committed: [1],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 0, phase: "idle" }),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 13]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 2,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 0, phase: "idle" }),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 14]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 0,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 3,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 0, phase: "idle" }),
+  happyPathNoGrace::fastPath::imp: { b: 1, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 15]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 3,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 0, phase: "idle" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 16]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 3,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "sent" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 2, sentAt: 3 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 17]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "sent" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 2, sentAt: 3 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 1), (1, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 18]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "sent" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 2, sentAt: 3 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(1, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 19]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "sent" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set({ b: 2, sentAt: 3 }),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 20]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 4, b: 2, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "ok" },
+      2 -> { attempts: 1, phase: "queued" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 1,
+  happyPathNoGrace::fastPath::impInserts: 1,
+  happyPathNoGrace::fastPath::ledger: Set(1),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 0, (2, 2) -> 0),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 21]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 4, b: 2, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "ok" },
+      2 -> { attempts: 1, phase: "queued" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 2, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 1, (2, 2) -> 1),
+  happyPathNoGrace::fastPath::window: [(2, 1), (2, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 22]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 4, b: 2, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 1,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "ok" },
+      2 -> { attempts: 1, phase: "queued" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 2, phase: "done" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 1, (2, 2) -> 1),
+  happyPathNoGrace::fastPath::window: [(2, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 23]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 4, b: 2, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 4,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "ok" },
+      2 -> { attempts: 1, phase: "queued" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 1, (2, 2) -> 1),
+  happyPathNoGrace::fastPath::window: [(2, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 24]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set({ at: 4, b: 2, waiter: true }),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 5,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(
+      1 -> { attempts: 1, phase: "ok" },
+      2 -> { attempts: 1, phase: "queued" }
+    ),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 1, (2, 2) -> 1),
+  happyPathNoGrace::fastPath::window: [(2, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 25]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 5,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(2, 1), (2, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 26]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 6,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(2, 1), (2, 2)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 27]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 6,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(2, 2), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 28]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 6,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 29]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 30]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 31]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 32]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 33]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 34]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 35]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 36]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 37]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 38]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 39]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[State 40]
+{
+  happyPathNoGrace::fastPath::abandoned: Set(),
+  happyPathNoGrace::fastPath::buffer: Set(),
+  happyPathNoGrace::fastPath::ckpt: 2,
+  happyPathNoGrace::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  happyPathNoGrace::fastPath::clock: 7,
+  happyPathNoGrace::fastPath::commitAt: Map(1 -> 0, 2 -> 2),
+  happyPathNoGrace::fastPath::committed: [1, 2],
+  happyPathNoGrace::fastPath::events: Set("fastLanded", "impInserted"),
+  happyPathNoGrace::fastPath::exps:
+    Map(1 -> { attempts: 1, phase: "ok" }, 2 -> { attempts: 1, phase: "ok" }),
+  happyPathNoGrace::fastPath::imp: { b: 0, phase: "idle" },
+  happyPathNoGrace::fastPath::impChecks: 2,
+  happyPathNoGrace::fastPath::impInserts: 2,
+  happyPathNoGrace::fastPath::ledger: Set(1, 2),
+  happyPathNoGrace::fastPath::markers: Set(),
+  happyPathNoGrace::fastPath::net: Set(),
+  happyPathNoGrace::fastPath::target:
+    Map((1, 1) -> 2, (1, 2) -> 2, (2, 1) -> 2, (2, 2) -> 2),
+  happyPathNoGrace::fastPath::window: [(0, 0), (0, 0)],
+  happyPathNoGrace::fastPath::written: Set(1, 2),
+  happyPathNoGrace::fastPath::writtenAt: Map(1 -> 0, 2 -> 2)
+}
+
+[ok] No violation found (148237ms at 10 traces/second).
+Trace length statistics: max=41, min=41, average=41.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x5eed --backend=typescript to reproduce.

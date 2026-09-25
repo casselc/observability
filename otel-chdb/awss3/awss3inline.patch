@@ -1,0 +1,221 @@
+diff -ruN a/awss3exporter/config.go b/awss3exporter/config.go
+--- a/awss3exporter/config.go	2026-09-25 01:58:16.254707225 +0000
++++ b/awss3exporter/config.go	2026-09-25 01:58:16.287504602 +0000
+@@ -70,6 +70,17 @@
+ 	// If unspecified, a default function will be used that generates a random string.
+ 	// Valid values are: "uuidv7"
+ 	UniqueKeyFuncName string `mapstructure:"unique_key_func_name"`
++
++	// KeyMode "sequence" writes each batch as the next slot of a log,
++	// {s3_base_prefix}/{s3_prefix}/{epoch}/{seq:020d}.{ext}, create-only
++	// (If-None-Match: *), with the batch's content hash and description in
++	// S3 user metadata. The object is its own commit record: no manifest.
++	// A retry of the same request resolves to the slot it already holds.
++	// Empty: the stock behaviour (a partitioned key with a random part).
++	KeyMode string `mapstructure:"key_mode"`
++	// Lanes is the number of logs written in parallel in sequence mode
++	// (each appends one batch at a time). Default 1.
++	Lanes int `mapstructure:"lanes"`
+ }
+ 
+ type MarshalerType string
+@@ -149,6 +160,19 @@
+ 		errs = multierr.Append(errs, errors.New("invalid retry mode, must be either 'standard', 'adaptive' or 'nop'"))
+ 	}
+ 
++	switch c.S3Uploader.KeyMode {
++	case "":
++	case "sequence":
++		if c.S3Uploader.Compression.IsCompressed() {
++			errs = multierr.Append(errs, errors.New("key_mode sequence: compress inside the encoding (Parquet does), not with compression"))
++		}
++		if c.ResourceAttrsToS3.S3Prefix != "" || c.ResourceAttrsToS3.S3Bucket != "" {
++			errs = multierr.Append(errs, errors.New("key_mode sequence: resource_attrs_to_s3 is not supported (one log per prefix)"))
++		}
++	default:
++		errs = multierr.Append(errs, errors.New("invalid key_mode, must be empty or 'sequence'"))
++	}
++
+ 	if c.S3Uploader.UniqueKeyFuncName != "" && !validUniqueKeyFuncs[c.S3Uploader.UniqueKeyFuncName] {
+ 		errs = multierr.Append(errs, errors.New("invalid UniqueKeyFuncName"))
+ 	}
+diff -ruN a/awss3exporter/exporter.go b/awss3exporter/exporter.go
+--- a/awss3exporter/exporter.go	2026-09-25 01:58:16.254426783 +0000
++++ b/awss3exporter/exporter.go	2026-09-25 01:58:16.287403761 +0000
+@@ -6,9 +6,11 @@
+ import (
+ 	"context"
+ 	"fmt"
++	"path"
+ 
+ 	"go.opentelemetry.io/collector/component"
+ 	"go.opentelemetry.io/collector/consumer"
++	"go.opentelemetry.io/collector/consumer/consumererror"
+ 	"go.opentelemetry.io/collector/exporter"
+ 	"go.opentelemetry.io/collector/pdata/pcommon"
+ 	"go.opentelemetry.io/collector/pdata/plog"
+@@ -17,6 +19,7 @@
+ 	"go.uber.org/zap"
+ 
+ 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline/internal/upload"
++	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
+ )
+ 
+ type s3Exporter struct {
+@@ -25,6 +28,9 @@
+ 	uploader   upload.Manager
+ 	logger     *zap.Logger
+ 	marshaler  marshaler
++	// key_mode sequence
++	lanes       *inline.Lanes
++	encodingExt any
+ }
+ 
+ func newS3Exporter(
+@@ -75,6 +81,20 @@
+ 
+ 	e.marshaler = m
+ 
++	if e.config.S3Uploader.KeyMode == "sequence" {
++		client, err := newS3Client(ctx, e.config)
++		if err != nil {
++			return err
++		}
++		if e.config.Encoding != nil {
++			e.encodingExt = host.GetExtensions()[*e.config.Encoding]
++		}
++		prefix := path.Join(e.config.S3Uploader.S3BasePrefix, e.config.S3Uploader.S3Prefix, e.signalType)
++		e.lanes = inline.NewLanes(&inline.Store{S3: client, Bucket: e.config.S3Uploader.S3Bucket, Prefix: prefix},
++			e.config.S3Uploader.FilePrefix, e.config.S3Uploader.Lanes)
++		return nil
++	}
++
+ 	up, err := newUploadManager(ctx, e.config, e.logger, e.signalType, m.format(), m.compressed())
+ 	if err != nil {
+ 		return err
+@@ -98,6 +118,21 @@
+ }
+ 
+ func (e *s3Exporter) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
++	if e.lanes != nil {
++		h, err := inline.ContentHashLogs(logs)
++		if err != nil {
++			return err
++		}
++		return e.appendSlot(ctx, h, func(epoch string, seq uint64) ([]byte, map[string]string, error) {
++			if m, ok := e.encodingExt.(interface {
++				MarshalLogsSlot(plog.Logs, string, uint64) ([]byte, map[string]string, error)
++			}); ok {
++				return m.MarshalLogsSlot(logs, epoch, seq)
++			}
++			b, err := e.marshaler.MarshalLogs(logs)
++			return b, nil, err
++		})
++	}
+ 	buf, err := e.marshaler.MarshalLogs(logs)
+ 	if err != nil {
+ 		return err
+@@ -109,6 +144,21 @@
+ }
+ 
+ func (e *s3Exporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
++	if e.lanes != nil {
++		h, err := inline.ContentHashTraces(traces)
++		if err != nil {
++			return err
++		}
++		return e.appendSlot(ctx, h, func(epoch string, seq uint64) ([]byte, map[string]string, error) {
++			if m, ok := e.encodingExt.(interface {
++				MarshalTracesSlot(ptrace.Traces, string, uint64) ([]byte, map[string]string, error)
++			}); ok {
++				return m.MarshalTracesSlot(traces, epoch, seq)
++			}
++			b, err := e.marshaler.MarshalTraces(traces)
++			return b, nil, err
++		})
++	}
+ 	buf, err := e.marshaler.MarshalTraces(traces)
+ 	if err != nil {
+ 		return err
+@@ -118,3 +168,28 @@
+ 
+ 	return e.uploader.Upload(ctx, buf, uploadOpts)
+ }
++
++// appendSlot commits one request as the next slot of a log (key_mode
++// sequence). An error means the outcome is not known yet: the queue's retry
++// of the same request comes back here with the same content hash and is
++// resolved against the slot it may already hold, never committed twice.
++func (e *s3Exporter) appendSlot(ctx context.Context, content string,
++	marshal func(epoch string, seq uint64) ([]byte, map[string]string, error),
++) error {
++	contentType := ""
++	if ct, ok := e.encodingExt.(interface{ ObjectContentType() string }); ok {
++		contentType = ct.ObjectContentType()
++	}
++	ref, err := e.lanes.Append(ctx, content, func(epoch string, seq uint64) (inline.Object, error) {
++		b, meta, err := marshal(epoch, seq)
++		if err != nil {
++			return inline.Object{}, consumererror.NewPermanent(err)
++		}
++		return inline.Object{Body: b, ContentType: contentType, Meta: meta}, nil
++	})
++	if err != nil {
++		return err
++	}
++	e.logger.Debug("committed", zap.String("epoch", ref.Epoch), zap.Uint64("seq", ref.Seq), zap.String("content", content))
++	return nil
++}
+diff -ruN a/awss3exporter/internal/metadata/generated_status.go b/awss3exporter/internal/metadata/generated_status.go
+--- a/awss3exporter/internal/metadata/generated_status.go	2026-09-25 01:58:16.256980126 +0000
++++ b/awss3exporter/internal/metadata/generated_status.go	2026-09-25 01:58:16.315554976 +0000
+@@ -9,7 +9,7 @@
+ )
+ 
+ var (
+-	Type      = component.MustNewType("awss3")
++	Type      = component.MustNewType("awss3inline")
+ 	ScopeName = "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
+ )
+ 
+diff -ruN a/awss3exporter/s3_writer.go b/awss3exporter/s3_writer.go
+--- a/awss3exporter/s3_writer.go	2026-09-25 01:58:16.253986324 +0000
++++ b/awss3exporter/s3_writer.go	2026-09-25 01:58:16.287254462 +0000
+@@ -28,6 +28,16 @@
+ 	format string,
+ 	isCompressed bool,
+ ) (upload.Manager, error) {
++	client, err := newS3Client(ctx, conf)
++	if err != nil {
++		return nil, err
++	}
++	return newUploadManagerWithClient(conf, logger, metadata, format, isCompressed, client)
++}
++
++// newS3Client is the client newUploadManager used to build inline; the
++// sequence key mode needs it directly.
++func newS3Client(ctx context.Context, conf *Config) (*s3.Client, error) {
+ 	configOpts := []func(*config.LoadOptions) error{}
+ 
+ 	if region := conf.S3Uploader.Region; region != "" {
+@@ -77,6 +87,11 @@
+ 		})
+ 	}
+ 
++	return s3.NewFromConfig(cfg, s3Opts...), nil
++}
++
++func newUploadManagerWithClient(conf *Config, logger *zap.Logger, metadata, format string, isCompressed bool, client *s3.Client) (upload.Manager, error) {
++	var err error
+ 	var managerOpts []upload.ManagerOpt
+ 	if conf.S3Uploader.ACL != "" {
+ 		managerOpts = append(managerOpts,
+@@ -116,7 +131,7 @@
+ 			UniqueKeyFunc:         uniqueKeyFunc,
+ 			IsCompressed:          isCompressed,
+ 		},
+-		s3.NewFromConfig(cfg, s3Opts...),
++		client,
+ 		s3types.StorageClass(conf.S3Uploader.StorageClass),
+ 		managerOpts...,
+ 	), nil

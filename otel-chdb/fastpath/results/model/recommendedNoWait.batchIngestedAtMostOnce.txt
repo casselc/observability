@@ -1,0 +1,1196 @@
+An example execution:
+
+[State 0]
+{
+  recommendedNoWait::fastPath::abandoned: Set(),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 0,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [],
+  recommendedNoWait::fastPath::written: Set(),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  recommendedNoWait::fastPath::abandoned: Set(),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 0,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 0,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 1,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 1,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 2,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 2,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 2,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 2,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 3,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 3,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 3,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 12]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 4,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 13]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 5,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 14]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 5,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 15]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 16]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 17]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 18]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 19]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 20]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 6,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 21]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 22]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 23]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 24]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 25]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 26]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 27]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 28]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 29]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 30]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 31]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 32]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoWait::fastPath::committed: [],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 33]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 34]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 35]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 36]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 37]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 38]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 39]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 40]
+{
+  recommendedNoWait::fastPath::abandoned: Set(1),
+  recommendedNoWait::fastPath::buffer: Set(),
+  recommendedNoWait::fastPath::ckpt: 0,
+  recommendedNoWait::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoWait::fastPath::clock: 7,
+  recommendedNoWait::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  recommendedNoWait::fastPath::committed: [2],
+  recommendedNoWait::fastPath::events: Set(),
+  recommendedNoWait::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoWait::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoWait::fastPath::impChecks: 0,
+  recommendedNoWait::fastPath::impInserts: 0,
+  recommendedNoWait::fastPath::ledger: Set(),
+  recommendedNoWait::fastPath::markers: Set(),
+  recommendedNoWait::fastPath::net: Set(),
+  recommendedNoWait::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoWait::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoWait::fastPath::written: Set(1, 2),
+  recommendedNoWait::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[ok] No violation found (174376ms at 9 traces/second).
+Trace length statistics: max=41, min=41, average=41.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x5eed --backend=typescript to reproduce.

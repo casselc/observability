@@ -1,0 +1,1196 @@
+An example execution:
+
+[State 0]
+{
+  graceNoMargin::fastPath::abandoned: Set(),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 0,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [],
+  graceNoMargin::fastPath::written: Set(),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  graceNoMargin::fastPath::abandoned: Set(),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 0,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 2]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 0,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 3]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 1,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 4]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 1,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 5]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 2,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 6]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 2,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 7]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 2,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 8]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 2,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 9]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 3,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 10]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 3,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 11]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 3,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 12]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 4,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 13]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 5,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 14]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 5,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 15]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 16]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 17]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 18]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 19]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 20]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 6,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 21]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 22]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 23]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 24]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 25]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 26]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 27]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> -1)
+}
+
+[State 28]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 29]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 30]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 31]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 32]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  graceNoMargin::fastPath::committed: [],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 33]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 34]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 35]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 36]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 37]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 38]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 39]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[State 40]
+{
+  graceNoMargin::fastPath::abandoned: Set(1),
+  graceNoMargin::fastPath::buffer: Set(),
+  graceNoMargin::fastPath::ckpt: 0,
+  graceNoMargin::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  graceNoMargin::fastPath::clock: 7,
+  graceNoMargin::fastPath::commitAt: Map(1 -> -1, 2 -> 7),
+  graceNoMargin::fastPath::committed: [2],
+  graceNoMargin::fastPath::events: Set(),
+  graceNoMargin::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  graceNoMargin::fastPath::imp: { b: 0, phase: "idle" },
+  graceNoMargin::fastPath::impChecks: 0,
+  graceNoMargin::fastPath::impInserts: 0,
+  graceNoMargin::fastPath::ledger: Set(),
+  graceNoMargin::fastPath::markers: Set(),
+  graceNoMargin::fastPath::net: Set(),
+  graceNoMargin::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  graceNoMargin::fastPath::window: [(0, 0), (0, 0)],
+  graceNoMargin::fastPath::written: Set(1, 2),
+  graceNoMargin::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
+}
+
+[ok] No violation found (96909ms at 15 traces/second).
+Trace length statistics: max=41, min=41, average=41.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x5eed --backend=typescript to reproduce.

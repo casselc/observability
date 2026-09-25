@@ -1,0 +1,1 @@
+{"case": "INSERT SELECT FROM s3 with async_insert=1, wait=0, busy 5 s", "returned_s": 0.216, "rows_visible_on_return": 8000, "pending_async_entries": "0", "ts": "2026-09-25T02:04:31"}

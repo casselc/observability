@@ -1189,7 +1189,7 @@ An example execution:
   recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 0, 2 -> 7)
 }
 
-[ok] No violation found (133247ms at 11 traces/second).
+[ok] No violation found (138221ms at 11 traces/second).
 Trace length statistics: max=41, min=41, average=41.00
 You may increase --max-samples and --max-steps.
 Use --verbosity to produce more (or less) output.

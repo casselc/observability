@@ -1,0 +1,2 @@
+{"case": "64k-row batch (0.7 MB Parquet): async entry, then importer default settings", "rows": 128000, "parts_after_async": "[64000]", "parts": "[64000,64000]", "ts": "2026-09-25T02:04:08"}
+{"case": "64k-row batch (0.7 MB Parquet): async entry, then importer single-block settings", "rows": 64000, "parts_after_async": "[64000]", "parts": "[64000]", "ts": "2026-09-25T02:04:09"}

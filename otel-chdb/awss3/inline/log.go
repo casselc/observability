@@ -226,9 +226,11 @@ func (l *Log) Append(ctx context.Context, content string, enc Encoder) (Ref, err
 		}
 		switch {
 		case !found:
-			if o == Exists { // 412 then 404: deleted in between (GC below a horizon); never reuse it
-				l.next++
-				continue
+			if o == Exists {
+				// 412 then 404: the store is not read-after-write consistent,
+				// or the slot was deleted. Never guess: leave it unresolved
+				// and let the queue's retry come back to it.
+				return Ref{}, fmt.Errorf("put %s: 412 but HEAD finds no object", key)
 			}
 			l.Stats.Resent.Add(1)
 		case m[MetaKind] == KindTomb:

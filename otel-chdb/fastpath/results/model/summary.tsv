@@ -1,1 +1,29 @@
 recommended	importerNeverInserts	VIOLATED	23s	Found an issue (850ms at 4 traces/second)
+recommended	noLostBehindCheckpoint	ok	141s	
+recommended	batchIngestedAtMostOnce	ok	159s	
+recommended	onlyCommittedIngested	ok	162s	
+recommendedNoFastPath	onlyCommittedIngested	ok	159s	
+recommendedNoFastPath	importerNeverInserts	VIOLATED	28s	Found an issue (735ms at 4 traces/second)
+recommendedNoFastPath	noLostBehindCheckpoint	ok	164s	
+recommendedNoFastPath	batchIngestedAtMostOnce	ok	195s	
+recommendedNoWait	importerNeverInserts	VIOLATED	28s	Found an issue (1124ms at 3 traces/second)
+recommendedNoWait	onlyCommittedIngested	ok	192s	
+recommendedNoWait	batchIngestedAtMostOnce	ok	195s	
+recommendedNoWait	noLostBehindCheckpoint	ok	143s	
+happyPath	onlyCommittedIngested	ok	148s	
+happyPath	batchIngestedAtMostOnce	ok	150s	
+happyPath	noLostBehindCheckpoint	ok	142s	
+happyPathNoGrace	batchIngestedAtMostOnce	VIOLATED	25s	Found an issue (618ms at 2 traces/second)
+happyPathNoGrace	importerNeverInserts	VIOLATED	21s	Found an issue (264ms at 4 traces/second)
+happyPath	importerNeverInserts	ok	144s	
+noGrace	batchIngestedAtMostOnce	VIOLATED	19s	Found an issue (4905ms at 9 traces/second)
+happyPathNoGrace	onlyCommittedIngested	ok	163s	
+happyPathNoGrace	noLostBehindCheckpoint	ok	152s	
+noGrace	importerNeverInserts	VIOLATED	13s	Found an issue (306ms at 3 traces/second)
+noGrace	onlyCommittedIngested	ok	139s	
+noGrace	noLostBehindCheckpoint	ok	104s	
+graceNoMargin	importerNeverInserts	VIOLATED	15s	Found an issue (620ms at 5 traces/second)
+graceNoMargin	onlyCommittedIngested	ok	118s	
+graceNoMargin	batchIngestedAtMostOnce	ok	125s	
+unboundedRequests	batchIngestedAtMostOnce	VIOLATED	21s	Found an issue (4521ms at 10 traces/second)
+graceNoMargin	noLostBehindCheckpoint	ok	110s	

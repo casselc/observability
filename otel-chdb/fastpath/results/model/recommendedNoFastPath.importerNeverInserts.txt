@@ -1,0 +1,586 @@
+An example execution:
+
+[State 0]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 0,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> -1)
+}
+
+[State 1]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 0,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 2]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 0,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "idle" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 3]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 0,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "idle" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 4]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 0,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 5]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 1,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 6]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 1,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> -1, 2 -> 0)
+}
+
+[State 7]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 1,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 8]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 2,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> -1, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 9]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 2,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 10]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 2,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 11]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 3,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 12]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 4,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 13]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 4,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 14]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 4,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 15]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 4,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 16]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 5,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 17]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 5,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 18]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 6,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set(),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 0,
+  recommendedNoFastPath::fastPath::impInserts: 0,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[State 19]
+{
+  recommendedNoFastPath::fastPath::abandoned: Set(2),
+  recommendedNoFastPath::fastPath::buffer: Set(),
+  recommendedNoFastPath::fastPath::ckpt: 0,
+  recommendedNoFastPath::fastPath::claimAt: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::claims: Map(1 -> 0, 2 -> 0),
+  recommendedNoFastPath::fastPath::clock: 6,
+  recommendedNoFastPath::fastPath::commitAt: Map(1 -> 2, 2 -> -1),
+  recommendedNoFastPath::fastPath::committed: [1],
+  recommendedNoFastPath::fastPath::events: Set("impPartial"),
+  recommendedNoFastPath::fastPath::exps:
+    Map(
+      1 -> { attempts: 0, phase: "gaveup" },
+      2 -> { attempts: 0, phase: "gaveup" }
+    ),
+  recommendedNoFastPath::fastPath::imp: { b: 0, phase: "idle" },
+  recommendedNoFastPath::fastPath::impChecks: 1,
+  recommendedNoFastPath::fastPath::impInserts: 1,
+  recommendedNoFastPath::fastPath::ledger: Set(),
+  recommendedNoFastPath::fastPath::markers: Set(),
+  recommendedNoFastPath::fastPath::net: Set(),
+  recommendedNoFastPath::fastPath::target:
+    Map((1, 1) -> 0, (1, 2) -> 0, (2, 1) -> 0, (2, 2) -> 0),
+  recommendedNoFastPath::fastPath::window: [(0, 0), (0, 0)],
+  recommendedNoFastPath::fastPath::written: Set(1, 2),
+  recommendedNoFastPath::fastPath::writtenAt: Map(1 -> 1, 2 -> 0)
+}
+
+[violation] Found an issue (735ms at 4 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x643d --backend=typescript to reproduce.
+error: Invariant violated

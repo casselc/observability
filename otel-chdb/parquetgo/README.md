@@ -4,7 +4,7 @@
 writer ([parquet-go/parquet-go](https://github.com/parquet-go/parquet-go))
 plus an S3 client produces the same rows as the chDB path, byte for byte as
 the ClickHouse server reads them. It uses 25–35% less CPU per batch, about a
-third of the memory, and a 14 MB static binary instead of a 566 MB native
+third of the memory, and a 16 MB static binary instead of a 566 MB native
 library. Keep chDB only where the edge needs SQL: local queries, SQL
 transforms or pre-aggregation, or the native-table option.
 
@@ -27,8 +27,9 @@ afterwards, to share one S3 client with the conditional-write protocol in
 | `pgo.go` | **parquet-go engine (recommended).** The walker writes level-annotated `parquet.Value`s straight into one buffer per leaf column, with no intermediate arrays. Each column goes to parquet-go's column writer. Setting `Parallelism > 1` encodes and compresses columns on several goroutines. |
 | `encode.go`, `schema.go`, `alloc.go` | **arrow-go engine.** The same walker fills Arrow builders, then `pqarrow` writes them. Build with `-tags noarrow` to leave it out, which saves about 27 MB of binary. |
 | `options.go` | Parquet tuning. The defaults mirror ClickHouse's `output_format_parquet_*` settings. |
-| `publish.go` | Publisher: the same object layout, batch ids, generations and manifest JSON as `chdbexporter/publish.go` (Parquet-only, `store_tables: false`). Uploads with aws-sdk-go-v2 (path-style), or writes local files and renames them into place. |
-| `compare/` | Its own module, so `parquetgo` never links chdb-go. It drives the chdb exporter through its factory, and holds the correctness tests, `cmd/pubbench`, `cmd/pqpages` (a page-alignment inspector), size probes and raw results. |
+| `publish.go` | Publisher: the same object layout, batch ids, generations and manifest JSON as `chdbexporter/publish.go` (Parquet-only, `store_tables: false`). Uploads with aws-sdk-go-v2, or writes local files and renames them into place. |
+| `s3client.go` | The S3 client: `s3://bucket/prefix` (AWS, virtual-hosted) or `http(s)://host/bucket/prefix` (custom endpoint, path-style); static keys, or the AWS default credential chain (IRSA, EKS Pod Identity, `credential_process`, IMDS, ...), optional assume-role, and a private CA bundle. See "Credentials and deployment targets". |
+| `compare/` | Its own module, so `parquetgo` never links chdb-go. It drives the chdb exporter through its factory, and holds the correctness tests, `cmd/pubbench`, `cmd/pqpages` (a page-alignment inspector), `cmd/credstubs` (stand-ins for STS, the Pod Identity agent and IMDS, for the ClickHouse/chDB credential checks), size probes and raw results. |
 
 `chdbexporter` wasn't modified.
 
@@ -215,17 +216,19 @@ in `pubbench` it was 20–25% faster.
 
 ### S3 client
 
-The publisher uses aws-sdk-go-v2 with `UsePathStyle` (so SeaweedFS, Garage
-and MinIO need no virtual-host DNS), static credentials when a key is given
-and anonymous requests otherwise. It was first written with minio-go; it
-moved to the AWS SDK because:
+The publisher uses aws-sdk-go-v2: path-style for custom endpoints (so
+SeaweedFS, Garage, MinIO and Nutanix Objects need no virtual-host DNS),
+virtual-hosted for `s3://` URLs; static credentials when a key is given, and
+the AWS default credential chain otherwise (see "Credentials and deployment
+targets"). It was first written with minio-go; it moved to the AWS SDK
+because:
 
 - the conditional-write protocol (`../s3cas`) is built on it: `IfNoneMatch` /
   `IfMatch` are `PutObjectInput` fields and a 412 is a typed error, where
   minio-go only sets them as custom headers documented as a MinIO extension;
 - contrib collectors (`awss3exporter` and others) already link it, so one S3
   stack instead of two;
-- the full AWS credential chain and checksum behaviour, when needed later.
+- the full AWS credential chain (now used) and checksum behaviour.
 
 After the switch the correctness test (below) passes again, `-race` clean,
 and per-batch cost is unchanged within noise: 71.6–73.7 ms CPU against
@@ -242,14 +245,25 @@ Static builds with `CGO_ENABLED=0` and `-trimpath -ldflags="-s -w"`:
 | binary | amd64 | arm64 |
 | --- | --- | --- |
 | chdb exporter via factory (`cmd/chdbpq`) | 9.2 MB **+ 566 MB `libchdb.so`** | 8.7 MB + a `libchdb.so` for aarch64 [E] |
-| Go publisher, parquet-go engine only (`-tags noarrow`) | **13.9 MB**, nothing else | 12.9 MB |
-| Go publisher, both engines | 46.3 MB | 40.2 MB |
+| Go publisher, parquet-go engine only (`-tags noarrow`) | **15.7 MB**, nothing else (13.9 MB before the credential chain) | 14.5 MB (12.9) |
+| Go publisher, both engines | 48.8 MB (46.3) | 42.3 MB (40.2) |
 | parquet-go alone / arrow-go pqarrow alone / aws-sdk-go-v2 S3 alone | 10.5 / 32.3 / 8.0 MB | – |
 
 With minio-go instead of the AWS SDK these were 13.9 / 12.8 MB (noarrow),
 41.0 / 35.6 MB (both engines) and 6.5 MB (client alone): the switch costs
 +28 KB on the recommended build, because the SDK shares most of its weight
 (net/http, crypto, XML) with what the binary already links.
+
+**The AWS credential chain costs +1.7 MB** on the recommended build
+(13,934,754 → 15,679,650 bytes, `cmd/sizes/full`, amd64, `-tags noarrow`;
++2.4 MB with both engines). `config.LoadDefaultConfig` links `service/sts`,
+`sso`, `ssooidc`, `signin`, `feature/ec2/imds` and the credential providers;
+by symbol size (unstripped `go tool nm`) that is sts 176 KB, config 138 KB,
+ssooidc 122 KB, signin 118 KB, sso 98 KB, imds 27 KB and ~60 KB of providers,
+and the rest is their type metadata, pclntab and endpoint-rule tables. It
+could be trimmed by wiring only the providers a deployment uses, at the price
+of losing SSO/`credential_process`/profile handling; 1.7 MB in a collector
+that already links the SDK (contrib does) is not worth that.
 
 - **Ready time**, from `main` to publisher started, with the page cache warm:
   - chDB 157–228 ms median, 145–235 ms range: the dlopen of 566 MB plus
@@ -264,6 +278,258 @@ With minio-go instead of the AWS SDK these were 13.9 / 12.8 MB (noarrow),
   - The Go binary is fully static and cross-compiles to arm64 with one env
     var.
   - chDB does publish aarch64 Linux builds, but those weren't tested here [E].
+
+## Credentials and deployment targets
+
+There are three real deployments:
+
+1. **EKS on AWS S3**, with IRSA (web identity) or EKS Pod Identity (container
+   credentials).
+2. **Nutanix** with Nutanix Objects: static keys, a custom https endpoint,
+   path-style addressing, and quite possibly a private CA.
+3. **IAM Roles Anywhere** to AWS S3 from outside AWS: an X.509 certificate is
+   exchanged for temporary credentials by `aws_signing_helper`.
+
+Three things read or write the objects: this publisher, the chDB exporter
+(libchdb in the collector pod), and the central ClickHouse reading with
+`s3()`. Labels: **[M]** measured here against local stand-ins, **[D]** from
+source or documentation.
+
+| mode | parquetgo | chDB exporter | central ClickHouse `s3()` |
+| --- | --- | --- | --- |
+| **EKS IRSA** (`AWS_ROLE_ARN` + `AWS_WEB_IDENTITY_TOKEN_FILE`) | **yes**: leave the keys empty; SDK web-identity provider [M `TestCredsIRSA`] | **yes**: leave `access_key_id` empty; chDB's own chain [M] | **yes**: `s3(url, 'Parquet')` with no keys [M, server and local], but see the 26.10 restriction below |
+| **EKS Pod Identity** (`AWS_CONTAINER_CREDENTIALS_FULL_URI` + `AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE`) | **yes**, including refresh [M `TestCredsPodIdentity`] | **yes** [M] | **yes**, token file included [M, server and local] |
+| **Nutanix Objects**: static keys, `https://host/bucket/prefix`, path-style, private CA | **yes**: keys + `CABundle` or `AWS_CA_BUNDLE` [M `TestCredsPrivateCA`] | **yes**: keys as today; CA through `SSL_CERT_FILE` [M]. `AWS_CA_BUNDLE` is ignored [M] | **yes**: keys (or a named collection) + `<openSSL><client><caConfig>` [M] or `SSL_CERT_FILE` [M]. `AWS_CA_BUNDLE` is ignored [M] |
+| **Roles Anywhere, `credential_process`** in a shared-config profile | **yes**: `AWS_PROFILE` or `Config.Profile` [M `TestCredsRolesAnywhere`] | **no**: the helper is never run [M]; ClickHouse removed the process provider [D] | **no**, the same code [M, D] |
+| **Roles Anywhere, `aws_signing_helper serve`** (IMDSv2 emulation on localhost) | **yes**, through `AWS_EC2_METADATA_SERVICE_ENDPOINT` [M `TestCredsRolesAnywhereServe`] | **yes** [M] | **yes** [M, server and local] |
+| assume a role on top | `Config.RoleARN` (STS AssumeRole) [M `TestCredsRoleARN`] | not wired | `extra_credentials(role_arn = '...')` [D] |
+
+The chDB column needed no code change. The exporter already builds
+`s3(url, '', '', 'Parquet', ...)` and `disk(..., access_key_id = '', ...)`
+when no keys are configured, and chDB treats empty keys as "use the
+provider chain". That was checked for `s3()` reads and writes and for a
+`plain_rewritable` disk, with the Pod Identity stand-in [M].
+
+### What was tested, and how
+
+Everything ran against SeaweedFS on localhost (bucket `otel`, prefixes
+under `otel/creds/`). The AWS side was played by stand-ins:
+
+- **Go publisher:** `creds_test.go` (gated on `CHDB_TEST_S3*`, env set only
+  with `t.Setenv`). Every test publishes real batches, reads the Parquet
+  back and checks the row count.
+  - **Pod Identity.** A local HTTP server acts as the Pod Identity agent.
+    Each request carried the token file's content as `Authorization` [M].
+    - Credentials with a 1 h expiry are fetched once per publisher [M].
+    - Credentials expiring in 1 min are refetched for every request, because
+      the SDK's container provider refreshes 5 minutes before `Expiration`
+      [M].
+  - **IRSA.** A stub STS is reached through `AWS_ENDPOINT_URL_STS`. It got
+    exactly one `AssumeRoleWithWebIdentity` for two batches, carrying the
+    role ARN and the token [M].
+  - **Roles Anywhere.** A shell script named `aws_signing_helper` prints the
+    `credential_process` JSON, and it is invoked once per publisher [M].
+    `aws_signing_helper` itself isn't available here; the SDK side is
+    identical.
+  - **Private CA.** An `httptest` TLS reverse proxy fronts SeaweedFS, and its
+    self-signed certificate is written to a PEM file:
+    - without the bundle: `x509: certificate signed by unknown authority`;
+    - with `CABundle` or `AWS_CA_BUNDLE`: success, with requests still passing
+      through `WrapTransport` [M].
+
+    SigV4 signs the Host header. `httputil.ReverseProxy` forwards the
+    client's Host (the proxy's `127.0.0.1:port`) unchanged, and SeaweedFS
+    verifies against that, so no special handling was needed.
+  - **Addressing.** `TestS3URLAddressing` checks the endpoint and addressing
+    (no network):
+    - `s3://b/p` goes to `https://b.s3.<region>.amazonaws.com/p/...`;
+    - `PathStyle` overrides that;
+    - `https://host/b/p` stays path-style;
+    - `s3://` without a region is an error.
+- **Session tokens.** Real temporary credentials always carry one, but
+  SeaweedFS answers `InvalidAccessKeyId` to any `X-Amz-Security-Token` that
+  its own STS did not issue. The header is signed, so a proxy can't strip it.
+  So the stand-ins hand out an empty token for the SeaweedFS runs. Each Go
+  test repeats its flow with a token against a fake S3 and asserts that
+  every request carries it. For ClickHouse and chDB, a chain-provided token
+  and one passed as `s3(url, key, secret, token, ...)` both arrived at a
+  logging proxy [M].
+- **ClickHouse 26.10.1 and chDB (libchdb 26.7):** `clickhouse local`, a
+  separate throwaway `clickhouse server` (its own ports and data dir, not the
+  shared one), and libchdb through chdb-go. Each read a parquetgo object with
+  `s3(url, 'Parquet')` and no keys, with a clean environment
+  (`env -i`, `AWS_EC2_METADATA_DISABLED=true` unless testing IMDS).
+  `compare/cmd/credstubs` provided:
+  - `:18901`, the Pod Identity agent and a plain STS;
+  - `:18902`, a CONNECT proxy that terminates TLS for any host with a
+    certificate from its private CA;
+  - `:18903`, a TLS reverse proxy to SeaweedFS;
+  - `:18904`, IMDSv2 as `aws_signing_helper serve` provides it.
+
+  Findings:
+  - **Pod Identity** works. The token file's content arrives as
+    `Authorization` [M].
+    - The C++ SDK only accepts a loopback address, 169.254.170.2 or
+      169.254.170.23 for an http `FULL_URI`, which EKS satisfies [D].
+    - A new fetch happens per query (per S3 client) [M].
+  - **IRSA** works, but the STS endpoint is hard-coded as
+    `https://sts.<region>.amazonaws.com`. `AWS_ENDPOINT_URL_STS` and
+    `AWS_ENDPOINT_URL` are ignored [M]. It does honour `https_proxy` and
+    `no_proxy`, which is how it was tested: the CONNECT stand-in, with the
+    stand-in CA trusted via `caConfig` or `SSL_CERT_FILE`. Without the CA
+    there is no STS call and the read fails [M].
+    - The provider is cached process-wide: 1 STS call for 2 queries with 1 h
+      credentials [M].
+    - It refreshes inside `expiration_window_seconds` (default 120 s): 13 STS
+      calls for 2 queries with 60 s credentials [M].
+    - The STS region comes from `AWS_DEFAULT_REGION` or the profile, not
+      `AWS_REGION` [D]. The EKS webhook sets both.
+  - **`credential_process`** is not supported. With `AWS_PROFILE` naming such
+    a profile, the helper was never executed and the read was anonymous
+    (`AccessDenied`) [M]. `src/IO/S3/Credentials.cpp` builds the chain as web
+    identity, env, SSO, ECS/container, IMDS, then
+    `ProfileConfigFileAWSCredentialsProvider`, which reads only keys. The
+    comment says: "we removed process provider because it's useless in our
+    case" [D]. Static keys in a profile of the *credentials* file do work
+    [M].
+  - **IMDS through `AWS_EC2_METADATA_SERVICE_ENDPOINT`** works in local,
+    server and chDB, with the IMDSv2 token flow [M].
+  - **Custom CA:**
+    - `<openSSL><client><caConfig>` in the server (or `clickhouse local
+      --config-file`) config works, and so does `SSL_CERT_FILE`, which is
+      read by the bundled OpenSSL's default verify paths [M];
+    - without either, the read fails with `certificate verify failed` [M];
+    - `AWS_CA_BUNDLE` has no effect (the string isn't even in the binary)
+      [M];
+    - chDB has no config file in the exporter's session, so `SSL_CERT_FILE`
+      is the way there [M]. It *replaces* the default bundle, so point it at
+      system roots + the private CA if the pod also talks to public
+      endpoints. Go honours `SSL_CERT_FILE` the same way.
+  - **The 26.10 server restriction.** On the **server**, a user query may
+    not use the server's own credentials by default: the setting
+    `s3_allow_server_credentials_in_user_queries` is `0`. `s3(url,
+    'Parquet')` without keys then fails with
+    `Code: 497 ... S3 access from user queries is not allowed to use the
+    server's own credentials (environment variables, instance metadata,
+    IRSA, ...)` [M].
+    - Setting it to 1 in the ingest user's profile (or per query) makes IRSA,
+      Pod Identity and IMDS work [M].
+    - `extra_credentials(role_arn = ...)` stays allowed under the restriction
+      [D].
+    - `clickhouse local` and chDB don't enforce it [M].
+
+### Workaround where a mode is unsupported: `credential_process` in chDB and ClickHouse
+
+- **Preferred:** run `aws_signing_helper serve` (the Roles Anywhere helper's
+  IMDSv2 emulator; default `127.0.0.1:9911`) next to the process, and set
+  `AWS_EC2_METADATA_SERVICE_ENDPOINT=http://127.0.0.1:9911`. Leave
+  `AWS_EC2_METADATA_DISABLED` unset. chDB, ClickHouse and this publisher then
+  all read the same refreshed credentials, with no code [M against an IMDS
+  stand-in, D for the helper].
+- **Alternative (described, not implemented):** the Go side resolves
+  credentials with `config.LoadDefaultConfig` (which runs
+  `credential_process`) and `aws.CredentialsCache`. It calls `Retrieve` per
+  batch and writes `s3(url, key, secret, session_token, 'Parquet',
+  structure)`. ClickHouse accepts the session-token argument and sends it
+  [M]. This covers per-statement `s3()` (Parquet and manifests). It does not
+  cover the `object_storage` disks, whose keys are fixed in the table's DDL
+  when it's created, so the tables would have to be recreated on every
+  refresh. It would also add the SDK (+1.7 MB) to the chDB exporter. Serve
+  mode covers the same case without either cost, so it wasn't built.
+
+### Configuration examples
+
+The publisher is a library here (no collector component yet), so its
+settings are shown as `parquetgo.Config` fields. The chDB exporter's are its
+collector YAML.
+
+**EKS with IRSA.** The ServiceAccount is annotated
+`eks.amazonaws.com/role-arn: arn:aws:iam::111122223333:role/otel-edge`, and
+the webhook injects `AWS_ROLE_ARN`, `AWS_WEB_IDENTITY_TOKEN_FILE`,
+`AWS_REGION` and `AWS_DEFAULT_REGION`.
+
+```go
+parquetgo.Config{URL: "s3://otel-telemetry/edge", S3Region: "eu-west-1"} // no keys: the chain
+```
+```yaml
+exporters:
+  chdb:
+    parquet:
+      url: https://otel-telemetry.s3.eu-west-1.amazonaws.com/edge   # no access_key_id: chDB's chain
+```
+```xml
+<!-- central ClickHouse (pod with its own IRSA role): allow the ingest user the server's credentials -->
+<profiles><ingest>
+  <s3_allow_server_credentials_in_user_queries>1</s3_allow_server_credentials_in_user_queries>
+</ingest></profiles>
+```
+```sql
+INSERT INTO otel_traces SELECT ... FROM s3(
+  'https://otel-telemetry.s3.eu-west-1.amazonaws.com/edge/eu-west-1/traces/v1/**/*.parquet', 'Parquet');
+-- or, without relaxing the restriction: s3(url, 'Parquet', extra_credentials(role_arn = 'arn:aws:iam::111122223333:role/otel-central-read'))
+```
+
+**EKS Pod Identity.** Create the association with `aws eks
+create-pod-identity-association --namespace otel --service-account
+otel-collector --role-arn ...`. The agent injects
+`AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.23/v1/credentials` and
+`AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token`.
+The collector and central configs are the same as for IRSA: no keys
+anywhere. Only `AWS_REGION` (or `S3Region`) is needed for `s3://` URLs.
+
+**Nutanix Objects with a private CA.**
+
+```go
+parquetgo.Config{
+	URL:         "https://objects.nutanix.example/otel/edge", // custom endpoint: path-style by default
+	AccessKeyID: os.Getenv("NUTANIX_ACCESS_KEY"), SecretAccessKey: os.Getenv("NUTANIX_SECRET_KEY"),
+	CABundle:    "/etc/ssl/nutanix/ca.pem", // or AWS_CA_BUNDLE; appended to the system roots
+}
+```
+```yaml
+exporters:
+  chdb:
+    parquet:
+      url: https://objects.nutanix.example/otel/edge
+      access_key_id: ${env:NUTANIX_ACCESS_KEY}
+      secret_access_key: ${env:NUTANIX_SECRET_KEY}
+# collector pod env: SSL_CERT_FILE=/etc/ssl/nutanix/bundle.pem   (system roots + the Nutanix CA)
+```
+```xml
+<!-- central ClickHouse: trust the CA; keys in a named collection or in s3() -->
+<openSSL><client>
+  <loadDefaultCAFile>true</loadDefaultCAFile>
+  <caConfig>/etc/clickhouse-server/nutanix-ca.pem</caConfig>
+  <verificationMode>strict</verificationMode>
+  <invalidCertificateHandler><name>RejectCertificateHandler</name></invalidCertificateHandler>
+</client></openSSL>
+<named_collections><nutanix_otel>
+  <url>https://objects.nutanix.example/otel/edge/</url>
+  <access_key_id>...</access_key_id><secret_access_key>...</secret_access_key>
+</nutanix_otel></named_collections>
+```
+
+**IAM Roles Anywhere, from outside AWS.**
+
+```ini
+# ~/.aws/config (AWS_CONFIG_FILE) for the Go publisher
+[profile otel]
+region = eu-west-1
+credential_process = aws_signing_helper credential-process --certificate /etc/ra/cert.pem --private-key /etc/ra/key.pem --trust-anchor-arn arn:aws:rolesanywhere:eu-west-1:111122223333:trust-anchor/TA --profile-arn arn:aws:rolesanywhere:eu-west-1:111122223333:profile/PR --role-arn arn:aws:iam::111122223333:role/otel-edge
+```
+```go
+parquetgo.Config{URL: "s3://otel-telemetry/edge", Profile: "otel"} // or AWS_PROFILE=otel
+```
+For the chDB exporter and a central ClickHouse outside AWS, use serve mode
+instead:
+```sh
+aws_signing_helper serve --certificate /etc/ra/cert.pem --private-key /etc/ra/key.pem \
+  --trust-anchor-arn ... --profile-arn ... --role-arn ...        # listens on 127.0.0.1:9911
+export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://127.0.0.1:9911 AWS_REGION=eu-west-1
+```
+The exporter then has no keys (as for IRSA). The central server needs
+`s3_allow_server_credentials_in_user_queries = 1` for the ingest user. The
+Go publisher can use serve mode too, without the profile.
 
 ## Existing art
 
@@ -321,7 +587,7 @@ With minio-go instead of the AWS SDK these were 13.9 / 12.8 MB (noarrow),
   - Identical rows and schema: verified on the server, pyarrow and Spark.
   - 25–35% less CPU per batch.
   - About 3–4× less RSS.
-  - A 14 MB static binary: arm64, musl and distroless all work, with no CGO,
+  - A 16 MB static binary: arm64, musl and distroless all work, with no CGO,
     purego or dlopen.
   - Instant start.
   - Ordinary Go errors and retries (the AWS SDK's standard retryer).
@@ -398,8 +664,11 @@ several batches in parallel.
   - the Go exporter's size once linked into a full collector (roughly +8 MB
     on top of the collector for parquet-go + the AWS SDK, which contrib collectors already link, against +566 MB of
     library for chDB).
+  - the credential modes against local stand-ins (see "Credentials and
+    deployment targets" for what each test covers).
 - **Not tested:**
-  - real AWS S3;
+  - real AWS S3, real STS, a real EKS cluster, Nutanix Objects and
+    `aws_signing_helper` itself (each was replaced by a local stand-in);
   - concurrent pushes through the Go publisher beyond the `-race` test's
     serial use;
   - batches large enough to need multipart (none do: one PUT allows 5 GiB);
@@ -416,6 +685,7 @@ cd compare
 export CHDB_LIB_PATH=/path/to/libchdb.so CHDB_TEST_S3=http://127.0.0.1:18333/otel \
   CHDB_TEST_S3_KEY=otel CHDB_TEST_S3_SECRET=otelsecret CHDB_TEST_CLICKHOUSE=http://127.0.0.1:18123
 go test -race -v -run 'TestSameRowsAsChdb|TestArrowPageSplitVariants' .
+(cd .. && go test -v -run 'TestCreds|TestS3URLAddressing' .)   # credential modes, needs CHDB_TEST_S3*
 go test -run '^$' -bench GoEncode -benchtime 20x -count 3 .
 go build -o $S/pubbench ./cmd/pubbench && S=$S results/runbench.sh && python3 results/summarize.py $S/bench.jsonl
 ```

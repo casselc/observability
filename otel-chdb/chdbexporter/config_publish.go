@@ -31,6 +31,15 @@ type ProducerConfig struct {
 // S3Config locates a bucket prefix. Endpoint is a path-style URL including
 // the bucket, e.g. http://127.0.0.1:8333/otel or
 // https://bucket.s3.eu-west-1.amazonaws.com/prefix.
+//
+// With AccessKeyID empty, chDB resolves credentials itself through
+// ClickHouse's AWS provider chain: env keys, web identity (EKS IRSA),
+// container credentials incl. AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE (EKS
+// Pod Identity), IMDS (also `aws_signing_helper serve` for IAM Roles
+// Anywhere, via AWS_EC2_METADATA_SERVICE_ENDPOINT) and static keys in a
+// shared-credentials profile; not credential_process. A private CA is
+// trusted through SSL_CERT_FILE. See parquetgo/README.md, "Credentials and
+// deployment targets".
 type S3Config struct {
 	Endpoint        string              `mapstructure:"endpoint"`
 	AccessKeyID     string              `mapstructure:"access_key_id"`
@@ -73,7 +82,8 @@ type ObjectStorageConfig struct {
 // ParquetConfig writes every batch as one Parquet object as well.
 type ParquetConfig struct {
 	// URL is an S3 endpoint (http:// or https://, with bucket) or a local
-	// directory (file:///abs/path).
+	// directory (file:///abs/path). Empty keys: chDB's AWS credential chain,
+	// as for S3Config.
 	URL             string              `mapstructure:"url"`
 	AccessKeyID     string              `mapstructure:"access_key_id"`
 	SecretAccessKey configopaque.String `mapstructure:"secret_access_key"`

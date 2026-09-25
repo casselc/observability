@@ -420,5 +420,23 @@ plus the hand-written pair, which joins trace to log on trace and span id.
 - **Shutdown.** With chDB 26.7.3, a process with MergeTree tables can't shut the
   engine down cleanly, so the exporter closes its sessions and leaves the
   engine running until the process exits.
+- **Credentials.** Leave `access_key_id` / `secret_access_key` empty and chDB
+  uses its own AWS provider chain, with no code in the exporter. That chain
+  covers env keys, EKS IRSA (web identity), EKS Pod Identity (container
+  credentials plus the token file), IMDS, and static keys in a
+  shared-credentials profile. It was measured with libchdb against local
+  stand-ins, for `s3()` writes and reads and for `plain_rewritable` disks.
+  - **Not supported: `credential_process`**, and so IAM Roles Anywhere's usual
+    setup: ClickHouse's chain has no process provider. Run
+    `aws_signing_helper serve` and set `AWS_EC2_METADATA_SERVICE_ENDPOINT`
+    instead.
+  - **Private CA** (e.g. Nutanix Objects): set `SSL_CERT_FILE` in the pod to a
+    bundle that includes it. `AWS_CA_BUNDLE` is ignored.
+  - **Central ClickHouse 26.10:** needs
+    `s3_allow_server_credentials_in_user_queries = 1` for the ingest user
+    before keyless `s3()` may use the server's credentials.
+
+  Details, the evidence, and config examples for each deployment are in
+  [`parquetgo/README.md`](parquetgo/README.md#credentials-and-deployment-targets).
 - **chdb-go's CLI** (`go run ./chdb-go -path p "SQL"`) ignores `-path` for single
   queries and runs them in a throwaway session. Use `chdbq` instead.

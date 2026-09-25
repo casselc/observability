@@ -383,6 +383,46 @@ credential_process = %s credential-process --certificate /etc/ra/cert.pem --priv
 	e.sessionTokens(t, Config{Profile: "rolesanywhere"}, "ra-session-token")
 }
 
+// TestCredsRolesAnywhereServe: the other way to run IAM Roles Anywhere,
+// `aws_signing_helper serve`, which emulates IMDSv2 on localhost (default
+// :9911) and is found through AWS_EC2_METADATA_SERVICE_ENDPOINT. It is the
+// mode that also works for chDB and ClickHouse, which have no
+// credential_process provider. The stub below answers IMDSv2's three calls.
+func TestCredsRolesAnywhereServe(t *testing.T) {
+	e := newCredsEnv(t)
+	var mu sync.Mutex
+	var calls []string
+	imds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path+" token="+r.Header.Get("X-Aws-Ec2-Metadata-Token"))
+		mu.Unlock()
+		switch strings.TrimSuffix(r.URL.Path, "/") {
+		case "/latest/api/token":
+			w.Header().Set("X-Aws-Ec2-Metadata-Token-Ttl-Seconds", "21600")
+			fmt.Fprint(w, "imdsv2-token")
+		case "/latest/meta-data/iam/security-credentials":
+			fmt.Fprint(w, "otel-publisher")
+		case "/latest/meta-data/iam/security-credentials/otel-publisher":
+			now := time.Now().UTC()
+			json.NewEncoder(w).Encode(map[string]string{"Code": "Success", "Type": "AWS-HMAC",
+				"AccessKeyId": e.key, "SecretAccessKey": e.secret, "Token": e.token,
+				"LastUpdated": now.Format(time.RFC3339), "Expiration": now.Add(time.Hour).Format(time.RFC3339)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer imds.Close()
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "false")
+	t.Setenv("AWS_EC2_METADATA_SERVICE_ENDPOINT", imds.URL)
+	e.publish(t, Config{}, 2)
+	mu.Lock()
+	if len(calls) < 2 || !strings.HasPrefix(calls[0], "PUT /latest/api/token") || !strings.HasSuffix(calls[len(calls)-1], "token=imdsv2-token") {
+		t.Fatalf("IMDS calls: %q", calls)
+	}
+	mu.Unlock()
+	e.sessionTokens(t, Config{}, "serve-session-token")
+}
+
 // TestCredsPrivateCA: Nutanix Objects style. Static keys over https to a
 // custom endpoint whose certificate chains to a private CA. A TLS-terminating
 // reverse proxy stands in for the store; it forwards the client's Host
@@ -432,3 +472,51 @@ func TestCredsPrivateCA(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestS3URLAddressing: s3:// goes to the SDK's AWS endpoint, virtual-hosted,
+// with the chain's region; http(s):// is a path-style custom endpoint; and
+// PathStyle overrides either. No network: WrapTransport answers.
+func TestS3URLAddressing(t *testing.T) {
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("AWS_ENDPOINT_URL", "")
+	t.Setenv("AWS_ENDPOINT_URL_S3", "")
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDENV")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "s")
+	yes, no := true, false
+	for _, c := range []struct {
+		url, region string
+		pathStyle   *bool
+		want        string // scheme://host/path of the PUT
+	}{
+		{"s3://my-bucket/otel/edge", "eu-west-1", nil, "https://my-bucket.s3.eu-west-1.amazonaws.com/otel/edge/k"},
+		{"s3://my-bucket", "us-east-2", &yes, "https://s3.us-east-2.amazonaws.com/my-bucket/k"},
+		{"https://objects.nutanix.local:9440/bkt/pre", "", nil, "https://objects.nutanix.local:9440/bkt/pre/k"},
+		{"https://s3.example.com/bkt/pre", "", &no, "https://bkt.s3.example.com/pre/k"},
+	} {
+		t.Setenv("AWS_REGION", c.region)
+		var got string
+		p, err := New(Config{URL: c.url, PathStyle: c.pathStyle, Engine: "parquet-go",
+			WrapTransport: func(http.RoundTripper) http.RoundTripper {
+				return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					io.Copy(io.Discard, r.Body)
+					got = r.URL.Scheme + "://" + r.URL.Host + r.URL.Path
+					return &http.Response{StatusCode: 200, Header: http.Header{"Etag": {`"x"`}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+				})
+			}})
+		if err != nil {
+			t.Fatalf("%s: %v", c.url, err)
+		}
+		if err := p.put(context.Background(), "k", []byte("x"), "text/plain"); err != nil {
+			t.Fatalf("%s: %v", c.url, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: PUT %s, want %s", c.url, got, c.want)
+		}
+	}
+	t.Setenv("AWS_REGION", "")
+	if _, err := New(Config{URL: "s3://my-bucket/x", Engine: "parquet-go"}); err == nil || !strings.Contains(err.Error(), "region") {
+		t.Errorf("s3:// without a region: %v", err)
+	}
+}

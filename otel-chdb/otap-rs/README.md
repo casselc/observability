@@ -1117,6 +1117,328 @@ edge; OTAP input costs the edge more, not less.**
     already there. Its gain is on the wire (compression, dictionaries), not
     at a ClickStack edge.
 
+## Consumer
+
+**`consume` is now a production-shaped importer: a fleet of workers
+shares the producer lanes through a lease and a checkpoint per lane,
+CAS'd on S3; it ingests up to 32 committed objects per `INSERT … SELECT
+FROM s3()`, verifies every statement against the content projection, and
+closes dead epochs with tombstones; a separate GC step deletes behind the
+checkpoints. Under chaos (ambiguous, slow and dropped PUTs, edge SIGKILLs,
+worker SIGKILLs and pauses past their lease) every committed batch reached
+central exactly once and nothing uncommitted did [M]. Batching cuts server
+CPU per small object 8× (19.6 → 2.4 ms). Visibility is 211 ms p50 / 320 ms p90 at a 200 ms poll and 663 / 1,061 ms at 1 s.
+The cost that remains is LIST: one per lane per poll.**
+
+Labels as above. Code: `src/consumer/` (mounted by `src/bin/consume.rs`),
+`src/central.rs`; tests: `src/consumer/tests.rs`,
+`tests/mbt_s3inline_consumer.rs`, `../model/s3InlineConsumer.qnt`;
+scripts: `scripts/consumer_*.sh`.
+
+### What it does
+
+```
+{root}/{producer}/{signal}/{epoch}/{seq:020d}.parquet      the edges' slots (unchanged)
+{ctl}/lease/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
+{ctl}/ckpt/{producer}/{signal}.json     CAS'd {lease_epoch, version, epochs: {E: {next, closed}}}
+{ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
+{ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions}
+```
+
+`{ctl}` defaults to `{root}/_consumer`. A lane is one producer's one signal
+namespace; `--depth 1` treats `{root}/{signal}` as the lanes (the
+prototype's layout, and its flags `--signal S --table db.t` still work:
+`scripts/faults.sh` passes all five scenarios unchanged,
+`results/consumer/faults-compat.txt`).
+
+- **Leases** (`coord.rs`, sans-IO). A lease has a fencing epoch (+1 per
+  change of owner) and a TTL. Expiry is judged on the observer's own
+  monotonic clock: a lease whose ETag it has seen unchanged for
+  TTL + margin is expired. The holder counts from the moment it *sent* the
+  write that installed its version, so its window (`sent + ttl − margin`)
+  always closes 2 × margin before anyone may take over, whatever the clocks'
+  offsets. Renewal is a CAS every TTL/3; a failed renewal or a lapsed window
+  (own clock) drops the lane at once.
+- **The time bound on inserts.** A statement starts only if
+  `now + budget ≤ safe_until` for every lane it contains, and runs with
+  `max_execution_time = budget`. For a process paused between that check
+  and the send (GC pause, SIGSTOP), the statement also carries a server-side
+  fence, `WHERE now64(3) <= fromUnixTimestamp64Milli(sent_wall + ttl −
+  margin − budget)`: on ClickHouse's clock, a late statement is a no-op,
+  and doesn't even open its objects [M]. That half needs the holder's and
+  the server's wall clocks within the margin.
+- **Checkpoint fencing.** Taking a lane rewrites its checkpoint under the
+  new lease epoch before anything else, so every later CAS by the previous
+  holder fails on the ETag. Ambiguous CAS answers are resolved by reading
+  the object back.
+- **Several workers** (`worker.rs`). Each discovery round (every
+  `--discover`) lists the lanes (one LIST per producer), beats the
+  worker's heartbeat, lists heartbeats and leases (their ETags), and evens
+  the load: fair share = ⌈lanes / live workers⌉; above it a worker releases
+  one lane per round (a released lease can be taken at once), below it
+  takes free, released or expired lanes.
+- **Discovery.** Per held lane and open epoch, `LIST StartAfter` the
+  checkpoint's key. The newest epoch's LIST is lane-wide, so it also
+  returns epochs created since; `--full-list` periodically lists the
+  lane's epochs, catching one that sorts earlier (a producer whose clock
+  stepped back).
+  - **SeaweedFS quirk [M]:** a StartAfter naming a "directory"
+    (`{lane}/{epoch}/`) is taken as "after that whole directory" and
+    returns nothing. The consumer uses `{lane}/{epoch}/0` for slot 0, which
+    sorts before every slot key on AWS too.
+- **Slots.** HEAD each consecutive slot from the checkpoint: data (content
+  key, committed rows) or a tombstone (the epoch is closed there). The scan
+  stops at the first free slot. **A gap** (a free slot with a later one
+  listed) is never skipped and never tombstoned: a live writer can't leave
+  one, so it is LIST lag or a deleted slot, and it is reported
+  (`gaps_seen`). A superseded epoch whose head stays free for `--quiet` gets
+  a create-only tombstone race, as in ../awss3.
+- **Ingest** (`sql.rs`), per table, across all the worker's lanes:
+  1. one projection check (`content_key IN (…)`) for every pending object:
+     present ones are skipped (a copy of the request in another epoch, or a
+     retry), one object per content key;
+  2. the absent ones in statements of up to `--max-batch` objects (32),
+     16 MB and 200k rows (and an object over 100k rows or 8 MB alone):
+     `INSERT INTO t (…, content_key) SELECT …, transform(_path, [paths],
+     [keys], '') FROM s3('http://…/bucket/{k1,k2,…}', …)`;
+  3. the single-block settings with squashing on (`min_insert_block_size_*`
+     above the statement), so a statement is **one part per partition**,
+     atomic; `--no-squash` gives one part per object;
+  4. `insert_deduplication_token` = a hash of the ordered key list, with
+     `deduplicate_insert = enable` and `deduplicate_insert_select =
+     force_enable` pinned;
+  5. after it (after `KILL QUERY … SYNC` if the answer was lost), the same
+     check verifies: complete → done; missing → inserted again one by one;
+     partial → row repair (`row_ordinal NOT IN …`); more rows than committed
+     → reported (`over_count`), never fixed silently;
+  6. per lane, the checkpoint moves past the done prefix only
+     (`plan::advance_to`), and a tombstone at the new position closes the
+     epoch; one CAS per lane per step.
+- **Every lane:** traces, logs, the contrib metrics tables
+  (`clickstack_tables`), and layout B's points lanes
+  (`metrics_number_points`, `metrics_{gauge,sum}_points` when not merged,
+  `metrics_{histogram,exponential_histogram,summary}_points`) with the
+  edge's own `series::structure` / `series::insert_select` and
+  `sql/series_tables.sql` plus `content_key` and the projection. The series
+  lane (`metrics_series`) has no count check and no verify: re-inserting is
+  harmless (AggregatingMergeTree).
+- **GC** (`gc.rs`, `consume gc`, separate and safe to run from anywhere):
+  each run appends every lane's checkpoint, with the time, as a mark to
+  `gc.json` (CAS), then deletes the data slots below the newest mark that
+  is at least `--delay` old (lease TTL + margin + the longest a PUT can be
+  in flight): the horizon trails the checkpoint by a lease length, and a
+  slot is deleted only once no late copy of its PUT can still land. A
+  position is the first slot *not* consumed, so the head of a live epoch
+  and a closed epoch's tombstone are never deleted by the horizon; a closed
+  epoch is removed entirely only after `--zombie` (a bound on how long a
+  fenced writer process can live). Two GCs racing is harmless.
+
+### ClickHouse facts found [M] (26.10.1)
+
+- **`s3('…/{k1,k2}')` with full keys in the braces does no LIST**: it HEADs
+  and GETs each key.
+- **`INSERT … SELECT` is not deduplicated without a token** in 26.10:
+  `deduplicate_insert_select = enable_when_possible` (the default) only
+  deduplicates a "stable" select (`ORDER BY ALL`, one stream). With
+  `enable_even_for_bad_queries`, block ids are position-dependent: the same
+  object in a differently grouped statement was inserted again. So a token
+  protects only an exact retry of the same statement; the projection check
+  is what makes ingest exactly-once.
+- **Squashing is where most of the batching win is** (below): a statement
+  of 32 small objects costs 5.1–5.9 ms per object with one part per object,
+  1.8–2.2 ms squashed into one part.
+
+### Batching: one object per statement against many [M]
+
+`scripts/consumer_fixedcost.sh`: the statement's own CPU (ClickHouse
+per-query profile events), median of 3, on edge objects of 200 spans or
+20 points per type (`results/consumer/fixedcost.jsonl`):
+
+| server CPU per object | 1 per statement | 8, part per object | 8, squashed | 32, part per object | 32, squashed |
+|---|---|---|---|---|---|
+| traces (200 spans, 13.5 KB) | 14.7 ms | 6.8 | 3.3 | 5.9 | **2.2** |
+| number points (40 points, 5.5 KB) | 11.7 ms | 6.0 | 2.8 | 5.1 | **1.8** |
+
+The check query costs under 1 ms for 1 or 32 keys.
+
+`scripts/consumer_bench.sh`: the whole consumer (`--once`, one worker) on
+2,800 committed objects (400 per namespace: traces, logs, and layout B's
+five), a fresh database and checkpoint per run, median of 3; server CPU from
+`system.events` (server-wide) (`results/consumer/bench.jsonl`):
+
+| objects per statement | statements | server CPU per object | consumer CPU per object | wall | S3 per object (HEAD / LIST / CAS / GET) |
+|---|---|---|---|---|---|
+| 1 | 2,800 | 19.6 ms | 0.57 ms | 57 s | 1.00 / 0.017 / 0.018 / 0.003 |
+| 8, squashed | 350 | 4.3 ms | 0.23 ms | 14.2 s | 1.00 / 0.014 / 0.013 / 0.003 |
+| **32, squashed** (default) | 91 | **2.4 ms** | **0.19 ms** | **9.9 s** | 1.00 / 0.014 / 0.013 / 0.003 |
+| 32, part per object | 91 | 9.0 ms | 0.19 ms | 21.9 s | same |
+
+- **8× less server CPU per object** at 32 objects per statement, 4.6× at 8.
+  At the metrics-layout calculator's 667 objects/s that is 13 cores of
+  fixed cost down to about 1.6 [E].
+- A statement batches across the worker's lanes of one table, so the win
+  needs several objects pending per table per poll: many lanes per worker,
+  or a longer poll. At a 200 ms poll with a few objects per second per table
+  (below) statements averaged 1.01 objects.
+- The first run of this benchmark exposed a real issue, now fixed: a long
+  step starved the lease renewals, so objects were deferred and HEADed
+  twice; renewals now run inside the ingest loop.
+
+### Steady state: latency, CPU and S3 requests [M]
+
+`scripts/consumer_latency.sh`: one edge, one worker, no faults, 3.7
+requests/s per signal (traces and logs of 200 rows, metrics of 20 points per
+type: 7 objects per metrics request), 90 s per poll period
+(`results/consumer/latency.jsonl`). "Visible" runs from the edge receiving
+the request (`received_at` in the object's metadata) to the worker's INSERT
+returning.
+
+| poll | visible p50 / p90 / p99 / max | objects per statement | server CPU per object | consumer CPU per object / per row | S3 per object: HEAD / LIST / CAS / GET | checks per object |
+|---|---|---|---|---|---|---|
+| 200 ms | **211 / 320 / 441 / 1,333 ms** | 1.01 | 22.4 ms | 1.29 ms / 18 µs | 1.00 / 1.47 / 1.02 / 0.003 | 1.69 |
+| 1 s | **663 / 1,061 / 1,211 / 1,329 ms** | 3.71 | 8.9 ms | 0.51 ms / 7.1 µs | 1.00 / 0.38 / 0.30 / 0.003 | 0.46 |
+
+- The edge ack (the commit) was 17 ms p50 in both.
+- **Latency and batching pull against each other.** At 200 ms, with 7
+  lanes and a few objects per second per table, a poll finds about one
+  object per table: statements hold 1.01 objects, and the per-statement
+  cost comes back (22 ms server CPU per object against 2.4 ms in the batch
+  benchmark). At 1 s they hold 3.7, and server CPU per object is 2.5×
+  lower. A worker holding many lanes of one table batches at any poll; a
+  deployment that wants 200 ms visibility *and* the batching win needs
+  enough lanes per worker, or a short linger (not built).
+- **S3 requests per object are dominated by polling, not by objects:**
+  one HEAD per object, but at 200 ms 1.5 LISTs and one checkpoint CAS per
+  object, because every poll LISTs every held lane and writes each lane's
+  checkpoint it advanced. At 1 s these drop to 0.38 and 0.30.
+- Server CPU here is `system.events` (server-wide) over the run, so it
+  includes merges.
+
+### Soak under chaos [M]
+
+`scripts/consumer_soak.sh` + `scripts/consumer_soak_check.py`
+(`results/consumer/soak/summary.txt`, `chaos.log`):
+
+- 3 edges (`otap-s3pq`, 7 lanes each; one with 2 exporter lanes per
+  signal) behind 3 fault proxies: every 7th PUT ambiguous (applied, answer
+  held 3 s against a 1 s `put_timeout`), every 5th slow (held 2.5 s before
+  it reaches S3, so the retry lands first and the late copy gets 412), every
+  6th dropped (503);
+- senders (`tools/cmd/soaksend`) with distinct requests, resent until 2xx;
+- 3 workers on 21 lanes at a 200 ms poll, lease TTL 6 s, margin 1 s, budget
+  2 s, quiet 3 s; GC every 5 s (delay 10 s, zombie bound 60 s); an audit
+  recording every committed object before GC removes it;
+- chaos every 8–20 s: SIGKILL a worker (restarted 1–3 s later as a new
+  incarnation), SIGSTOP a worker for 7–12 s (past its lease: it resumes as
+  a zombie), or SIGKILL an edge (restarted at once; its senders resend into
+  new epochs).
+
+{{SOAK}}
+
+"Hours-equivalent": the lease timing is compressed 5× against a 30 s
+production TTL, and the chaos rate (one fault every 14 s on average) is
+far above production's; {{SOAK_EQUIV}}.
+
+### Model and model-based test [M]
+
+**Model** (`../model/s3InlineConsumer.qnt`, a new wrapper;
+`s3Inline.qnt` unchanged): one `s3Inline` instance supplies the writers,
+S3 and the network; the wrapper replaces its single consumer with two
+workers on a discrete clock sharing a CAS'd lease and checkpoint,
+multi-object statements that are checked, then in flight, land only by
+their fence and possibly in part, the verify-then-advance, tombstones, GC,
+and the series lane's announce rule at the edge
+(`results/consumer/model.txt`).
+
+- **Invariants:** `atMostOnce`, `onlyCommittedIngested`,
+  `neverSkipsCommitted`, `noCommitAfterClose`, the writer's
+  `ackedImpliesCommitted` / `noPayloadLost` / `epochNoDuplicatePayload`
+  (GC-aware), and the series rule **`announcedOnlyAfterCommit`**: a series
+  is marked announced only after its series object committed.
+- **The design** passes 5,000 traces × 60 steps, in the full hostile
+  environment and in the mutants' narrower one.
+- **Mutants** (each a design flag), each breaking its invariant:
+
+  | Mutant | What changes | Breaks | Found in |
+  |---|---|---|---|
+  | `noTimeBound` | workers ignore their window; no fence | `atMostOnce`: a paused worker's checked statement lands after the new holder checked and inserted the same batch | 8.2 s |
+  | `noVerify` | the checkpoint moves past a statement without verifying it | `neverSkipsCommitted` (a partial statement) | 0.5 s |
+  | `gcTombs` | GC also deletes a closed epoch's tombstone | `noCommitAfterClose`, `neverSkipsCommitted`: a zombie writer re-creates the slot with a batch it is told is committed | 0.4 s |
+  | `announceEarly` | the edge marks a series announced when it *sends* the series object | `announcedOnlyAfterCommit`; after a lost PUT, later points reference a series row that never lands | 0.2 s |
+
+- The mutants' instances switch off what their counterexample doesn't
+  need (writer faults, the series lane); in the full environment
+  `noTimeBound` needs about 16 specific steps among ~35 kinds of action,
+  and 20,000 random traces didn't find it.
+- **Witnesses** (each reached): a takeover, a lapse, a fenced statement, a partial statement, a lost checkpoint CAS, a tombstone, GC, everything ingested after a takeover, a series announced.
+
+**quint-connect** (`tests/mbt_s3inline_consumer.rs`): replays
+`s3InlineConsumerDesign` traces through the consumer's own decision code:
+`Observer::may_take`, `coord::take` / `renew`, `Held::may_start` /
+`lapsed` / `fence_wall_ms`, the checkpoint fence and CAS, `plan::verdict`,
+`plan::advance_to`, `plan::found` and `gc::doomed`; the log part uses the
+shared s3Inline driver. After every step it compares the log, the lease,
+each worker's lease and checkpoint view, phase and objects, the checkpoint,
+central and the statements in flight, **and what each worker's clock
+allows it now** (`takeable`, `mayStart`, `lapsed`), which the model derives
+from its formulas and the code from `coord.rs`. The series actions aren't
+driven (the edge's cache is `series.rs`, tested by `tests/series.rs`).
+
+- **The design passes** (`results/consumer/mbt.txt`):
+  - `s3InlineConsumerDesign`: 300 traces of up to 60 steps, 18,231 steps;
+  - `designQuiet` (no writer faults, no series lane, so the steps go to
+    the workers): 1,000 traces of up to 80 steps, 45,165 steps. They include
+    3,161 takeovers, 2,688 renewals, 260 lapses, 486 checks and 193
+    statements (62 landed whole or in part, 129 dropped or fenced), 66
+    verifies, 478 tombstones and 17 GC runs.
+- **Mutants of the code** (`OTAPRS_CONSUMER_MUTANT`, `coord::Mutation`),
+  each caught on both instances:
+  - `no_time_bound` at trace 3, step 35 (`wSend`): the model's statement
+    carries the fence 19; the code's carries none;
+  - `no_verify` at trace 3, step 41 (`wAdvance`): nothing landed, so the
+    model keeps epoch 2 at slot 0; the code moves to slot 1.
+- A worker restart loses its observations, so the model's workers carry a
+  `seen` time, reset on a crash. The model is then no more permissive than
+  the code about takeover.
+- **What it doesn't cover:** the driver calls `coord`, `plan` and `gc`
+  directly, not `Worker::balance`. So it could not see the liveness bug the
+  soak found (below). The model's `wAcquire` has no "not my own lease"
+  exclusion; the code's `balance` had one.
+
+**Unit tests** (`cargo test --release --bin consume`, 23): the lease
+windows (they never overlap), the observer, the checkpoint, keys, the scan
+(runs, gaps), grouping, tokens, the statements, GC (horizon, retirement),
+and the whole worker on an in-memory bucket and central with a fake clock:
+ordering and cross-epoch copies, dead epochs, gaps, takeover and the old
+holder's lapse, the server fence, partial statements and lost answers, the
+series lane, a worker re-taking lanes it let lapse (the soak's bug; it
+fails on the old code), and a randomized fleet (12 seeds × 1,500 events: 3 producers
+× 3 signals, edge restarts with copies, 3 workers crashing and pausing past
+their lease, ambiguous and dropped lease/checkpoint writes, half-landed
+statements, GC throughout), each ending exactly once.
+
+### What the consumer leaves open
+
+- **LIST cost at short polls.** One LIST per held lane per poll, whether
+  or not anything arrived: at 1 s that is 2.6 M LISTs per lane per month,
+  about $13 at $0.005 per 1,000 [E]; at 5 s $2.6. A fleet of thousands of
+  lanes needs S3 event notifications (SQS/EventBridge) as the discovery
+  path, with LIST as the periodic reconciliation, or an idle-lane backoff
+  (not built).
+- **Fairness is coarse:** fair share by lane count, not by load; a lane
+  moves only when a worker is above its share.
+- **The server fence needs synchronized wall clocks** (within the margin)
+  between worker and ClickHouse; the client-side bound doesn't.
+- **Replicated or SharedMergeTree central** wasn't tested: the check would
+  need `select_sequential_consistency`, and dedup storage differs [D].
+- **The checkpoint keeps every closed epoch** (a few bytes each, forever);
+  GC retires the objects, not the entries.
+- **Not tested against AWS S3:** SeaweedFS's single-part `If-Match` and
+  `If-None-Match` were shown atomic (../model/S3NATIVE.md); AWS may answer a
+  concurrent `If-Match` with 409, which object_store retries.
+- The fault injection covered the edges' PUTs; the consumer's own S3
+  requests were faulted in the in-memory tests only.
+
 ## Remaining gaps
 
 Closed in this round (each has its section above): metrics layout B at the

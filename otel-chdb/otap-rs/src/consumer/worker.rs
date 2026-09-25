@@ -414,7 +414,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         Ok(Some((body, etag))) => {
                             self.obs.observe(&id, Some(&etag), now);
                             let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { continue };
-                            if doc.owner == self.cfg.worker || !self.obs.may_take(&id, &etag, &doc, now, t.margin_ms) {
+                            // (A lease this worker let lapse still names it as
+                            // owner: it is taken again like anyone else's, after
+                            // expiry. Skipping "our own" leases here orphaned
+                            // them while this worker lived: the soak's finding.)
+                            if !self.obs.may_take(&id, &etag, &doc, now, t.margin_ms) {
                                 continue;
                             }
                             Some((doc, etag))

@@ -196,6 +196,45 @@ async fn takeover_waits_for_expiry_and_fences_the_old_holder() {
     assert_eq!(c.count("otel_traces", "h2"), 5);
 }
 
+/// The soak's finding: a worker paused past its leases drops them on
+/// resume; the others are at their fair share (it is alive again), so the
+/// lanes must be taken back by the worker itself once they expire.
+#[tokio::test(flavor = "current_thread")]
+async fn a_worker_retakes_lanes_it_let_lapse() {
+    let (b, c, clk) = setup();
+    let mut e1 = Edge::new("p1", "traces");
+    let mut e2 = Edge::new("p2", "traces");
+    e1.commit(&b, "a0", 3).await;
+    e2.commit(&b, "b0", 3).await;
+    let mut w1 = worker("w1", &b, &c, &clk);
+    let mut w2 = worker("w2", &b, &c, &clk);
+    for _ in 0..3 {
+        let _ = w1.step().await;
+        let _ = w2.step().await;
+        clk.0.set(clk.0.get() + 500);
+    }
+    assert_eq!(w1.held_lanes().len() + w2.held_lanes().len(), 2);
+    let mine = w1.held_lanes();
+    assert_eq!(mine.len(), 1, "one lane each: {:?} / {:?}", mine, w2.held_lanes());
+    // w1 pauses past its lease; w2 keeps running but, at its share, doesn't take more.
+    for _ in 0..4 {
+        clk.0.set(clk.0.get() + 2000);
+        let _ = w2.step().await;
+    }
+    e1.commit(&b, "a1", 3).await;
+    e2.commit(&b, "b1", 3).await;
+    // w1 resumes: it drops the lapsed lease, then must take it back.
+    for _ in 0..20 {
+        let _ = w1.step().await;
+        let _ = w2.step().await;
+        clk.0.set(clk.0.get() + 500);
+    }
+    assert!(w1.stats.lanes_lapsed >= 1);
+    for h in ["a1", "b1"] {
+        assert_eq!(c.count("otel_traces", h), 3, "{h} ingested after the pause");
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn the_server_fences_a_statement_sent_after_the_window() {
     let (b, c, clk) = setup();

@@ -1,0 +1,15 @@
+committed objects: 77163 ({'logs': 14283, 'metrics_exponential_histogram_points': 9706, 'metrics_histogram_points': 9703, 'metrics_number_points': 9706, 'metrics_series': 9703, 'metrics_summary_points': 9700, 'traces': 14362}); tombstones 1046; epochs 1069; cross-epoch copies 157 ({'logs': 22, 'traces': 22, 'metrics_exponential_histogram_points': 25, 'metrics_number_points': 25, 'metrics_series': 22, 'metrics_summary_points': 19, 'metrics_histogram_points': 22})
+FAIL traces: committed batches 14340, central batches 14320, rows 2864000 (committed 2868000); missing 20, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 14261, central batches 14261, rows 2852200 (committed 2852200); missing 0, partial 0, duplicated 0, uncommitted 0
+FAIL metrics_number_points: committed batches 9681, central batches 9664, rows 386560 (committed 387240); missing 17, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 9681, central batches 9681, rows 193620 (committed 193620); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 9681, central batches 9681, rows 193620 (committed 193620); missing 0, partial 0, duplicated 0, uncommitted 0
+FAIL metrics_summary_points: committed batches 9681, central batches 9675, rows 193500 (committed 193620); missing 6, partial 0, duplicated 0, uncommitted 0
+FAIL traces requests acked 14340: rows exactly once for 14320; wrong: ['edge-2-traces-005390', 'edge-2-traces-005391', 'edge-2-traces-005392', 'edge-2-traces-005393', 'edge-2-traces-005394']
+PASS logs requests acked 14261: rows exactly once for 14261
+PASS metrics requests acked 9681: points exactly once per request through its series for 9681; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 38282 (dropped as permanent: 0), attempts 38510
+workers: 29 incarnations; objects_inserted 66973, series_objects_inserted 9630, rows_inserted 6652800, dedup_skipped 418, statements 46080, statement_objects 76609, insert_errors 9, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 22, tombstones_won 1046, tombstones_lost_to_data 3, epochs_closed 1046, gaps_seen 0, head_missing 0, lanes_taken 740, lanes_released 287, lanes_lapsed 243, lanes_lost_cas 17, renewals 16258, ckpt_writes 49934, errors 9, cpu_ms 112229.0, elapsed_ms 5424017
+worker S3 requests: {'delete': 26, 'get': 12657, 'head': 77057, 'list': 231195, 'put_cas': 67920, 'put_create': 1126, 'put_plain': 4793}
+gc: 342 runs, deleted data 77120, tombstones 1006, epochs retired 1006, CAS conflicts 0
+VERDICT: FAIL

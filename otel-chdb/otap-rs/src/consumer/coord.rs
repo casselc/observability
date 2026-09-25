@@ -31,6 +31,16 @@
 //! carries the lease epoch of its writer; a new holder rewrites it at
 //! takeover before anything else, so every later CAS by the previous holder
 //! fails on the ETag.
+//!
+//! **Compaction** keeps the checkpoint bounded however many epochs a lane
+//! has had. An epoch leaves the explicit set once it is *retired*: closed
+//! here (a tombstone at `next`, every slot below it ingested and verified)
+//! AND deleted entirely by GC (its tombstone too, which GC does only once
+//! the epoch has been closed for the zombie bound). A retired epoch has no
+//! key left and no writer that could make one, so nothing about it needs
+//! remembering. The `floor` is the highest retired epoch below every epoch
+//! still known (in key order): discovery lists from it (`LIST StartAfter
+//! {floor}/~`) and ignores anything at or below it. See `CkptDoc::compact`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -108,6 +118,10 @@ pub enum Mutation {
     NoTimeBound,
     /// The checkpoint moves past a statement's objects without verifying them.
     NoVerify,
+    /// Compaction drops every superseded epoch (not the newest known),
+    /// closed and retired or not (../model/s3InlineConsumerCompact.qnt's
+    /// `earlyCompact`).
+    EarlyCompact,
 }
 
 impl Timing {
@@ -210,12 +224,86 @@ pub struct CkptDoc {
     pub lease_epoch: u64,
     /// +1 per write.
     pub version: u64,
+    /// Every epoch at or below it (in key order, `above_floor`) is retired:
+    /// closed, ingested and verified up to its tombstone, and deleted by GC.
+    /// Discovery starts after it. "" (the default): none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub floor: String,
+    /// The epochs not retired yet (and never one at or below the floor).
     pub epochs: BTreeMap<String, EpochPos>,
+}
+
+/// Whether `epoch` is above `floor` in key order: `{epoch}/` sorts after
+/// `{floor}/~`, the StartAfter a full listing uses. (For names of one
+/// length, as the edges mint them, this is plain string order.)
+pub fn above_floor(epoch: &str, floor: &str) -> bool {
+    floor.is_empty() || epoch_key(epoch) > format!("{floor}/~")
+}
+
+/// An epoch's position in LIST order.
+pub fn epoch_key(epoch: &str) -> String {
+    format!("{epoch}/")
+}
+
+/// The StartAfter that lists every key of the epochs above `floor`.
+pub fn floor_start_after(prefix: &str, floor: &str) -> Option<String> {
+    (!floor.is_empty()).then(|| format!("{}/~", join(prefix, floor)))
 }
 
 impl CkptDoc {
     pub fn new(lane: &str) -> Self {
         Self { lane: lane.to_string(), ..Default::default() }
+    }
+
+    /// Checkpoint compaction (run after a full listing of the lane).
+    ///
+    /// `known`: every epoch above the floor the worker knows of (the
+    /// listing's and the checkpoint's); `retired`: the epochs GC has deleted
+    /// entirely (gc.json). Drops each explicit epoch that is closed here AND
+    /// retired, and moves the floor up to the highest dropped epoch that is
+    /// below every epoch left. Returns the dropped epochs.
+    ///
+    /// Why this is safe (README "Checkpoint compaction"):
+    /// - closed at `next` means every slot below the tombstone was ingested
+    ///   and verified (the checkpoint only moves past verified slots);
+    /// - retired means GC deleted every key, tombstone included, and did so
+    ///   only once the epoch had been closed for the zombie bound, so no
+    ///   writer of it is left to write again;
+    /// - so the epoch has nothing to ingest, and nothing to list: forgetting
+    ///   it loses nothing. The floor only passes a contiguous run of such
+    ///   epochs, so a listing from it misses only them;
+    /// - a NEW epoch is minted by its edge at its first write, with a
+    ///   timestamped name, so it sorts above every epoch closed by then
+    ///   unless the producer's clock stepped back by more than the zombie
+    ///   bound (see the README for what that costs).
+    pub fn compact<'a>(
+        &mut self,
+        known: impl IntoIterator<Item = &'a String>,
+        retired: &std::collections::BTreeSet<String>,
+        mutation: Mutation,
+    ) -> Vec<String> {
+        let mut all: std::collections::BTreeSet<String> =
+            known.into_iter().filter(|e| above_floor(e, &self.floor)).cloned().collect();
+        all.extend(self.epochs.keys().cloned());
+        let newest = all.iter().max_by_key(|e| epoch_key(e)).cloned();
+        let drop: Vec<String> = match mutation {
+            Mutation::EarlyCompact => all.iter().filter(|e| Some(*e) != newest.as_ref()).cloned().collect(),
+            _ => self.epochs.iter().filter(|(e, p)| p.closed && retired.contains(*e)).map(|(e, _)| e.clone()).collect(),
+        };
+        if drop.is_empty() {
+            return drop;
+        }
+        for e in &drop {
+            let _ = self.epochs.remove(e);
+        }
+        // The floor: the highest dropped epoch below every epoch left.
+        let low = all.iter().filter(|e| !drop.contains(e)).map(|e| epoch_key(e)).min();
+        if let Some(f) = drop.iter().filter(|e| low.as_ref().is_none_or(|l| epoch_key(e) < *l)).max_by_key(|e| epoch_key(e)) {
+            if above_floor(f, &self.floor) {
+                self.floor = f.clone();
+            }
+        }
+        drop
     }
     pub fn next(&self, epoch: &str) -> u64 {
         self.epochs.get(epoch).map_or(0, |p| p.next)
@@ -351,6 +439,53 @@ mod tests {
         assert_eq!((c2.version, c2.lease_epoch), (1, 7));
         let j = serde_json::to_string(&c2).unwrap();
         assert_eq!(serde_json::from_str::<CkptDoc>(&j).unwrap(), c2);
+    }
+
+    fn set(xs: &[&str]) -> std::collections::BTreeSet<String> {
+        xs.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn compaction_drops_closed_and_retired_epochs_only() {
+        let mut c = CkptDoc::new("l");
+        for (e, n) in [("E1", 3), ("E2", 2), ("E3", 5), ("E4", 1), ("E6", 4)] {
+            c.advance(e, n);
+        }
+        c.close("E1", 3);
+        c.close("E2", 2);
+        c.close("E4", 1);
+        c.close("E6", 4);
+        // E5: listed, no entry yet. E3: open. E6: closed, not retired yet.
+        let known = set(&["E1", "E2", "E3", "E4", "E5", "E6"]);
+        let d = c.compact(&known, &set(&["E1", "E2", "E4", "E3x"]), Mutation::None);
+        assert_eq!(d, vec!["E1", "E2", "E4"], "closed and retired");
+        // The floor stops below the open E3; E4 (retired above it) goes anyway.
+        assert_eq!(c.floor, "E2");
+        assert_eq!(c.epochs.keys().cloned().collect::<Vec<_>>(), vec!["E3", "E6"]);
+        assert!(c.compact(&known, &set(&["E1", "E2", "E4"]), Mutation::None).is_empty(), "idempotent");
+        // E3 closes and retires. The worker now knows E3, E5 (listed, no
+        // entry) and E6: the floor passes E3 and stops below E5; E6 goes too.
+        c.close("E3", 5);
+        let d = c.compact(&set(&["E3", "E5", "E6"]), &set(&["E3", "E6"]), Mutation::None);
+        assert_eq!((d, c.floor.as_str()), (vec!["E3".to_string(), "E6".to_string()], "E3"));
+        assert!(c.epochs.is_empty());
+        // At or below the floor: ignored; the floor never moves back.
+        assert!(!above_floor("E3", "E3") && !above_floor("E1", "E3") && above_floor("E5", "E3") && above_floor("E1", ""));
+        let d = c.compact(&set(&["E1", "E5"]), &set(&["E1"]), Mutation::None);
+        assert!(d.is_empty() && c.floor == "E3");
+        assert_eq!(floor_start_after("r/p/t", "E3").as_deref(), Some("r/p/t/E3/~"));
+        assert_eq!(floor_start_after("r/p/t", ""), None);
+        // Key order, not string order: `E1-x/` sorts before `E1/~`, as in a LIST.
+        assert!(!above_floor("E1-x", "E1") && above_floor("E10", "E1"));
+        // The mutant drops every epoch but the newest, open or not.
+        let mut m = CkptDoc::new("l");
+        m.advance("E1", 2);
+        m.advance("E2", 1);
+        let d = m.compact(&set(&["E1", "E2"]), &set(&[]), Mutation::EarlyCompact);
+        assert_eq!((d, m.floor.as_str()), (vec!["E1".to_string()], "E1"));
+        // (serde: an old checkpoint without a floor reads; an empty floor isn't written)
+        let old: CkptDoc = serde_json::from_str(r#"{"lane":"l","lease_epoch":1,"version":2,"epochs":{}}"#).unwrap();
+        assert!(old.floor.is_empty() && !serde_json::to_string(&old).unwrap().contains("floor"));
     }
 
     #[test]

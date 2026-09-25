@@ -88,6 +88,13 @@ pub async fn append<S: SlotStore>(
         return Ok(r);
     }
     loop {
+        // A lane made without an epoch names it now, at its first write, not
+        // when the lane was made: an idle lane's first slot must not land
+        // under a name older than the epochs the consumer has since closed
+        // and compacted past (src/consumer/coord.rs, `CkptDoc::compact`).
+        if lane.epoch.is_empty() {
+            lane.epoch = proto::new_epoch();
+        }
         let here = lane.slot();
         let want = (content.to_string(), here.clone());
         if cache.key.as_ref() != Some(&want) {
@@ -218,6 +225,19 @@ mod tests {
         assert_eq!(s.0.borrow().puts, puts);
         assert_eq!(s.0.borrow().objects.len(), 4);
         assert_eq!((st.resolved_own.get(), st.resent.get(), st.known_skipped.get()), (1, 2, 1));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unnamed_lane_names_its_epoch_at_its_first_write() {
+        let s = MemStore::default();
+        let st = Stats::default();
+        let mut l = Lane::new(String::new());
+        let mut c = EncodedCache::default();
+        let before = proto::new_epoch();
+        let r = push(&mut l, &mut c, &s, "a", &st).await.unwrap();
+        assert_eq!(r.epoch.len(), before.len(), "a minted name: {}", r.epoch);
+        assert!(r.epoch[..21] >= before[..21], "named at the write, not before");
+        assert_eq!(push(&mut l, &mut c, &s, "b", &st).await.unwrap(), Ref { epoch: r.epoch.clone(), seq: 1 });
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -25,9 +25,17 @@
 //!
 //! Deleting is idempotent and every horizon is safe on its own, so two GCs
 //! racing is harmless; the loser's CAS on gc.json fails and its mark is lost.
+//!
+//! **Retired epochs and compaction.** A closed epoch GC has removed entirely
+//! is *retired* (`retired`, per lane). The lane's holder reads that and
+//! drops the epoch from the checkpoint (`CkptDoc::compact`), moving the
+//! lane's floor up. GC in turn forgets what it recorded about an epoch once
+//! no mark it keeps names it (the marks hold explicit epochs only), and
+//! never looks at an epoch at or below the lane's current floor: so neither
+//! gc.json nor a GC run grows with the lanes' history.
 
 use super::bucket::{Bucket, Cond, Put};
-use super::coord::{CkptDoc, EpochPos, Lane, join};
+use super::coord::{CkptDoc, EpochPos, Lane, above_floor, join};
 use bytes::Bytes;
 use otap_s3pq::proto;
 use serde::{Deserialize, Serialize};
@@ -37,6 +45,9 @@ use std::collections::{BTreeMap, BTreeSet};
 pub struct Mark {
     pub wall_ms: u64,
     pub lanes: BTreeMap<String, BTreeMap<String, EpochPos>>,
+    /// Each lane's checkpoint floor (lanes without one are absent).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub floors: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -72,6 +83,8 @@ pub struct GcReport {
     pub deleted_tombstones: usize,
     pub epochs_retired: usize,
     pub kept_at_or_above_horizon: usize,
+    /// Records (retired epochs, delete positions) forgotten this run.
+    pub records_pruned: usize,
     pub cas_conflict: bool,
 }
 
@@ -98,6 +111,31 @@ pub fn doomed(prefix: &str, keys: &[String], pos: &EpochPos, retire: bool) -> (V
     (out, tombs)
 }
 
+/// Forgets what GC recorded about epochs that no kept mark names (compacted
+/// out of their checkpoint, and GC is done with them): a later run never
+/// looks at them again, since it works from the marks. Returns how many.
+pub fn prune(doc: &mut GcDoc) -> usize {
+    let named = |lane: &str, e: &str| doc.marks.iter().any(|m| m.lanes.get(lane).is_some_and(|l| l.contains_key(e)));
+    let mut n = 0;
+    let mut retired = std::mem::take(&mut doc.retired);
+    for (lane, set) in retired.iter_mut() {
+        let before = set.len();
+        set.retain(|e| named(lane, e));
+        n += before - set.len();
+    }
+    retired.retain(|_, s| !s.is_empty());
+    let mut below = std::mem::take(&mut doc.deleted_below);
+    for (lane, m) in below.iter_mut() {
+        let before = m.len();
+        m.retain(|e, _| named(lane, e));
+        n += before - m.len();
+    }
+    below.retain(|_, m| !m.is_empty());
+    doc.retired = retired;
+    doc.deleted_below = below;
+    n
+}
+
 pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Result<GcReport, String> {
     let mut rep = GcReport::default();
     let gkey = join(&cfg.ctl, "gc.json");
@@ -107,14 +145,19 @@ pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Res
     };
     // Today's positions.
     let cprefix = join(&cfg.ctl, "ckpt");
-    let mut mark = Mark { wall_ms: now, lanes: BTreeMap::new() };
+    let mut mark = Mark { wall_ms: now, lanes: BTreeMap::new(), floors: BTreeMap::new() };
     for it in b.list(&cprefix, None).await? {
         let Some(lane) = Lane::from_ctl_key(&cprefix, &it.key) else { continue };
         if let Some((body, _)) = b.get(&it.key).await? {
             let ck: CkptDoc = serde_json::from_slice(&body).map_err(|e| format!("{}: {e}", it.key))?;
+            if !ck.floor.is_empty() {
+                let _ = mark.floors.insert(lane.id(), ck.floor);
+            }
             let _ = mark.lanes.insert(lane.id(), ck.epochs);
         }
     }
+    // Today's floors: an epoch at or below one is retired and compacted.
+    let floors = mark.floors.clone();
     rep.lanes = mark.lanes.len();
     doc.marks.push(mark);
     let h = horizon(&doc.marks, now, cfg.delay_ms).cloned();
@@ -127,8 +170,9 @@ pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Res
                 None => Lane { producer: String::new(), signal: lane_id.clone() },
             };
             let prefix = lane.data_prefix(&cfg.root);
+            let floor = floors.get(lane_id).map_or("", String::as_str);
             for (epoch, pos) in epochs {
-                if doc.retired.get(lane_id).is_some_and(|r| r.contains(epoch)) {
+                if doc.retired.get(lane_id).is_some_and(|r| r.contains(epoch)) || !above_floor(epoch, floor) {
                     continue;
                 }
                 // Closed for at least zombie_ms: the zombie bound mark shows it closed at the same slot.
@@ -159,6 +203,7 @@ pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Res
         doc.marks.retain(|m| m.wall_ms >= z.wall_ms);
     }
     rep.marks = doc.marks.len();
+    rep.records_pruned = prune(&mut doc);
     if cfg.dry_run {
         return Ok(rep);
     }
@@ -179,7 +224,7 @@ mod tests {
         let _ = e.insert("E1".to_string(), EpochPos { next, closed });
         let mut lanes = BTreeMap::new();
         let _ = lanes.insert("p/traces".to_string(), e);
-        Mark { wall_ms: w, lanes }
+        Mark { wall_ms: w, lanes, floors: BTreeMap::new() }
     }
 
     #[test]
@@ -221,6 +266,50 @@ mod tests {
         assert_eq!(r.deleted_data, 2, "the second mark (next = 6) is old enough now");
         let doc: GcDoc = serde_json::from_slice(&b.get("c/gc.json").await.unwrap().unwrap().0).unwrap();
         assert!(doc.marks.len() >= 2 && doc.version == 4);
+    }
+
+    /// gc.json stays bounded: once the holder compacts a retired epoch out of
+    /// the checkpoint and the marks naming it age out, GC forgets it too;
+    /// and GC never looks at an epoch at or below the floor.
+    #[tokio::test(flavor = "current_thread")]
+    async fn retired_records_are_forgotten_after_compaction() {
+        let b = MemBucket::default();
+        let prefix = "r/p/traces";
+        let mut tm = BTreeMap::new();
+        let _ = tm.insert(proto::META_KIND.to_string(), proto::KIND_TOMB.to_string());
+        b.insert(&proto::slot_key(prefix, "E1", 0), Bytes::from("x"), BTreeMap::new());
+        b.insert(&proto::slot_key(prefix, "E1", 1), Bytes::new(), tm);
+        b.insert(&proto::slot_key(prefix, "E2", 0), Bytes::from("x"), BTreeMap::new());
+        let mut ck = CkptDoc::new("p/traces");
+        ck.advance("E1", 1);
+        ck.close("E1", 1);
+        ck.advance("E2", 1);
+        let put = |ck: &CkptDoc| b.insert("c/ckpt/p/traces.json", Bytes::from(serde_json::to_vec(ck).unwrap()), BTreeMap::new());
+        put(&ck);
+        let cfg = GcConfig { root: "r".into(), ctl: "c".into(), delay_ms: 100, zombie_ms: 1000, dry_run: false };
+        let gc_doc = || async { serde_json::from_slice::<GcDoc>(&b.get("c/gc.json").await.unwrap().unwrap().0).unwrap() };
+        let _ = gc_step(&b, &cfg, 0).await.unwrap();
+        let _ = gc_step(&b, &cfg, 1200).await.unwrap();
+        assert!(gc_doc().await.retired["p/traces"].contains("E1"));
+        assert!(b.keys().iter().all(|k| !k.contains("/E1/")), "E1 is gone, tombstone included");
+        // The holder compacts E1 away (floor E1).
+        let d = ck.compact(&["E1".to_string(), "E2".to_string()], &gc_doc().await.retired["p/traces"], super::super::coord::Mutation::None);
+        assert_eq!((d.len(), ck.floor.as_str()), (1, "E1"));
+        put(&ck);
+        let lists = b.counts.snap().list;
+        let r = gc_step(&b, &cfg, 1300).await.unwrap();
+        // (one LIST of the checkpoints, one of E2 for its data below the horizon; none of E1)
+        assert!(b.counts.snap().list - lists <= 2, "E1 is not listed again");
+        assert_eq!(r.records_pruned, 0, "older marks still name E1");
+        // Once no kept mark names E1, GC forgets it.
+        let _ = gc_step(&b, &cfg, 2400).await.unwrap();
+        let r = gc_step(&b, &cfg, 3600).await.unwrap();
+        let doc = gc_doc().await;
+        assert!(r.records_pruned >= 1 || !doc.retired.contains_key("p/traces"), "{r:?}");
+        assert!(doc.retired.get("p/traces").is_none_or(|s| !s.contains("E1")));
+        assert!(doc.deleted_below.get("p/traces").is_none_or(|m| !m.contains_key("E1")));
+        assert!(doc.marks.iter().all(|m| m.floors.get("p/traces").map(String::as_str) == Some("E1")
+            || !m.lanes["p/traces"].contains_key("E1")));
     }
 
     #[tokio::test(flavor = "current_thread")]

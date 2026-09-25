@@ -1,0 +1,33 @@
+committed objects: 37746 ({'logs': 7047, 'metrics_exponential_histogram_points': 4695, 'metrics_histogram_points': 4695, 'metrics_number_points': 4690, 'metrics_series': 4686, 'metrics_summary_points': 4689, 'traces': 7244}); tombstones 2521; epochs 2542; cross-epoch copies 1260 ({'logs': 130, 'traces': 95, 'metrics_exponential_histogram_points': 211, 'metrics_histogram_points': 211, 'metrics_series': 202, 'metrics_summary_points': 205, 'metrics_number_points': 206})
+PASS traces: committed batches 7149, central batches 7149, rows 1429800 (committed 1429800); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 6917, central batches 6917, rows 1383400 (committed 1383400); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 4484, central batches 4484, rows 179360 (committed 179360); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 4484, central batches 4484, rows 89680 (committed 89680); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 4484, central batches 4484, rows 89680 (committed 89680); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 4484, central batches 4484, rows 89680 (committed 89680); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 7149: rows exactly once for 7149
+PASS logs requests acked 6917: rows exactly once for 6917
+PASS metrics requests acked 4484: points exactly once per request through its series for 4484; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 18550 (dropped as permanent: 0), attempts 19191
+workers: 36 incarnations; objects_inserted 31647, series_objects_inserted 4673, rows_inserted 3222420, dedup_skipped 1716, statements 13234, statement_objects 36337, insert_errors 11, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 129, tombstones_won 2478, tombstones_lost_to_data 1, epochs_closed 2498, gaps_seen 0, head_missing 0, lanes_taken 604, lanes_released 190, lanes_lapsed 137, lanes_lost_cas 29, renewals 7270, ckpt_writes 16416, errors 11, cpu_ms 50293.3, elapsed_ms 2686501
+worker S3 requests: {'delete': 30, 'get': 9286, 'head': 38272, 'list': 57674, 'put_cas': 25046, 'put_create': 2542, 'put_plain': 1880}
+gc: 161 runs, deleted data 37746, tombstones 2398, epochs retired 2398, CAS conflicts 0
+VERDICT: PASS
+checkpoint over time (t s: max bytes / max explicit epochs per lane; sum bytes; epoch dirs listed; gc.json bytes):
+  t      0:       0 B /    0; sum        0 B; dirs      0; gc.json       92 B
+  t     71:    1308 B /   22; sum    13662 B; dirs    219; gc.json    97064 B
+  t    141:    1347 B /   22; sum    16489 B; dirs    413; gc.json   208204 B
+  t    211:    1419 B /   23; sum    16685 B; dirs    627; gc.json   214489 B
+  t    281:    1020 B /   16; sum    15660 B; dirs    550; gc.json   202903 B
+  t    351:     965 B /   15; sum    15371 B; dirs    588; gc.json   196908 B
+  t    422:    1123 B /   18; sum    14451 B; dirs    577; gc.json   197758 B
+  t    492:    1137 B /   18; sum    16793 B; dirs    531; gc.json   199056 B
+  t    562:    1407 B /   23; sum    16683 B; dirs    587; gc.json   217681 B
+  t    632:    1590 B /   26; sum    16242 B; dirs    643; gc.json   218154 B
+  t    702:    1385 B /   23; sum    17120 B; dirs    569; gc.json   215678 B
+  t    772:    1349 B /   22; sum    15497 B; dirs    596; gc.json   206387 B
+  t    843:    1450 B /   24; sum    17984 B; dirs    645; gc.json   211917 B
+  t    911:     986 B /   15; sum    16571 B; dirs    573; gc.json   227179 B
+  t    931:     958 B /   15; sum    13360 B; dirs    573; gc.json   213681 B
+peak: ckpt 1864 B, 31 explicit epochs per lane; gc.json 227900 B
+worker LISTs 57674 over 5277 polls: 10.93 per poll

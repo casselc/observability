@@ -10,8 +10,12 @@
 //!    fence against the previous holder's checkpoint writes).
 //! 2. **Discovery.** Per held lane and open epoch, LIST StartAfter the
 //!    checkpoint's key. The newest epoch's LIST runs lane-wide, so it also
-//!    returns epochs created since; a periodic LIST with delimiter catches
-//!    one that sorts earlier (a producer whose clock stepped back).
+//!    returns epochs created since; a periodic full LIST of the lane from
+//!    its checkpoint's floor (StartAfter `{floor}/~`) catches one that sorts
+//!    earlier (a producer whose clock stepped back) and, after it, the
+//!    checkpoint is compacted: epochs GC has retired leave it
+//!    (`CkptDoc::compact`), so neither the checkpoint nor that LIST grows
+//!    with the lane's history.
 //! 3. **Slots.** HEAD each consecutive slot from the checkpoint: data (its
 //!    content key and committed row count) or a tombstone (the epoch is
 //!    closed there). The scan stops at the first free slot. If a later slot
@@ -139,6 +143,15 @@ pub struct Stats {
     pub lanes_lost_cas: u64,
     pub renewals: u64,
     pub ckpt_writes: u64,
+    /// Epochs dropped from checkpoints by compaction (retired by GC).
+    pub epochs_compacted: u64,
+    /// Full listings of a lane (from its floor).
+    pub full_lists: u64,
+    /// gc.json reads (for compaction).
+    pub gc_reads: u64,
+    /// The largest checkpoint this worker wrote: bytes, explicit epochs.
+    pub ckpt_bytes_max: u64,
+    pub ckpt_epochs_max: u64,
     pub errors: u64,
     /// Receive (edge) to insert returned, ms.
     #[serde(skip)]
@@ -152,8 +165,11 @@ struct LaneState {
     held: Held,
     ckpt: CkptDoc,
     ckpt_etag: String,
+    /// Epochs above the checkpoint's floor this worker knows of.
     known: BTreeSet<String>,
     last_full: Option<u64>,
+    /// A full listing ran since the last compaction.
+    compact_due: bool,
     /// Per epoch: when a new slot (or the epoch) was last seen.
     last_seen: HashMap<String, u64>,
 }
@@ -183,6 +199,8 @@ pub struct Worker<B: Bucket, C: Central, K: Clock> {
     ensured: HashSet<String>,
     beat: u64,
     logged_gaps: HashSet<SlotId>,
+    /// gc.json's retired epochs per lane, and when they were read (mono ms).
+    gc_retired: Option<(u64, BTreeMap<String, BTreeSet<String>>)>,
 }
 
 fn log(cfg: &Config, msg: &str) {
@@ -207,6 +225,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             ensured: HashSet::new(),
             beat: 0,
             logged_gaps: HashSet::new(),
+            gc_retired: None,
         }
     }
 
@@ -440,7 +459,16 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     let known = ck.epochs.keys().cloned().collect();
                     let _ = self.held.insert(
                         id.clone(),
-                        LaneState { lane, held, ckpt: ck, ckpt_etag: etag, known, last_full: None, last_seen: HashMap::new() },
+                        LaneState {
+                            lane,
+                            held,
+                            ckpt: ck,
+                            ckpt_etag: etag,
+                            known,
+                            last_full: None,
+                            compact_due: false,
+                            last_seen: HashMap::new(),
+                        },
                     );
                 }
                 None => {
@@ -499,43 +527,57 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let now = self.clock.mono();
         let ls = self.held.get_mut(id).expect("held");
         let prefix = ls.lane.data_prefix(&cfg.root);
-        if ls.last_full.is_none_or(|t| now >= t + cfg.full_list_ms) {
-            for e in b.list_dirs(&prefix).await? {
-                let _ = ls.known.insert(e);
-            }
-            ls.last_full = Some(now);
-        }
-        let newest = ls.known.iter().next_back().cloned();
+        let floor = ls.ckpt.floor.clone();
         let mut listed: BTreeMap<String, Vec<plan::Listed>> = BTreeMap::new();
         let parse = |items: Vec<super::bucket::Item>, listed: &mut BTreeMap<String, Vec<plan::Listed>>| {
             for it in items {
                 if let Some((e, s)) = proto::parse_slot_key(&prefix, &it.key) {
-                    listed.entry(e).or_default().push((s, it.key, it.size));
+                    // At or below the floor: retired (see CkptDoc::compact).
+                    if coord::above_floor(&e, &floor) {
+                        listed.entry(e).or_default().push((s, it.key, it.size));
+                    }
                 }
             }
         };
-        // StartAfter the checkpoint's previous slot; for slot 0, `{epoch}/0`,
-        // which sorts before every slot key. (Not `{epoch}/`: SeaweedFS takes
-        // a StartAfter naming a directory as "after that whole directory".)
-        let after = |e: &str, next: u64| -> String {
-            match next.checked_sub(1) {
-                Some(s) => proto::slot_key(&prefix, e, s),
-                None => format!("{}/0", join(&prefix, e)),
+        if ls.last_full.is_none_or(|t| now >= t + cfg.full_list_ms) {
+            // The whole lane above the floor: every epoch not retired, and
+            // their slots (so no per-epoch LIST this step). A flat LIST: an
+            // epoch with no key left isn't returned (a delimiter LIST on
+            // SeaweedFS still returns a directory whose objects are all
+            // deleted), and it starts after the floor, so its cost follows
+            // the epochs not retired yet, not the lane's history.
+            let items = b.list(&prefix, coord::floor_start_after(&prefix, &floor).as_deref()).await?;
+            parse(items, &mut listed);
+            ls.last_full = Some(now);
+            ls.compact_due = true;
+            self.stats.full_lists += 1;
+        } else {
+            let newest = ls.known.iter().next_back().cloned();
+            // StartAfter the checkpoint's previous slot; for slot 0, `{epoch}/0`,
+            // which sorts before every slot key. (Not `{epoch}/`: SeaweedFS takes
+            // a StartAfter naming a directory as "after that whole directory".)
+            let after = |e: &str, next: u64| -> String {
+                match next.checked_sub(1) {
+                    Some(s) => proto::slot_key(&prefix, e, s),
+                    None => format!("{}/0", join(&prefix, e)),
+                }
+            };
+            for e in ls.known.iter().filter(|e| !ls.ckpt.closed(e) && Some(*e) != newest.as_ref()) {
+                let items = b.list(&join(&prefix, e), Some(&after(e, ls.ckpt.next(e)))).await?;
+                parse(items, &mut listed);
             }
-        };
-        for e in ls.known.iter().filter(|e| !ls.ckpt.closed(e) && Some(*e) != newest.as_ref()) {
-            let items = b.list(&join(&prefix, e), Some(&after(e, ls.ckpt.next(e)))).await?;
+            // The newest epoch, lane-wide: its new slots plus any newer epochs.
+            let sa = match newest.as_ref() {
+                Some(e) if ls.ckpt.closed(e) => Some(proto::slot_key(&prefix, e, ls.ckpt.next(e))),
+                Some(e) => Some(after(e, ls.ckpt.next(e))),
+                None => coord::floor_start_after(&prefix, &floor),
+            };
+            let items = b.list(&prefix, sa.as_deref()).await?;
+            if std::env::var_os("OTAPRS_CONSUMER_DEBUG").is_some() {
+                log(&cfg, &format!("scan {id}: prefix {prefix} after {sa:?}: {} keys, first {:?}", items.len(), items.first().map(|i| &i.key)));
+            }
             parse(items, &mut listed);
         }
-        // The newest epoch, lane-wide: its new slots plus any newer epochs.
-        let sa = newest.as_ref().map(|e| {
-            if ls.ckpt.closed(e) { proto::slot_key(&prefix, e, ls.ckpt.next(e)) } else { after(e, ls.ckpt.next(e)) }
-        });
-        let items = b.list(&prefix, sa.as_deref()).await?;
-        if std::env::var_os("OTAPRS_CONSUMER_DEBUG").is_some() {
-            log(&cfg, &format!("scan {id}: prefix {prefix} after {sa:?}: {} keys, first {:?}", items.len(), items.first().map(|i| &i.key)));
-        }
-        parse(items, &mut listed);
         for e in listed.keys() {
             let _ = ls.known.insert(e.clone());
         }
@@ -865,7 +907,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     // ---- checkpoints ---------------------------------------------------------------
 
     async fn advance(&mut self, id: &str, work: &[EpochWork], done: &HashSet<SlotId>) -> bool {
-        let Some(ls) = self.held.get(id) else { return false };
+        // Compaction, after a full listing: needs gc.json's retired epochs.
+        let compact = self.held.get(id).is_some_and(|l| l.compact_due);
+        let retired = if compact { self.retired(id).await } else { None };
+        let Some(ls) = self.held.get_mut(id) else { return false };
+        ls.compact_due = false;
         let mut doc = ls.ckpt.clone();
         let mut changed = false;
         let mut closed = 0;
@@ -881,6 +927,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 changed = true;
             }
         }
+        let mut dropped = Vec::new();
+        if let Some(r) = &retired {
+            dropped = doc.compact(ls.known.iter(), r, self.cfg.timing.mutation);
+            changed |= !dropped.is_empty();
+        }
         if !changed {
             return false;
         }
@@ -888,10 +939,20 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let key = ls.lane.ckpt_key(&self.cfg.ctl);
         let etag = ls.ckpt_etag.clone();
         self.stats.ckpt_writes += 1;
+        let size = serde_json::to_vec(&new).map_or(0, |v| v.len() as u64);
+        self.stats.ckpt_bytes_max = self.stats.ckpt_bytes_max.max(size);
+        self.stats.ckpt_epochs_max = self.stats.ckpt_epochs_max.max(new.epochs.len() as u64);
         match self.write_ckpt(&key, &new, Some(&etag)).await {
             Some(e) => {
                 self.stats.epochs_closed += closed;
+                self.stats.epochs_compacted += dropped.len() as u64;
+                if self.cfg.verbose && !dropped.is_empty() {
+                    log(&self.cfg, &format!("compacted {id}: {} retired epochs dropped, floor {}", dropped.len(), new.floor));
+                }
                 let ls = self.held.get_mut(id).expect("held");
+                let floor = new.floor.clone();
+                ls.known.retain(|e| coord::above_floor(e, &floor) && !dropped.contains(e));
+                ls.last_seen.retain(|e, _| coord::above_floor(e, &floor) && !dropped.contains(e));
                 ls.ckpt = new;
                 ls.ckpt_etag = e;
                 true
@@ -903,6 +964,34 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 false
             }
         }
+    }
+
+    /// gc.json's retired epochs of one lane, read at most once per
+    /// `full_list_ms` (None: unreadable; compaction waits).
+    async fn retired(&mut self, id: &str) -> Option<BTreeSet<String>> {
+        let now = self.clock.mono();
+        if self.gc_retired.as_ref().is_none_or(|(t, _)| now >= t + self.cfg.full_list_ms) {
+            self.stats.gc_reads += 1;
+            let key = join(&self.cfg.ctl, "gc.json");
+            let r = match self.bucket.get(&key).await {
+                Ok(Some((body, _))) => match serde_json::from_slice::<super::gc::GcDoc>(&body) {
+                    Ok(d) => d.retired,
+                    Err(e) => {
+                        self.stats.errors += 1;
+                        log(&self.cfg, &format!("{key}: {e}"));
+                        return None;
+                    }
+                },
+                Ok(None) => BTreeMap::new(),
+                Err(e) => {
+                    self.stats.errors += 1;
+                    log(&self.cfg, &format!("{key}: {e}"));
+                    return None;
+                }
+            };
+            self.gc_retired = Some((now, r));
+        }
+        self.gc_retired.as_ref().map(|(_, m)| m.get(id).cloned().unwrap_or_default())
     }
 
     pub fn stats_json(&self) -> serde_json::Value {

@@ -885,8 +885,12 @@ tables): narrow points objects keyed by a series id computed at the edge,
 plus a series object for series not announced yet this hour. It is the Go
 prototype's layout exactly, row for row and id for id, the compatibility
 views return exactly the contrib exporter's rows, and edge CPU per point
-drops by 50–65%. On the wire it is no smaller than this crate's ClickStack
-objects.**
+drops by 50–65%. On the wire it is about 18.3 B/point on the fleet data, 8%
+under this crate's ClickStack objects, after BYTE_STREAM_SPLIT and no
+statistics (10% off its own first version). The 8-byte `series_id` per
+point is still 44% of it; a per-epoch ordinal that removes it costs central
+26–43% more insert CPU, so it was measured and not built
+([Wire size](#wire-size-m-scriptsseries_wirepy-resultsserieswiremd)).**
 
 ### What was built
 
@@ -903,7 +907,8 @@ objects.**
     (`series.exemplar_attributes`, default on), which the prototype drops
     and contrib has;
   - `SeriesOptions::prototype()` turns both additions off: the objects are
-    then the prototype's, column for column.
+    then the prototype's, column for column (the wire encodings stay on:
+    they change no row and no schema).
 - **The series cache** (per exporter, window `series.window`, default 1 h
   of the point's `TimeUnix`): a series is announced once per window, and
   within a request once.
@@ -935,7 +940,12 @@ objects.**
   (and one ~16 ms central insert) per request.
 - Encoding: dictionaries on, none on the near-unique numbers, and
   `row_ordinal` DELTA_BINARY_PACKED (as the prototype's `delta` tag): plain
-  it was 2.3 B/point of every object.
+  it was 2.3 B/point of every object. `series.byte_stream_split` (default
+  on) writes `Value`, `Sum`, `Min`, `Max`, `Count`, `ZeroCount` and the
+  bucket-count lists BYTE_STREAM_SPLIT, and `series.statistics` (default
+  `none`, overriding `parquet.statistics`) drops statistics and the page
+  index, which nothing reads ([Wire size](#wire-size-m-scriptsseries_wirepy-resultsserieswiremd)).
+  Neither changes the rows or the Parquet schema.
 
 ### Rust = Go [M] (`tests/series.rs`, `tools/cmd/seriesref`)
 
@@ -985,18 +995,23 @@ lanes) and the whole `otap-s3pq` process (OTLP/HTTP); load 1.5–2.0.
 | edge CPU per point, testgen (mostly unique series) | 2.45 µs | 4.87 µs | −50% |
 | whole process, fleet over OTLP/HTTP | **1.67 µs** | 4.65 µs | −64% |
 | flatten / encode / commit ms per 10k, fleet | 6.1 / 10.5 / 12.0 | 9.8 / 39.5 / 14.5 | encode is 4× cheaper |
-| **Parquet bytes per point**, fleet | 20.3 B | 19.8 B | +2.5% |
-| Parquet bytes per point, testgen | 20.3 B | 18.4 B | +10% |
+| **Parquet bytes per point**, fleet | 20.3 B (**18.3** with the wire encodings) | 19.8 B | +2.5% (**−8%**) |
+| Parquet bytes per point, testgen | 20.3 B (**18.6**) | 18.4 B | +10% (**+1%**) |
 | **objects (PUTs) per request** | **4** + a series object on 0.8% of requests (the hourly re-announce) | 5 | −20% |
 
-- **The wire saving the spike measured is gone** against this crate's
+(This table is the first version's run; the wire encodings came after it,
+and their before/after is in [Wire size](#wire-size-m-scriptsseries_wirepy-resultsserieswiremd).
+The figures in brackets apply its −10% (fleet) and −8.5% (testgen) to
+these rows.)
+
+- **The wire saving the spike measured was gone** against this crate's
   writer. The spike's 1.6× was against parquet-go's ClickStack objects
   (38 B/point); the Rust ClickStack writer already dictionary-encodes the
   repeated maps (the fleet's 21 resource attributes cost ~1 KB per 2,800
   rows). B's points carry an 8-byte random `series_id` per point, which
   zstd can't shrink: 64 KB of the 89 KB number object per 10k points. The
-  prototype's own gap (a dense per-epoch ordinal in the points, the id in the
-  series object) is the fix [E].
+  wire encodings take back 10%; the ordinal that would remove the id was
+  prototyped and not built (below).
 - **Central is where B pays** (the spike's measurements, not re-run here):
   4.1× fewer stored bytes and 7× less insert CPU per point; the per-object
   fixed cost (~16 ms) now dominates, and the gauge+sum merge removes one of
@@ -1005,6 +1020,86 @@ lanes) and the whole `otap-s3pq` process (OTLP/HTTP); load 1.5–2.0.
   each hourly re-announce): ~10 B/series, 0.1 B/point amortized.
 - Peak RSS 242 MB in the fleet encbench rows is the 130 input files held in
   memory; the whole process peaks at 72 MB.
+
+### Wire size [M] (`scripts/series_wire.py`, `results/series/wire.md`)
+
+**Every series appears once per points object**, on the fleet (distinct
+ids / rows = 1.000) and for any edge that flushes once per scrape interval
+(testgen: 0.8). So the 8-byte `series_id`, 8.0 of the fleet's 20.15 B/point,
+repeats across objects but never within one, and no encoding inside an
+object can remove it: a set of 10k random 64-bit ids is worth ~6.5 B each.
+
+| option | fleet B/point | testgen B/point | central statement CPU | verdict |
+|---|---|---|---|---|
+| before | 20.15 | 20.77 | – | |
+| 1: sort by (series_id, time) + DELTA ids | +0.8 | +3.9 | – | worse: the ids shrink 1.3 B, but MetricName, ServiceName and the times lose their runs |
+| 1: sort by the table key | +0.2 | +3.5 | −6% at 32 objects, else noise | worse on the wire |
+| 1: dictionary on `series_id` | no repeats to exploit (sorted: +5.2) | – | – | no |
+| **2: per-epoch ordinal** (u32, DELTA) + JOIN at central | **−8.0 (11.9)** | **−6.5 (13.5)** | **+43%** at 1 object per statement (+11.6 ms), **+26%** at 32 | not built (below) |
+| **3: BYTE_STREAM_SPLIT on floats and counts, no statistics** | **−2.0 (18.13)** | **−1.8 (19.01)** | −0 to −12% (noise-level) | **built, the default** |
+| 3: zstd 1/6/9/12, V2 pages, DELTA on counts | ±0.3 or worse | up to +4.4 | – | no |
+
+Option 1 and option 2's wire numbers are pyarrow re-encodings of the Rust
+objects (whose own baseline is 19.92 / 19.99); option 3's are the Rust
+encoder's. Central CPU is the INSERT … SELECT's own ProfileEvents
+(`OSCPUVirtualTimeMicroseconds`), single-threaded with the consumer's
+squashed single-block settings, fleet objects, median of 11 with the
+shared box at load 4–15.
+
+**The chosen encodings, before → after** (the rows, the Parquet schema, the
+central tables and so the stored bytes are unchanged):
+
+| | fleet | testgen |
+|---|---|---|
+| **Parquet B/point, all objects** | 20.15 → **18.13** (−10.0%) | 20.77 → **19.01** (−8.5%) |
+| number points (B/row) | 11.37 → 10.74 | 10.66 → 10.38 |
+| histogram points (B/row) | 51.4 → 45.1 | 18.0 → 15.9 |
+| exp. histogram points (B/row) | 90.3 → 71.4 | 38.3 → 33.1 |
+| summary points (B/row) | 47.2 → 40.8 | 23.1 → 22.4 |
+| series object (B/series row) | 9.64 → 9.37 | 9.33 → 9.00 |
+| edge flatten + encode, µs/point (A/B, one process) | 2.03 → **1.91** (−6%) | 3.20 → **3.04** (−5%) |
+| central µs/point, 32 objects per statement: number / histogram / exp. / summary | 1.20 / 3.64 / 15.9 / 11.6 → 1.08 / 3.19 / 14.5 / 11.6 | – |
+| central, 1 object per statement: number / histogram / exp. / summary | 2.68 / 11.8 / 91.7 / 82.1 → 2.69 / 11.4 / 88.1 / 74.0 | – |
+
+- **BYTE_STREAM_SPLIT** (`series.byte_stream_split`): `Value`, `Sum`,
+  `Min`, `Max`, `Count`, `ZeroCount` and the three bucket-count lists. It
+  splits the 8-byte values into byte planes, so zstd finds the doubles'
+  sign and exponent bytes and the counts' zero high bytes. Not on the
+  quantile or exemplar values (testgen's summaries grow 40%), the ids (random)
+  or the timestamps (dictionary runs already).
+- **No statistics and no page index** (`series.statistics: none`, overriding
+  `parquet.statistics` for layout B only): the footers were 2.5–4.2 KB per
+  object, the biggest cost of the small exp. histogram and summary objects
+  (27 and 16 B/row). Nothing reads them: central ingests whole objects, and
+  the time range is in the object's metadata.
+- **ClickHouse reads them unchanged**: both Parquet readers
+  (`input_format_parquet_use_native_reader_v3` = 1 and 0) return the same
+  count and hash as the old objects, every type, fleet and testgen; the
+  correctness run above (views against contrib's rows, nasty data with NaN,
+  ±Inf, −0 and integer extremes) is unchanged line for line; Rust = Go
+  unchanged (the comparison decodes values, so encodings don't enter it);
+  `tests/series.rs wire_encodings` pins the encodings, their config switch
+  and equal rows. Encoding stays deterministic.
+
+**Why the ordinal was not built.** It is the only way to remove the id
+(central must hold the mapping), and the wire saving is real: 40%. But:
+
+- **Central pays for it** with a JOIN against a `(producer_id,
+  series_epoch, series_ord) → series_id` table in every points statement:
+  +11.6 ms per statement (+43%) at one object per statement, which is what
+  the consumer runs at short polls, +26% at 32. Central CPU is what layout B
+  exists to save; wire bytes into S3 cost nothing per byte on AWS, and the
+  objects are deleted after ingest.
+- **It couples the lanes**: a points object could be ingested only after the
+  series object that assigned its ordinals (a `throwIf` fails the statement
+  and the worker retries it each poll). To stay live the edge could use an
+  ordinal only for a series whose series object had *committed* in that
+  series lane's epoch, and send the full id otherwise; still, a mapping lost
+  at central (TTL, a dropped table) would stall that points lane for good,
+  and neither the model nor the consumer's MBT covers a cross-lane
+  dependency.
+- If edge bandwidth becomes the constraint, that design is the one to build
+  (`results/series/wire.md` has the prototype's SQL and numbers).
 
 ## Edge durability: upstream's durable buffer (Quiver) [M]
 
@@ -1506,8 +1601,12 @@ including layout B's; its own open items are in
   (object_store's path); a non-empty session token wasn't exercised against
   the store.
 - **Layout B:**
-  - **no wire saving** against this crate's ClickStack objects (the 8-byte
-    `series_id` per point); a per-epoch dense ordinal is the untried fix;
+  - **the wire saving is small**: 8% under this crate's ClickStack objects
+    on the fleet, about even on testgen, after BYTE_STREAM_SPLIT and no
+    statistics. The 8-byte `series_id` per point is 44% of the bytes; the
+    per-epoch ordinal that removes it was prototyped (−40% on the wire) and
+    not built, for +26–43% central insert CPU and a cross-lane ingest
+    dependency ([Wire size](#wire-size-m-scriptsseries_wirepy-resultsserieswiremd));
   - the announce rule is in the model now (`../model/s3InlineConsumer.qnt`:
     `announcedOnlyAfterCommit`, broken by the `announceEarly` mutant), but
     by simulation only: quint-connect doesn't drive the edge's cache, which
@@ -1572,6 +1671,7 @@ $S/bin/seriesref -fleet $S/series/fleet -services 2 -rounds 130 -pods-per-batch 
 OTAPRS_DATA=$S/mdata OTAPRS_SERIES_GO=$S/series/go OTAPRS_SERIES_FLEET=$S/series/fleet cargo test --release --test series -- --nocapture
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata RUN=ms$(date +%s) PREFIX=otap-rs-edge PATHS="series:direct series:via_otap" OUT=results/series scripts/metrics_e2e.sh
 B=$CARGO_TARGET_DIR/release T=$S/bin FLEET=$S/series/fleet D=$S/mdata OUT=results/series/bench.jsonl scripts/series_bench.sh && python3 scripts/series_summarize.py results/series/bench.jsonl
+FLEET=$S/series/fleet D=$S/mdata CLICKHOUSE=path/to/clickhouse WORK=$S/wire scripts/series_wire.py results/series/wire.md   # wire encodings: bytes, edge and central A/B
 # durable buffer: crash test and cost
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data OUT=results/durable scripts/durable.sh && python3 scripts/input_summarize.py --durable results/durable/cost.jsonl
 # OTAP input end to end (Go otelarrow producer), OTLP/gRPC and OTAP benchmarks
@@ -1620,9 +1720,9 @@ ClickHouse database is private and dropped afterwards.
 | `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/mbt_s3inline_consumer.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt`, `../model/s3InlineMetrics.qnt` and `../model/s3InlineConsumer.qnt`; the shared log driver |
 | `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
 | `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes (19, plus the signer against SeaweedFS), deterministic encoding, the upstream view bug |
-| `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules |
+| `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules; the wire encodings (`wire_encodings`), and, ignored, `dump_series` and `wire_cost` for `scripts/series_wire.py` |
 | `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
 | `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`) |
-| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat) |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`) |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat) |

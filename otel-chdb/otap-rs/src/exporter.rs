@@ -300,14 +300,15 @@ impl Exporter<OtapPdata> for S3pqExporter {
                 let _ = lanes.insert(
                     (s, i),
                     Rc::new(tokio::sync::Mutex::new(LaneState {
-                        lane: Lane::new(proto::new_epoch()),
+                        // Named at its first write (runner::append).
+                        lane: Lane::new(String::new()),
                         cache: EncodedCache::default(),
                     })),
                 );
             }
         }
         crate::log(&format!(
-            "exporter start: {} lanes, epochs {:?}",
+            "exporter start: {} lanes, epochs (named at each lane's first write) {:?}",
             cfg.lanes,
             lanes.iter().map(|(k, v)| (k.0.name(), k.1, v.try_lock().map(|g| g.lane.epoch.clone()).unwrap_or_default())).collect::<Vec<_>>()
         ));

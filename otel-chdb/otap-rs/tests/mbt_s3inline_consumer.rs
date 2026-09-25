@@ -30,8 +30,23 @@
 //! environment) and `designQuiet` (no writer faults, no series lane), where
 //! most steps go to the workers.
 //!
+//! **Checkpoint compaction** (../model/s3InlineConsumerCompact.qnt, the same
+//! consumer plus GC retirement, a floor and compaction; instances
+//! `compactDesign` and `compactQuiet`) is replayed by the same driver:
+//!
+//! | model | implementation |
+//! |---|---|
+//! | `gcRetire` | `gc::doomed` with `retire` must pick every key the epoch has left, tombstone included |
+//! | `wCompact` | `CkptDoc::compact` (known epochs, GC's retired set), the checkpoint CAS; the new floor must be the model's |
+//! | the guards on `wCheck`, `wTomb`, `wSeeTomb` | `coord::above_floor` must hold for the epoch against the worker's view |
+//!
+//! and after every step, beside the rest, the floor, the retired set, each
+//! worker's view of the floor, and **which epochs compaction may drop
+//! now** (`compactable`): the model's rule (closed and retired) against what
+//! `CkptDoc::compact` would drop, run on a copy of the checkpoint.
+//!
 //!   cargo test --release --test mbt_s3inline_consumer -- --nocapture
-//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify cargo test --release --test mbt_s3inline_consumer   # must fail
+//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact cargo test --release --test mbt_s3inline_consumer   # must fail
 
 #[path = "../src/consumer/mod.rs"]
 #[allow(dead_code, unused_imports)]
@@ -59,6 +74,7 @@ fn timing() -> Timing {
         mutation: match std::env::var("OTAPRS_CONSUMER_MUTANT").as_deref() {
             Ok("no_time_bound") => Mutation::NoTimeBound,
             Ok("no_verify") => Mutation::NoVerify,
+            Ok("early_compact") => Mutation::EarlyCompact,
             _ => Mutation::None,
         },
     }
@@ -122,40 +138,54 @@ pub struct LeaseM {
 
 #[derive(Deserialize)]
 struct Raw {
-    #[serde(rename = "s3InlineConsumer::L::log")]
+    #[serde(rename = "s3InlineConsumer::L::log", alias = "s3InlineConsumerCompact::L::log")]
     l_log: BTreeMap<i64, BTreeMap<i64, Entry>>,
-    #[serde(rename = "s3InlineConsumer::L::writers")]
+    #[serde(rename = "s3InlineConsumer::L::writers", alias = "s3InlineConsumerCompact::L::writers")]
     l_writers: BTreeMap<i64, Writer>,
-    #[serde(rename = "s3InlineConsumer::L::lease")]
+    #[serde(rename = "s3InlineConsumer::L::lease", alias = "s3InlineConsumerCompact::L::lease")]
     l_lease: i64,
-    #[serde(rename = "s3InlineConsumer::L::queue")]
+    #[serde(rename = "s3InlineConsumer::L::queue", alias = "s3InlineConsumerCompact::L::queue")]
     l_queue: BTreeSet<i64>,
-    #[serde(rename = "s3InlineConsumer::L::acked")]
+    #[serde(rename = "s3InlineConsumer::L::acked", alias = "s3InlineConsumerCompact::L::acked")]
     l_acked: BTreeSet<i64>,
-    #[serde(rename = "s3InlineConsumer::L::inflight")]
+    #[serde(rename = "s3InlineConsumer::L::inflight", alias = "s3InlineConsumerCompact::L::inflight")]
     l_inflight: BTreeSet<Req>,
-    #[serde(rename = "s3InlineConsumer::L::responses")]
+    #[serde(rename = "s3InlineConsumer::L::responses", alias = "s3InlineConsumerCompact::L::responses")]
     l_responses: BTreeSet<Resp>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time",
+        alias = "compactDesign::s3InlineConsumerCompact::time", alias = "compactQuiet::s3InlineConsumerCompact::time")]
     time: i64,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease",
+        alias = "compactDesign::s3InlineConsumerCompact::lease", alias = "compactQuiet::s3InlineConsumerCompact::lease")]
     lease: LeaseM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers",
+        alias = "compactDesign::s3InlineConsumerCompact::workers", alias = "compactQuiet::s3InlineConsumerCompact::workers")]
     workers: BTreeMap<i64, WorkerM>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt",
+        alias = "compactDesign::s3InlineConsumerCompact::ckpt", alias = "compactQuiet::s3InlineConsumerCompact::ckpt")]
     ckpt: CkptM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central",
+        alias = "compactDesign::s3InlineConsumerCompact::central", alias = "compactQuiet::s3InlineConsumerCompact::central")]
     central: BTreeMap<i64, i64>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts")]
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts",
+        alias = "compactDesign::s3InlineConsumerCompact::stmts", alias = "compactQuiet::s3InlineConsumerCompact::stmts")]
     stmts: BTreeSet<StmtM>,
+    // s3InlineConsumerCompact only (absent: no compaction in the instance)
+    #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::floor", alias = "compactQuiet::s3InlineConsumerCompact::floor")]
+    floor: i64,
+    #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::retired", alias = "compactQuiet::s3InlineConsumerCompact::retired")]
+    retired: BTreeSet<i64>,
+    #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::viewFloor", alias = "compactQuiet::s3InlineConsumerCompact::viewFloor")]
+    view_floor: Option<BTreeMap<i64, i64>>,
 }
 
-/// What each worker's clock allows it now.
+/// What each worker's clock allows it now, and what compaction may drop.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Allowed {
     takeable: BTreeMap<i64, bool>,
     may_start: BTreeMap<i64, bool>,
     lapsed: BTreeMap<i64, bool>,
+    compactable: BTreeSet<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize)]
@@ -174,6 +204,9 @@ pub struct Spec {
     ckpt: CkptM,
     central: BTreeMap<i64, i64>,
     stmts: BTreeSet<StmtM>,
+    floor: i64,
+    retired: BTreeSet<i64>,
+    view_floor: BTreeMap<i64, i64>,
     allowed: Allowed,
 }
 
@@ -186,7 +219,10 @@ impl From<Raw> for Spec {
             takeable: r.workers.iter().map(|(w, x)| (*w, !x.holds && (r.lease.owner == 0 || r.time >= x.seen + ttl + m))).collect(),
             may_start: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time + b <= x.sent + ttl - m)).collect(),
             lapsed: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time >= x.sent + ttl - m)).collect(),
+            // s3InlineConsumerCompact's dropsOf (the design: closed and retired, above the floor)
+            compactable: (1..=EPOCHS).filter(|e| *e > r.floor && r.ckpt.closed[e] && r.retired.contains(e)).collect(),
         };
+        let view_floor = r.view_floor.unwrap_or_else(|| r.workers.keys().map(|w| (*w, 0)).collect());
         Spec {
             log: r.l_log,
             writers: r.l_writers,
@@ -201,6 +237,9 @@ impl From<Raw> for Spec {
             ckpt: r.ckpt,
             central: r.central,
             stmts: r.stmts,
+            floor: r.floor,
+            retired: r.retired,
+            view_floor,
             allowed,
         }
     }
@@ -263,6 +302,8 @@ pub struct ConsumerDriver {
     central: BTreeMap<i64, i64>,
     stmts: Vec<StmtM>,
     etags: u64,
+    /// Epochs GC removed entirely (gc.json's `retired`).
+    retired: BTreeSet<String>,
 }
 
 fn ename(e: i64) -> String {
@@ -290,6 +331,52 @@ impl ConsumerDriver {
         self.seen = [(1, 0), (2, 0)].into_iter().collect();
         self.central = PAYLOADS.into_iter().map(|p| (p, 0)).collect();
         self.stmts.clear();
+        self.retired.clear();
+    }
+
+    /// The epochs a full listing shows the worker (every epoch the writers
+    /// started), and what compaction would drop now, on a copy.
+    fn known(&self) -> Vec<String> {
+        (1..=self.l.lease.min(EPOCHS)).map(ename).collect()
+    }
+    fn compactable(&self) -> BTreeSet<i64> {
+        let mut c = self.ckpt.clone();
+        c.compact(&self.known(), &self.retired, timing().mutation).iter().map(|e| epoch_num(e)).collect()
+    }
+
+    /// The worker only ever sees epochs above its view's floor (the code's
+    /// discovery filters every listing with `coord::above_floor`).
+    fn assert_above_floor(&self, w: i64, e: i64) {
+        let f = &self.workers[&w].view.floor;
+        assert!(coord::above_floor(&ename(e), f), "the model lets worker {w} act on epoch {e}, at or below its floor {f:?}");
+    }
+
+    fn gc_retire(&mut self, e: i64) {
+        let pos = EpochPos { next: self.ckpt.next(&ename(e)), closed: self.ckpt.closed(&ename(e)) };
+        assert!(pos.closed, "GC retires an epoch the checkpoint hasn't closed");
+        let dir = format!("{}/{}/", self.l.prefix, ename(e));
+        let keys: Vec<String> = self.l.s3.keys().filter(|k| k.starts_with(&dir)).cloned().collect();
+        let (del, _) = consumer::gc::doomed(&self.l.prefix, &keys, &pos, true);
+        assert_eq!(del, keys, "retiring {e} must remove every key it has left");
+        for k in del {
+            let _ = self.l.s3.remove(&k);
+        }
+        let _ = self.retired.insert(ename(e));
+    }
+
+    /// (The new floor is compared with the model's after the step.)
+    fn compact(&mut self, w: i64) {
+        assert_eq!(self.ckpt_etag, self.workers[&w].view_etag, "the model compacts; the checkpoint CAS would fail");
+        let known = self.known();
+        let dropped = self.ckpt.compact(&known, &self.retired, timing().mutation);
+        assert!(!dropped.is_empty(), "the model compacts; the code drops nothing");
+        let le = self.workers[&w].lease_epoch as u64;
+        self.ckpt = self.ckpt.bumped(le);
+        self.ckpt_etag += 1;
+        let (ck, ce) = (self.ckpt.clone(), self.ckpt_etag);
+        let y = self.w(w);
+        y.view = ck;
+        y.view_etag = ce;
     }
 
     /// Every worker sees a new lease version now.
@@ -366,6 +453,7 @@ impl ConsumerDriver {
         let t = timing();
         let now = self.now();
         assert!(self.workers[&w].held.as_ref().is_some_and(|h| h.may_start(now, &t)), "the model checks; the worker may not start");
+        self.assert_above_floor(w, e);
         let s0 = self.workers[&w].view.next(&ename(e)) as i64;
         let mut objs = Vec::new();
         for s in s0..s0 + k {
@@ -461,6 +549,7 @@ impl ConsumerDriver {
     }
 
     fn tomb(&mut self, w: i64, e: i64) {
+        self.assert_above_floor(w, e);
         let s = self.workers[&w].view.next(&ename(e)) as i64;
         assert!(self.slot(e, s).is_none(), "the model tombstones a slot that isn't free");
         let key = proto::slot_key(&self.l.prefix, &ename(e), s as u64);
@@ -472,6 +561,7 @@ impl ConsumerDriver {
     }
 
     fn see_tomb(&mut self, w: i64, e: i64) {
+        self.assert_above_floor(w, e);
         let s = self.workers[&w].view.next(&ename(e)) as i64;
         assert_eq!(self.slot(e, s), Some(Found::Tomb));
         self.close(w, e, s);
@@ -542,6 +632,8 @@ impl Driver for ConsumerDriver {
                 let doomed = (0..SLOTS).filter(|s| *s < n && matches!(self.slot(e, *s), Some(Found::Data { .. }))).collect();
                 self.gc(e, doomed)
             },
+            gcRetire(e: i64) => self.gc_retire(e),
+            wCompact(w: i64) => self.compact(w),
             sPush => {},
             sResend => {},
             sLand => {},
@@ -607,6 +699,7 @@ impl State<ConsumerDriver> for Spec {
                 .collect(),
             may_start: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.may_start(now, &t)))).collect(),
             lapsed: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.lapsed(now, &t)))).collect(),
+            compactable: d.compactable(),
         };
         let keep = |m: &BTreeMap<i64, BTreeMap<i64, Entry>>| -> BTreeMap<i64, BTreeMap<i64, Entry>> {
             m.iter().filter(|(e, _)| **e <= EPOCHS).map(|(e, s)| (*e, s.iter().filter(|(s, _)| **s < SLOTS).map(|(a, b)| (*a, *b)).collect())).collect()
@@ -625,6 +718,9 @@ impl State<ConsumerDriver> for Spec {
             ckpt: ckpt_m(&d.ckpt),
             central: d.central.clone(),
             stmts: d.stmts.iter().cloned().collect(),
+            floor: epoch_num(&d.ckpt.floor),
+            retired: d.retired.iter().map(|e| epoch_num(e)).collect(),
+            view_floor: d.workers.iter().map(|(w, x)| (*w, epoch_num(&x.view.floor))).collect(),
             allowed,
         })
     }
@@ -639,5 +735,19 @@ fn s3inline_consumer_design_simulation() -> impl Driver {
 /// the workers (checks, statements, verifies, takeovers, GC).
 #[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designQuiet", max_samples = 1000, max_steps = 80)]
 fn s3inline_consumer_quiet_simulation() -> impl Driver {
+    ConsumerDriver::default()
+}
+
+/// Checkpoint compaction (../model/s3InlineConsumerCompact.qnt): GC retires
+/// closed epochs, the holder compacts them out of the checkpoint, and the
+/// floor moves up; everything else as in `s3InlineConsumerDesign`.
+#[quint_run(spec = "../model/s3InlineConsumerCompact.qnt", main = "compactDesign", max_samples = 300, max_steps = 60)]
+fn s3inline_consumer_compact_design_simulation() -> impl Driver {
+    ConsumerDriver::default()
+}
+
+/// The same with no writer faults and no series lane.
+#[quint_run(spec = "../model/s3InlineConsumerCompact.qnt", main = "compactQuiet", max_samples = 1000, max_steps = 80)]
+fn s3inline_consumer_compact_quiet_simulation() -> impl Driver {
     ConsumerDriver::default()
 }

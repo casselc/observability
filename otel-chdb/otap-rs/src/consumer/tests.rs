@@ -290,6 +290,137 @@ async fn series_lane_needs_no_check() {
     assert_eq!(ws[0].checkpoint("p1/metrics_series").unwrap().next("E0001"), 2);
 }
 
+/// Many edge restarts on one lane, with GC retiring closed epochs: the
+/// checkpoint keeps only the epochs not retired yet, its floor moves up, the
+/// full listing starts after the floor, gc.json stays small, and every batch
+/// is ingested exactly once.
+#[tokio::test(flavor = "current_thread")]
+async fn checkpoint_stays_bounded_across_many_epochs() {
+    let (b, c, clk) = setup();
+    let mut e = Edge::new("p1", "traces");
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: 1000, zombie_ms: 3000, dry_run: false };
+    let mut n = 0;
+    let (mut max_epochs, mut max_bytes, mut max_gc) = (0, 0, 0);
+    for round in 0..120 {
+        if round > 0 {
+            e.new_epoch(); // an edge restart
+        }
+        for _ in 0..2 {
+            n += 1;
+            e.commit(&b, &format!("h{n}"), 3).await;
+        }
+        for _ in 0..6 {
+            run(&mut ws, &clk, 1, 500).await;
+            let _ = gc_step(&*b, &gcc, clk.0.get()).await.unwrap();
+        }
+        if round >= 20 {
+            let ck = ws[0].checkpoint("p1/traces").unwrap();
+            max_epochs = max_epochs.max(ck.epochs.len());
+            max_bytes = max_bytes.max(serde_json::to_vec(ck).unwrap().len());
+            max_gc = max_gc.max(b.get(&format!("{CTL}/gc.json")).await.unwrap().unwrap().0.len());
+        }
+    }
+    for i in 1..=n {
+        assert_eq!(c.count("otel_traces", &format!("h{i}")), 3, "h{i}");
+    }
+    assert_eq!(c.applied.borrow().len(), n, "each batch applied once");
+    let ck = ws[0].checkpoint("p1/traces").unwrap().clone();
+    let s = &ws[0].stats;
+    // An epoch lives 3 s here (6 × 500 ms per restart) and retires after
+    // quiet (2 s) + the GC delay and zombie bound (3 s): about 3 to 4 at once.
+    assert!(max_epochs <= 5, "explicit epochs {max_epochs}: {ck:?}");
+    assert!(max_bytes < 600 && max_gc < 6000, "checkpoint {max_bytes} B, gc.json {max_gc} B");
+    assert!(ck.floor.as_str() > "E0100", "floor {}", ck.floor);
+    assert!(s.epochs_compacted >= 110, "{s:?}");
+    // The full listing starts after the floor: a whole-lane LIST of the
+    // bucket right now returns only the epochs above it.
+    let items = b.list(&format!("{ROOT}/p1/traces"), super::coord::floor_start_after(&format!("{ROOT}/p1/traces"), &ck.floor).as_deref()).await.unwrap();
+    let epochs: BTreeSet<String> = items.iter().filter_map(|i| proto::parse_slot_key(&format!("{ROOT}/p1/traces"), &i.key)).map(|(e, _)| e).collect();
+    assert!(epochs.len() <= 5 && epochs.iter().all(|x| x.as_str() > ck.floor.as_str()), "{epochs:?}");
+}
+
+/// Compacting an epoch before it is closed and retired (the model's
+/// `earlyCompact`) loses a batch its writer commits afterwards; the design
+/// ingests it.
+#[tokio::test(flavor = "current_thread")]
+async fn early_compaction_would_skip_a_late_batch() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        let mut e1 = Edge::new("p1", "logs");
+        e1.commit(&b, "a", 2).await;
+        e1.commit(&b, "b", 2).await;
+        // A second writer (another exporter lane of the edge) opens a newer
+        // epoch: E0001 is superseded while its writer is still alive.
+        let mut e2 = Edge::new("p1", "logs");
+        e2.new_epoch();
+        e2.commit(&b, "c", 2).await;
+        let mut cfg = cfg("w1");
+        if mutant {
+            cfg.timing.mutation = super::coord::Mutation::EarlyCompact;
+        }
+        let mut w = Worker::new(cfg, b.clone(), c.clone(), clk.clone());
+        let _ = w.step().await;
+        // E0001's writer commits one more batch (before `quiet` passes).
+        e1.commit(&b, "late", 2).await;
+        for _ in 0..10 {
+            clk.0.set(clk.0.get() + 100);
+            let _ = w.step().await;
+        }
+        let ck = w.checkpoint("p1/logs").unwrap();
+        if mutant {
+            assert_eq!(ck.floor, "E0001", "compacted while open");
+            assert_eq!(c.count("otel_logs", "late"), 0, "the mutant never ingests the late batch");
+        } else {
+            assert!(ck.floor.is_empty() && ck.next("E0001") == 3, "{ck:?}");
+            assert_eq!(c.count("otel_logs", "late"), 2);
+        }
+    }
+}
+
+/// A write into a retired epoch (a zombie writer outliving the zombie bound,
+/// which the design assumes can't happen): at or below the floor it is
+/// ignored (never read, so never ingested twice); above the floor (a retired
+/// epoch past an epoch still open), the epoch is new again: slot 0 is
+/// ingested, a later slot is a gap (reported, never skipped over).
+#[tokio::test(flavor = "current_thread")]
+async fn writes_into_retired_epochs_are_ignored_or_ingested_once() {
+    let (b, c, clk) = setup();
+    let prefix = format!("{ROOT}/p1/traces");
+    // E0001: closed after one batch. E0002: a gap (slot 1 missing), so it
+    // stays open for ever. E0003: closed after one batch. E0004: the newest.
+    let mut e = Edge::new("p1", "traces");
+    e.commit(&b, "a", 1).await;
+    e.new_epoch();
+    e.commit(&b, "b", 1).await;
+    b.insert(&proto::slot_key(&prefix, "E0002", 2), Bytes::from("x"), meta("E0002", 2, "g", 1));
+    e.new_epoch();
+    e.commit(&b, "c", 1).await;
+    e.new_epoch();
+    e.commit(&b, "d", 1).await;
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: 1000, zombie_ms: 3000, dry_run: false };
+    for _ in 0..40 {
+        run(&mut ws, &clk, 1, 500).await;
+        let _ = gc_step(&*b, &gcc, clk.0.get()).await.unwrap();
+    }
+    let ck = ws[0].checkpoint("p1/traces").unwrap().clone();
+    assert_eq!(ck.floor, "E0001", "{ck:?}");
+    assert!(!ck.epochs.contains_key("E0003"), "retired above the open E0002: dropped too");
+    assert!(ck.epochs.contains_key("E0002") && !ck.closed("E0002"));
+    // Zombies (bound violated) write into E0001 (below the floor) and E0003 (above it).
+    b.insert(&proto::slot_key(&prefix, "E0001", 1), Bytes::from("x"), meta("E0001", 1, "z1", 1));
+    b.insert(&proto::slot_key(&prefix, "E0003", 0), Bytes::from("x"), meta("E0003", 0, "z3", 1));
+    b.insert(&proto::slot_key(&prefix, "E0003", 1), Bytes::from("x"), meta("E0003", 1, "c", 1));
+    let gaps = ws[0].stats.gaps_seen;
+    run(&mut ws, &clk, 5, 500).await;
+    assert_eq!(c.count("otel_traces", "z1"), 0, "below the floor: never read");
+    assert_eq!(c.count("otel_traces", "z3"), 1, "above it: a new epoch, from slot 0");
+    assert_eq!(c.count("otel_traces", "c"), 1, "a copy of an ingested batch: skipped by the check");
+    assert_eq!(c.applied.borrow().iter().filter(|(_, k)| k == "c").count(), 1);
+    assert_eq!(ws[0].stats.gaps_seen, gaps, "no new gap");
+}
+
 /// A randomized run: 3 producers × 3 signals, edges restarting (with
 /// copies of their last batch in the new epoch), 3 workers taking and
 /// losing lanes, crashing (a new incarnation) and pausing past their
@@ -299,8 +430,20 @@ async fn series_lane_needs_no_check() {
 #[tokio::test(flavor = "current_thread")]
 async fn randomized_fleet() {
     for seed in 1..=12u64 {
-        randomized(seed).await;
+        randomized(seed, 60_000).await;
     }
+}
+
+/// The same, with a zombie bound short enough that GC retires closed epochs
+/// and the workers compact their checkpoints throughout (the test's edges
+/// abandon an epoch at a restart, so no writer outlives the bound).
+#[tokio::test(flavor = "current_thread")]
+async fn randomized_fleet_compacting() {
+    let mut compacted = 0;
+    for seed in 1..=12u64 {
+        compacted += randomized(seed, 3_000).await;
+    }
+    assert!(compacted > 50, "compaction ran: {compacted} epochs");
 }
 
 struct Rng(u64);
@@ -316,7 +459,7 @@ impl Rng {
     }
 }
 
-async fn randomized(seed: u64) {
+async fn randomized(seed: u64, zombie_ms: u64) -> u64 {
     let (b, c, clk) = setup();
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11 };
     c.partial_every.set(5);
@@ -333,7 +476,7 @@ async fn randomized(seed: u64) {
     let mut ws: Vec<W> = (0..3).map(|i| worker(&format!("w{i}-0"), &b, &c, &clk)).collect();
     let mut paused: Vec<u64> = vec![0; 3];
     let mut incarn = vec![0u32; 3];
-    let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: T.ttl_ms + T.margin_ms + 2000, zombie_ms: 60_000, dry_run: false };
+    let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: T.ttl_ms + T.margin_ms + 2000, zombie_ms, dry_run: false };
     let mut n = 0u64;
     for _ in 0..1500 {
         let now = clk.0.get();
@@ -404,4 +547,5 @@ async fn randomized(seed: u64) {
     assert!(extra.is_empty(), "seed {seed}: uncommitted content ingested: {extra:?}");
     let s: u64 = ws.iter().map(|w| w.stats.lanes_taken).sum();
     assert!(s > 0);
+    ws.iter().map(|w| w.stats.epochs_compacted).sum()
 }

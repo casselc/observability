@@ -14,7 +14,10 @@ Labels: **[M]** measured here · **[R]** from `../README.md` or
 The machine had 4 vCPUs, shared with other agents' work (load average 3.5–5.5
 during the runs). The software was chDB 26.7.3 (its footer says 26.7.2),
 ClickHouse server 26.10.1, SeaweedFS on localhost, Go 1.26, arrow-go v18.7.0,
-parquet-go v0.32.0 and minio-go v7.0.91.
+parquet-go v0.32.0 and aws-sdk-go-v2 (service/s3 v1.113.4). The first
+measurements used minio-go v7.0.91; the publisher was switched to the AWS SDK
+afterwards, to share one S3 client with the conditional-write protocol in
+`../s3cas` (see "S3 client" below).
 
 ## What's here
 
@@ -24,7 +27,7 @@ parquet-go v0.32.0 and minio-go v7.0.91.
 | `pgo.go` | **parquet-go engine (recommended).** The walker writes level-annotated `parquet.Value`s straight into one buffer per leaf column, with no intermediate arrays. Each column goes to parquet-go's column writer. Setting `Parallelism > 1` encodes and compresses columns on several goroutines. |
 | `encode.go`, `schema.go`, `alloc.go` | **arrow-go engine.** The same walker fills Arrow builders, then `pqarrow` writes them. Build with `-tags noarrow` to leave it out, which saves about 27 MB of binary. |
 | `options.go` | Parquet tuning. The defaults mirror ClickHouse's `output_format_parquet_*` settings. |
-| `publish.go` | Publisher: the same object layout, batch ids, generations and manifest JSON as `chdbexporter/publish.go` (Parquet-only, `store_tables: false`). Uploads with minio-go, or writes local files and renames them into place. |
+| `publish.go` | Publisher: the same object layout, batch ids, generations and manifest JSON as `chdbexporter/publish.go` (Parquet-only, `store_tables: false`). Uploads with aws-sdk-go-v2 (path-style), or writes local files and renames them into place. |
 | `compare/` | Its own module, so `parquetgo` never links chdb-go. It drives the chdb exporter through its factory, and holds the correctness tests, `cmd/pubbench`, `cmd/pqpages` (a page-alignment inspector), size probes and raw results. |
 
 `chdbexporter` wasn't modified.
@@ -44,7 +47,7 @@ I inspected ClickHouse's output with pyarrow and with ClickHouse's
 | Bloom filters | Every column, about 10.5 bits per distinct value | Every column, 11 bits per distinct value (parquet-go). The arrow engine uses adaptive sizing at FPP 0.005. |
 | Row groups, pages | 1M rows per row group, so one per batch; 1 MiB pages; V1 data pages | One row group per batch; 1 MiB pages; V2 data pages. |
 | Parallelism | `output_format_parquet_parallel_encoding=1`: about 1.3–1.4 cores busy per batch [M] | Serial by default; `Parallelism: 4` is optional. |
-| S3 upload | One PUT for the object and one for the manifest [M, counting proxy]. `S3WriteRequestsCount` said 4.7/batch [R]; the proxy saw 2 HTTP PUTs. | One PUT each (minio-go goes multipart only past 16 MiB, and retries with backoff). |
+| S3 upload | One PUT for the object and one for the manifest [M, counting proxy]. `S3WriteRequestsCount` said 4.7/batch [R]; the proxy saw 2 HTTP PUTs. | One PUT each (aws-sdk-go-v2 `PutObject`, standard retryer: 3 attempts with backoff; no multipart). |
 | Manifest | `rowbinary_bytes` = RowBinary size | Same JSON keys and values, except that `rowbinary_bytes` holds the Parquet size, since no RowBinary exists. |
 
 ## Correctness [M]
@@ -210,6 +213,25 @@ in `pubbench` it was 20–25% faster.
   - Arrow would be the right tool only if the pipeline were already Arrow,
     as in OTAP.
 
+### S3 client
+
+The publisher uses aws-sdk-go-v2 with `UsePathStyle` (so SeaweedFS, Garage
+and MinIO need no virtual-host DNS), static credentials when a key is given
+and anonymous requests otherwise. It was first written with minio-go; it
+moved to the AWS SDK because:
+
+- the conditional-write protocol (`../s3cas`) is built on it: `IfNoneMatch` /
+  `IfMatch` are `PutObjectInput` fields and a 412 is a typed error, where
+  minio-go only sets them as custom headers documented as a MinIO extension;
+- contrib collectors (`awss3exporter` and others) already link it, so one S3
+  stack instead of two;
+- the full AWS credential chain and checksum behaviour, when needed later.
+
+After the switch the correctness test (below) passes again, `-race` clean,
+and per-batch cost is unchanged within noise: 71.6–73.7 ms CPU against
+72.4–74.3 ms with minio-go, the same 2 PUTs per batch, about 240 more Go
+allocations and 4 MB more resident at start (`compare/results/s3client.md`).
+
 ### Size, startup, portability [M]
 
 Static builds with `CGO_ENABLED=0` and `-trimpath -ldflags="-s -w"`:
@@ -217,9 +239,14 @@ Static builds with `CGO_ENABLED=0` and `-trimpath -ldflags="-s -w"`:
 | binary | amd64 | arm64 |
 | --- | --- | --- |
 | chdb exporter via factory (`cmd/chdbpq`) | 9.2 MB **+ 566 MB `libchdb.so`** | 8.7 MB + a `libchdb.so` for aarch64 [E] |
-| Go publisher, parquet-go engine only (`-tags noarrow`) | **13.9 MB**, nothing else | 12.8 MB |
-| Go publisher, both engines | 41.0 MB | 35.6 MB |
-| parquet-go alone / arrow-go pqarrow alone / minio-go alone | 10.5 / 32.3 / 6.5 MB | – |
+| Go publisher, parquet-go engine only (`-tags noarrow`) | **13.9 MB**, nothing else | 12.9 MB |
+| Go publisher, both engines | 46.3 MB | 40.2 MB |
+| parquet-go alone / arrow-go pqarrow alone / aws-sdk-go-v2 S3 alone | 10.5 / 32.3 / 8.0 MB | – |
+
+With minio-go instead of the AWS SDK these were 13.9 / 12.8 MB (noarrow),
+41.0 / 35.6 MB (both engines) and 6.5 MB (client alone): the switch costs
++28 KB on the recommended build, because the SDK shares most of its weight
+(net/http, crypto, XML) with what the binary already links.
 
 - **Ready time**, from `main` to publisher started, with the page cache warm:
   - chDB 157–228 ms median, 145–235 ms range: the dlopen of 566 MB plus
@@ -285,7 +312,7 @@ Static builds with `CGO_ENABLED=0` and `-trimpath -ldflags="-s -w"`:
   - The edge's chDB version must be pinned against central [R].
   - Can't go into `otelcol-contrib` [R].
 
-**Go-native (parquet-go + minio-go)**
+**Go-native (parquet-go + aws-sdk-go-v2)**
 
 - **Pros:**
   - Identical rows and schema: verified on the server, pyarrow and Spark.
@@ -294,7 +321,7 @@ Static builds with `CGO_ENABLED=0` and `-trimpath -ldflags="-s -w"`:
   - A 14 MB static binary: arm64, musl and distroless all work, with no CGO,
     purego or dlopen.
   - Instant start.
-  - Ordinary Go errors and retries (minio-go backoff).
+  - Ordinary Go errors and retries (the AWS SDK's standard retryer).
   - Every Parquet knob in code: row groups, blooms per column, timestamp
     unit, sort order, key-value metadata. A Spark-friendly
     `TIMESTAMP(MICROS)` or an Iceberg-compatible layout is a small change.
@@ -366,13 +393,13 @@ several batches in parallel.
   - real-S3 latency, where both paths do 2 PUTs per batch so the difference
     should be unchanged;
   - the Go exporter's size once linked into a full collector (roughly +8 MB
-    on top of the collector for parquet-go + minio-go, against +566 MB of
+    on top of the collector for parquet-go + the AWS SDK, which contrib collectors already link, against +566 MB of
     library for chDB).
 - **Not tested:**
   - real AWS S3;
   - concurrent pushes through the Go publisher beyond the `-race` test's
     serial use;
-  - batches over 16 MiB (minio-go multipart);
+  - batches large enough to need multipart (none do: one PUT allows 5 GiB);
   - arrow-go versions other than v18.7.0.
 - **Noise:** the box was shared, with a load average of 3.5–5.5 against 4
   vCPUs. Latency ranges run up to ±20%; CPU/batch and allocation counts are

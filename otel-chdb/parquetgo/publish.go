@@ -18,8 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -94,7 +95,7 @@ type BatchEncoder interface {
 type Publisher struct {
 	cfg     Config
 	epoch   string
-	s3      *minio.Client
+	s3      *s3.Client
 	bucket  string
 	prefix  string // key prefix inside the bucket, no trailing slash
 	local   string // directory for file:// URLs
@@ -155,16 +156,22 @@ func New(cfg Config) (*Publisher, error) {
 		if len(parts) == 2 {
 			p.prefix = parts[1]
 		}
-		p.s3, err = minio.New(u.Host, &minio.Options{
-			Creds:        credentials.NewStaticV4(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
-			Secure:       u.Scheme == "https",
-			Region:       cfg.S3Region,
-			BucketLookup: minio.BucketLookupPath,
-			Transport:    cfg.Transport,
-		})
-		if err != nil {
-			return nil, err
+		var creds aws.CredentialsProvider = aws.AnonymousCredentials{}
+		if cfg.AccessKeyID != "" {
+			creds = credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, "")
 		}
+		opts := s3.Options{
+			Region:       cfg.S3Region,
+			BaseEndpoint: aws.String(u.Scheme + "://" + u.Host),
+			// Path-style, so SeaweedFS, Garage and MinIO work without
+			// virtual-host DNS.
+			UsePathStyle: true,
+			Credentials:  creds,
+		}
+		if cfg.Transport != nil {
+			opts.HTTPClient = &http.Client{Transport: cfg.Transport}
+		}
+		p.s3 = s3.New(opts)
 	default:
 		return nil, fmt.Errorf("parquet url %q: want file:// or http(s)://", cfg.URL)
 	}
@@ -268,9 +275,10 @@ func (p *Publisher) push(ctx context.Context, signal string, enc func(BatchEncod
 	return nil
 }
 
-// put stores data at rel (relative to the URL): one PUT on S3 (minio-go
-// switches to multipart only past its 16 MiB part size, and retries with
-// backoff), or a local write renamed into place.
+// put stores data at rel (relative to the URL): one PUT on S3 (the SDK's
+// standard retryer, 3 attempts with backoff; one batch is far below the 5 GiB
+// single-PUT limit, so there is no multipart), or a local write renamed into
+// place.
 func (p *Publisher) put(ctx context.Context, rel string, data []byte, contentType string) error {
 	if p.s3 == nil {
 		path := filepath.Join(p.local, filepath.FromSlash(rel))
@@ -287,8 +295,13 @@ func (p *Publisher) put(ctx context.Context, rel string, data []byte, contentTyp
 	if p.prefix != "" {
 		key = p.prefix + "/" + rel
 	}
-	_, err := p.s3.PutObject(ctx, p.bucket, key, bytes.NewReader(data), int64(len(data)),
-		minio.PutObjectOptions{ContentType: contentType, DisableContentSha256: false})
+	_, err := p.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(p.bucket),
+		Key:           aws.String(key),
+		Body:          bytes.NewReader(data),
+		ContentLength: aws.Int64(int64(len(data))),
+		ContentType:   aws.String(contentType),
+	})
 	return err
 }
 

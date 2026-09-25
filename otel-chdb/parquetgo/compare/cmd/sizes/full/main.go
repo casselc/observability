@@ -1,4 +1,4 @@
-// Binary-size probe: the whole Go publisher (both engines, minio-go S3 client).
+// Binary-size probe: the whole Go publisher (both engines, aws-sdk-go-v2 S3 client).
 package main
 
 import (

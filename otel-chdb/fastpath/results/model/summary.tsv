@@ -27,3 +27,5 @@ graceNoMargin	onlyCommittedIngested	ok	118s
 graceNoMargin	batchIngestedAtMostOnce	ok	125s	
 unboundedRequests	batchIngestedAtMostOnce	VIOLATED	21s	Found an issue (4521ms at 10 traces/second)
 graceNoMargin	noLostBehindCheckpoint	ok	110s	
+unboundedRequests	importerNeverInserts	VIOLATED	17s	Found an issue (756ms at 4 traces/second)
+fireBeforeCommit	onlyCommittedIngested	VIOLATED	19s	Found an issue (252ms at 4 traces/second)

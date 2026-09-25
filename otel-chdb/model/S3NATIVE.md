@@ -297,10 +297,12 @@ operations that proved atomic here.
    - Table names and endpoints include the epoch
      (`otel_logs_e{epoch}_g{gen}` on `ns/e{epoch}/g{gen}/`), so a restart
      never reuses its predecessor's table.
-   - An optional `_owner.json`, create-only, makes a collision fail loudly.
-     Its content check covers only the stale-local-table case; a zombie can
-     still write *data* into its own namespace after being fenced. Those
-     objects are orphans: no commit names them, and GC removes them.
+   - An optional `_owner.json`, created with `If-None-Match` when a
+     generation's tables are created, makes a reused local table fail loudly:
+     a writer whose table's `_owner.json` names another epoch refuses to
+     insert. It doesn't stop a zombie writing *data* into its own namespace
+     after being fenced. Those objects are orphans: no commit names them, and
+     the orphan sweep removes them.
 
 ### Consumer
 
@@ -474,7 +476,18 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
   | **every payload ingested** | **85** |
   | **every generation closed** | **35** |
 
-- Apalache: APALACHE_PLACEHOLDER
+- Apalache (`quint verify`, bounded):
+  - all 13 invariants (`safety`) hold for **every execution of up to 6
+    steps**. The depth-8 run finished checking step 7 but hit its 50-minute
+    limit inside step 8;
+  - `noWriteFromFencedWriter` holds up to **7 steps**. Its depth-8 run
+    didn't finish, partly because other agents' Apalache jobs shared the
+    server;
+  - `logNoDuplicatePayload` holds up to 5 steps (70 s).
+
+  The mutation counterexamples need 8–15 steps, beyond what Apalache
+  finishes at this model size, so they are shown by simulation and by the
+  deterministic scenarios instead.
 
 **Mutations.** Each flips one design choice:
 
@@ -517,7 +530,7 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
    checkpoint by at least one lease TTL.
 
 **Deterministic scenarios** (`quint test s3Native_test.qnt --main <module>
---backend typescript`): 24 tests, all passing.
+--backend typescript`): 25 tests, all passing.
 
 - `designTest` (14): F1 ambiguous and late appends; F1 across a crash; the
   zombie fenced; a late zombie request losing; PBT 1–3; the fence closing
@@ -737,13 +750,16 @@ before they expire.
 - **Long multipart uploads** can outlive a credential's validity between
   parts. The control plane never uses multipart. Data through a Go writer
   should use single PUTs for batch-sized objects.
-- **chDB's own `s3()` calls**: the exporter passes static keys in SQL today,
-  which can't follow rotating credentials. ClickHouse's S3 client has its own
-  credential chain (environment, web identity, instance metadata). Whether it
-  covers Pod Identity's container endpoint and Roles Anywhere's
-  `credential_process` in chDB 26.7 is **unverified**. If it doesn't, data
-  PUTs have to move to the Go client too, the Go Parquet writer route. That
-  also puts data and control plane on one credential source.
+- **chDB's own `s3()` calls**: with empty keys the exporter already defers
+  to ClickHouse's own credential chain. Tested since this note was first
+  written (`../parquetgo/README.md`, "Credentials and deployment targets"):
+  chDB 26.7 and ClickHouse 26.10 handle IRSA (web identity), Pod Identity
+  (container endpoint with the token file) and instance metadata, but **not**
+  `credential_process`. For Roles Anywhere, run `aws_signing_helper serve` and
+  point `AWS_EC2_METADATA_SERVICE_ENDPOINT` at it. The central server also
+  needs `s3_allow_server_credentials_in_user_queries = 1` for keyless `s3()`.
+  The control plane uses the Go client either way, since chDB can't send
+  conditional headers.
 
 ## Sources
 

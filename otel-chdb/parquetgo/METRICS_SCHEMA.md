@@ -11,6 +11,15 @@ This file is the reference for other producers, such as `../otap-rs`. The
 correctness test (`compare/metrics_test.go`) checks every rule below against
 a real clickhouseexporter v0.161.0 writing to ClickHouse 26.10.
 
+**Revisions since the first draft**, which other producers may have copied:
+
+1. Map columns are **sorted by key**, not written in pdata order. The first
+   draft said pdata order, and the correctness test failed on almost every
+   row until the order was fixed.
+2. The DateTime wrap examples are corrected: `633_437_444_000` and
+   `3_661_529_851_000`.
+3. `i32` carries the `INT(32, signed)` annotation.
+
 ## Objects
 
 - One Parquet object per metric type per batch. An OTLP request with gauges
@@ -61,7 +70,16 @@ These are what clickhouse-go stores when the exporter appends the row.
   Sub-second precision is lost, as it is in the exporter's table.
 - **`map` attributes** (`ResourceAttributes`, `ScopeAttributes`,
   `Attributes`, `Exemplars.FilteredAttributes`): one entry per pdata map
-  entry, in pdata order, value = `pcommon.Value.AsString()`. So Str is
+  entry, **sorted by key in byte order** (not pdata order), value =
+  `pcommon.Value.AsString()`. The exporter builds each map with
+  clickhouse-go's `orderedmap.CollectN`, which sorts the keys with
+  `slices.SortFunc(..., cmp.Compare)`. ClickHouse compares Map values in
+  order, so an unsorted map does not hash or `EXCEPT` equal. Duplicate keys,
+  which only wire-decoded pdata can hold, stay in pdata order here; the
+  exporter's unstable sort leaves them in an unspecified order. The contrib
+  traces and logs tables sort the same way (`internal.AttributesToMap`),
+  but the chDB exporter and parquetgo's traces/logs keep pdata order (see
+  README, Metrics, "Gaps"). So Str is
   as-is; Int is decimal; Bool is `true`/`false`; Double is Go
   `strconv.FormatFloat(f, 'f', -1, 64)` for 0 and 1e-6 ≤ |f| < 1e21, and
   otherwise `AsString()`'s ES6-style rendering (`1e+21`, `1e-7`, `5e-324`,

@@ -175,10 +175,10 @@ func atoi(s string) int {
 // It then reports, without asserting, what happens to one much bigger
 // object (150k gauge points, about 160 MB decoded): repeated inserts with
 // the single-block set and variants, and a token retry. On ClickHouse 26.10
-// that object was split into two blocks at a timing-dependent row in most
-// runs of this test (never in isolated probes of the same size, and never
-// for objects of 100k points or fewer), so the token alone does not make a
-// retry of such an object idempotent. See README "Metrics".
+// that object was often split into two blocks at a row that varied from
+// insert to insert (intermittently: some series of inserts split, others
+// did not; objects of 100k points or fewer never did), so the token alone
+// does not make a retry of such an object idempotent. See README "Metrics".
 func TestMetricsCentralSingleBlock(t *testing.T) {
 	s3, ok := S3FromEnv()
 	if !ok || os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {

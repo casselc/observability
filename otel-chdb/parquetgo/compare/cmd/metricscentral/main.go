@@ -6,16 +6,19 @@
 // envelope. It reports, per type:
 //
 //   - edge: CPU (getrusage) and Go allocations per point to encode and PUT;
+//
 //   - S3: object bytes per point;
+//
 //   - central: per-insert wall time (X-ClickHouse-Summary elapsed_ns) and
 //     server CPU (system.events OSCPUVirtualTimeMicroseconds delta, valid
 //     only if no other query ran meanwhile, which it checks), per point;
+//
 //   - stored: compressed and on-disk bytes per point from system.parts
 //     after OPTIMIZE FINAL, for the exporter's table alone and with the
 //     envelope, plus the biggest columns.
 //
-//	CHDB_TEST_S3=http://127.0.0.1:18333/otel CHDB_TEST_S3_KEY=otel CHDB_TEST_S3_SECRET=otelsecret \
-//	CHDB_TEST_CLICKHOUSE=http://127.0.0.1:18123 metricscentral -n 10000 -batches 100
+//     CHDB_TEST_S3=http://127.0.0.1:18333/otel CHDB_TEST_S3_KEY=otel CHDB_TEST_S3_SECRET=otelsecret \
+//     CHDB_TEST_CLICKHOUSE=http://127.0.0.1:18123 metricscentral -n 10000 -batches 100
 package main
 
 import (

@@ -24,12 +24,13 @@ afterwards, to share one S3 client with the conditional-write protocol in
 | Path | What it is |
 | --- | --- |
 | `walk.go` | The pdata walkers, envelope and `valueString`, copied from `chdbexporter/encode.go` so both producers visit pdata in the same order and render values identically. |
+| `walk_metrics.go`, `pgo_metrics.go` | **Metrics** (parquet-go engine only): one walk writes up to five files, one per metric type, in the contrib `clickhouseexporter` v0.161.0's `otel_metrics_*` schema. `METRICS_SCHEMA.md` is the column-by-column contract. See "Metrics". |
 | `pgo.go` | **parquet-go engine (recommended).** The walker writes level-annotated `parquet.Value`s straight into one buffer per leaf column, with no intermediate arrays. Each column goes to parquet-go's column writer. Setting `Parallelism > 1` encodes and compresses columns on several goroutines. |
 | `encode.go`, `schema.go`, `alloc.go` | **arrow-go engine.** The same walker fills Arrow builders, then `pqarrow` writes them. Build with `-tags noarrow` to leave it out, which saves about 27 MB of binary. |
 | `options.go` | Parquet tuning. The defaults mirror ClickHouse's `output_format_parquet_*` settings. |
 | `publish.go` | Publisher: the same object layout, batch ids, generations and manifest JSON as `chdbexporter/publish.go` (Parquet-only, `store_tables: false`). Uploads with aws-sdk-go-v2, or writes local files and renames them into place. |
 | `s3client.go` | The S3 client: `s3://bucket/prefix` (AWS, virtual-hosted) or `http(s)://host/bucket/prefix` (custom endpoint, path-style); static keys, or the AWS default credential chain (IRSA, EKS Pod Identity, `credential_process`, IMDS, ...), optional assume-role, and a private CA bundle. See "Credentials and deployment targets". |
-| `compare/` | Its own module, so `parquetgo` never links chdb-go. It drives the chdb exporter through its factory, and holds the correctness tests, `cmd/pubbench`, `cmd/pqpages` (a page-alignment inspector), `cmd/credstubs` (stand-ins for STS, the Pod Identity agent and IMDS, for the ClickHouse/chDB credential checks), size probes and raw results. |
+| `compare/` | Its own module, so `parquetgo` never links chdb-go. For metrics it also links the contrib `clickhouseexporter` as the reference (`refexporter.go`, `metrics_test.go`), and holds the metrics generators (`metricsgen.go`) and `cmd/metricscentral`. It drives the chdb exporter through its factory, and holds the correctness tests, `cmd/pubbench`, `cmd/pqpages` (a page-alignment inspector), `cmd/credstubs` (stand-ins for STS, the Pod Identity agent and IMDS, for the ClickHouse/chDB credential checks), size probes and raw results. |
 
 `chdbexporter` wasn't modified.
 
@@ -125,6 +126,34 @@ doesn't work:
 The arrow engine now defaults to V2 pages. This is exactly the kind of risk a
 Go-native path takes on that chDB doesn't: the reader and the writer come from
 different projects.
+
+### Found on the way: parquet-go's `Writer.Reset` erased the column paths [M]
+
+The encoder reuses one `parquet.Writer` per signal and calls `Reset` before
+each file. In parquet-go v0.32.0, `Reset` clears the previous footer's
+metadata in place. `format.ColumnMetaData.Reset` runs
+`clear(PathInSchema)`, and that slice aliases the writer's own
+`ColumnWriter.columnPath`. So every file after an encoder's first had an
+empty string for every element of every column chunk's `path_in_schema`.
+
+- The files were still readable. The ClickHouse server read every such
+  object in the traces/logs correctness test, which is why it never showed,
+  and pyarrow opens them. Readers that match column chunks by
+  `path_in_schema`, perhaps parquet-mr, may not cope [E].
+- A retry was also not byte-identical: the pool could hand the first
+  attempt a fresh encoder and the retry a used one. The metrics
+  determinism test (`TestMetricsDeterministic`) found it.
+- **Fix** (`pgo.go`, `restoreColumnPaths`): after `Reset`, the column path
+  strings are rewritten from the schema through reflection on the
+  unexported field. If the field ever isn't there, the encoder falls back to
+  a new writer per file. `TestReusedWriterIdentical` fails if the paths are
+  not restored.
+- **Cost:** none. Every file is about 0.6 KB bigger, because it now carries
+  its paths (traces: 270,575 → 271,168 bytes). Creating a new writer per
+  file instead costs 15–30% more CPU and doubles RSS [M]: traces
+  81 ms / 229 MB against 72 ms / 113 MB (`compare/results/pubbench-after-resetfix.md`).
+- Worth reporting upstream; the one-line fix is to copy `columnPath` when
+  building the `ColumnChunk`.
 
 ## Benchmarks
 
@@ -531,6 +560,328 @@ The exporter then has no keys (as for IRSA). The central server needs
 `s3_allow_server_credentials_in_user_queries = 1` for the ingest user. The
 Go publisher can use serve mode too, without the profile.
 
+## Metrics
+
+parquetgo publishes OTel metrics as Parquet in the contrib
+`clickhouseexporter` **v0.161.0** metrics schema (ClickStack):
+`otel_metrics_gauge`, `_sum`, `_histogram`, `_exponential_histogram` and
+`_summary`, each with the envelope columns traces and logs carry. Central
+ingests each object with `INSERT INTO otel_metrics_<type> SELECT … FROM
+s3()`.
+
+Only the parquet-go engine does this. **The arrow engine stays traces and
+logs only**: `PushMetrics` on an arrow publisher returns an error.
+
+Labels: **[M]** measured here · **[E]** estimate.
+
+### Layout: one object per metric type per batch
+
+One OTLP request can hold all five metric types. `PushMetrics` walks it once
+and writes **one Parquet object per metric type that has data points**. Each
+type is its own signal namespace: `metrics_gauge`, `metrics_sum`,
+`metrics_histogram`, `metrics_exponential_histogram` and `metrics_summary`.
+The table is `otel_` plus the signal.
+
+```
+{url}/{region}/metrics_gauge/v{schema}/{producer}/{epoch}/{generation}/{batch_id}.parquet
+                                                        manifests/{generation}/{batch_id}.json
+{url}/{region}/metrics_sum/v{schema}/...                (its own batch_id sequence, manifests, seal)
+```
+
+Why this layout:
+
+- **One object is one table's insert.** The importer's `INSERT … SELECT
+  FROM s3('<exact key>')` targets one table and forms one block
+  (FASTPATH.md). A combined object would have to be read five times, each
+  time filtering on a type column. It would also need a sparse union schema
+  in which most columns are empty for most rows. Parquet row groups per type
+  wouldn't help either: `s3()` can't address a row group.
+- **Each object commits on its own.** In the manifest-less design
+  (`../awss3`), each namespace is its own log: epoch plus sequential slot,
+  with one create-only PUT per object. Every object is then exactly one slot
+  commit, like a traces batch, and needs no cross-object transaction.
+- **The ack waits for all of them.** `PushMetrics` commits the non-empty
+  objects concurrently and returns nil only once all have committed.
+  - In manifest mode: object then manifest, per type.
+  - If one type fails, the collector retries the request. That republishes
+    every type, the same at-least-once behaviour as a traces retry, and
+    central's content check removes the copies.
+  - In the inline design, each type's lane should key its content hash on
+    (request hash, signal). A retried request then resolves the types that
+    already committed as "ours" (step 1 of `Log.Append`) and appends only
+    the missing ones [E: not wired, `../awss3` is outside this directory].
+- **A retry is byte-identical.** The same pdata and the same envelope give
+  the same bytes: fresh or reused encoder, serial or `Parallelism: 4`, and
+  whether one type is encoded alone (`PGEncoder.MetricsOf`, the call an
+  inline lane makes when it re-encodes for another slot) or all five in one
+  walk (`PGEncoder.Metrics`) [M: `TestMetricsDeterministic`]. That test
+  found the parquet-go `Reset` bug above.
+- All objects of one request share `received_at`. `row_ordinal` counts
+  within each object.
+- The same generation, manifest and seal machinery as traces/logs applies
+  per namespace. `Close` seals every open metrics generation too.
+
+### Schema mapping
+
+`METRICS_SCHEMA.md` has every table's column list: name, ClickHouse type,
+Parquet type and rendering rule. It is the reference for `../otap-rs`. In
+short:
+
+| ClickHouse type (contrib DDL) | Parquet | Rendering, as clickhouse-go stores it |
+| --- | --- | --- |
+| `DateTime` (`StartTimeUnix`, `TimeUnix`, `Exemplars.TimeUnix`) | `INT64 TIMESTAMP(MILLIS, UTC)`, ClickHouse's own writer's mapping for DateTime | `uint32(floor(int64(ns) / 1e9)) * 1000`: signed, floor-divided, wrapped mod 2³², so 0 stays 0, MaxInt64 wraps, and sub-second precision is lost as in the exporter's table |
+| `Map(LowCardinality(String), String)` | `MAP<string,string>` | **keys sorted in byte order** (clickhouse-go's `orderedmap.CollectN` sorts), values `AsString()` |
+| `Float64` (`Value`, `Sum`, `Min`, `Max`, bounds, quantiles) | `DOUBLE` | raw bits. An int point becomes `float64(int)`; an unset value, sum, min or max is 0 |
+| `UInt32` / `UInt64` / `Int32` / `Bool` | `INT32 UINT_32` / `INT64 UINT_64` / `INT32` / `BOOLEAN` | `Flags` raw; `AggregationTemporality` as the enum's int; `IsMonotonic` |
+| `Array(...)` and `Nested` (`Exemplars.*`, `ValueAtQuantiles.*`) | one required 3-level `LIST` per sub-column | Exemplar trace and span ids are **always hex, zero ids too** (`"000…0"`, not `""` as in traces) |
+
+Two rules were learned by failing, not by reading:
+
+- **Map keys are sorted.** Written in pdata order, 3,080 of 3,140 rows
+  differed from the exporter's, because ClickHouse compares a Map entry by
+  entry. The exporter sorts every attribute map it sends. The contrib
+  *traces and logs* exporters do too (`internal.AttributesToMap`). The chDB
+  exporter and parquetgo's traces/logs keep pdata order, so their rows
+  differ from what the contrib exporter would have stored (see Gaps).
+- **DateTime is seconds**, wrapped as ch-go does it, not the nanoseconds the
+  traces/logs tables keep.
+
+With schema inference (no structure in `s3()`), ClickHouse reads the
+DateTime columns as `DateTime64(3, 'UTC')`. Inserting them into `DateTime`
+gives the same values.
+
+### Correctness [M]
+
+`compare/metrics_test.go`, `TestMetricsSameRowsAsExporter`:
+
+- **The reference is the contrib exporter itself.** It is built through its
+  factory (`compare/refexporter.go`) with `create_schema` on, synchronous
+  inserts, and no queue or retries, and it writes to the ClickHouse 26.10
+  server over the native port.
+- **The same pmetric data goes to parquetgo**, serial and `Parallelism: 4`,
+  and to S3 under `otel/metrics-go/…`. Each object is `INSERT … SELECT`ed
+  into a table created from the exporter's own `SHOW CREATE TABLE`, once
+  with the explicit `s3()` structure and once with schema inference.
+- **Comparison, per table:** `count()`, `sum(cityHash64(<all contrib
+  columns>))`, and `EXCEPT` in both directions. The envelope is checked too:
+  one batch per request, `row_ordinal` 0..n−1, one `received_at`, producer,
+  epoch and schema version.
+- **Data**, 3,420 points per type (17,100 rows):
+  - `Metrics(3000)`: the realistic generator, 3,000 points of each type.
+  - `NastyMetrics(700)`: 420 points of each type, with:
+    - int, double and unset values, including NaN, ±Inf, −0, 5e−324,
+      ±MaxFloat64, MinInt64/MaxInt64 and 2⁵³;
+    - exemplars: 0, 1, 2 or 30 per point; int, double and empty values; NaN
+      and Inf; zero ids; zero and extreme times;
+    - attribute maps that are empty or hold 60 entries with 100 KB values,
+      with every value type (bytes, slice, map, empty) and NUL keys;
+    - start time 0, and timestamps of 1 ns, 2³² s (the DateTime wrap),
+      MaxInt64, 2⁶³ and MaxUint64;
+    - exponential histograms with only a zero count, all-zero buckets,
+      negative buckets with negative offsets, `MinInt32`/`MaxInt32` offsets
+      and scales, and 160 buckets;
+    - explicit histograms that are empty, whose bucket and bound counts
+      don't match, that have NaN/Inf bounds, `MaxUint64` counts, or 200
+      bounds, and whose sum, min or max is unset or NaN/Inf;
+    - summaries with 0, 1, 2 or 5 quantiles, including NaN;
+    - invalid UTF-8, NULs and 100 KB strings in names, descriptions, units,
+      scopes, schema URLs and service names (including a double
+      `service.name`);
+    - every flags value, every temporality, and both monotonicities.
+- **Result: identical.** Count and checksum are equal for all five tables,
+  both engines, and both read modes, and `EXCEPT` returns 0 rows either way.
+  The test passes `-race` clean. `TestSameRowsAsChdb` still passes.
+- **Local unit tests (`metrics_test.go`)** cover:
+  - determinism;
+  - the Parquet schema read back with parquet-go (column order, required,
+    `TIMESTAMP(MILLIS)`, `BOOLEAN`);
+  - `dtMillis` against `pcommon.Timestamp.AsTime().Unix()`;
+  - one object and manifest per type under `file://`;
+  - the rejection of an Empty-typed metric;
+  - an arrow publisher refusing metrics.
+
+**Central ingest under the FASTPATH single-block settings**
+(`TestMetricsCentralSingleBlock`):
+
+- The target is the exporter's table plus the envelope, `PARTITION BY
+  toDate(received_at)` (constant per batch) and
+  `non_replicated_deduplication_window = 1000` (`compare.CentralDDL`).
+- For 10,000-point objects and the hostile ones: each object became
+  **exactly one part**, and two retries with the same
+  `insert_deduplication_token` **added nothing** [M].
+- **For a much bigger object it did not hold** [M]. The object was 150,000
+  gauge points, 158 MB decoded.
+  - With the FASTPATH settings, ClickHouse 26.10 split it into two blocks
+    at a row that varied from insert to insert (for example 139,135 +
+    10,865, or 97,720 + 52,280). This happened in most runs of the test.
+  - A retry with the same token that split differently re-inserted the
+    tail: 150,000 + 3,477 rows in one run.
+  - `input_format_parquet_preserve_order = 1` and
+    `input_format_parquet_use_offset_index = 0` each looked like a fix in
+    one probe, then failed in the next.
+  - Turning squashing on (`min_insert_block_size_rows/bytes` above the
+    batch) always gave one part. But the dedup id of a squashed block
+    depends on the chunks it came from, and a retry once inserted a full
+    second copy (302,180 rows).
+  - The splitting came and went. Some probe series of fresh 150,000-point
+    objects split in most inserts; others of the same size, minutes later,
+    never did. No object of 100,000 points or fewer split, in more than 60
+    inserts across 10k–140k-point sizes (in fact nothing up to 149,000 did).
+  - So: keep objects well below about 100 MB decoded (10k points is about
+    5–9 MB), and treat the token as the backstop FASTPATH says it is. The
+    count check against `row_ordinal`, with repair, is what guarantees
+    exactly-once.
+
+### Measurements
+
+**Edge [M]** (`cmd/pubbench -signal metrics_<type>|metrics`,
+`results/runmetrics.sh`):
+
+- Setup: 3 processes × 30 batches after 3 warm-up batches, 10,000 points of
+  one type per batch (`compare.MetricsBatch`), parquet-go engine, default
+  options (bloom filters on).
+- The box was 4 vCPUs at load 1.0–1.5. Values are medians [min–max].
+- `metrics` is one request holding 10,000 points of *each* type (50,000
+  points, 5 objects), so its k rows/s column counts 10,000 per batch.
+- Raw data: `results/metrics-pubbench.{jsonl,md}`.
+
+| type | CPU µs/point, local | CPU µs/point, S3 | ms/batch S3 (serial / ×4) | object B/point | Go allocs/batch (S3) | peak RSS MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| gauge | 6.9 [6.7–7.7] | 7.3 [7.2–7.5] | 78 / 59 | 21.6 | 1,458 | 111 |
+| sum | 7.1 [6.7–7.2] | 7.1 [7.1–7.3] | 77 / 58 | 12.9 | 1,489 | 111 |
+| histogram | 10.2 [10.0–10.4] | 10.6 [10.5–10.6] | 111 / 85 | 28.8 | 1,584 | 134 |
+| exponential histogram | 11.1 [11.0–11.1] | 11.2 [11.2–11.7] | 121 / 97 | 43.8 | 1,646 | 146 |
+| summary | 6.4 [6.3–7.2] | 6.6 [6.5–7.0] | 70 / 46 | 25.3 | 1,437 | 114 |
+| all five in one request | 8.4 | 8.6 | 431 / 316 | 26.5 | 7,702 | 332 |
+
+- **Most of the cost is the attribute maps.** Every row repeats 12 resource
+  attributes and 4 point attributes (32 strings), and sorts the point map;
+  the resource and scope maps are sorted once per scope.
+- **Where the time goes.** In a gauge profile, 37% is the walk
+  (`Value.Level` appends into the per-leaf buffers dominate). 45% is
+  parquet-go's column writing, dictionary and page statistics, and zstd.
+- **Options barely change it.** Without bloom filters it is the same CPU
+  and 13% smaller. Without statistics and the page index it is 8% faster.
+  Without dictionaries it is 19% slower and 4.6× bigger.
+- **Traces are similar per row:** 7 µs per span.
+- `Parallelism: 4` cuts latency 25–35% for about 5% more CPU.
+
+**Central [M]** (`cmd/metricscentral`; raw data in
+`results/metrics-central.jsonl`):
+
+- **Data:** per type, 100 contiguous batches of 10,000 points, published by
+  parquetgo to SeaweedFS. That is 1 M points per type: 2,000 series × 500
+  rounds of 10 s, or 83 minutes.
+- **Ingest:** one `INSERT … SELECT FROM s3('<object>')` per object, with the
+  single-block settings and a token, into the exporter's table plus the
+  envelope, merges stopped.
+- **Server CPU:** the `system.events` `OSCPUVirtualTimeMicroseconds` delta
+  over the 100 inserts. It counts only when no other query ran, which the
+  `Query` counter confirmed (`OtherQueries: 0`).
+- **Wall time:** the per-insert `elapsed_ns` from `X-ClickHouse-Summary`.
+- **Stored bytes:** after `OPTIMIZE FINAL`, from `system.parts`
+  (`data_compressed_bytes`; `bytes_on_disk` is within 0.3 B), for the
+  exporter's table alone and with the envelope.
+- **Runs:** two full runs, plus one run with 100,000-point objects. The
+  server's load average was 1.9–3.2.
+
+| type | server CPU µs/point (2 runs) | insert wall µs/point, median of the runs' medians [min–max over both] | stored B/point, exporter table | + envelope | uncompressed B/point | biggest columns, B/point |
+| --- | --- | --- | --- | --- | --- | --- |
+| gauge | 7.6 / 8.2 | 7.9 [6.3–17.2] | **17.7** | 18.2 | 531 | ResourceAttributes 8.9, Value 5.3, Attributes 2.1 |
+| sum | 7.5 / 7.8 | 7.8 [6.3–12.6] | **15.3** | 15.9 | 546 | ResourceAttributes 8.9, Value 2.9, Attributes 2.1 |
+| histogram | 9.5 / 9.5 | 9.7 [8.2–14.6] | **48.2** | 48.8 | 839 | BucketCounts 24.1, ResourceAttributes 8.9, Sum 4.0, Max 2.2 |
+| exponential histogram | 10.4 / 11.0 | 10.6 [8.6–24.5] | **38.2** | 38.8 | 890 | PositiveBucketCounts 12.2, ResourceAttributes 8.9, Sum 7.5 |
+| summary | 7.7 / 7.9 | 8.0 [6.9–11.8] | **31.8** | 32.5 | 613 | ValueAtQuantiles.Value 15.1, ResourceAttributes 8.9, Sum 2.8 |
+
+- **Per-insert overhead is real.** With 100,000-point objects the server
+  CPU per point drops to 5.7 (gauge) and 7.2 (histogram) µs, so each insert
+  costs about 20 ms of fixed work. That is the S3 GET, and a part with its
+  marks, primary index and the DDL's six map bloom-filter skip indexes.
+  Batching larger objects, or grouping several small objects into one
+  insert, amortizes it; FASTPATH's one-object-per-insert rule for dedup
+  pays it.
+- **S3 bytes per point:** gauge 21.6, sum 13.4, histogram 30.1,
+  exponential histogram 43.6, summary 25.9. That is Parquet with bloom
+  filters; without them, gauge is 18.7.
+- **Stored bytes hardly depend on how much data a part holds.** After 50k
+  points gauge was 18.1 B/point, after 1 M 17.7. The largest single term,
+  `ResourceAttributes` at about 8.9 B/point, is the same for every type.
+
+**How realistic the data is** (`compare/metricsgen.go`, `MetricsBatch`):
+
+- **Shape:**
+  - 20 resources (5 services × 4 pods), each with 12 k8s/host/SDK resource
+    attributes, including per-pod `service.instance.id`, `k8s.pod.name`
+    and `host.name`;
+  - one scope, 10 metric names per type with descriptions and units;
+  - 10 attribute sets of 4 HTTP attributes per metric;
+  - 2,000 series per type, a 10 s interval, and contiguous batches.
+- **Values:**
+  - gauges: half ints near 1e6 with noise, half doubles random-walking with
+    noise in the low bits;
+  - sums: cumulative, smooth, two-thirds ints;
+  - explicit histograms: the SDK default 15 bounds, a cumulative
+    bell-shaped distribution filling most buckets;
+  - exponential histograms: scale 3, 24–48 random buckets, delta
+    temporality;
+  - summaries: 5 noisy quantiles;
+  - exemplars on 10% of histogram points.
+- **What it gets right:** the structural cost. Maps repeated per row, the
+  exporter's sort key (`ServiceName, MetricName, hour, cityHash64(Attributes),
+  TimeUnix`), which interleaves a service's 4 pods row by row, and the
+  exporter's codecs and indexes are all real.
+- **What it can't know:** the value entropy and label shape of a real fleet.
+  - Real gauges are often integers with long runs of equal values, so
+    `Value` compresses better. Real histograms are often sparse, so bucket
+    arrays of zeros compress far better than the 24 B/point here.
+  - Real fleets have more resource attributes (cloud and k8s labels, often
+    20+), and more pods per service. `ResourceAttributes` scales with both.
+  - Series churn (pods coming and going) worsens compression.
+- **So:** treat stored bytes as ±50% for a real fleet, sensitive mostly to
+  resource-attribute count and histogram density. Treat CPU per point as
+  ±30%, scaling with attribute entries per point.
+
+### The sizing calculator's three numbers
+
+| calculator input | assumed | measured replacement | notes |
+| --- | --- | --- | --- |
+| central CPU per point | 2.5 µs | **≈ 8 µs** (gauge, sum, summary 7.5–8.2; histograms 9.5–11) at 10k-point objects; 5.7–7.2 at 100k-point objects | [M] server CPU for `INSERT … SELECT FROM s3()` into the exporter's DDL (with its 6 skip indexes) plus envelope, single-block settings. Merges (and `OPTIMIZE`) excluded. |
+| stored bytes per point | 10 B | **≈ 16–18 B** for gauge and sum; **32 B** summary; **38–48 B** histograms (+0.5–0.7 B with the envelope) | [M] compressed, after `OPTIMIZE FINAL`, 1 M points per type, synthetic data (±50% [E], see above) |
+| edge CPU per point | 2 µs | **≈ 7 µs** (gauge 6.9–7.3, sum 7.1, summary 6.4–6.6); **10–11 µs** histograms; 8.4–8.6 µs for all five in one request | [M] pubbench, encode + PUT, bloom filters on, 12 resource and 4 point attributes |
+| (blend, for one number) | | central **8.2 µs**, stored **25 B**, edge **7.8 µs** | [E] weights 40% sum, 30% gauge, 20% histogram, 5% exponential histogram, 5% summary points |
+
+### Gaps
+
+- **arrow engine:** no metrics (traces/logs only).
+- **Map key order for traces/logs.** The contrib exporter sorts attribute
+  map keys for *all* its tables. parquetgo's traces/logs (and the chDB
+  exporter, their reference) keep pdata order.
+  - Lookups by key (`m['k']`) and `mapContains` give the same results.
+  - Hashes, `EXCEPT`, `toString(map)` and `mapKeys` order don't.
+  - Fixing it means sorting in `walk.go`/`pgo.go` and, to keep the chDB
+    comparison, in the chDB exporter too. Not done here.
+- **Duplicate attribute keys** (possible only in wire-decoded pdata) keep
+  pdata order here. The exporter's unstable sort leaves them unspecified,
+  so such rows can differ.
+- **A metric of type Empty rejects the whole request,** as the exporter
+  does (`ErrMetricTypeUnset`). A collector wrapper should make that a
+  permanent error.
+- **Manifest mode republishes every type on a retry** after a partial
+  failure. The consumer's content check removes the copies. The inline
+  per-type lanes are not wired (`../awss3` is outside this directory);
+  `MetricsOf` is the hook.
+- **Big objects and single-block inserts:** see "Correctness" above.
+- **The `Reset` workaround** relies on parquet-go v0.32.0's unexported
+  field name. `TestReusedWriterIdentical` fails loudly if a version bump
+  breaks it, and the encoder then falls back to new writers.
+- **Lakehouse readers get seconds, not nanoseconds,** in the metric time
+  columns, because that is the exporter's table type. Adding a ns column
+  would be a schema change for both producers.
+- **Not tested:** real AWS S3; Spark reading metrics objects; exemplar-heavy
+  or high-churn workloads at scale; the central cost with concurrent
+  inserts or merges running; metrics through the chDB exporter (it has
+  none).
+
 ## Existing art
 
 - **contrib `awss3exporter`:** marshalers `otlp_json`, `otlp_proto`, `sumo_ic`
@@ -655,6 +1006,10 @@ several batches in parallel.
   - Spark 4.0.1 and pyarrow reads;
   - library inventories;
   - server read cost.
+- **Measured for metrics [M]:** everything in "Metrics" not marked [E]:
+  - row identity with the contrib exporter;
+  - the single-block behaviour;
+  - edge and central cost per point, and stored bytes on synthetic data.
 - **Estimated [E]:**
   - cold-start time for libchdb;
   - arm64 chDB availability and behaviour;
@@ -688,4 +1043,8 @@ go test -race -v -run 'TestSameRowsAsChdb|TestArrowPageSplitVariants' .
 (cd .. && go test -v -run 'TestCreds|TestS3URLAddressing' .)   # credential modes, needs CHDB_TEST_S3*
 go test -run '^$' -bench GoEncode -benchtime 20x -count 3 .
 go build -o $S/pubbench ./cmd/pubbench && S=$S results/runbench.sh && python3 results/summarize.py $S/bench.jsonl
+# metrics: correctness against the contrib clickhouseexporter (native port: CHDB_TEST_CLICKHOUSE_NATIVE, default host:19000)
+go test -race -v -run 'TestMetrics' .
+S=$S results/runmetrics.sh && python3 results/summarize.py $S/metrics.jsonl       # edge, per type
+go build -o $S/metricscentral ./cmd/metricscentral && $S/metricscentral -n 10000 -batches 100   # central
 ```

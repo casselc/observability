@@ -13,6 +13,7 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
 // sampleMetrics has every metric type, with exemplars, unsorted attribute
@@ -237,4 +238,40 @@ func TestPushMetricsLocal(t *testing.T) {
 			t.Error("arrow engine published metrics")
 		}
 	}
+}
+
+// TestReusedWriterIdentical: a reused encoder writes the same bytes as a
+// fresh one for traces and logs too (parquet-go's Writer.Reset zeroes the
+// column paths unless restoreColumnPaths puts them back).
+func TestReusedWriterIdentical(t *testing.T) {
+	enc := func(e *PGEncoder) []byte {
+		var b bytes.Buffer
+		if _, err := e.Traces(&b, sampleTracesPG(), &Envelope{Batch: 1}); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	reused := NewPGEncoder(DefaultOptions())
+	enc(reused)
+	if !bytes.Equal(enc(reused), enc(NewPGEncoder(DefaultOptions()))) {
+		t.Fatal("a reused encoder's file differs from a fresh one's")
+	}
+	if !reused.traces.reusable {
+		t.Fatal("restoreColumnPaths failed: every file now pays for a new parquet writer")
+	}
+}
+
+func sampleTracesPG() ptrace.Traces {
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "svc")
+	ss := rs.ScopeSpans().AppendEmpty()
+	for i := 0; i < 50; i++ {
+		s := ss.Spans().AppendEmpty()
+		s.SetName("op")
+		s.SetStartTimestamp(pcommon.Timestamp(1_000_000_000 + i))
+		s.Attributes().PutInt("i", int64(i))
+		s.Events().AppendEmpty().Attributes().PutStr("e", "v")
+	}
+	return td
 }

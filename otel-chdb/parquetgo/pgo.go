@@ -145,6 +145,7 @@ type pgSignal struct {
 	rows     int
 	schema   *parquet.Schema
 	w        *parquet.Writer
+	reusable bool // w can be Reset for the next file (restoreColumnPaths works)
 	parallel int
 	opts     []parquet.WriterOption
 
@@ -242,7 +243,7 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 		order[i] = c.name
 	}
 	schema := parquet.NewSchema("schema", orderedGroup{g, order})
-	s := &pgSignal{cols: cols, schema: schema, leaf: make([][2]int, len(cols)), parallel: o.Parallelism}
+	s := &pgSignal{cols: cols, schema: schema, leaf: make([][2]int, len(cols)), parallel: o.Parallelism, reusable: true}
 	for i, c := range cols {
 		var paths [][]string
 		switch c.kind {
@@ -293,12 +294,22 @@ func (s *pgSignal) reset() {
 }
 
 func (s *pgSignal) flush(dst io.Writer) error {
-	// A new writer per file, not Writer.Reset: in parquet-go v0.32.0 Reset
-	// clears the column paths the writer keeps (format.ColumnMetaData.Reset
-	// does clear(PathInSchema) on a slice that aliases them), so every file
-	// after the first would carry empty path_in_schema entries and differ
-	// from a fresh writer's bytes for the same batch.
-	s.w = parquet.NewWriter(dst, s.opts...)
+	if s.w == nil || !s.reusable {
+		s.w = parquet.NewWriter(dst, s.opts...)
+	} else {
+		s.w.Reset(dst)
+		// parquet-go v0.32.0: Reset zeroes the writer's column paths
+		// (format.ColumnMetaData.Reset does clear(PathInSchema) on a slice
+		// that aliases ColumnWriter.columnPath), so every file after the
+		// first would carry empty path_in_schema strings, and differ from a
+		// fresh writer's bytes for the same batch. Put them back; if that
+		// is not possible, use a new writer per file from now on (about
+		// 15-30% more CPU and twice the RSS; README).
+		s.reusable = restoreColumnPaths(s.w, s.schema)
+		if !s.reusable {
+			s.w = parquet.NewWriter(dst, s.opts...)
+		}
+	}
 	cws := s.w.ColumnWriters()
 	// Page-sized runs of whole rows per column; the writer cuts a page when
 	// its buffer passes DataPageSize.
@@ -360,6 +371,30 @@ func (s *pgSignal) flush(dst io.Writer) error {
 		return err
 	}
 	return s.w.Close()
+}
+
+// restoreColumnPaths rewrites each column writer's path (the unexported
+// ColumnWriter.columnPath, which the file footer's path_in_schema aliases)
+// from the schema. It reports false, changing nothing, if the field is not
+// there as expected.
+func restoreColumnPaths(w *parquet.Writer, schema *parquet.Schema) bool {
+	paths := schema.Columns()
+	cws := w.ColumnWriters()
+	if len(cws) != len(paths) {
+		return false
+	}
+	fields := make([][]string, len(cws))
+	for i, cw := range cws {
+		f := reflect.ValueOf(cw).Elem().FieldByName("columnPath")
+		if !f.IsValid() || f.Kind() != reflect.Slice || f.Type().Elem().Kind() != reflect.String || f.Len() != len(paths[i]) {
+			return false
+		}
+		fields[i] = unsafe.Slice((*string)(f.UnsafePointer()), f.Len())
+	}
+	for i := range fields {
+		copy(fields[i], paths[i])
+	}
+	return true
 }
 
 func bytesOf(str string) []byte { return unsafe.Slice(unsafe.StringData(str), len(str)) }

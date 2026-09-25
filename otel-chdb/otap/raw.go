@@ -95,7 +95,7 @@ const wAll = "(PARTITION BY batch_id ORDER BY rn ROWS BETWEEN UNBOUNDED PRECEDIN
 // rawAttrs decodes an attribute table's quasi-delta parent_id (a delta while
 // type, key and value repeat, for str/int/double/bool/bytes values; absolute
 // otherwise) and aggregates one Map per (batch_id, parent). CBOR values
-// (maps, slices) cannot be rendered in SQL: they come out as ''.
+// (maps, slices) cannot be rendered in SQL: they come out as ”.
 func rawAttrs(s RawSource) string {
 	if s.From == "" {
 		return "(SELECT toUInt64(0) AS batch_id, toUInt64(0) AS parent_id, map('', '') AS m WHERE 0)"
@@ -186,7 +186,7 @@ func RawTracesSelect(src map[string]RawSource, env RawEnvelope) string {
 }
 
 // RawLogsSelect rebuilds otel_logs rows from raw OTAP payloads. Map and
-// slice bodies are CBOR, which SQL cannot render: they come out as ''.
+// slice bodies are CBOR, which SQL cannot render: they come out as ”.
 func RawLogsSelect(src map[string]RawSource, env RawEnvelope) string {
 	lg := src["logs"]
 	logs := fmt.Sprintf(`(SELECT *, rn - min(rn) OVER (PARTITION BY batch_id) AS rn0,

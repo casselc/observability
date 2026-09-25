@@ -1,0 +1,72 @@
+objects under http://127.0.0.1:18333/otel/otap/c1790301848
+via-pdata nasty traces: otap: otel-arrow consumer returned no data and no error (batch dropped)
+via-pdata nasty logs: otap: otel-arrow consumer returned no data and no error (batch dropped)
+traces raw, all batches: clickhouse: Code: 117. DB::Exception: Arrow IPC field 'name' is declared non-nullable but its FieldNode reports 505 nulls: (in file/uri otel/otap/c1790301848/traces/raw/00000000000000000002/span_events.arrows): While executing ArrowIPCBlockInputFormat: While executing ReadFromObjectStorage. (INCORRECT_DATA) (version 26.10.1.618 (official build))
+traces raw: ingested batch 1 (testgen) only
+traces ref: exact 3700	17713072352871708503, normalised 3700	4789683205443000262
+traces star         batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+traces star         batch 2 (nasty) exact     : 614 rows not in ref, 614 ref rows not in it
+traces star         batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+traces star         batch 2 (nasty) normalised: 522 rows not in ref, 522 ref rows not in it
+traces star         exact 3700	8989278620802910947 (ref 3700	17713072352871708503) | normalised 3700	2220916396688377013 (ref 3700	4789683205443000262): DIFFERS
+traces flat-parquet batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+traces flat-parquet batch 2 (nasty) exact     : 614 rows not in ref, 614 ref rows not in it
+traces flat-parquet batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+traces flat-parquet batch 2 (nasty) normalised: 522 rows not in ref, 522 ref rows not in it
+traces flat-parquet exact 3700	8989278620802910947 (ref 3700	17713072352871708503) | normalised 3700	2220916396688377013 (ref 3700	4789683205443000262): DIFFERS
+traces flat-arrow   batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+traces flat-arrow   batch 2 (nasty) exact     : 614 rows not in ref, 614 ref rows not in it
+traces flat-arrow   batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+traces flat-arrow   batch 2 (nasty) normalised: 522 rows not in ref, 522 ref rows not in it
+traces flat-arrow   exact 3700	8989278620802910947 (ref 3700	17713072352871708503) | normalised 3700	2220916396688377013 (ref 3700	4789683205443000262): DIFFERS
+traces via-pdata    batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+traces via-pdata    batch 2 (nasty) exact     : 0 rows not in ref, 700 ref rows not in it
+traces via-pdata    batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+traces via-pdata    batch 2 (nasty) normalised: 0 rows not in ref, 700 ref rows not in it
+traces via-pdata    exact 3000	6509928356541779418 (ref 3700	17713072352871708503) | normalised 3000	5254209565198817464 (ref 3700	4789683205443000262): DIFFERS
+traces raw          batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+traces raw          batch 2 (nasty) exact     : 0 rows not in ref, 700 ref rows not in it
+traces raw          batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+traces raw          batch 2 (nasty) normalised: 0 rows not in ref, 700 ref rows not in it
+traces raw          exact 3000	6509928356541779418 (ref 3700	17713072352871708503) | normalised 3000	5254209565198817464 (ref 3700	4789683205443000262): DIFFERS
+logs ref: exact 3700	15691019778445988667, normalised 3700	13375860585432009787
+logs star         batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+logs star         batch 2 (nasty) exact     : 525 rows not in ref, 525 ref rows not in it
+logs star         batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+logs star         batch 2 (nasty) normalised: 364 rows not in ref, 364 ref rows not in it
+logs star         exact 3700	3079824098742991871 (ref 3700	15691019778445988667) | normalised 3700	6666621014147603989 (ref 3700	13375860585432009787): DIFFERS
+logs flat-parquet batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+logs flat-parquet batch 2 (nasty) exact     : 525 rows not in ref, 525 ref rows not in it
+logs flat-parquet batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+logs flat-parquet batch 2 (nasty) normalised: 364 rows not in ref, 364 ref rows not in it
+logs flat-parquet exact 3700	3079824098742991871 (ref 3700	15691019778445988667) | normalised 3700	6666621014147603989 (ref 3700	13375860585432009787): DIFFERS
+logs flat-arrow   batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+logs flat-arrow   batch 2 (nasty) exact     : 525 rows not in ref, 525 ref rows not in it
+logs flat-arrow   batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+logs flat-arrow   batch 2 (nasty) normalised: 364 rows not in ref, 364 ref rows not in it
+logs flat-arrow   exact 3700	3079824098742991871 (ref 3700	15691019778445988667) | normalised 3700	6666621014147603989 (ref 3700	13375860585432009787): DIFFERS
+logs via-pdata    batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+logs via-pdata    batch 2 (nasty) exact     : 0 rows not in ref, 700 ref rows not in it
+logs via-pdata    batch 1 (testgen) normalised: 0 rows not in ref, 0 ref rows not in it
+logs via-pdata    batch 2 (nasty) normalised: 0 rows not in ref, 700 ref rows not in it
+logs via-pdata    exact 3000	499154802092341624 (ref 3700	15691019778445988667) | normalised 3000	6013313077457006686 (ref 3700	13375860585432009787): DIFFERS
+logs raw          batch 1 (testgen) exact     : 3000 rows not in ref, 3000 ref rows not in it
+logs raw          batch 2 (nasty) exact     : 700 rows not in ref, 700 ref rows not in it
+logs raw          batch 1 (testgen) normalised: 750 rows not in ref, 750 ref rows not in it
+logs raw          batch 2 (nasty) normalised: 700 rows not in ref, 700 ref rows not in it
+logs raw          exact 3700	16225372420712751692 (ref 3700	15691019778445988667) | normalised 3700	6668925108722334739 (ref 3700	13375860585432009787): DIFFERS
+--- PASS: TestCentralMatchesReference (25.80s)
+pdata key order hagbfced; library consumer, 50 decodes: 8 distinct key orders, 1 distinct AsString; this package: hagbfced
+--- PASS: TestLibraryCBORMapOrder (0.03s)
+traces stable: true; nasty logs stable: true
+--- PASS: TestEncodeDeterministic (1.04s)
+empty      pdata "" -> library consumer present=false ""
+emptystr   pdata "" -> library consumer present=true ""
+emptybytes pdata "" -> library consumer present=true ""
+emptyslice pdata "[]" -> library consumer present=true "[]"
+emptymap   pdata "{}" -> library consumer present=true "{}"
+s          pdata "x" -> library consumer present=true "x"
+flattened LogAttributes: [{"key":"emptystr","value":""},{"key":"s","value":"x"},{"key":"emptymap","value":"{}"},{"key":"emptyslice","value":"[]"},{"key":"emptybytes","value":""}]
+--- PASS: TestEmptyValuedAttributes (0.00s)
+PASS
+ok  	github.com/chucklehead-dev/oscope/spike/otel-chdb/otap	26.896s

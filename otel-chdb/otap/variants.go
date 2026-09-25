@@ -2,10 +2,10 @@ package otap
 
 import (
 	"bytes"
-	"errors"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 

@@ -48,9 +48,9 @@ type result struct {
 	GoAllocsPerBatch       float64
 	GoBytesPerBatch        float64
 	MaxRSSMB               float64
-	ObjectBytes            int     `json:",omitempty"`
-	Objects                int     `json:",omitempty"`
-	BARBytes               int     `json:",omitempty"`
+	ObjectBytes            int                `json:",omitempty"`
+	Objects                int                `json:",omitempty"`
+	BARBytes               int                `json:",omitempty"`
 	S3PerBatch             map[string]float64 `json:",omitempty"`
 }
 

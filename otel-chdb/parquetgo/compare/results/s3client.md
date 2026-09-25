@@ -45,3 +45,44 @@ middleware and allocations only. 300 PUTs × 3 runs; medians. [M]
   ~135–190 allocations and the lowest latency, at the cost of owning retries,
   endpoint handling and error parsing (a 412 is just a status code there).
   Worth it only if allocations matter in a memory-constrained collector.
+
+## Can the SDK's pipeline be preconfigured? (`compare/s3lean_test.go`)
+
+No. `s3.(*Client).invokeOperation` builds a fresh middleware stack and copies
+the client options on every call; there is no public way to build it once
+and reuse it. A memory profile of `sdk-default` (1.2 KB body, https) splits
+its ~410 SDK allocations per PUT roughly as follows (differences of
+cumulative counts down the chain) [M]:
+
+| part | allocs/PUT |
+| --- | --- |
+| stack construction + options copy | ~100 |
+| HTTP round trip + response deserialize | ~74 |
+| SigV4 signing | ~56 |
+| auth-scheme resolution | ~41 |
+| endpoint rules engine | ~30 |
+| retry wrapper | ~27 |
+| serialize | ~24 |
+| build step (user agent, recursion detection, request id, 100-continue) | ~17 |
+
+What *can* be replaced through `s3.Options` is replaced in `lean`: a static
+`EndpointResolverV2` (`{base}/{bucket}`), a fixed `AuthSchemeResolver`
+(SigV4, `s3`, one region, built once), `NopRetryer`, checksums only when
+required; `dropMiddlewares` additionally removes the four build-step
+middlewares. `TestS3LeanAgainstS3` shows SeaweedFS accepts the result
+(signature, read-back, `If-None-Match: *` → 412).
+
+| body | scheme | config | allocs | B/op |
+| --- | --- | --- | --- | --- |
+| 1.2 KB | https | default | 506 | 41 K |
+| 1.2 KB | https | lean | 457 | 38 K |
+| 1.2 KB | https | lean + drop middlewares | 443 | 37 K |
+| 1 MiB | https | default | 555 | 76 K |
+| 1 MiB | https | lean | 499 | 71 K |
+| 1 MiB | https | lean + drop middlewares | 484 | 71 K |
+
+About 10–12% fewer allocations and no measurable latency change, while giving
+up retries, endpoint rules (virtual-host, FIPS, dual-stack, S3 Express,
+access points) and the SDK's integrity defaults. Not worth it; the only
+large reduction is leaving the SDK's operation pipeline entirely (the bare
+SigV4 signer on `net/http`: ~135–190 allocations).

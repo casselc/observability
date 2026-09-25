@@ -389,9 +389,9 @@ Invariants:
   steps with seed `0x5eed`, and again with seed `0x1`;
 - `idealEnv` passes 1,000 traces;
 - Apalache: `safety` holds for every execution up to 6 steps (149 s).
-  A 10-step run (started 02:08) had checked every state up to 8 steps with
-  no violation at 02:47 and was still on step 9 when this was written. Its
-  output goes to the scratch `apalache10.txt`.
+  A 10-step run timed out after 90 minutes on step 9. By then every state up
+  to 8 steps had been checked with no violation, so treat the bound as
+  8 steps (partial).
 
 Every witness is reached:
 

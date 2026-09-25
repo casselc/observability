@@ -173,6 +173,13 @@ async fn main() {
         return;
     }
 
+    if args.get(1).map(String::as_str) == Some("purge") {
+        // Deletes every object under the root (test cleanup).
+        let keys: Vec<String> = bucket.list(&root, None).await.expect("list").into_iter().map(|i| i.key).collect();
+        let n = bucket.delete(&keys).await.expect("delete");
+        println!("{}", serde_json::json!({"purged": n, "root": root}));
+        return;
+    }
     if args.get(1).map(String::as_str) == Some("audit") {
         audit(&args, &*bucket, &root).await;
         return;

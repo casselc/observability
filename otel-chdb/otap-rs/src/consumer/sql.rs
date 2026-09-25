@@ -83,11 +83,11 @@ impl LaneKind {
 
     pub fn create_table(&self, fq: &str) -> String {
         let s = Signal::from_name(&self.signal).expect("a known signal");
-        match s {
-            Signal::MetricsSeries => central::series_create_table(fq),
-            s if s.is_series_layout() => central::points_create_table(fq, &self.structure),
-            s => central::create_table(fq, s),
+        if s.is_series_layout() {
+            return central::series_layout_create_table(fq, s.table(), self.counted)
+                .unwrap_or_else(|| panic!("{} is not in sql/series_tables.sql", s.table()));
         }
+        central::create_table(fq, s)
     }
 }
 
@@ -383,6 +383,13 @@ mod tests {
         let s = c.insert_sql(&se, &[&a], f);
         assert!(s.contains("mapFromArrays(") && !s.contains("content_key"), "{s}");
         assert!(se.create_table("db.s").contains("AggregatingMergeTree"));
+        for sig in ["metrics_number_points", "metrics_gauge_points", "metrics_sum_points", "metrics_histogram_points",
+                    "metrics_exponential_histogram_points", "metrics_summary_points"] {
+            let k = LaneKind::for_signal(sig).unwrap();
+            let ddl = k.create_table("db.t");
+            assert!(k.counted && ddl.starts_with("CREATE TABLE IF NOT EXISTS db.t\n(") && ddl.contains("PROJECTION by_content"), "{ddl}");
+            assert!(ddl.contains("content_key LowCardinality(String),\n    PROJECTION") && ddl.ends_with("index_granularity = 8192"), "{ddl}");
+        }
         assert!(LaneKind::for_signal("metrics_gauge").unwrap().counted);
         assert!(LaneKind::for_signal("nope").is_none());
     }

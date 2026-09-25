@@ -188,21 +188,14 @@ encbench: the in-process edge benchmark (pubbench's accounting)
   - A custom endpoint means path-style addressing and `allow_http`.
   - `ca_bundle` adds extra roots.
   - Credentials: see [Credentials](#credentials-and-deployment).
-- **Consumer** (`src/bin/consume.rs`, `src/central.rs`, on `proto::Consumer`).
-  - It follows each epoch in slot order and HEADs each slot.
-  - The check is a full count against an aggregating projection
-    `content_key → count()`.
-  - The insert is `INSERT … SELECT FROM s3('<exact key>', structure)` with
-    FASTPATH's single-block settings, including the Parquet reader's
-    `input_format_parquet_max_block_size` / `prefer_block_bytes`, and the
-    content key as `insert_deduplication_token`. A partial batch gets a
-    repair path.
-  - The target: `PARTITION BY toDate(received_at)` (constant per batch), and
-    `non_replicated_deduplication_window = 1000` pinned.
-  - It closes a superseded epoch with a create-only tombstone in its first
-    free slot, once that slot has stayed free for `--quiet`.
-  - The checkpoint and the closed set persist to `--state` after every step,
-    standing in for S3NATIVE.md's CAS'd object.
+- **Consumer** (`src/bin/consume.rs`, `src/consumer/`, `src/central.rs`):
+  a fleet of workers sharing the lanes through a lease and a checkpoint per
+  lane, CAS'd on S3; several committed objects per `INSERT … SELECT FROM
+  s3()`, verified against an aggregating projection `content_key →
+  count()`; dead epochs closed by tombstones; a separate GC step. See
+  [Consumer](#consumer). (The prototype it replaces followed one epoch at a
+  time with one statement per object and a local state file; its flags
+  still work.)
 
 ## Upstream: what was changed, what was found
 
@@ -1129,7 +1122,10 @@ edge; OTAP input costs the edge more, not less.**
 Closed in this round (each has its section above): metrics layout B at the
 edge, `AWS_CA_BUNDLE` / `HTTPS_PROXY` / `NO_PROXY` / `AWS_PROFILE` and
 AssumeRole chaining, a persistent queue at the edge (Quiver), the OTAP
-receiver end to end, and OTLP/gRPC input measured.
+receiver end to end, OTLP/gRPC input measured, and the consumer (a CAS'd
+lease and checkpoint on S3, GC, several objects per statement, every lane
+including layout B's; its own open items are in
+[What the consumer leaves open](#what-the-consumer-leaves-open)).
 
 - **Not tested against:**
   - real AWS S3, EKS or STS (STS is a stand-in that answers any action and
@@ -1142,18 +1138,14 @@ receiver end to end, and OTLP/gRPC input measured.
   (object_store's path); a non-empty session token wasn't exercised against
   the store.
 - **Layout B:**
-  - **no importer yet**: the consumer (`consume`, being extended separately)
-    doesn't know the `metrics_*_points` / `metrics_series` namespaces;
-    `series::structure` and `series::insert_select` are its statements, and
-    `scripts/metrics_correctness.py` does the same imports for the check.
-    The series lane needs no count check and no dedup token (the table is
-    idempotent);
   - **no wire saving** against this crate's ClickStack objects (the 8-byte
     `series_id` per point); a per-epoch dense ordinal is the untried fix;
-  - the model extension the spike proposed (the invariant "every ingested
-    point's series row is eventually ingested", and the mutation "announce
-    before the series commit resolves") isn't written; the rule is enforced
-    in `commit_one` and covered by `tests/series.rs`'s cache test only;
+  - the announce rule is in the model now (`../model/s3InlineConsumer.qnt`:
+    `announcedOnlyAfterCommit`, broken by the `announceEarly` mutant), but
+    by simulation only: quint-connect doesn't drive the edge's cache, which
+    `tests/series.rs` covers; the eventual form ("every ingested point's
+    series row is ingested") is checked on the soak's data, not in the
+    model;
   - central CPU and stored bytes were not re-measured on the Rust objects
     (the spike's are for the prototype's objects, which are the same rows);
   - the views filter merged gauge/sum on the point's `MetricType`; HyperDX's
@@ -1165,21 +1157,14 @@ receiver end to end, and OTLP/gRPC input measured.
 - **OTAP input:** invalid UTF-8 in any string closes the whole stream (a
   poison batch for a resending client); map entry and row order are the
   producer's, not the client's; the edge spends 14–55% more CPU than on OTLP.
-- **The consumer** is a prototype (being reworked separately):
-  - its checkpoint is a local file, not the CAS'd object of S3NATIVE.md;
-  - there is no lease and no GC;
-  - it runs one statement per object.
-
-  The quiet time before a tombstone only affects liveness: a premature one
-  makes a live edge move to a new epoch (the zombie scenario).
 - **Lanes:** one lane per signal was measured. Throughput per lane is
   1 / (encode + PUT), about 20 batches/s locally. More lanes run concurrently
   on the pipeline's one thread and share its CPU.
 - **Content key:** the key hashes the request bytes, as ../awss3 does
   (SHA-256 there, BLAKE3 here). A client that re-batches differently after a
-  restart produces new keys. The consumer then relies on
-  `insert_deduplication_token` only, which is ../awss3's documented caveat
-  for post-queue batching. (OTAP input and layout B's series objects are
+  restart produces new keys, and the consumer ingests both copies: its
+  check keys on content, and its dedup token on the statement. This is
+  ../awss3's documented caveat for post-queue batching. (OTAP input and layout B's series objects are
   keyed by a hash of their columns instead.)
 
 ## Reproduce
@@ -1226,10 +1211,25 @@ B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data RUN=o$(date +%s) PREFIX=otap-rs-e
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/mdata RUN=mo$(date +%s) PREFIX=otap-rs-edge PATHS="otapgrpc series:otapgrpc" OUT=results/otap scripts/metrics_e2e.sh
 B=$CARGO_TARGET_DIR/release T=$S/bin D=$S/data MD=$S/mdata OUT=results/inputs/bench.jsonl scripts/input_bench.sh && python3 scripts/input_summarize.py results/inputs/bench.jsonl
 $S/bin/seriesref -rm otap-rs-edge/                   # clean up the run's objects
+# the consumer: unit tests (with an in-memory fleet), the model, the model-based test
+cargo test --release --bin consume
+(cd ../model && quint run s3InlineConsumer.qnt --main s3InlineConsumerDesign --invariant safety --max-samples 5000 --max-steps 60)
+(cd ../model && quint run s3InlineConsumer.qnt --main noTimeBound --invariant atMostOnce --max-samples 20000 --max-steps 60)  # fails; noVerify, gcTombs, announceEarly
+QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --nocapture   # OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify: fails
+(cd tools && go build -o $S/bin/ ./cmd/soaksend ./cmd/faultproxy2)
+cp $CARGO_TARGET_DIR/release/{otap-s3pq,consume} $S/bin/
+# batching: 400 small requests per signal into one edge, then the consumer at 1, 8 and 32 objects per statement
+R=cb$(date +%s); ADMIN_HTTP=127.0.0.1:28080 S3_URL=http://127.0.0.1:18333/otel/otap-rs-consumer/$R/edges/edge-1 $S/bin/otap-s3pq -c scripts/consumer_soak_edge.yaml &
+sleep 2; $S/bin/soaksend -url http://127.0.0.1:14318 -rate 40 -n 400 -rows 200 -points 20 -out /dev/null; kill -TERM %1
+B=$S/bin RUN=$R BATCHES="1 8 32" REPS=3 OUT=results/consumer/bench.jsonl scripts/consumer_bench.sh
+CHC="clickhouse client --port 19000" RUN=$R SIGNAL=traces scripts/consumer_fixedcost.sh   # after one consume --db otaprs_consumer_fc run
+B=$S/bin OUT=results/consumer/latency.jsonl POLLS="200ms 1s" scripts/consumer_latency.sh
+B=$S/bin OUT=$S/soak DURATION=1800 scripts/consumer_soak.sh                              # verdict: $S/soak/summary.txt
+$S/bin/consume purge --s3 http://127.0.0.1:18333/otel/otap-rs-consumer/$R                # clean up
 ```
 
 Everything writes under `s3://otel/otap-rs/` (metrics: `s3://otel/metrics-rs/`; this round's runs:
-`s3://otel/otap-rs-edge/`, deleted afterwards) on the local SeaweedFS. Every
+`s3://otel/otap-rs-edge/` and, for the consumer, `s3://otel/otap-rs-consumer/`, deleted afterwards) on the local SeaweedFS. Every
 ClickHouse database is private and dropped afterwards.
 
 ## Files
@@ -1247,14 +1247,14 @@ ClickHouse database is private and dropped afterwards.
 | `src/batch.rs`, `src/encode.rs` | content key, flatten + encode per slot; Parquet and Arrow IPC writers |
 | `src/proto.rs` | the commit protocol: `Lane`, `Consumer`, keys, metadata, mutations |
 | `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential order, CA bundle, credential_process, in-memory store with faults |
-| `src/central.rs`, `src/bin/consume.rs` | the central consumer |
+| `src/bin/consume.rs`, `src/consumer/`, `src/central.rs` | the central consumer: `coord` (lease, checkpoint), `plan` (scan, verdicts, grouping), `bucket` (S3 with request counts; in memory), `sql` (lane kinds, statements; in-memory central), `worker`, `gc`, `tests` (the in-memory fleet); `consume gc`, `audit`, `purge` |
 | `src/bin/encbench.rs` | the in-process edge benchmark |
-| `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt` and `../model/s3InlineMetrics.qnt`; the shared log driver |
+| `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/mbt_s3inline_consumer.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt`, `../model/s3InlineMetrics.qnt` and `../model/s3InlineConsumer.qnt`; the shared log driver |
 | `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
 | `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes (19, plus the signer against SeaweedFS), deterministic encoding, the upstream view bug |
 | `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules |
 | `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
-| `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc` |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers |
-| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench) |
+| `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`) |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat) |

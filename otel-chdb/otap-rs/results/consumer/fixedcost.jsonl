@@ -1,0 +1,42 @@
+{"signal": "traces", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 17.82, "cpu_ms_per_object": 17.82}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 54.12, "cpu_ms_per_object": 6.76}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 30.77, "cpu_ms_per_object": 3.85}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 186.02, "cpu_ms_per_object": 5.81}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 70.91, "cpu_ms_per_object": 2.22}
+{"signal": "traces", "what": "check", "keys": 1, "cpu_ms": 0.37}
+{"signal": "traces", "what": "check", "keys": 32, "cpu_ms": 0.00}
+{"signal": "traces", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 14.74, "cpu_ms_per_object": 14.74}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 53.17, "cpu_ms_per_object": 6.65}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 24.86, "cpu_ms_per_object": 3.11}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 190.16, "cpu_ms_per_object": 5.94}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 70.99, "cpu_ms_per_object": 2.22}
+{"signal": "traces", "what": "check", "keys": 1, "cpu_ms": 0.85}
+{"signal": "traces", "what": "check", "keys": 32, "cpu_ms": 0.61}
+{"signal": "traces", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 11.25, "cpu_ms_per_object": 11.25}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 55.05, "cpu_ms_per_object": 6.88}
+{"signal": "traces", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 26.34, "cpu_ms_per_object": 3.29}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 199.49, "cpu_ms_per_object": 6.23}
+{"signal": "traces", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 74.20, "cpu_ms_per_object": 2.32}
+{"signal": "traces", "what": "check", "keys": 1, "cpu_ms": 0.93}
+{"signal": "traces", "what": "check", "keys": 32, "cpu_ms": 0.20}
+{"signal": "metrics_number_points", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 9.88, "cpu_ms_per_object": 9.88}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 45.53, "cpu_ms_per_object": 5.69}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 23.86, "cpu_ms_per_object": 2.98}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 178.19, "cpu_ms_per_object": 5.57}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 60.01, "cpu_ms_per_object": 1.88}
+{"signal": "metrics_number_points", "what": "check", "keys": 1, "cpu_ms": 0.96}
+{"signal": "metrics_number_points", "what": "check", "keys": 32, "cpu_ms": 0.52}
+{"signal": "metrics_number_points", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 12.06, "cpu_ms_per_object": 12.06}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 55.49, "cpu_ms_per_object": 6.94}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 22.44, "cpu_ms_per_object": 2.81}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 162.25, "cpu_ms_per_object": 5.07}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 57.61, "cpu_ms_per_object": 1.80}
+{"signal": "metrics_number_points", "what": "check", "keys": 1, "cpu_ms": 0.61}
+{"signal": "metrics_number_points", "what": "check", "keys": 32, "cpu_ms": 0.00}
+{"signal": "metrics_number_points", "what": "insert", "objects": 1, "mode": "nosquash", "cpu_ms": 11.67, "cpu_ms_per_object": 11.67}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "nosquash", "cpu_ms": 47.58, "cpu_ms_per_object": 5.95}
+{"signal": "metrics_number_points", "what": "insert", "objects": 8, "mode": "squash", "cpu_ms": 22.09, "cpu_ms_per_object": 2.76}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "nosquash", "cpu_ms": 160.55, "cpu_ms_per_object": 5.02}
+{"signal": "metrics_number_points", "what": "insert", "objects": 32, "mode": "squash", "cpu_ms": 53.13, "cpu_ms_per_object": 1.66}
+{"signal": "metrics_number_points", "what": "check", "keys": 1, "cpu_ms": 0.83}
+{"signal": "metrics_number_points", "what": "check", "keys": 32, "cpu_ms": 0.49}

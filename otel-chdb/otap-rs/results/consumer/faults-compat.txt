@@ -1,0 +1,6 @@
+run cf1790352736, 6 requests of 10k spans per scenario
+PASS ambiguous: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+PASS applylate: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+PASS dropped: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+PASS crash: requests=6 objects=7 tombstones=1 central(rows, distinct content, epochs)=60000 6 1
+PASS zombie: requests=6 objects=6 tombstones=2 central(rows, distinct content, epochs)=60000 6 3

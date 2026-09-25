@@ -53,6 +53,7 @@ module s3InlineConsumer {
   // simulation finds it in reasonable time).
   const WRITER_FAULTS: bool    // ambiguous and lost PUTs, zombie writers
   const SERIES: bool           // the series lane's actions
+  const TTL: int               // the lease TTL, in ticks
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -60,10 +61,9 @@ module s3InlineConsumer {
     CHECK_CENTRAL = true) as L from "./s3Inline"
 
   pure val WORKERS: Set[int] = Set(1, 2)
-  pure val TTL: int = 3
   pure val MARGIN: int = 1
   pure val BUDGET: int = 1
-  pure val MAX_TIME: int = 16
+  pure val MAX_TIME: int = 24
   pure val NEVER: int = 1000
   pure val REQS: Set[int] = Set(1, 2)
 
@@ -72,6 +72,9 @@ module s3InlineConsumer {
   type Ckpt = { version: int, leaseEpoch: int, next: int -> int, closed: int -> bool }
   type Worker = {
     holds: bool, inc: int, leaseEpoch: int, sent: int,
+    // since when this process has seen the current lease version (a
+    // restarted process has seen nothing before its restart)
+    seen: int,
     view: Ckpt, phase: WPhase, epoch: int, objs: Set[Obj], pending: Set[Obj],
   }
   type Stmt = { worker: int, inc: int, objs: Set[Obj], fence: int }
@@ -102,9 +105,13 @@ module s3InlineConsumer {
   def mayStart(w: Worker): bool = not(TIME_BOUND) or time + BUDGET <= safeUntil(w)
   pure def fenceOf(w: Worker): int = if (TIME_BOUND) safeUntil(w) - BUDGET else NEVER
   def lapsed(w: Worker): bool = TIME_BOUND and time >= safeUntil(w)
-  // An observer may take the lane (coord.rs: Observer::may_take), seeing
-  // each version the moment it is written: the earliest possible takeover.
-  def takeable: bool = lease.owner == 0 or time >= lease.sent + TTL + MARGIN
+  // A worker may take the lane (coord.rs: Observer::may_take) once it has
+  // seen the same version for TTL + MARGIN. Workers see each version the
+  // moment it is written (the earliest possible takeover); a restarted
+  // worker only from its restart on.
+  def takeable(w: int): bool = lease.owner == 0 or time >= workers.get(w).seen + TTL + MARGIN
+  // Every worker sees a new lease version at once.
+  def seeAll(ws: int -> Worker): int -> Worker = ws.keys().mapBy(x => { ...ws.get(x), seen: time })
   // Its lease is still the one it wrote (a CAS on it would succeed).
   def current(w: int): bool =
     lease == { owner: w, epoch: workers.get(w).leaseEpoch, sent: workers.get(w).sent }
@@ -161,10 +168,10 @@ module s3InlineConsumer {
     val ne = lease.epoch + 1
     val nc = { ...ckpt, version: ckpt.version + 1, leaseEpoch: ne }
     all {
-      not(wk.holds), wk.phase == WIdle, takeable,
+      not(wk.holds), wk.phase == WIdle, takeable(w),
       lease' = { owner: w, epoch: ne, sent: time },
       ckpt' = nc,
-      workers' = workers.set(w, { ...idle(wk), holds: true, leaseEpoch: ne, sent: time, view: nc }),
+      workers' = seeAll(workers.set(w, { ...idle(wk), holds: true, leaseEpoch: ne, sent: time, view: nc })),
       cevents' = cevents.union(if (lease.owner != 0) Set("takeover") else Set()),
       time' = time, central' = central, stmts' = stmts, keepL, keepSeries,
     }
@@ -175,7 +182,7 @@ module s3InlineConsumer {
     all {
       wk.holds, current(w), not(lapsed(wk)),
       lease' = { ...lease, sent: time },
-      workers' = workers.set(w, { ...wk, sent: time }),
+      workers' = seeAll(workers.set(w, { ...wk, sent: time })),
       time' = time, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents, keepL, keepSeries,
     }
   }
@@ -297,7 +304,7 @@ module s3InlineConsumer {
     val wk = workers.get(w)
     all {
       wk.holds or wk.phase != WIdle,
-      workers' = workers.set(w, { ...idle(wk), holds: false, inc: wk.inc + 1 }),
+      workers' = workers.set(w, { ...idle(wk), holds: false, inc: wk.inc + 1, seen: time }),
       cevents' = cevents.union(Set("workerCrash")),
       time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries,
     }
@@ -373,7 +380,7 @@ module s3InlineConsumer {
     L::init,
     time' = 0,
     lease' = { owner: 0, epoch: 0, sent: 0 },
-    workers' = WORKERS.mapBy(_ => { holds: false, inc: 0, leaseEpoch: 0, sent: 0, view: C0,
+    workers' = WORKERS.mapBy(_ => { holds: false, inc: 0, leaseEpoch: 0, sent: 0, seen: 0, view: C0,
                                      phase: WIdle, epoch: 0, objs: Set(), pending: Set() }),
     ckpt' = C0,
     central' = L::PAYLOADS.mapBy(_ => 0),
@@ -456,30 +463,35 @@ module s3InlineConsumer {
 // The design, in the full hostile environment.
 module s3InlineConsumerDesign {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = true, SERIES = true).*
+    WRITER_FAULTS = true, SERIES = true, TTL = 6).*
 }
-// The design in the mutants' narrower environments (must pass too).
+// The design in the mutants' narrower environment (must pass too).
 module designQuiet {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 6).*
+}
+// ... and with the mutants' short lease.
+module designShortLease {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = false, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = true, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = true, SERIES = false).*
+    WRITER_FAULTS = true, SERIES = false, TTL = 3).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = true,
-    WRITER_FAULTS = false, SERIES = true).*
+    WRITER_FAULTS = false, SERIES = true, TTL = 3).*
 }

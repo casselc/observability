@@ -1,0 +1,9 @@
+quint-connect 0.1.2, quint 0.32.0 (Rust evaluator v0.6.0), QUINT_SEED=0x5eed
+PASS s3InlineConsumerDesign (300 traces, max 60 steps): 300 traces, 18231 steps; consumer actions: cDrop 7 wAdvance 1 wLapse 46 wTomb 134 wCheck 55 wAcquire 816 wCrash 672 wSend 9 cApply 1 wRenew 659
+PASS designQuiet (1000 traces, max 80 steps): 1000 traces, 45165 steps; consumer actions: cDrop 129 wAdvance 66 wLapse 260 wTomb 478 wCheck 486 wAcquire 3161 wCrash 2898 wSend 193 cApply 62 wRenew 2688 gc 17
+FAIL (expected) OTAPRS_CONSUMER_MUTANT=no_time_bound on s3inline_consumer_design_simulation: trace 2, step 56 (wSend)
+FAIL (expected) OTAPRS_CONSUMER_MUTANT=no_time_bound on s3inline_consumer_quiet_simulation: trace 3, step 35 (wSend)
+FAIL (expected) OTAPRS_CONSUMER_MUTANT=no_verify on s3inline_consumer_design_simulation: trace 39, step 53 (wAdvance)
+FAIL (expected) OTAPRS_CONSUMER_MUTANT=no_verify on s3inline_consumer_quiet_simulation: trace 3, step 41 (wAdvance)
+  no_time_bound: the statement's fence differs (model: 19, code: none)
+  no_verify: the checkpoint's next slot of epoch 2 differs (model: 0, nothing landed; code: 1)

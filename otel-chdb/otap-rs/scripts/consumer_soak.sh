@@ -82,6 +82,12 @@ PID[gc]=$!
 "$B/consume" audit --s3 "$ROOT" --out "$OUT/committed.jsonl" --every 1s --run-for 100000s >> "$OUT/audit.log" 2>&1 &
 PID[audit]=$!
 
+# The test box's disk: replaced parts of these small, frequent inserts stay
+# for old_parts_lifetime (8 min by default), about 10x the live data here.
+# Shorten it on this run's tables (a test setting, not the product's DDL).
+( sleep 20; for t in $(ch "SELECT name FROM system.tables WHERE database = '$DB'"); do
+    ch "ALTER TABLE $DB.$t MODIFY SETTING old_parts_lifetime = 20"; done ) &
+
 # ---- chaos -------------------------------------------------------------------------------
 end=$(( $(date +%s) + DURATION ))
 n_kill=0 n_stop=0 n_edge=0

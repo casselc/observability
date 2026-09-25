@@ -1,0 +1,47 @@
+15:50:29.352 run soak1790351429: db otaprs_consumer_soak1790351429, prefix otel/otap-rs-consumer/soak1790351429/edges, duration 1800s
+15:50:39.885 SIGKILL worker w3 (pid 338)
+15:50:41.892 restarted w3 (incarnation 2)
+15:50:51.901 SIGKILL edge-2 (pid 306)
+15:50:52.509 restarted edge-2
+15:51:07.524 SIGKILL edge-2 (pid 415)
+15:51:07.631 restarted edge-2
+15:51:19.645 SIGKILL edge-2 (pid 443)
+15:51:20.553 restarted edge-2
+15:51:36.566 SIGKILL worker w1 (pid 336)
+15:51:39.572 restarted w1 (incarnation 2)
+15:51:59.590 SIGKILL edge-2 (pid 475)
+15:52:00.008 restarted edge-2
+15:52:09.022 SIGKILL worker w3 (pid 393)
+15:52:12.036 restarted w3 (incarnation 3)
+15:52:26.073 SIGSTOP worker w1 for 11s (lease ttl 6s)
+15:52:37.078 SIGCONT w1
+15:52:55.093 SIGSTOP worker w3 for 12s (lease ttl 6s)
+15:53:07.105 SIGCONT w3
+15:53:20.128 SIGKILL edge-1 (pid 305)
+15:53:20.683 restarted edge-1
+15:53:33.708 SIGSTOP worker w2 for 9s (lease ttl 6s)
+15:53:42.725 SIGCONT w2
+15:53:59.741 SIGKILL worker w2 (pid 337)
+15:54:01.749 restarted w2 (incarnation 2)
+15:54:18.774 SIGSTOP worker w3 for 8s (lease ttl 6s)
+15:54:26.785 SIGCONT w3
+15:54:46.797 SIGKILL worker w2 (pid 1832)
+15:54:48.813 restarted w2 (incarnation 3)
+15:54:56.834 SIGKILL worker w2 (pid 2181)
+15:54:57.942 restarted w2 (incarnation 4)
+15:55:09.954 SIGKILL worker w1 (pid 514)
+15:55:11.974 restarted w1 (incarnation 3)
+15:55:20.010 SIGKILL worker w3 (pid 1110)
+15:55:23.021 restarted w3 (incarnation 4)
+15:55:37.041 SIGKILL worker w2 (pid 2325)
+15:55:40.050 restarted w2 (incarnation 5)
+15:56:00.084 SIGKILL edge-1 (pid 1384)
+15:56:00.895 restarted edge-1
+15:56:19.929 SIGKILL edge-3 (pid 307)
+15:56:20.857 restarted edge-3
+15:56:30.874 SIGSTOP worker w3 for 10s (lease ttl 6s)
+15:56:40.884 SIGCONT w3
+15:56:49.905 disk: 3408 MB free, stopping early
+15:56:49.983 chaos over: 9 worker kills, 5 worker pauses, 7 edge kills
+15:56:50.685 senders done: 8033 requests acked
+15:57:15.998 central stable: 3011 602200 3005 601000 2017 80680 2017 40340 2017 40340 2017 40340 

@@ -1,0 +1,3 @@
+1790351837.076 otap-s3pq: exporter stop: committed=577 resolved_own=96 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=673 puts=673 heads=96 abandoned=0
+1790351837.075 otap-s3pq: exporter stop: committed=3113 resolved_own=10 resent=746 learned_other=0 halted=114 known_skipped=0 encodes=3237 puts=3983 heads=870 abandoned=0
+1790351837.074 otap-s3pq: exporter stop: committed=537 resolved_own=0 resent=0 learned_other=0 halted=0 known_skipped=0 encodes=537 puts=537 heads=0 abandoned=0

@@ -1,0 +1,35 @@
+16:02:11.064 run soak1790352131: db otaprs_consumer_soak1790352131, prefix otel/otap-rs-consumer/soak1790352131/edges, duration 1800s
+16:02:33.593 SIGSTOP worker w1 for 8s (lease ttl 6s)
+16:02:41.598 SIGCONT w1
+16:02:57.607 SIGKILL worker w1 (pid 4945)
+16:02:59.612 restarted w1 (incarnation 2)
+16:03:17.630 SIGKILL edge-2 (pid 4915)
+16:03:18.238 restarted edge-2
+16:03:29.269 SIGSTOP worker w2 for 8s (lease ttl 6s)
+16:03:37.274 SIGCONT w2
+16:03:57.286 SIGKILL edge-3 (pid 4916)
+16:03:58.192 restarted edge-3
+16:04:07.202 SIGSTOP worker w1 for 10s (lease ttl 6s)
+16:04:17.207 SIGCONT w1
+16:04:26.221 SIGKILL worker w2 (pid 4946)
+16:04:27.226 restarted w2 (incarnation 2)
+16:04:41.240 SIGSTOP worker w2 for 7s (lease ttl 6s)
+16:04:48.254 SIGCONT w2
+16:05:04.269 SIGKILL edge-1 (pid 4914)
+16:05:04.979 restarted edge-1
+16:05:20.034 SIGSTOP worker w2 for 9s (lease ttl 6s)
+16:05:29.042 SIGCONT w2
+16:05:46.063 SIGKILL worker w2 (pid 5157)
+16:05:47.075 restarted w2 (incarnation 3)
+16:05:59.091 SIGSTOP worker w1 for 7s (lease ttl 6s)
+16:06:06.096 SIGCONT w1
+16:06:21.106 SIGKILL edge-1 (pid 5188)
+16:06:21.521 restarted edge-1
+16:06:34.541 SIGKILL worker w1 (pid 5016)
+16:06:35.550 restarted w1 (incarnation 3)
+16:06:55.565 SIGSTOP worker w3 for 10s (lease ttl 6s)
+16:07:05.571 SIGCONT w3
+16:07:23.615 disk: 3397 MB free, stopping early
+16:07:23.617 chaos over: 4 worker kills, 7 worker pauses, 4 edge kills
+16:07:24.641 senders done: 6563 requests acked
+16:07:49.718 central stable: 2467 493400 2436 487200 1660 66400 1660 33200 1660 33200 1660 33200 

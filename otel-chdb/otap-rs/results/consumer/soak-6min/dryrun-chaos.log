@@ -1,0 +1,16 @@
+15:39:39.328 run soak1790350779: db otaprs_consumer_soak1790350779, prefix otel/otap-rs-consumer/soak1790350779/edges, duration 60s
+15:39:51.851 SIGKILL worker w2 (pid 27379)
+15:39:52.863 restarted w2 (incarnation 2)
+15:40:02.885 SIGKILL edge-1 (pid 27347)
+15:40:03.199 restarted edge-1
+15:40:11.214 SIGSTOP worker w3 for 9s (lease ttl 6s)
+15:40:20.224 SIGCONT w3
+15:40:28.249 SIGKILL worker w3 (pid 27380)
+15:40:30.253 restarted w3 (incarnation 2)
+15:40:38.268 SIGKILL worker w1 (pid 27378)
+15:40:40.275 restarted w1 (incarnation 2)
+15:40:50.317 SIGKILL worker w3 (pid 27556)
+15:40:53.325 restarted w3 (incarnation 3)
+15:40:53.337 chaos over: 4 worker kills, 1 worker pauses, 1 edge kills
+15:40:55.305 senders done: 1506 requests acked
+15:41:24.537 central stable: 550 110000 568 113600 388 15520 388 7760 388 7760 388 7760 

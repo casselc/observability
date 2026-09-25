@@ -1,0 +1,16 @@
+quint 0.32.0, rust evaluator v0.6.0, seed 0x5eed
+design compactDesign compactSafety (5000 traces x 60 steps): [ok] No violation found (73568ms at 68 traces/second).
+design compactQuiet compactSafety (5000 traces x 60 steps): [ok] No violation found (209215ms at 24 traces/second).
+mutant earlyCompact / neverSkipsCommittedCompact (up to 20000 x 60): [violation] Found an issue (1014ms at 14 traces/second).
+mutant earlyCompact / neverSkipsCommitted, as in s3InlineConsumer (up to 20000 x 60): [ok] No violation found (524075ms at 38 traces/second).
+mutant earlyCompact / noCommitBelowFloor (up to 20000 x 60): [violation] Found an issue (814ms at 17 traces/second).
+witness wRetired (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (297ms at 3 traces/second).
+witness wCompacted (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (367ms at 5 traces/second).
+witness wCompactedAllIngested (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (2533ms at 26 traces/second).
+witness wTakeover (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (322ms at 3 traces/second).
+witness wPartial (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (10577ms at 27 traces/second).
+witness wAnnounced (compactDesign, up to 5000 x 100; a violation = reached): [violation] Found an issue (301ms at 3 traces/second).
+bound boundSafety (MAX_E 10, K 3; 20000 x 150): [ok] No violation found (45345ms at 441 traces/second).
+bound witness wManyEpochs (10 epochs made): [violation] Found an issue (304ms at 3 traces/second).
+bound witness wPinned (10 epochs made, floor pinned at 0 by an open epoch): [violation] Found an issue (3227ms at 536 traces/second).
+mutant floorOnly / bounded: [violation] Found an issue (192ms at 5 traces/second).

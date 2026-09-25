@@ -1228,21 +1228,26 @@ CPU per small object 8× (19.6 → 2.4 ms at 32 objects per statement), but
 only when a poll finds several objects per table. Visibility is 211 ms p50 /
 320 ms p90 at a 200 ms poll (about 1 object per statement there) and 663 /
 1,061 ms at 1 s (3.7). What remains costly is LIST: one per lane per
-poll.**
+poll. The checkpoint is now compacted: an epoch GC has retired leaves it,
+and a per-lane floor bounds discovery, so under an edge restart every
+~3.5 s the checkpoint held 13–31 entries per lane for 15 minutes where it
+had grown to 185 and kept growing [M].**
 
 Labels as above. Code: `src/consumer/` (mounted by `src/bin/consume.rs`),
 `src/central.rs`; tests: `src/consumer/tests.rs`,
 `tests/mbt_s3inline_consumer.rs`, `../model/s3InlineConsumer.qnt`;
-scripts: `scripts/consumer_*.sh`.
+scripts: `scripts/consumer_*.sh`; compaction:
+[Checkpoint compaction](#checkpoint-compaction-m),
+`../model/s3InlineConsumerCompact.qnt`.
 
 ### What it does
 
 ```
 {root}/{producer}/{signal}/{epoch}/{seq:020d}.parquet      the edges' slots (unchanged)
 {ctl}/lease/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
-{ctl}/ckpt/{producer}/{signal}.json     CAS'd {lease_epoch, version, epochs: {E: {next, closed}}}
+{ctl}/ckpt/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed}}}
 {ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
-{ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions}
+{ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions and floor}, retired epochs
 ```
 
 `{ctl}` defaults to `{root}/_consumer`. A lane is one producer's one signal
@@ -1280,8 +1285,9 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
 - **Discovery.** Per held lane and open epoch, `LIST StartAfter` the
   checkpoint's key. The newest epoch's LIST is lane-wide, so it also
   returns epochs created since; `--full-list` periodically lists the
-  lane's epochs, catching one that sorts earlier (a producer whose clock
-  stepped back).
+  whole lane from its floor (`StartAfter {floor}/~`, a flat LIST), catching
+  an epoch that sorts earlier, and then compacts the checkpoint
+  ([below](#checkpoint-compaction-m)).
   - **SeaweedFS quirk [M]:** a StartAfter naming a "directory"
     (`{lane}/{epoch}/`) is taken as "after that whole directory" and
     returns nothing. The consumer uses `{lane}/{epoch}/0` for slot 0, which
@@ -1331,7 +1337,10 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   position is the first slot *not* consumed, so the head of a live epoch
   and a closed epoch's tombstone are never deleted by the horizon; a closed
   epoch is removed entirely only after `--zombie` (a bound on how long a
-  fenced writer process can live). Two GCs racing is harmless.
+  fenced writer process can live): it is then *retired*, recorded in
+  `gc.json`, and the lane's holder drops it from the checkpoint. GC skips
+  epochs at or below a lane's floor and forgets what it recorded about an
+  epoch once no mark it keeps names it. Two GCs racing is harmless.
 
 ### ClickHouse facts found [M] (26.10.1)
 
@@ -1558,6 +1567,190 @@ fails on the old code), and a randomized fleet (12 seeds × 1,500 events: 3 prod
 their lease, ambiguous and dropped lease/checkpoint writes, half-landed
 statements, GC throughout), each ending exactly once.
 
+### Checkpoint compaction [M]
+
+**The problem.** Each lane's checkpoint kept one entry per epoch, forever,
+and every edge restart makes a new epoch: the 30-minute soak made 1,089.
+The checkpoint is the object every worker GETs and CASes on each advance,
+and GC copies every lane's checkpoint into `gc.json` on each run, keeping
+about zombie ÷ interval marks. Both grew with the lanes' history, gc.json
+roughly as marks × lanes × epochs.
+
+**The design** (`coord.rs` `CkptDoc::compact`, `worker.rs`, `gc.rs`):
+
+- **When an epoch leaves the checkpoint.** It must be *retired*:
+  1. **closed in the checkpoint:** a tombstone at `next`. The checkpoint
+     moves only past slots that were ingested and verified, so every
+     committed slot below the tombstone is in central;
+  2. **deleted by GC, tombstone included:** GC does this only once two of
+     its marks show the epoch closed at the same slot, one at least
+     `--delay` old and one at least `--zombie` old. So no PUT for the epoch
+     is still in flight (the delay), and no writer that could write into
+     it is still alive (the zombie bound GC already relies on to delete a
+     tombstone at all).
+
+  After each full listing (every `--full-list`), the holder reads gc.json's
+  retired epochs for the lane (one GET per worker per `--full-list`) and
+  drops every entry that is closed and retired, in the same CAS as the
+  step's advance. Nothing is left to ingest from such an epoch, and
+  nothing is left to list, so nothing is lost by forgetting it.
+- **The floor.** The floor is the highest dropped epoch below every epoch
+  the worker still knows of, in key order (`{epoch}/`, as LIST sorts). A
+  retired epoch above an epoch still open is dropped too, just not passed
+  by the floor, so an epoch that never closes cannot keep entries in the
+  checkpoint. (A gap is such an epoch: it is never tombstoned, by design.)
+  The model's `floorOnly` mutant, a plain low watermark, shows the
+  difference below.
+- **Discovery matches.** The full listing is a flat
+  `LIST StartAfter {floor}/~`. It returns only keys of epochs above the
+  floor that GC hasn't retired, which is about a GC delay's worth of slots
+  per lane plus a few tombstones, at one request per 1,000 keys. Those
+  keys give the step's slots too, so there is no per-epoch LIST in that
+  step. Anything at or below the
+  floor is ignored wherever a LIST returns it. The previous full listing
+  was a delimiter LIST, and SeaweedFS still returns a directory after its
+  last object is deleted [M: a probe]. The per-poll LISTs are unchanged:
+  one per open, non-newest epoch, plus the lane-wide one from the newest.
+- **Epoch order.** Epoch names are `{wall ms}Z-{random}`, which sort by
+  when they were minted. The floor is only safe if a new epoch sorts above
+  it. An edge used to name every lane's epoch at startup, so a lane that
+  stayed idle for hours would first write under a name from hours before.
+  With three or more exporter lanes that name can already be below the
+  floor. **The one edge change:** a lane is made without an epoch
+  (`exporter.rs`), and `runner::append` names it just before its first
+  encode and PUT. After a tombstone the new epoch was already named at
+  that point. So a new epoch's name is its first write's time.
+- **gc.json:** marks record each lane's floor. GC never lists an epoch at
+  or below a floor, and it drops its `retired` / `deleted_below` records
+  for an epoch once no kept mark names it.
+
+**Why this is safe:**
+
+- **No committed batch is skipped.** An epoch is forgotten only once
+  everything committed in it is in central (closed) and it has no key and
+  no writer left (retired).
+- **A new epoch with a name below the floor** could arrive unseen only if
+  its producer's clock stepped back further than the time from the floor
+  epoch's first write to its compaction. That time is at least the quiet
+  time plus the zombie bound (10 min by default). The same assumption is
+  what makes "newest epoch" and `--full-list` work today.
+- **A late write into a compacted epoch** can come only from a zombie
+  writer. While the tombstone exists it fences the writer (create-only;
+  the writer halts). GC deletes the tombstone only after the zombie
+  bound, so a writer still alive past that bound is already outside the
+  design; the `gcTombs` mutant shows what it does. If one did write, the
+  result is still never a duplicate:
+  - at or below the floor the object is never read, so it is never
+    ingested (before compaction the closed entry had the same effect);
+  - above the floor, the epoch is new again from slot 0. Slot 0 is
+    ingested through the content check, so there is no duplicate, and a
+    later slot is a gap, which is reported and never skipped.
+  - Every insert passes the content-key check, so compaction can only
+    make the consumer read less; it can never make it ingest twice.
+
+**Soak** (`scripts/consumer_ckpt_soak.sh`: the soak's fleet and faults
+for 15 minutes, with an edge SIGKILLed and restarted every 2–5 s on top of
+the worker kills and pauses; `scripts/consumer_ckpt_sample.py` samples
+every lane's checkpoint and gc.json every 10 s; the same script and
+parameters before (the previous binaries) and after; lease TTL 6 s, quiet
+3 s, GC delay 10 s, zombie bound 60 s, full list every 10 s;
+`results/consumer/ckpt-soak-before/`, `results/consumer/ckpt-soak/`):
+
+| | before | after |
+|---|---|---|
+| chaos | 258 edge kills, 31 worker kills, 32 pauses | 256 edge kills, 33 worker kills, 27 pauses |
+| epochs made | 2,471 | 2,542 |
+| checkpoint entries per lane (max over lanes), from t = 2 min on | 30 → **185, growing linearly** | **13–31, flat** |
+| largest checkpoint | 10,634 B at the end, growing | 1,864 B (peak) |
+| entries in all 21 checkpoints at the end | 2,471 (every epoch ever) | 194 (9.2 per lane) |
+| gc.json | 1.83 MB at the end, growing | 197–228 KB, flat |
+| worker LISTs per poll (~7 lanes per worker) | 11.6 | 10.9 |
+| exactly-once verdict | PASS | **PASS**: missing 0, partial 0, duplicated 0, uncommitted 0 (37,746 objects, 18,550 requests) |
+
+- The bound in practice: entries ≈ epochs made per lane in quiet + delay +
+  zombie bound + one `--full-list` + a GC interval, about 90 s here,
+  plus the open ones; edge-2 runs 2 exporter lanes, hence the top of the
+  range. At production timings (quiet 30 s, zombie 10 min) and one restart
+  an hour, that is 1–2 per lane.
+- LISTs per poll hardly moved, because they never depended on history:
+  closed epochs are not listed per poll. The old full listing's response
+  did grow with history. On SeaweedFS it returned about 28 epoch
+  directories per lane in both runs, since SeaweedFS removes an emptied
+  directory some time after its last object goes. The growth was in the
+  CAS'd objects: each checkpoint write carried every epoch the lane had
+  ever had, and each GC run rewrote gc.json with every lane's history in
+  each of its 12 marks.
+- gc.json is still one object holding marks × lanes × entries
+  (about 210 KB for 21 lanes here): bounded, but it grows with the number
+  of lanes.
+
+**Model** (`../model/s3InlineConsumerCompact.qnt`; `s3InlineConsumer.qnt`
+and `s3Inline.qnt` unchanged). This model is s3InlineConsumer restated
+with compaction added: quint 0.32 doesn't re-export a nested instance's
+names, so a wrapper importing s3InlineConsumer couldn't read the log and
+writers that retirement needs. It adds `gcRetire` (the whole epoch goes
+once its writer is dead or halted and nothing for it is in flight),
+`wCompact`, a floor, each worker's view of the floor, and the floor guards
+on check, tombstone and GC. The results (`results/consumer/compact-model.txt`,
+seed 0x5eed):
+
+- the design passes every s3InlineConsumer invariant unchanged
+  (`atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`,
+  `noCommitAfterClose`, `announcedOnlyAfterCommit`, the writer's), plus
+  `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound` and
+  `viewFloorSound`: 5,000 traces × 60 steps, both in the full hostile
+  environment and in the quiet one;
+- **mutant `earlyCompact`** (drop every superseded epoch) breaks
+  `neverSkipsCommittedCompact` in 1.0 s and `noCommitBelowFloor` in 0.8 s:
+  a batch its writer commits after compaction is never ingested. The
+  unchanged `neverSkipsCommitted` does *not* catch it (20,000 traces). It
+  counts a batch "still ahead of the checkpoint" as safe, and a forgotten
+  entry reads as position 0, open. That is why the compaction-aware form
+  exists;
+- **the bound**, `compactBound`: an abstract lane with 10 edge restarts,
+  epochs that close, or never close (a gap), retire and compact. The
+  environment is at most K = 3 epochs unretired at once, and a compaction
+  between a retirement and the next restart. Under that, `bounded` (at most
+  K entries) holds over 20,000 traces × 150 steps, including traces that
+  make all 10 epochs while an open first epoch pins the floor at 0. The
+  **mutant `floorOnly`** (a plain low watermark: drop only the retired
+  epochs below the floor) breaks it in 0.2 s;
+- witnesses reached: a retirement, a compaction, everything ingested
+  after a compaction, a takeover, a partial statement, a series announced.
+
+**quint-connect** (`tests/mbt_s3inline_consumer.rs`, extended). It
+replays `compactDesign` and `compactQuiet` with the same driver. `gcRetire`
+goes through `gc::doomed` (which must pick every key the epoch has left)
+and `wCompact` through `CkptDoc::compact`, with a checkpoint CAS. Every
+worker action asserts `coord::above_floor` against that worker's view.
+After each step the driver compares the floor, the retired set, each
+worker's view of the floor, and `compactable`: the epochs the model's
+rule may drop against what `CkptDoc::compact` would drop, run on a copy.
+
+- The design passes: 300 traces × 60 steps (18,256 steps, 112
+  retirements, 57 compactions) and 1,000 × 80 (45,897 steps, 494
+  retirements, 275 compactions), next to the two existing instances.
+- `OTAPRS_CONSUMER_MUTANT=early_compact` fails on both, at trace 1, step 3
+  and step 2 (`lNewIncarnation`): as soon as epoch 2 exists, the code would
+  drop epoch 1, which the model's rule doesn't allow (`results/consumer/compact-mbt.txt`).
+
+**Unit tests** (`cargo test --release --bin consume`, 29, all passing).
+The new ones:
+
+- the compaction rule (`coord`);
+- gc.json forgetting retired epochs and skipping the floor (`gc`);
+- a lane through 120 edge restarts: at most 5 entries, a checkpoint under
+  600 B, gc.json under 6 KB, the full listing returning only epochs above
+  the floor, and every batch exactly once;
+- the early-compaction mutant losing a late batch that the design ingests;
+- zombie writes into retired epochs below the floor (ignored) and above it
+  (slot 0 ingested once, no gap);
+- the randomized fleet again with a 3 s zombie bound, so it compacts
+  throughout (12 seeds, exactly once).
+
+`runner::tests::an_unnamed_lane_names_its_epoch_at_its_first_write`
+covers the edge change.
+
 ### What the consumer leaves open
 
 - **LIST cost at short polls.** One LIST per held lane per poll, whether
@@ -1572,8 +1765,17 @@ statements, GC throughout), each ending exactly once.
   between worker and ClickHouse; the client-side bound doesn't.
 - **Replicated or SharedMergeTree central** wasn't tested: the check would
   need `select_sequential_consistency`, and dedup storage differs [D].
-- **The checkpoint keeps every closed epoch** (a few bytes each, forever);
-  GC retires the objects, not the entries.
+- **Compaction's assumptions:**
+  - the zombie bound, which GC already needed;
+  - no producer clock steps back by more than about the zombie bound.
+
+  A violation of either can leave a committed batch uningested (never
+  twice). Nothing watches for an epoch appearing below a floor: a rare
+  unbounded listing would detect it.
+- **Compaction waits for GC:** if `consume gc` doesn't run, checkpoints
+  grow as before, for as long as it is down. **gc.json is one object** of
+  size marks × lanes × entries: bounded, but a fleet of thousands of lanes
+  would want it sharded per lane.
 - **Not tested against AWS S3:** SeaweedFS's single-part `If-Match` and
   `If-None-Match` were shown atomic (../model/S3NATIVE.md); AWS may answer a
   concurrent `If-Match` with 409, which object_store retries.
@@ -1587,7 +1789,8 @@ edge, `AWS_CA_BUNDLE` / `HTTPS_PROXY` / `NO_PROXY` / `AWS_PROFILE` and
 AssumeRole chaining, a persistent queue at the edge (Quiver), the OTAP
 receiver end to end, OTLP/gRPC input measured, and the consumer (a CAS'd
 lease and checkpoint on S3, GC, several objects per statement, every lane
-including layout B's; its own open items are in
+including layout B's; the checkpoint compacted, so it no longer keeps
+every closed epoch; its own open items are in
 [What the consumer leaves open](#what-the-consumer-leaves-open)).
 
 - **Not tested against:**
@@ -1683,7 +1886,9 @@ $S/bin/seriesref -rm otap-rs-edge/                   # clean up the run's object
 cargo test --release --bin consume
 (cd ../model && quint run s3InlineConsumer.qnt --main s3InlineConsumerDesign --invariant safety --max-samples 5000 --max-steps 60)
 (cd ../model && quint run s3InlineConsumer.qnt --main noTimeBound --invariant atMostOnce --max-samples 20000 --max-steps 60)  # fails; noVerify, gcTombs, announceEarly
-QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --nocapture   # OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify: fails
+QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --nocapture   # OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact: fails
+(cd ../model && quint run s3InlineConsumerCompact.qnt --main compactDesign --invariant compactSafety --max-samples 5000 --max-steps 60 --seed 0x5eed)
+(cd ../model && quint run s3InlineConsumerCompact.qnt --main floorOnly --invariant bounded --max-samples 20000 --max-steps 150 --seed 0x5eed)   # fails, as earlyCompact / neverSkipsCommittedCompact
 (cd tools && go build -o $S/bin/ ./cmd/soaksend ./cmd/faultproxy2)
 cp $CARGO_TARGET_DIR/release/{otap-s3pq,consume} $S/bin/
 # batching: 400 small requests per signal into one edge, then the consumer at 1, 8 and 32 objects per statement
@@ -1693,6 +1898,7 @@ B=$S/bin RUN=$R BATCHES="1 8 32" REPS=3 OUT=results/consumer/bench.jsonl scripts
 CHC="clickhouse client --port 19000" RUN=$R SIGNAL=traces scripts/consumer_fixedcost.sh   # after one consume --db otaprs_consumer_fc run
 B=$S/bin OUT=results/consumer/latency.jsonl POLLS="200ms 1s" scripts/consumer_latency.sh
 B=$S/bin OUT=$S/soak DURATION=1800 scripts/consumer_soak.sh                              # verdict: $S/soak/summary.txt
+B=$S/bin OUT=$S/ckpt-soak DURATION=900 scripts/consumer_ckpt_soak.sh                      # edge restarts every 2-5 s; checkpoint sizes + verdict in summary.txt
 $S/bin/consume purge --s3 http://127.0.0.1:18333/otel/otap-rs-consumer/$R                # clean up
 ```
 
@@ -1717,12 +1923,12 @@ ClickHouse database is private and dropped afterwards.
 | `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential order, CA bundle, credential_process, in-memory store with faults |
 | `src/bin/consume.rs`, `src/consumer/`, `src/central.rs` | the central consumer: `coord` (lease, checkpoint), `plan` (scan, verdicts, grouping), `bucket` (S3 with request counts; in memory), `sql` (lane kinds, statements; in-memory central), `worker`, `gc`, `tests` (the in-memory fleet); `consume gc`, `audit`, `purge` |
 | `src/bin/encbench.rs` | the in-process edge benchmark |
-| `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/mbt_s3inline_consumer.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt`, `../model/s3InlineMetrics.qnt` and `../model/s3InlineConsumer.qnt`; the shared log driver |
+| `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/mbt_s3inline_consumer.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt`, `../model/s3InlineMetrics.qnt`, `../model/s3InlineConsumer.qnt` and `../model/s3InlineConsumerCompact.qnt`; the shared log driver |
 | `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
 | `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes (19, plus the signer against SeaweedFS), deterministic encoding, the upstream view bug |
 | `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules; the wire encodings (`wire_encodings`), and, ignored, `dump_series` and `wire_cost` for `scripts/series_wire.py` |
 | `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
 | `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`) |
-| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat) |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`) |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat; checkpoint compaction: `ckpt-soak/`, `ckpt-soak-before/`, `compact-model.txt`, `compact-mbt.txt`) |

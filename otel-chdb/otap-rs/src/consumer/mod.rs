@@ -3,7 +3,9 @@
 //!
 //! - `coord`:  the lane lease and checkpoint documents, and every decision
 //!   about them (take, renew, release, the insert time bound, the fair
-//!   share), sans-IO (../model/S3NATIVE.md, "Consumer").
+//!   share), sans-IO (../model/S3NATIVE.md, "Consumer"); checkpoint
+//!   compaction (`CkptDoc::compact`: retired epochs leave the checkpoint,
+//!   a per-lane floor bounds discovery; ../model/s3InlineConsumerCompact.qnt).
 //! - `plan`:   the per-epoch scan from the checkpoint (runs, gaps, the dead
 //!   head), object metadata, the check / verify verdicts and grouping
 //!   objects into statements, sans-IO.
@@ -17,7 +19,9 @@
 //! - `worker`: the loop: discover lanes, hold leases, scan, ingest, verify,
 //!   advance checkpoints, close dead epochs with tombstones.
 //! - `gc`:     the separate GC step: delete slots below a horizon that trails
-//!   the checkpoints by a lease length plus a request-lifetime delay.
+//!   the checkpoints by a lease length plus a request-lifetime delay, and
+//!   retire closed epochs after the zombie bound (which lets the workers
+//!   compact them out of their checkpoints).
 //!
 //! The module is mounted by `src/bin/consume.rs` and by the tests with
 //! `#[path]`, so it depends on the library only through `otap_s3pq::…`.

@@ -1,0 +1,9 @@
+QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer (the compaction instances; action counts from a QUINT_VERBOSE=1 replay)
+compact_design: 300 traces 18256 steps; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 46.44s
+   {'wAcquire': 774, 'wCheck': 70, 'wSend': 24, 'cApply': 1, 'cDrop': 17, 'wAdvance': 4, 'wTomb': 128, 'wSeeTomb': 0, 'gc': 0, 'gcRetire': 112, 'wCompact': 57, 'lNewIncarnation': 300, 'wCrash': 627, 'wLapse': 46}
+compact_quiet: 1000 traces 45897 steps; test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 133.21s
+   {'wAcquire': 3181, 'wCheck': 468, 'wSend': 197, 'cApply': 54, 'cDrop': 141, 'wAdvance': 74, 'wTomb': 494, 'wSeeTomb': 0, 'gc': 23, 'gcRetire': 494, 'wCompact': 275, 'lNewIncarnation': 1000, 'wCrash': 2889, 'wLapse': 292}
+
+OTAPRS_CONSUMER_MUTANT=early_compact: FAILED on both compaction instances:
+  compactDesign: trace 1, step 3 (lNewIncarnation): compactable model {} / code {1}
+  compactQuiet:  trace 1, step 2 (lNewIncarnation): compactable model {} / code {1}

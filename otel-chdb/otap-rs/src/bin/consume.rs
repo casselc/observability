@@ -10,6 +10,11 @@
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 40s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!
+//! Checkpoints are compacted: once `consume gc` has retired a closed epoch
+//! (after `--zombie`), the lane's holder drops it at its next full listing
+//! (`--full-list`), so a checkpoint holds only the epochs not retired yet.
+//! Without GC running, checkpoints keep every epoch.
+//!
 //! Lanes are `{root}/{producer}/{signal}` (`--depth 2`, the default) or
 //! `{root}/{signal}` (`--depth 1`). The control prefix defaults to
 //! `{root}/_consumer`.

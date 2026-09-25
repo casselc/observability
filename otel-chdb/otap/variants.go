@@ -2,6 +2,7 @@ package otap
 
 import (
 	"bytes"
+	"errors"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -37,6 +38,13 @@ const (
 	// ClickHouse cannot read it.
 	BAR = "bar"
 )
+
+// ErrLibraryDroppedBatch: the Go library's consumer returned no data and
+// no error. TracesFrom/LogsFrom discard the error from RelatedDataFrom, so a
+// batch it cannot decode (for example a map or slice attribute holding
+// invalid UTF-8: its CBOR decoder rejects it) comes back empty. The contrib
+// otelarrowreceiver then counts 0 items and acknowledges the request.
+var ErrLibraryDroppedBatch = errors.New("otap: otel-arrow consumer returned no data and no error (batch dropped)")
 
 // Publisher publishes batches in one of the variants, with manifests.
 type Publisher struct {
@@ -148,6 +156,9 @@ func (p *Publisher) PublishBAR(ctx context.Context, variant string, bar *pb.Batc
 			if err != nil {
 				return m, err
 			}
+			if len(tds) == 0 {
+				return m, ErrLibraryDroppedBatch
+			}
 			if n, err = p.pg.Traces(&p.buf, tds[0], env); err != nil {
 				return m, err
 			}
@@ -155,6 +166,9 @@ func (p *Publisher) PublishBAR(ctx context.Context, variant string, bar *pb.Batc
 			lds, err := c.LogsFrom(bar)
 			if err != nil {
 				return m, err
+			}
+			if len(lds) == 0 {
+				return m, ErrLibraryDroppedBatch
 			}
 			if n, err = p.pg.Logs(&p.buf, lds[0], env); err != nil {
 				return m, err

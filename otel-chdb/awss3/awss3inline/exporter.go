@@ -6,9 +6,11 @@ package awss3exporter // import "github.com/chucklehead-dev/oscope/spike/otel-ch
 import (
 	"context"
 	"fmt"
+	"path"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/consumer/consumererror"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
@@ -17,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline/internal/upload"
+	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
 )
 
 type s3Exporter struct {
@@ -25,6 +28,9 @@ type s3Exporter struct {
 	uploader   upload.Manager
 	logger     *zap.Logger
 	marshaler  marshaler
+	// key_mode sequence
+	lanes       *inline.Lanes
+	encodingExt any
 }
 
 func newS3Exporter(
@@ -75,6 +81,20 @@ func (e *s3Exporter) start(ctx context.Context, host component.Host) error {
 
 	e.marshaler = m
 
+	if e.config.S3Uploader.KeyMode == "sequence" {
+		client, err := newS3Client(ctx, e.config)
+		if err != nil {
+			return err
+		}
+		if e.config.Encoding != nil {
+			e.encodingExt = host.GetExtensions()[*e.config.Encoding]
+		}
+		prefix := path.Join(e.config.S3Uploader.S3BasePrefix, e.config.S3Uploader.S3Prefix, e.signalType)
+		e.lanes = inline.NewLanes(&inline.Store{S3: client, Bucket: e.config.S3Uploader.S3Bucket, Prefix: prefix},
+			e.config.S3Uploader.FilePrefix, e.config.S3Uploader.Lanes)
+		return nil
+	}
+
 	up, err := newUploadManager(ctx, e.config, e.logger, e.signalType, m.format(), m.compressed())
 	if err != nil {
 		return err
@@ -98,6 +118,21 @@ func (e *s3Exporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) err
 }
 
 func (e *s3Exporter) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
+	if e.lanes != nil {
+		h, err := inline.ContentHashLogs(logs)
+		if err != nil {
+			return err
+		}
+		return e.appendSlot(ctx, h, func(epoch string, seq uint64) ([]byte, map[string]string, error) {
+			if m, ok := e.encodingExt.(interface {
+				MarshalLogsSlot(plog.Logs, string, uint64) ([]byte, map[string]string, error)
+			}); ok {
+				return m.MarshalLogsSlot(logs, epoch, seq)
+			}
+			b, err := e.marshaler.MarshalLogs(logs)
+			return b, nil, err
+		})
+	}
 	buf, err := e.marshaler.MarshalLogs(logs)
 	if err != nil {
 		return err
@@ -109,6 +144,21 @@ func (e *s3Exporter) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
 }
 
 func (e *s3Exporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
+	if e.lanes != nil {
+		h, err := inline.ContentHashTraces(traces)
+		if err != nil {
+			return err
+		}
+		return e.appendSlot(ctx, h, func(epoch string, seq uint64) ([]byte, map[string]string, error) {
+			if m, ok := e.encodingExt.(interface {
+				MarshalTracesSlot(ptrace.Traces, string, uint64) ([]byte, map[string]string, error)
+			}); ok {
+				return m.MarshalTracesSlot(traces, epoch, seq)
+			}
+			b, err := e.marshaler.MarshalTraces(traces)
+			return b, nil, err
+		})
+	}
 	buf, err := e.marshaler.MarshalTraces(traces)
 	if err != nil {
 		return err
@@ -117,4 +167,29 @@ func (e *s3Exporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) er
 	uploadOpts := e.getUploadOpts(traces.ResourceSpans().At(0).Resource())
 
 	return e.uploader.Upload(ctx, buf, uploadOpts)
+}
+
+// appendSlot commits one request as the next slot of a log (key_mode
+// sequence). An error means the outcome is not known yet: the queue's retry
+// of the same request comes back here with the same content hash and is
+// resolved against the slot it may already hold, never committed twice.
+func (e *s3Exporter) appendSlot(ctx context.Context, content string,
+	marshal func(epoch string, seq uint64) ([]byte, map[string]string, error),
+) error {
+	contentType := ""
+	if ct, ok := e.encodingExt.(interface{ ObjectContentType() string }); ok {
+		contentType = ct.ObjectContentType()
+	}
+	ref, err := e.lanes.Append(ctx, content, func(epoch string, seq uint64) (inline.Object, error) {
+		b, meta, err := marshal(epoch, seq)
+		if err != nil {
+			return inline.Object{}, consumererror.NewPermanent(err)
+		}
+		return inline.Object{Body: b, ContentType: contentType, Meta: meta}, nil
+	})
+	if err != nil {
+		return err
+	}
+	e.logger.Debug("committed", zap.String("epoch", ref.Epoch), zap.Uint64("seq", ref.Seq), zap.String("content", content))
+	return nil
 }

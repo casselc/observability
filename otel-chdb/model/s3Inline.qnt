@@ -216,6 +216,22 @@ module s3Inline {
     }
   }
 
+  // The exporter returned an error for an unresolved slot (its deadline
+  // passed), and the queue's next call brings another request (or the same
+  // one) to this lane: it goes to the same slot, while the earlier request
+  // may still be in flight. Whichever lands first wins; the other gets 412
+  // and is resolved by HEAD like any other.
+  action switchPayload(e: int, p: int): bool = {
+    val w = writers.get(e)
+    all {
+      RESOLVE_BY_HEAD, w.alive, w.phase == WUnresolved, queue.contains(p),
+      writers' = writers.set(e, { ...w, phase: WReady, entry: dataE(e, p) }),
+      events' = events.union(Set(if (dataE(e, p) != w.entry) "switched" else "retriedSameSlot")),
+      queue' = queue, acked' = acked, lease' = lease,
+      log' = log, inflight' = inflight, responses' = responses, everLog' = everLog, keepConsumer,
+    }
+  }
+
   // ---- S3 ---------------------------------------------------------------------------
   // S3 applies a PUT. With ATOMIC_COND the condition is decided here; without,
   // it was decided when the request arrived (sawFree).
@@ -378,7 +394,7 @@ module s3Inline {
     nondet p = PAYLOADS.oneOf()
     nondet z = Set(true, false).oneOf()
     any {
-      startPush(e, p), send(e), timeout(e), resolve(e),
+      startPush(e, p), send(e), timeout(e), resolve(e), switchPayload(e, p),
       all { responses != Set(), nondet r = responses.oneOf() any { receive(e, r), cTombReceive(r) } },
       newIncarnation(z),
       all { inflight != Set(), nondet q = inflight.oneOf() any { apply(q), lose(q) } },
@@ -433,6 +449,7 @@ module s3Inline {
   val wCommitted: bool = epochs.exists(e => slots.exists(s => at(e, s).kind == Data))
   val wResolvedOwn: bool = events.contains("resolvedOwn") or events.contains("resolvedOwn412")
   val wResend: bool = events.contains("resend")
+  val wSwitched: bool = events.contains("switched")
   val wLearnedOther: bool = events.contains("learnedOther")
   val wHalted: bool = events.contains("halted")
   val wClosed: bool = events.contains("closed")

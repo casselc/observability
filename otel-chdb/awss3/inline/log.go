@@ -49,10 +49,10 @@ func NewEpoch() string {
 type Outcome int
 
 const (
-	OK Outcome = iota
-	Exists       // 412: the key is taken
-	Missing      // 404
-	Unknown      // anything else, timeouts and cancellations included: may or may not have applied
+	OK      Outcome = iota
+	Exists          // 412: the key is taken
+	Missing         // 404
+	Unknown         // anything else, timeouts and cancellations included: may or may not have applied
 )
 
 func Classify(err error) Outcome {

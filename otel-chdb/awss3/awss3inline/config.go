@@ -70,6 +70,17 @@ type S3UploaderConfig struct {
 	// If unspecified, a default function will be used that generates a random string.
 	// Valid values are: "uuidv7"
 	UniqueKeyFuncName string `mapstructure:"unique_key_func_name"`
+
+	// KeyMode "sequence" writes each batch as the next slot of a log,
+	// {s3_base_prefix}/{s3_prefix}/{epoch}/{seq:020d}.{ext}, create-only
+	// (If-None-Match: *), with the batch's content hash and description in
+	// S3 user metadata. The object is its own commit record: no manifest.
+	// A retry of the same request resolves to the slot it already holds.
+	// Empty: the stock behaviour (a partitioned key with a random part).
+	KeyMode string `mapstructure:"key_mode"`
+	// Lanes is the number of logs written in parallel in sequence mode
+	// (each appends one batch at a time). Default 1.
+	Lanes int `mapstructure:"lanes"`
 }
 
 type MarshalerType string
@@ -147,6 +158,19 @@ func (c *Config) Validate() error {
 
 	if c.S3Uploader.RetryMode != "nop" && c.S3Uploader.RetryMode != "standard" && c.S3Uploader.RetryMode != "adaptive" {
 		errs = multierr.Append(errs, errors.New("invalid retry mode, must be either 'standard', 'adaptive' or 'nop'"))
+	}
+
+	switch c.S3Uploader.KeyMode {
+	case "":
+	case "sequence":
+		if c.S3Uploader.Compression.IsCompressed() {
+			errs = multierr.Append(errs, errors.New("key_mode sequence: compress inside the encoding (Parquet does), not with compression"))
+		}
+		if c.ResourceAttrsToS3.S3Prefix != "" || c.ResourceAttrsToS3.S3Bucket != "" {
+			errs = multierr.Append(errs, errors.New("key_mode sequence: resource_attrs_to_s3 is not supported (one log per prefix)"))
+		}
+	default:
+		errs = multierr.Append(errs, errors.New("invalid key_mode, must be empty or 'sequence'"))
 	}
 
 	if c.S3Uploader.UniqueKeyFuncName != "" && !validUniqueKeyFuncs[c.S3Uploader.UniqueKeyFuncName] {

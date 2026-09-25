@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -38,13 +37,36 @@ import (
 
 // Config mirrors the chdb exporter's producer and parquet settings.
 type Config struct {
-	// URL is an S3 prefix (http(s)://host/bucket/prefix, path-style) or a
-	// local directory (file:///abs/path).
-	URL             string
+	// URL is an S3 prefix or a local directory (file:///abs/path). S3 is
+	// either s3://bucket/prefix (AWS: the SDK's endpoint, virtual-hosted
+	// unless PathStyle) or http(s)://host/bucket/prefix (a custom endpoint
+	// such as Nutanix Objects, SeaweedFS or MinIO: path-style unless
+	// PathStyle says otherwise).
+	URL string
+	// AccessKeyID/SecretAccessKey (plus SessionToken): static credentials.
+	// Without them credentials come from the AWS default chain (env, shared
+	// config/credentials incl. credential_process, web identity (IRSA),
+	// container credentials (EKS Pod Identity), IMDS), cached and refreshed
+	// by the SDK; see README "Credentials and deployment targets".
 	AccessKeyID     string
 	SecretAccessKey string
-	// S3Region signs requests; default us-east-1.
+	SessionToken    string
+	// Anonymous sends unsigned requests instead of using the chain.
+	Anonymous bool
+	// Profile selects a shared-config profile (default: AWS_PROFILE).
+	Profile string
+	// RoleARN, when set, is assumed with STS AssumeRole on top of the
+	// resolved credentials.
+	RoleARN string
+	// S3Region signs requests. Default: the chain's region (AWS_REGION,
+	// profile), else us-east-1 for custom endpoints; s3:// URLs need one.
 	S3Region string
+	// PathStyle overrides the addressing style (default: path-style for
+	// http(s):// endpoints, virtual-hosted for s3://).
+	PathStyle *bool
+	// CABundle is a PEM file of extra root CAs to trust (for a private or
+	// self-signed CA). AWS_CA_BUNDLE is honoured when this is empty.
+	CABundle string
 
 	ProducerID    string
 	Region        string
@@ -56,8 +78,12 @@ type Config struct {
 	// Engine is "arrow" (arrow-go pqarrow, the default) or "parquet-go".
 	Engine string
 
-	// Transport, when set, carries every S3 request (for counting them).
-	Transport http.RoundTripper
+	// Transport, when set, carries every S3 request (for counting them) in
+	// place of the publisher's own; it then owns TLS, so CABundle does not
+	// apply to it. WrapTransport instead wraps the publisher's transport,
+	// which carries the CA bundle.
+	Transport     http.RoundTripper
+	WrapTransport func(http.RoundTripper) http.RoundTripper
 	// Now is the clock; default time.Now.
 	Now func() time.Time
 }
@@ -113,9 +139,6 @@ func New(cfg Config) (*Publisher, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	if cfg.S3Region == "" {
-		cfg.S3Region = "us-east-1"
-	}
 	if cfg.Parquet.Compression == "" && cfg.Parquet.DataPageSize == 0 {
 		cfg.Parquet = DefaultOptions()
 	}
@@ -147,33 +170,20 @@ func New(cfg Config) (*Publisher, error) {
 			return nil, fmt.Errorf("not a file:///absolute URL: %q", cfg.URL)
 		}
 		p.local = u.Path
-	case "http", "https":
-		parts := strings.SplitN(strings.Trim(u.Path, "/"), "/", 2)
-		if parts[0] == "" {
+	case "s3", "http", "https":
+		bucket, prefix := u.Host, strings.Trim(u.Path, "/")
+		if u.Scheme != "s3" {
+			bucket, prefix, _ = strings.Cut(prefix, "/")
+		}
+		if bucket == "" {
 			return nil, fmt.Errorf("S3 URL %q names no bucket", cfg.URL)
 		}
-		p.bucket = parts[0]
-		if len(parts) == 2 {
-			p.prefix = parts[1]
+		p.bucket, p.prefix = bucket, prefix
+		if p.s3, err = newS3Client(cfg, u); err != nil {
+			return nil, err
 		}
-		var creds aws.CredentialsProvider = aws.AnonymousCredentials{}
-		if cfg.AccessKeyID != "" {
-			creds = credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, "")
-		}
-		opts := s3.Options{
-			Region:       cfg.S3Region,
-			BaseEndpoint: aws.String(u.Scheme + "://" + u.Host),
-			// Path-style, so SeaweedFS, Garage and MinIO work without
-			// virtual-host DNS.
-			UsePathStyle: true,
-			Credentials:  creds,
-		}
-		if cfg.Transport != nil {
-			opts.HTTPClient = &http.Client{Transport: cfg.Transport}
-		}
-		p.s3 = s3.New(opts)
 	default:
-		return nil, fmt.Errorf("parquet url %q: want file:// or http(s)://", cfg.URL)
+		return nil, fmt.Errorf("parquet url %q: want file://, s3:// or http(s)://", cfg.URL)
 	}
 	return p, nil
 }

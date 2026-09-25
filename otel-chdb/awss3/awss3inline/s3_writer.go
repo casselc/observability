@@ -28,6 +28,16 @@ func newUploadManager(
 	format string,
 	isCompressed bool,
 ) (upload.Manager, error) {
+	client, err := newS3Client(ctx, conf)
+	if err != nil {
+		return nil, err
+	}
+	return newUploadManagerWithClient(conf, logger, metadata, format, isCompressed, client)
+}
+
+// newS3Client is the client newUploadManager used to build inline; the
+// sequence key mode needs it directly.
+func newS3Client(ctx context.Context, conf *Config) (*s3.Client, error) {
 	configOpts := []func(*config.LoadOptions) error{}
 
 	if region := conf.S3Uploader.Region; region != "" {
@@ -77,6 +87,11 @@ func newUploadManager(
 		})
 	}
 
+	return s3.NewFromConfig(cfg, s3Opts...), nil
+}
+
+func newUploadManagerWithClient(conf *Config, logger *zap.Logger, metadata, format string, isCompressed bool, client *s3.Client) (upload.Manager, error) {
+	var err error
 	var managerOpts []upload.ManagerOpt
 	if conf.S3Uploader.ACL != "" {
 		managerOpts = append(managerOpts,
@@ -116,7 +131,7 @@ func newUploadManager(
 			UniqueKeyFunc:         uniqueKeyFunc,
 			IsCompressed:          isCompressed,
 		},
-		s3.NewFromConfig(cfg, s3Opts...),
+		client,
 		s3types.StorageClass(conf.S3Uploader.StorageClass),
 		managerOpts...,
 	), nil

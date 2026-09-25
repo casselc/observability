@@ -2,3 +2,4 @@
 results/**/part_log.jsonl
 results/**/query_log.jsonl
 results/**/inserts.jsonl
+results/*.log

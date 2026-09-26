@@ -62,6 +62,14 @@ takes every path: all conform. The mutants `RetryNewKey` and `NoHalt` fail
 acknowledgement) against `s3InlineMetrics`: 30 runs with restarts
 (748 steps, 59 restarts, 20 NACKed pushes, 18 of them with the other part committed) conform; the `AckOnAny` mutant fails at its 2xx.
 
+**Faults end to end** [M] (`../conformance/go_faults.sh`): the Rust
+edge's six fault scenarios (ambiguous, late and dropped PUTs, unresolved
+HEADs, a SIGKILL, a zombie writer) against `otelcol-s3pq` behind the fault
+proxy, then the Rust consumer: every request exactly once in all six. And
+`../deploy/scripts/go_edge_test.sh`: the deployed publisher config, 16
+requests per signal, SIGKILL and restart on the persistent queue: every
+request once, metrics included.
+
 **Cost** [M, loaded box] (`compare/results/edge-bench.md`, per batch to
 SeaweedFS): traces 43 ms CPU against 40 for the manifest publisher, logs 29
 against 28, metrics (10,000 points, 2,000 of each type) **39 ms in layout B

@@ -1,0 +1,11 @@
+--- SELECT version() AS version, currentUser() AS user,        getSetting('s3_allow_server_credentials_in_user_que
+    version	user	allow_server_creds_for_me
+    26.10.1.618	default	false
+--- SELECT 'keyless' AS check, count() AS rows, sum(c1) AS sum_c1 FROM s3('http://127.0.0.1:18333/otel/accept/cred
+    Code: 497. DB::Exception: S3 access from user queries is not allowed to use the server's own credentials (environment variables, instance metadata, IRSA, instance profile, or AWS config files). Provide explicit credentials, use NOSIGN for public buckets, grant access through an IAM role passed as extra_credentials(role_arn = '...'), or enable the setting `s3_allow_server_credentials_in_user_qu
+--- SELECT 'keyless, setting=1' AS check, count() AS rows FROM s3('http://127.0.0.1:18333/otel/accept/creds/sample
+    check	rows
+    keyless, setting=1	3
+--- SELECT 'glob' AS check, _path, count() AS rows FROM s3('http://127.0.0.1:18333/otel/accept/creds/*.tsv', 'TSV'
+    check	_path	rows
+    glob	otel/accept/creds/sample.tsv	3

@@ -1,0 +1,24 @@
+=== RUN   TestChecksCatchBrokenStores
+    fake_test.go:151: honest create-only  PASS 200, then 412 for a different body and for an identical retry; body unchanged
+    fake_test.go:151: honest if-match     PASS current 200, stale 412, made-up 412, missing 404, unquoted 200/204
+    fake_test.go:151: honest create-race  PASS 10 rounds × 16 writers: exactly one winner each, stored body = winner's
+    fake_test.go:151: honest cas-race     PASS 8 writers × 10: final 80 = successes, none installed twice (195 refused)
+    fake_test.go:151: ignore create-only  FAIL If-None-Match:* was ignored: a second create returned 200
+    fake_test.go:151: ignore if-match     FAIL If-Match was ignored: a stale or made-up ETag replaced the object
+    fake_test.go:151: ignore create-race  FAIL 10 of 10 rounds did not have exactly one winner
+    fake_test.go:151: ignore cas-race     FAIL lost updates: 80 successful CASes but the counter reads 12 (68 values installed twice)
+    fake_test.go:151: racy   create-only  PASS 200, then 412 for a different body and for an identical retry; body unchanged
+    fake_test.go:151: racy   if-match     PASS current 200, stale 412, made-up 412, missing 404, unquoted 200/204
+    fake_test.go:151: racy   create-race  FAIL 10 of 10 rounds did not have exactly one winner
+    fake_test.go:151: racy   cas-race     FAIL lost updates: 80 successful CASes but the counter reads 11 (69 values installed twice)
+--- PASS: TestChecksCatchBrokenStores (0.29s)
+=== RUN   TestAmbiguousOnHonestFake
+    fake_test.go:164: PASS 5 ambiguous creates, each resolved exactly once (5 had landed, 0 had not, 0 late) [5 create-only PUTs cancelled once written: 5 had landed (retry 412, body ours), 0 had not (retry created it), 0 answered before the cancel; 0 looked free right after the cancel but had landed by the retry (late landing)]
+    fake_test.go:164: PASS 5 ambiguous CASes resolved by read-back (5 had applied, 0 had not) [5 If-Match CASes cancelled once written: 5 had applied (412 on retry, body ours), 0 had not (retry applied), 0 answered before the cancel]
+--- PASS: TestAmbiguousOnHonestFake (0.22s)
+=== RUN   TestParseSizes
+--- PASS: TestParseSizes (0.00s)
+=== RUN   TestResolveURL
+--- PASS: TestResolveURL (0.00s)
+PASS
+ok  	oscope/spike/otel-chdb/acceptance/s3accept	0.521s

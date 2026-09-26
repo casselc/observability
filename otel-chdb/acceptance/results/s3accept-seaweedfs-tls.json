@@ -1,0 +1,571 @@
+{
+  "tool": "s3accept",
+  "mode": "run",
+  "started": "2026-09-26T17:46:53.617273457Z",
+  "finished": "2026-09-26T17:46:58.382171808Z",
+  "store": "seaweedfs-tls",
+  "target": {
+    "bucket": "otel",
+    "ca_bundle": "/tmp/credcheck.kduc5o/ca.pem",
+    "endpoint": "https://127.0.0.1:18903",
+    "path_style": true,
+    "profile": "",
+    "race_endpoints": null,
+    "region": "",
+    "role_arn": "",
+    "root": "accept/20260926T174653-560e51",
+    "static_keys_flag": false
+  },
+  "params": {
+    "race_writers": 16,
+    "race_rounds": 5,
+    "cas_writers": 8,
+    "cas_increments": 25,
+    "ambiguous_n": 5,
+    "settle_ns": 200000000,
+    "mpu_writers": 4,
+    "mpu_rounds": 3,
+    "consistency_n": 30,
+    "list_lag_max_ns": 10000000000,
+    "perf_ops": 20,
+    "perf_concurrency": 8,
+    "perf_sizes": [
+      100000
+    ],
+    "perf_warn_p99_ns": 2000000000
+  },
+  "results": [
+    {
+      "id": "identity",
+      "title": "credential source and caller identity",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer",
+        "exporter-data"
+      ],
+      "status": "PASS",
+      "summary": "static keys from the environment",
+      "evidence": [
+        "credential source: EnvConfigCredentials → static keys from the environment",
+        "key ****, session token false, expires never, retrieved in 0s",
+        "STS GetCallerIdentity skipped: custom endpoint and no --sts-endpoint (Nutanix Objects has no STS)"
+      ],
+      "data": {
+        "access_key": "****",
+        "env": {
+          "AWS_ACCESS_KEY_ID": "****"
+        },
+        "mode": "static keys from the environment",
+        "retrieve_ms": 0,
+        "session_token": false,
+        "source": "EnvConfigCredentials"
+      },
+      "duration_ms": 0
+    },
+    {
+      "id": "create-only",
+      "title": "PUT If-None-Match:* (create-only), incl. identical retry",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "200, then 412 for a different body and for an identical retry; body unchanged",
+      "evidence": [
+        "PUT If-None-Match:* on a new key: OK",
+        "ETag is the body's MD5 (\"f24766b7aeb01cf29af5a2e8dd1fefb7\")",
+        "second PUT If-None-Match:*, other body: HTTP 412 PreconditionFailed (412)",
+        "identical retry PUT If-None-Match:*: HTTP 412 PreconditionFailed (412)",
+        "GET after both: \"first-20260926T174653-560e51\" (OK)"
+      ],
+      "data": {
+        "etag_is_md5": true
+      },
+      "duration_ms": 16
+    },
+    {
+      "id": "plain-put",
+      "title": "unconditional PUT (bucket policy check)",
+      "level": "recommended",
+      "capabilities": [
+        "exporter-data"
+      ],
+      "status": "PASS",
+      "summary": "unconditional PUTs allowed (new key and overwrite)",
+      "evidence": [
+        "unconditional PUT, new key: OK",
+        "unconditional PUT, overwrite: OK"
+      ],
+      "duration_ms": 5
+    },
+    {
+      "id": "if-match",
+      "title": "PUT If-Match CAS",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "WARN",
+      "summary": "If-Match on a missing key answers 412 (AWS: 404)",
+      "meaning": "Harmless for the design (either is 'not applied'), but code must not read 412 as 'exists with another ETag'.",
+      "evidence": [
+        "PUT If-Match current ETag: OK (new ETag \"a7271383ddb31cafb25aab5ec880b111\")",
+        "PUT If-Match stale ETag: HTTP 412 PreconditionFailed (412)",
+        "PUT If-Match made-up ETag: HTTP 412 PreconditionFailed (412)",
+        "GET: \"v2-20260926T174653-560e51\" ETag \"a7271383ddb31cafb25aab5ec880b111\"",
+        "PUT If-Match on a missing key: HTTP 412 PreconditionFailed (412) (AWS documents 404)",
+        "PUT If-Match current ETag, unquoted: OK"
+      ],
+      "data": {
+        "missing_key_status": 412
+      },
+      "duration_ms": 16
+    },
+    {
+      "id": "cond-delete",
+      "title": "DELETE If-Match",
+      "level": "recommended",
+      "status": "PASS",
+      "summary": "stale 412 (kept), current 204 (gone), * on missing 412",
+      "evidence": [
+        "DELETE If-Match stale ETag: HTTP 412 PreconditionFailed (412)",
+        "object after the stale conditional DELETE: present=true",
+        "DELETE If-Match current ETag: OK",
+        "DELETE If-Match:* on a missing key: HTTP 412 PreconditionFailed (412) (AWS: 412 or 404)"
+      ],
+      "data": {
+        "star_on_missing_status": 412
+      },
+      "duration_ms": 16
+    },
+    {
+      "id": "create-race",
+      "title": "N concurrent create-only writers on one key",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "5 rounds × 16 writers: exactly one winner each, stored body = winner's",
+      "evidence": [
+        "winners per round histogram: map[1:5]; 409 ConditionalRequestConflict: 0; other errors: 0"
+      ],
+      "data": {
+        "conflicts_409": 0,
+        "endpoints": 1,
+        "other_errors": 0,
+        "rounds": 5,
+        "winners_histogram": {
+          "1": 5
+        },
+        "writers": 16
+      },
+      "duration_ms": 73
+    },
+    {
+      "id": "cas-race",
+      "title": "concurrent read-CAS increments (lost-update detection)",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "8 writers × 25: final 200 = successes, none installed twice (1056 refused)",
+      "evidence": [
+        "8 writers × 25 increments: 200 CAS won, 1056 refused (412), 0 409, final value 200, values installed twice 0"
+      ],
+      "data": {
+        "duplicates": 0,
+        "final": "200",
+        "refused": 1056,
+        "won": 200
+      },
+      "duration_ms": 1404
+    },
+    {
+      "id": "cas-vs-delete",
+      "title": "CAS racing a conditional DELETE",
+      "level": "info",
+      "status": "PASS",
+      "summary": "20 rounds: never both succeeded",
+      "evidence": [
+        "20 rounds of a CAS racing a conditional DELETE on one ETag: both succeeded 0 times"
+      ],
+      "duration_ms": 132
+    },
+    {
+      "id": "ambiguous-create",
+      "title": "create-only PUT cancelled mid-request, then resolved",
+      "level": "required",
+      "capabilities": [
+        "control-plane"
+      ],
+      "status": "PASS",
+      "summary": "5 ambiguous creates, each resolved exactly once (5 had landed, 0 had not, 4 late)",
+      "evidence": [
+        "5 create-only PUTs cancelled once written: 5 had landed (retry 412, body ours), 0 had not (retry created it), 0 answered before the cancel; 4 looked free right after the cancel but had landed by the retry (late landing)",
+        "late landing is expected and handled: the in-flight copy and the resend cannot both apply"
+      ],
+      "data": {
+        "landed": 5,
+        "late_landed": 4,
+        "not_ambiguous": 0,
+        "not_landed": 0
+      },
+      "duration_ms": 1040
+    },
+    {
+      "id": "ambiguous-cas",
+      "title": "If-Match PUT cancelled mid-request, then resolved",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "5 ambiguous CASes resolved by read-back (5 had applied, 0 had not)",
+      "evidence": [
+        "5 If-Match CASes cancelled once written: 5 had applied (412 on retry, body ours), 0 had not (retry applied), 0 answered before the cancel"
+      ],
+      "data": {
+        "applied": 5,
+        "not_applied": 0
+      },
+      "duration_ms": 1038
+    },
+    {
+      "id": "mpu-race",
+      "title": "conditional CompleteMultipartUpload (not used by the design)",
+      "level": "info",
+      "status": "FAIL",
+      "summary": "not atomic: winners per round [4 3 4] (want 1 each)",
+      "meaning": "Conditional multipart completion is not atomic on this store (SeaweedFS 4.47 has the same check-then-act race). The design does not use it: log entries, leases and checkpoints are single-part PUTs, and data objects (100 KB-1 MB) are single PUTs. Keep it that way: never raise the exporters' multipart threshold below the object size, and never make a control object multipart.",
+      "evidence": [
+        "complete If-None-Match:* on a new key: OK",
+        "complete If-None-Match:* on an existing key: HTTP 412 PreconditionFailed (412)",
+        "3 rounds × 4 concurrent If-None-Match:* completions on one key: winners per round [4 3 4]"
+      ],
+      "data": {
+        "winners_per_round": [
+          4,
+          3,
+          4
+        ]
+      },
+      "duration_ms": 116
+    },
+    {
+      "id": "metadata",
+      "title": "user metadata round trip on HEAD/GET",
+      "level": "required",
+      "capabilities": [
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "9 keys (incl. a 400-byte value) and content type round-trip on HEAD and GET; a losing create keeps the first metadata",
+      "evidence": [
+        "create-only PUT with 9 x-amz-meta-* headers: OK",
+        "second create-only PUT with other metadata: HTTP 412 PreconditionFailed (412)",
+        "HEAD: 9 metadata keys, content-type \"application/vnd.apache.parquet\", length 26",
+        "GET returns 9 metadata keys"
+      ],
+      "duration_ms": 8
+    },
+    {
+      "id": "read-after-write",
+      "title": "read-after-create/overwrite/delete",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "30 keys: create, overwrite and delete all visible to the next GET/HEAD",
+      "evidence": [
+        "30 keys: GET right after create missed 0; HEAD missed 0; GET after overwrite stale 0; GET after DELETE still found 0"
+      ],
+      "data": {
+        "delete_stale": 0,
+        "new_miss": 0,
+        "overwrite_stale": 0
+      },
+      "duration_ms": 422
+    },
+    {
+      "id": "list",
+      "title": "LIST-after-write, StartAfter order, pagination, delimiter",
+      "level": "required",
+      "capabilities": [
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "LIST-after-write consistent (30/30); StartAfter, pagination, delimiter as AWS",
+      "evidence": [
+        "LIST right after PUT: 0 of 30 missed the new key; worst time to visibility 2ms",
+        "epoch-scoped, StartAfter slot 2: 5 keys in 1 page(s), as expected",
+        "lane-wide, StartAfter e1 slot 2 (returns later epochs too): 13 keys in 1 page(s), as expected",
+        "StartAfter a key that does not exist (slot 3): 5 keys in 1 page(s), as expected",
+        "StartAfter {epoch}/0 (the consumer's slot-0 form): 16 keys in 1 page(s), as expected",
+        "StartAfter the last key: 0 keys in 1 page(s), as expected",
+        "StartAfter \"…/e1/\" (directory form): 16 keys (string order, as AWS)",
+        "same lane-wide LIST at MaxKeys=3: 13 keys in 5 pages (OK)",
+        "delimiter LIST of the lane: [e1/ e2/] (OK)"
+      ],
+      "data": {
+        "list_after_write_misses": 0,
+        "startafter_directory_string_order": true
+      },
+      "duration_ms": 205
+    },
+    {
+      "id": "head-missing",
+      "title": "HEAD/GET of a missing key: 404, not 403",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "HEAD 404, GET HTTP 404 NoSuchKey (404)",
+      "evidence": [
+        "HEAD missing key: HTTP 404 NotFound (404); GET missing key: HTTP 404 NoSuchKey (404)"
+      ],
+      "data": {
+        "head_status": 404
+      },
+      "duration_ms": 2
+    },
+    {
+      "id": "checksum",
+      "title": "SDK default CRC32 (header and trailer), when_required, DeleteObjects",
+      "level": "recommended",
+      "capabilities": [
+        "exporter-data"
+      ],
+      "status": "PASS",
+      "summary": "default CRC32 (header and trailer), CRC32C, SHA256, when_required, DeleteObjects: all accepted",
+      "evidence": [
+        "PUT If-None-Match:*, default (CRC32 when_supported)        OK",
+        "  headers sent: Content-Encoding: aws-chunked; X-Amz-Content-Sha256: STREAMING-UNSIGNED-PAYLOAD-TRAILER; X-Amz-Decoded-Content-Length: 102400; X-Amz-Trailer: x-amz-checksum-crc32",
+        "  default PUT used a trailing checksum (aws-chunked): true",
+        "PUT streamed body (aws-chunked, trailing CRC32)            OK",
+        "PUT explicit CRC32C                                        OK",
+        "PUT explicit SHA256                                        OK",
+        "PUT If-None-Match:*, when_required (no checksum)           OK",
+        "GET with response validation (ChecksumMode ENABLED)        OK",
+        "  stored CRC32 returned by GET: \"437uaw==\"",
+        "  GET responses so far without a checksum the SDK could validate: 0 (fine: validation is skipped, not failed)",
+        "DeleteObjects, default (CRC32)                             OK",
+        "DeleteObjects, when_required                               OK"
+      ],
+      "data": {
+        "default_ok": true,
+        "default_put_headers": [
+          "Content-Encoding: aws-chunked",
+          "X-Amz-Content-Sha256: STREAMING-UNSIGNED-PAYLOAD-TRAILER",
+          "X-Amz-Decoded-Content-Length: 102400",
+          "X-Amz-Trailer: x-amz-checksum-crc32"
+        ],
+        "default_uses_trailer": true,
+        "stream_trailer_ok": true,
+        "when_required_ok": true
+      },
+      "duration_ms": 31
+    },
+    {
+      "id": "bucket-config",
+      "title": "versioning, lifecycle, bucket policy condition keys",
+      "level": "info",
+      "status": "INFO",
+      "summary": "versioning never enabled",
+      "evidence": [
+        "versioning: never enabled",
+        "GetBucketLifecycleConfiguration: HTTP 404 NoSuchLifecycleConfiguration (404)",
+        "GetBucketPolicy: HTTP 404 NoSuchBucketPolicy (404)"
+      ],
+      "data": {
+        "versioning": "never enabled"
+      },
+      "duration_ms": 4
+    },
+    {
+      "id": "clock",
+      "title": "store clock vs local clock",
+      "level": "info",
+      "capabilities": [
+        "exporter-data"
+      ],
+      "status": "PASS",
+      "summary": "max |store Date − local| 1s (1 s resolution)",
+      "data": {
+        "max_skew_ms": 999
+      },
+      "duration_ms": 0
+    },
+    {
+      "id": "perf",
+      "title": "latency and throughput at the exporters' object sizes",
+      "level": "info",
+      "status": "INFO",
+      "summary": "PUT-INM 100KB p50/p99 10/16 ms; PUT-slot 200B p50/p99 5/8 ms; CAS 200B p50/p99 4/6 ms; see evidence/JSON for GET/HEAD/LIST",
+      "evidence": [
+        "PUT-INM   100KB   n=20   c=8   err=0     750.2 op/s    75.0 MB/s  p50     9.5  p90    14.7  p99    16.4  max    16.4 ms ",
+        "GET       100KB   n=20   c=8   err=0    1287.1 op/s   128.7 MB/s  p50     4.8  p90     7.7  p99     8.5  max     8.5 ms ",
+        "HEAD      0B      n=20   c=8   err=0    2756.9 op/s     0.0 MB/s  p50     2.0  p90     3.0  p99     3.5  max     3.5 ms ",
+        "LIST      0B      n=10   c=8   err=0    1510.7 op/s     0.0 MB/s  p50     4.7  p90     5.9  p99     5.9  max     5.9 ms ",
+        "PUT-slot  200B    n=20   c=8   err=0    1223.5 op/s     0.2 MB/s  p50     5.0  p90     7.3  p99     7.6  max     7.6 ms ",
+        "CAS       200B    n=20   c=8   err=0    1388.5 op/s     0.3 MB/s  p50     4.4  p90     5.4  p99     5.7  max     5.7 ms ",
+        "HEAD-404  0B      n=20   c=8   err=0    2634.2 op/s     0.0 MB/s  p50     2.3  p90     4.2  p99     5.6  max     5.6 ms "
+      ],
+      "data": {
+        "perf": [
+          {
+            "op": "PUT-INM",
+            "size_bytes": 100000,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.026658858,
+            "ops_per_s": 750.2196830786975,
+            "mb_per_s": 75.02196830786974,
+            "p50_ms": 9.52,
+            "p90_ms": 14.731,
+            "p99_ms": 16.388,
+            "max_ms": 16.388
+          },
+          {
+            "op": "GET",
+            "size_bytes": 100000,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.015538766,
+            "ops_per_s": 1287.103493288978,
+            "mb_per_s": 128.7103493288978,
+            "p50_ms": 4.822,
+            "p90_ms": 7.709,
+            "p99_ms": 8.513,
+            "max_ms": 8.513
+          },
+          {
+            "op": "HEAD",
+            "size_bytes": 0,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.007254633,
+            "ops_per_s": 2756.858961714535,
+            "p50_ms": 2.027,
+            "p90_ms": 2.961,
+            "p99_ms": 3.474,
+            "max_ms": 3.474
+          },
+          {
+            "op": "LIST",
+            "size_bytes": 0,
+            "n": 10,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.006619567,
+            "ops_per_s": 1510.6728279961515,
+            "p50_ms": 4.719,
+            "p90_ms": 5.874,
+            "p99_ms": 5.938,
+            "max_ms": 5.938
+          },
+          {
+            "op": "PUT-slot",
+            "size_bytes": 200,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.016347134,
+            "ops_per_s": 1223.4560504612002,
+            "mb_per_s": 0.24469121009224004,
+            "p50_ms": 5.04,
+            "p90_ms": 7.26,
+            "p99_ms": 7.631,
+            "max_ms": 7.631
+          },
+          {
+            "op": "CAS",
+            "size_bytes": 200,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.014403912,
+            "ops_per_s": 1388.5116765500927,
+            "mb_per_s": 0.2777023353100186,
+            "p50_ms": 4.44,
+            "p90_ms": 5.39,
+            "p99_ms": 5.741,
+            "max_ms": 5.741
+          },
+          {
+            "op": "HEAD-404",
+            "size_bytes": 0,
+            "n": 20,
+            "errors": 0,
+            "concurrency": 8,
+            "wall_s": 0.00759245,
+            "ops_per_s": 2634.1958129457553,
+            "p50_ms": 2.331,
+            "p90_ms": 4.152,
+            "p99_ms": 5.567,
+            "max_ms": 5.567
+          }
+        ]
+      },
+      "duration_ms": 94
+    },
+    {
+      "id": "cleanup",
+      "title": "delete this run's prefix",
+      "level": "recommended",
+      "status": "PASS",
+      "summary": "deleted 119 objects, aborted 0 uploads; prefix empty",
+      "evidence": [
+        "deleted 119 objects (0 failed), aborted 0 uploads, 0 left under accept/20260926T174653-560e51/"
+      ],
+      "duration_ms": 0
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "control-plane",
+      "title": "S3-native control plane: create-only log slots, epoch fence, CAS'd leases and checkpoints",
+      "if_fail": "Do not run the manifest-less / S3-native commit on this store. Put the control plane (log slots, leases, checkpoint, gc.json) behind the Coordinator interface on ClickHouse Keeper (model/S3NATIVE.md section 9, fallback (b)); data objects can stay on this store with plain PUTs.",
+      "verdict": "ACCEPTED"
+    },
+    {
+      "id": "inline-consumer",
+      "title": "otap-rs consumer: HEAD slots with metadata, LIST StartAfter discovery, 404 on free slots, DELETE for GC",
+      "if_fail": "The consumer as built (otap-rs README, Consumer) cannot run unchanged: see each failing check for the workaround.",
+      "verdict": "ACCEPTED"
+    },
+    {
+      "id": "exporter-data",
+      "title": "Exporter data path: plain and create-only PUTs of 100 KB-1 MB objects with the SDKs' default checksums",
+      "if_fail": "Exporters need configuration (IAM, bucket policy, or AWS_REQUEST_CHECKSUM_CALCULATION=when_required) before they can publish.",
+      "verdict": "ACCEPTED"
+    }
+  ],
+  "requests": {
+    "DELETE 204": 64,
+    "DELETE 412": 2,
+    "GET 200": 1413,
+    "GET 404": 33,
+    "HEAD 200": 53,
+    "HEAD 404": 26,
+    "POST 200": 29,
+    "POST 412": 2,
+    "PUT 200": 423,
+    "PUT 412": 1167,
+    "PUT error": 10
+  }
+}

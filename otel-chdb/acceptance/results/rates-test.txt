@@ -1,0 +1,106 @@
+== collect.py against the fake Prometheus (with --heavy and a --selector)
+  pods                     3000.0  (alt 0)
+  nodes                    200.0  (alt 0)
+  clusters                 no data
+  scrape_interval_s        30.0  (alt 0)
+  head_series              2500000.0  (alt 0)
+  series_scraped           2400000.0  (alt 0)
+  series_cadvisor          600000.0  (alt 0)
+  series_node_exporter     180000.0  (alt 0)
+  series_kubelet           300000.0  (alt 0)
+  series_ksm               150000.0  (alt 0)
+  series_control_plane     60000.0  (alt 0)
+  series_by_job            3 series  (alt 0)
+  series_per_pod_p50       410.0  (alt 0)
+  series_per_pod_p90       1650.0  (alt 0)
+  otel_metric_points       no data
+  logs_fluentbit_pod       9000.0  (alt 0)
+  logs_fluentbit_node      1000.0  (alt 0)
+  logs_fluentbit_bytes     2250000.0  (alt 0)
+  logs_vector_pod          no data
+  logs_vector_node         no data
+  logs_promtail_pod        no data
+  logs_promtail_node       no data
+  logs_otelcol_pod         no data
+  logs_otelcol_node        no data
+  logs_loki                no data
+  logs_loki_bytes          no data
+  spans_tempo              30000.0  (alt 0)
+  spans_tempo_bytes        13500000.0  (alt 0)
+  spans_jaeger             no data
+  spans_otelcol            61000.0  (alt 0)
+  spans_otelcol_by_job     2 series  (alt 0)
+  spans_otelcol_exported   no data
+wrote /tmp/rates-test.X0sSAS/rates.json (72 queries)
+
+== to_calculator.py (avg)
+Calculator inputs (basis: avg)
+
+  input            value  derived from
+  clusters             1  1 (no cluster label)
+  pods              3000  3000 running pods / 1 clusters
+  nodes              200  200 nodes / 1 clusters
+  spansPod           9.0  spans_tempo 27000.0 spans/s / 3000 pods
+  logsPod            2.7  fluentbit container-log inputs 8100.0 lines/s / 3000 pods
+  logsNode           4.5  fluentbit journal inputs 900.0 lines/s / 200 nodes
+  seriesPod          513  (series_scraped 2160000 − infra 1161000 = app 999000, + cAdvisor 540000) / 3000 pods
+  seriesNode        3105  (node-exporter + kubelet + kube-state-metrics + control plane = 621000) / 200 nodes
+  interval            30  median scrape interval
+
+Notes:
+  - direct count by pod (heavy): median 410, p90 1650 series per pod
+  - raw log line ≈ 250 bytes (the calculator's stored bytes/log is after compression: keep its default unless you measure central)
+  - Tempo wire bytes per span ≈ 450 (OTLP protobuf; attribute-heavy spans run 300-1,000)
+
+JSON:
+  {"clusters": 1, "pods": 3000, "nodes": 200, "spansPod": 9.0, "logsPod": 2.7, "logsNode": 4.5, "seriesPod": 513, "seriesNode": 3105, "interval": 30}
+
+Paste into the browser console on the calculator page (sets the fields and reloads):
+  (function(){var k='central-sizing-v9',s={};try{s=JSON.parse(localStorage.getItem(k)||'{}')||{}}catch(e){}var v={"clusters": 1, "pods": 3000, "nodes": 200, "spansPod": 9.0, "logsPod": 2.7, "logsNode": 4.5, "seriesPod": 513, "seriesNode": 3105, "interval": 30};for(var x in v)s[x]=String(v[x]);localStorage.setItem(k,JSON.stringify(s));location.reload()})()
+
+== to_calculator.py (peak, JSON)
+{"clusters": 1, "pods": 3000, "nodes": 200, "spansPod": 16.0, "logsPod": 4.8, "logsNode": 8.0, "seriesPod": 912, "seriesNode": 5520, "interval": 30}
+
+== kubectl_sample.py with a fake kubectl, then to_calculator.py --sample
+12 running pods on 2 nodes
+Calculator inputs (basis: avg)
+
+  input            value  derived from
+  clusters             1  1 (no cluster label)
+  pods                12  12 running pods / 1 clusters
+  nodes                2  2 nodes / 1 clusters
+  spansPod        (keep)  no data: keep the calculator's value
+  logsPod            1.0  kubectl logs sample of 5 pods: mean (p50 1.00, p90 1.00)
+  logsNode        (keep)  no data: keep the calculator's value
+  seriesPod          275  kubectl sample: cAdvisor 200 + app 75 per pod
+  seriesNode        1500  kubectl sample: kubelet 1500 per node; node-exporter and kube-state-metrics NOT included
+  interval            30  default 30 (no data)
+
+Notes:
+  - series per node from the kubectl sample misses node-exporter and kube-state-metrics: add them by hand
+  - raw log line ≈ 120 bytes (the calculator's stored bytes/log is after compression: keep its default unless you measure central)
+
+JSON:
+  {"clusters": 1, "pods": 12, "nodes": 2, "logsPod": 1.0, "seriesPod": 275, "seriesNode": 1500, "interval": 30}
+
+Paste into the browser console on the calculator page (sets the fields and reloads):
+  (function(){var k='central-sizing-v9',s={};try{s=JSON.parse(localStorage.getItem(k)||'{}')||{}}catch(e){}var v={"clusters": 1, "pods": 12, "nodes": 2, "logsPod": 1.0, "seriesPod": 275, "seriesNode": 1500, "interval": 30};for(var x in v)s[x]=String(v[x]);localStorage.setItem(k,JSON.stringify(s));location.reload()})()
+
+== assertions
+  ok   now: pods = 3000
+  ok   now: nodes = 200
+  ok   now: spansPod (tempo 30000/3000) = 10.0
+  ok   now: logsPod (9000/3000) = 3.0
+  ok   now: logsNode (1000/200) = 5.0
+  ok   now: seriesPod ((2.4M-1.29M)+0.6M)/3000 = 570
+  ok   now: seriesNode (690k/200) = 3450
+  ok   now: interval = 30
+  ok   avg: spansPod (rate over [1d] ×0.9) = 9.0
+  ok   peak: spansPod (×1.6) = 16.0
+  ok   otelcol spans (61000/3000) = 20.33
+  ok   sample: logsPod (600 lines / 600 s) = 1.0
+  ok   sample: seriesPod (cAdvisor 200 + 300×3/12) = 275
+  ok   sample: seriesNode (kubelet) = 1500
+  ok   selector injected = count(kube_pod_status_phase{phase="Running",cluster="prod-1"} == 1)
+  ok   selector in empty braces = sum(prometheus_tsdb_head_series{cluster="prod-1"})
+PASS

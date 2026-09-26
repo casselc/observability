@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Stands in for kubectl in rates/test.sh: 12 running pods on 2 nodes, 3 of
+them annotated for scraping; every pod logged 600 lines of 120 bytes in the
+last 10 minutes (1 line/s); cAdvisor exposes 200 series per pod, kubelet 1,500
+per node, each annotated pod 300."""
+import json
+import sys
+
+a = [x for x in sys.argv[1:]]
+if "--context" in a:
+    i = a.index("--context")
+    del a[i:i + 2]
+pods = []
+for i in range(12):
+    ann = {"prometheus.io/scrape": "true", "prometheus.io/port": "8080"} if i < 3 else {}
+    pods.append({"metadata": {"namespace": "app", "name": f"p{i}", "annotations": ann},
+                 "spec": {"nodeName": f"n{i % 2}"}})
+nodes = [{"metadata": {"name": "n0"}}, {"metadata": {"name": "n1"}}]
+
+
+def series(n):
+    return "".join(f"# HELP m{i} x\nm{i}{{a=\"b\"}} 1\n" for i in range(n))
+
+
+if a[:2] == ["get", "pods"]:
+    print(json.dumps({"items": pods}))
+elif a[:2] == ["get", "nodes"]:
+    print(json.dumps({"items": nodes}))
+elif a[0] == "logs":
+    sys.stdout.write(("x" * 119 + "\n") * 600)
+elif a[:2] == ["get", "--raw"]:
+    p = a[2]
+    if p.endswith("/metrics/cadvisor"):
+        sys.stdout.write(series(200 * 6))  # 6 pods per node
+    elif p.startswith("/api/v1/nodes/"):
+        sys.stdout.write(series(1500))
+    elif "/pods/" in p:
+        sys.stdout.write(series(300))
+    else:
+        sys.exit("unknown raw path " + p)
+else:
+    sys.exit("fake-kubectl: unsupported " + " ".join(a))

@@ -1,0 +1,21 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SlotsAndTombstonesMustBeCreateOnly",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::BUCKET/edge/*/log/*",
+      "Condition": {"Null": {"s3:if-none-match": "true"}}
+    },
+    {
+      "Sid": "CheckpointsAndLeasesMustBeCAS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": ["arn:aws:s3:::BUCKET/edge/_consumer/ckpt/*", "arn:aws:s3:::BUCKET/edge/_consumer/lease/*"],
+      "Condition": {"Null": {"s3:if-match": "true", "s3:if-none-match": "true"}}
+    }
+  ]
+}

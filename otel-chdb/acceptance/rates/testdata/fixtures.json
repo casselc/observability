@@ -1,0 +1,23 @@
+[
+  {"match": "kube_pod_status_phase{phase=\"Running\"", "value": 3000},
+  {"match": "kube_node_info", "value": 200},
+  {"match": "count by (cluster)", "value": null},
+  {"match": "prometheus_target_interval_length_seconds", "value": 30},
+  {"match": "prometheus_tsdb_head_series", "value": 2500000},
+  {"match": "metrics_path=\"/metrics/cadvisor\"", "value": 600000},
+  {"match": "job=~\".*node-exporter.*\"}", "value": 180000},
+  {"match": "job=\"kubelet\", metrics_path=\"/metrics\"", "value": 300000},
+  {"match": "job=~\".*kube-state-metrics.*\"}", "value": 150000},
+  {"match": "job=~\"apiserver|", "value": 60000},
+  {"match": "sum by (job) (scrape_samples_post_metric_relabeling", "vector": [{"labels": {"job": "kubernetes-pods"}, "value": 1110000}, {"labels": {"job": "kubelet"}, "value": 900000}, {"labels": {"job": "node-exporter"}, "value": 180000}]},
+  {"match": "sum(scrape_samples_post_metric_relabeling{})", "value": 2400000},
+  {"match": "quantile(0.5, count by (namespace, pod)", "value": 410},
+  {"match": "quantile(0.9, count by (namespace, pod)", "value": 1650},
+  {"match": "fluentbit_input_bytes_total{name=~\"tail", "value": 2250000},
+  {"match": "fluentbit_input_records_total{name=~\"tail", "value": 9000},
+  {"match": "fluentbit_input_records_total{name=~\"systemd", "value": 1000},
+  {"match": "tempo_distributor_bytes_received_total", "value": 13500000},
+  {"match": "tempo_distributor_spans_received_total", "value": 30000},
+  {"match": "sum by (job, receiver)", "vector": [{"labels": {"job": "otel-agent", "receiver": "otlp"}, "value": 31000}, {"labels": {"job": "otel-gateway", "receiver": "otlp"}, "value": 30000}]},
+  {"match": "rate({__name__=~\"otelcol_receiver_accepted_spans", "value": 61000}
+]

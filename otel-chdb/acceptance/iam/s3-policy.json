@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ObjectsUnderTheTelemetryAndAcceptancePrefixes",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+      "Resource": ["arn:aws:s3:::BUCKET/edge/*", "arn:aws:s3:::BUCKET/otel-accept/*"]
+    },
+    {
+      "Sid": "ListSoThatMissingKeysAre404AndTheConsumerCanDiscover",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads"],
+      "Resource": "arn:aws:s3:::BUCKET"
+    },
+    {
+      "Sid": "AcceptanceRunOnlyReadBucketConfigOptional",
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketVersioning", "s3:GetLifecycleConfiguration", "s3:GetBucketPolicy"],
+      "Resource": "arn:aws:s3:::BUCKET"
+    }
+  ]
+}

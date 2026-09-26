@@ -1,0 +1,127 @@
+s3accept: store seaweedfs, s3://otel/accept/20260926T174149-aa4f21/ (endpoint http://127.0.0.1:18333, path-style), run 20260926T174149-aa4f21
+  identity           … PASS (0s)
+  create-only        … PASS (10ms)
+  plain-put          … PASS (10ms)
+  if-match           … WARN (10ms)
+  cond-delete        … PASS (10ms)
+  create-race        … PASS (190ms)
+  cas-race           … PASS (1.05s)
+  cas-vs-delete      … PASS (100ms)
+  ambiguous-create   … PASS (4.13s)
+  ambiguous-cas      … PASS (4.12s)
+  mpu-race           … FAIL (90ms)
+  metadata           … PASS (10ms)
+  read-after-write   … PASS (320ms)
+  list               … PASS (170ms)
+  head-missing       … PASS (0s)
+  checksum           … PASS (20ms)
+  bucket-config      … INFO (0s)
+  clock              … PASS (0s)
+  perf               … INFO (420ms)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   required     identity            static keys (flags)
+         · credential source: StaticCredentials → static keys (flags)
+         · key ****, session token false, expires never, retrieved in 0s
+         · STS GetCallerIdentity skipped: custom endpoint and no --sts-endpoint (Nutanix Objects has no STS)
+PASS   required     create-only         200, then 412 for a different body and for an identical retry; body unchanged
+         · PUT If-None-Match:* on a new key: OK
+         · ETag is the body's MD5 ("ea311fc463f21b58e9cf77de9e739978")
+         · second PUT If-None-Match:*, other body: HTTP 412 PreconditionFailed (412)
+         · identical retry PUT If-None-Match:*: HTTP 412 PreconditionFailed (412)
+         · GET after both: "first-20260926T174149-aa4f21" (OK)
+PASS   recommended  plain-put           unconditional PUTs allowed (new key and overwrite)
+         · unconditional PUT, new key: OK
+         · unconditional PUT, overwrite: OK
+WARN   required     if-match            If-Match on a missing key answers 412 (AWS: 404)
+       → Harmless for the design (either is 'not applied'), but code must not read 412 as 'exists
+       with another ETag'.
+         · PUT If-Match current ETag: OK (new ETag "54c12a08eb3103bcffb02806f4e3b944")
+         · PUT If-Match stale ETag: HTTP 412 PreconditionFailed (412)
+         · PUT If-Match made-up ETag: HTTP 412 PreconditionFailed (412)
+         · GET: "v2-20260926T174149-aa4f21" ETag "54c12a08eb3103bcffb02806f4e3b944"
+         · PUT If-Match on a missing key: HTTP 412 PreconditionFailed (412) (AWS documents 404)
+         · PUT If-Match current ETag, unquoted: OK
+PASS   recommended  cond-delete         stale 412 (kept), current 204 (gone), * on missing 412
+         · DELETE If-Match stale ETag: HTTP 412 PreconditionFailed (412)
+         · object after the stale conditional DELETE: present=true
+         · DELETE If-Match current ETag: OK
+         · DELETE If-Match:* on a missing key: HTTP 412 PreconditionFailed (412) (AWS: 412 or 404)
+PASS   required     create-race         20 rounds × 16 writers: exactly one winner each, stored body = winner's
+         · winners per round histogram: map[1:20]; 409 ConditionalRequestConflict: 0; other errors: 0
+PASS   required     cas-race            8 writers × 25: final 200 = successes, none installed twice (1032 refused)
+         · 8 writers × 25 increments: 200 CAS won, 1032 refused (412), 0 409, final value 200, values installed twice 0
+PASS   info         cas-vs-delete       20 rounds: never both succeeded
+         · 20 rounds of a CAS racing a conditional DELETE on one ETag: both succeeded 0 times
+PASS   required     ambiguous-create    20 ambiguous creates, each resolved exactly once (20 had landed, 0 had not, 20 late)
+         · 20 create-only PUTs cancelled once written: 20 had landed (retry 412, body ours), 0 had not (retry created it), 0 answered before the cancel; 20 looked free right after the cancel but had landed by the retry (late landing)
+         · late landing is expected and handled: the in-flight copy and the resend cannot both apply
+PASS   required     ambiguous-cas       20 ambiguous CASes resolved by read-back (20 had applied, 0 had not)
+         · 20 If-Match CASes cancelled once written: 20 had applied (412 on retry, body ours), 0 had not (retry applied), 0 answered before the cancel
+FAIL   info         mpu-race            not atomic: winners per round [4 3 4] (want 1 each)
+       → Conditional multipart completion is not atomic on this store (SeaweedFS 4.47 has the
+       same check-then-act race). The design does not use it: log entries, leases and checkpoints
+       are single-part PUTs, and data objects (100 KB-1 MB) are single PUTs. Keep it that way:
+       never raise the exporters' multipart threshold below the object size, and never make a
+       control object multipart.
+         · complete If-None-Match:* on a new key: OK
+         · complete If-None-Match:* on an existing key: HTTP 412 PreconditionFailed (412)
+         · 3 rounds × 4 concurrent If-None-Match:* completions on one key: winners per round [4 3 4]
+PASS   required     metadata            9 keys (incl. a 400-byte value) and content type round-trip on HEAD and GET; a losing create keeps the first metadata
+         · create-only PUT with 9 x-amz-meta-* headers: OK
+         · second create-only PUT with other metadata: HTTP 412 PreconditionFailed (412)
+         · HEAD: 9 metadata keys, content-type "application/vnd.apache.parquet", length 26
+         · GET returns 9 metadata keys
+PASS   required     read-after-write    30 keys: create, overwrite and delete all visible to the next GET/HEAD
+         · 30 keys: GET right after create missed 0; HEAD missed 0; GET after overwrite stale 0; GET after DELETE still found 0
+PASS   required     list                LIST-after-write consistent (30/30); StartAfter, pagination, delimiter as AWS
+         · LIST right after PUT: 0 of 30 missed the new key; worst time to visibility 2ms
+         · epoch-scoped, StartAfter slot 2: 5 keys in 1 page(s), as expected
+         · lane-wide, StartAfter e1 slot 2 (returns later epochs too): 13 keys in 1 page(s), as expected
+         · StartAfter a key that does not exist (slot 3): 5 keys in 1 page(s), as expected
+         · StartAfter {epoch}/0 (the consumer's slot-0 form): 16 keys in 1 page(s), as expected
+         · StartAfter the last key: 0 keys in 1 page(s), as expected
+         · StartAfter "…/e1/" (directory form): 16 keys (string order, as AWS)
+         · same lane-wide LIST at MaxKeys=3: 13 keys in 5 pages (OK)
+         · delimiter LIST of the lane: [e1/ e2/] (OK)
+PASS   required     head-missing        HEAD 404, GET HTTP 404 NoSuchKey (404)
+         · HEAD missing key: HTTP 404 NotFound (404); GET missing key: HTTP 404 NoSuchKey (404)
+PASS   recommended  checksum            default CRC32, CRC32C, SHA256, when_required, DeleteObjects accepted; trailer not tried (plain http: the SDK sends trailers only over TLS)
+         · PUT If-None-Match:*, default (CRC32 when_supported)        OK
+         ·   headers sent: X-Amz-Checksum-Crc32: 437uaw==; X-Amz-Content-Sha256: 0edd9b8f8bf8cfeae27c71fd1d876648d1f5c234f54d86bbbd2d720a44f3a9da
+         · PUT streamed body (aws-chunked, trailing CRC32)            operation error S3: PutObject, compute input header checksum failed, unseekable stream is not supported without TLS and trailing checksum
+         · PUT explicit CRC32C                                        OK
+         · PUT explicit SHA256                                        OK
+         · PUT If-None-Match:*, when_required (no checksum)           OK
+         · GET with response validation (ChecksumMode ENABLED)        OK
+         ·   stored CRC32 returned by GET: "437uaw=="
+         ·   GET responses so far without a checksum the SDK could validate: 0 (fine: validation is skipped, not failed)
+         · DeleteObjects, default (CRC32)                             OK
+         · DeleteObjects, when_required                               OK
+INFO   info         bucket-config       versioning never enabled
+         · versioning: never enabled
+         · GetBucketLifecycleConfiguration: HTTP 404 NoSuchLifecycleConfiguration (404)
+         · GetBucketPolicy: HTTP 404 NoSuchBucketPolicy (404)
+PASS   info         clock               max |store Date − local| 999ms (1 s resolution)
+INFO   info         perf                PUT-INM 100KB p50/p99 7/20 ms; PUT-INM 1MB p50/p99 26/53 ms; PUT-slot 200B p50/p99 4/11 ms; CAS 200B p50/p99 5/11 ms; see evidence/JSON for GET/HEAD/LIST
+         · PUT-INM   100KB   n=50   c=8   err=0     955.9 op/s    95.6 MB/s  p50     7.3  p90    11.5  p99    19.7  max    19.7 ms 
+         · GET       100KB   n=50   c=8   err=0    2374.5 op/s   237.4 MB/s  p50     2.7  p90     5.1  p99     6.5  max     6.5 ms 
+         · HEAD      0B      n=50   c=8   err=0    4563.1 op/s     0.0 MB/s  p50     1.2  p90     2.6  p99     3.6  max     3.6 ms 
+         · LIST      0B      n=12   c=8   err=0    1665.6 op/s     0.0 MB/s  p50     3.2  p90     4.6  p99     5.5  max     5.5 ms 
+         · PUT-INM   1MB     n=50   c=8   err=0     280.9 op/s   280.9 MB/s  p50    25.6  p90    38.2  p99    52.9  max    52.9 ms 
+         · GET       1MB     n=50   c=8   err=0     742.8 op/s   742.8 MB/s  p50     8.8  p90    18.0  p99    22.3  max    22.3 ms 
+         · HEAD      0B      n=50   c=8   err=0    4039.4 op/s     0.0 MB/s  p50     1.6  p90     2.9  p99     3.9  max     3.9 ms 
+         · PUT-slot  200B    n=50   c=8   err=0    1762.4 op/s     0.4 MB/s  p50     3.8  p90     7.2  p99    10.6  max    10.6 ms 
+         · CAS       200B    n=50   c=8   err=0    1544.4 op/s     0.3 MB/s  p50     4.5  p90     8.0  p99    11.4  max    11.4 ms 
+         · HEAD-404  0B      n=50   c=8   err=0    4916.6 op/s     0.0 MB/s  p50     1.4  p90     2.4  p99     2.7  max     2.7 ms 
+PASS   recommended  cleanup             deleted 258 objects, aborted 0 uploads; prefix empty
+         · deleted 258 objects (0 failed), aborted 0 uploads, 0 left under accept/20260926T174149-aa4f21/
+
+What the design can rely on here:
+  ACCEPTED  S3-native control plane: create-only log slots, epoch fence, CAS'd leases and checkpoints
+  ACCEPTED  otap-rs consumer: HEAD slots with metadata, LIST StartAfter discovery, 404 on free slots, DELETE for GC
+  ACCEPTED  Exporter data path: plain and create-only PUTs of 100 KB-1 MB objects with the SDKs' default checksums
+
+HTTP requests sent: 3865 (DELETE 204:64 DELETE 412:2 GET 200:1516 GET 404:33 HEAD 200:132 HEAD 404:72 POST 200:29 POST 412:2 PUT 200:577 PUT 412:1398 PUT error:40)
+JSON report: s3accept-seaweedfs.json

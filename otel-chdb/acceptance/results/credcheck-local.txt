@@ -1,0 +1,209 @@
+credcheck against local stand-ins, 2026-09-26T17:46:13Z
+
+=================== static keys
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               static keys from the environment; S3 OK; static (no refresh)
+         · resolved via EnvConfigCredentials → static keys from the environment in 0s; key ****, session token false, does not expire
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+PASS   info         static              static keys from the environment; S3 OK; static (no refresh)
+         · resolved via EnvConfigCredentials → static keys from the environment in 0s; key ****, session token false, does not expire
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+
+HTTP requests sent: 8 (DELETE 204:2 GET 200:2 HEAD 200:2 PUT 200:2)
+
+=================== IRSA (web identity; STS stand-in via AWS_ENDPOINT_URL_STS)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               IRSA (web identity → STS AssumeRoleWithWebIdentity); S3 OK; forced refresh OK
+         · resolved via WebIdentityCredentials → IRSA (web identity → STS AssumeRoleWithWebIdentity) in 1ms; key ****, session token false, expires 2026-09-26T17:49:13Z (in 3m0s)
+         · caller "" (account "")
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from WebIdentityCredentials in 2ms; same key; new expiry 2026-09-26T17:49:13Z; HEAD with them: HTTP 404 NotFound (404)
+PASS   info         irsa                IRSA (web identity → STS AssumeRoleWithWebIdentity); S3 OK; forced refresh OK
+         · resolved via WebIdentityCredentials → IRSA (web identity → STS AssumeRoleWithWebIdentity) in 1ms; key ****, session token false, expires 2026-09-26T17:49:13Z (in 3m0s)
+         · caller "" (account "")
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from WebIdentityCredentials in 2ms; same key; new expiry 2026-09-26T17:49:13Z; HEAD with them: HTTP 404 NotFound (404)
+
+HTTP requests sent: 16 (DELETE 204:2 GET 200:2 HEAD 200:2 HEAD 404:2 POST 200:6 PUT 200:2)
+
+=================== EKS Pod Identity (container credentials stand-in)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               container credentials (EKS Pod Identity agent, or ECS); S3 OK; forced refresh OK
+         · resolved via CredentialsEndpointProvider → container credentials (EKS Pod Identity agent, or ECS) in 1ms; key ****, session token false, expires 2026-09-26T17:44:13Z (in -2m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from CredentialsEndpointProvider in 2ms; same key; new expiry 2026-09-26T17:44:13Z; HEAD with them: HTTP 404 NotFound (404)
+PASS   info         pod-identity        container credentials (EKS Pod Identity agent, or ECS); S3 OK; forced refresh OK
+         · resolved via CredentialsEndpointProvider → container credentials (EKS Pod Identity agent, or ECS) in 1ms; key ****, session token false, expires 2026-09-26T17:44:13Z (in -2m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from CredentialsEndpointProvider in 2ms; same key; new expiry 2026-09-26T17:44:13Z; HEAD with them: HTTP 404 NotFound (404)
+
+HTTP requests sent: 10 (DELETE 204:2 GET 200:2 HEAD 200:2 HEAD 404:2 PUT 200:2)
+
+=================== Roles Anywhere via aws_signing_helper serve (IMDSv2 stand-in)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               IMDS at http://127.0.0.1:18904 (aws_signing_helper serve, Roles Anywhere); S3 OK; forced refresh OK
+         · resolved via EC2RoleProvider → IMDS at http://127.0.0.1:18904 (aws_signing_helper serve, Roles Anywhere) in 1ms; key ****, session token false, expires 2026-09-26T18:46:13Z (in 1h0m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from EC2RoleProvider in 2ms; same key; new expiry 2026-09-26T18:46:13Z; HEAD with them: HTTP 404 NotFound (404)
+PASS   info         imds                IMDS at http://127.0.0.1:18904 (aws_signing_helper serve, Roles Anywhere); S3 OK; forced refresh OK
+         · resolved via EC2RoleProvider → IMDS at http://127.0.0.1:18904 (aws_signing_helper serve, Roles Anywhere) in 2ms; key ****, session token false, expires 2026-09-26T18:46:13Z (in 1h0m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from EC2RoleProvider in 2ms; same key; new expiry 2026-09-26T18:46:13Z; HEAD with them: HTTP 404 NotFound (404)
+
+HTTP requests sent: 20 (DELETE 204:2 GET 200:10 HEAD 200:2 HEAD 404:2 PUT 200:4)
+
+=================== Roles Anywhere via credential_process (profile)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               credential_process (e.g. aws_signing_helper credential-process, Roles Anywhere); S3 OK; forced refresh OK
+         · resolved via ProcessProvider → credential_process (e.g. aws_signing_helper credential-process, Roles Anywhere) in 5ms; key ****, session token false, expires 2026-09-26T18:46:13Z (in 1h0m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from ProcessProvider in 7ms; same key; new expiry 2026-09-26T18:46:13Z; HEAD with them: HTTP 404 NotFound (404)
+PASS   info         profile             credential_process (e.g. aws_signing_helper credential-process, Roles Anywhere); S3 OK; forced refresh OK
+         · resolved via ProcessProvider → credential_process (e.g. aws_signing_helper credential-process, Roles Anywhere) in 5ms; key ****, session token false, expires 2026-09-26T18:46:13Z (in 1h0m0s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from ProcessProvider in 6ms; same key; new expiry 2026-09-26T18:46:13Z; HEAD with them: HTTP 404 NotFound (404)
+
+HTTP requests sent: 10 (DELETE 204:2 GET 200:2 HEAD 200:2 HEAD 404:2 PUT 200:2)
+credential_process helper invocations: 4
+
+=================== Nutanix-style: static keys, https endpoint, private CA (--ca-bundle)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               static keys from the environment; S3 OK; static (no refresh)
+         · resolved via EnvConfigCredentials → static keys from the environment in 0s; key ****, session token false, does not expire
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+PASS   info         static              static keys from the environment; S3 OK; static (no refresh)
+         · resolved via EnvConfigCredentials → static keys from the environment in 0s; key ****, session token false, does not expire
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+
+HTTP requests sent: 8 (DELETE 204:2 GET 200:2 HEAD 200:2 PUT 200:2)
+
+=================== same, WITHOUT the CA (must fail with an x509 error)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+FAIL   info         chain               static keys from the environment; S3 unreachable: TLS: x509: certificate signed by unknown authority
+       → No HTTP answer: TLS (a private CA needs --ca-bundle / AWS_CA_BUNDLE for Go,
+       SSL_CERT_FILE for chDB/ClickHouse), DNS, a proxy (HTTPS_PROXY/NO_PROXY), or a NetworkPolicy
+       blocking egress.
+FAIL   info         static              static keys from the environment; S3 unreachable: TLS: x509: certificate signed by unknown authority
+       → No HTTP answer: TLS (a private CA needs --ca-bundle / AWS_CA_BUNDLE for Go,
+       SSL_CERT_FILE for chDB/ClickHouse), DNS, a proxy (HTTPS_PROXY/NO_PROXY), or a NetworkPolicy
+       blocking egress.
+
+HTTP requests sent: 8 (DELETE error:2 GET error:2 HEAD error:2 PUT error:2)
+
+=================== everything configured at once (static keys shadow IRSA and Pod Identity)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+WARN   info         chain               static keys from the environment; S3 OK; static (no refresh)
+       → Several credential modes are configured (static, irsa, pod-identity) and the chain
+       picked "static keys from the environment". Order in aws-sdk-go-v2
+       (config.resolveCredentialChain): a profile passed in code (--profile, parquetgo
+       Config.Profile), then env keys, then IRSA (web identity env), then the shared-config profile
+       (AWS_PROFILE or [default]), then container credentials (Pod Identity), then IMDS. A leftover
+       AWS_ACCESS_KEY_ID shadows IRSA and Pod Identity, and a [default] profile with keys in a
+       mounted ~/.aws shadows Pod Identity: remove what the deployment does not intend.
+PASS   info         static              static keys from the environment; S3 OK; static (no refresh)
+PASS   info         irsa                IRSA (web identity → STS AssumeRoleWithWebIdentity); S3 OK; forced refresh OK
+PASS   info         pod-identity        container credentials (EKS Pod Identity agent, or ECS); S3 OK; forced refresh OK
+
+HTTP requests sent: 24 (DELETE 204:4 GET 200:4 HEAD 200:4 HEAD 404:2 POST 200:6 PUT 200:4)
+
+=================== refresh: Pod Identity credentials valid 3 min, held 40 s (a HEAD every 10 s)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   info         chain               container credentials (EKS Pod Identity agent, or ECS); S3 OK; forced refresh OK
+         · resolved via CredentialsEndpointProvider → container credentials (EKS Pod Identity agent, or ECS) in 1ms; key ****, session token false, expires 2026-09-26T17:44:13Z (in -2m1s)
+         · S3 with these credentials: PUT If-None-Match:* OK; HEAD OK; GET OK; DELETE OK
+         · forced refresh: re-fetched from CredentialsEndpointProvider in 2ms; same key; new expiry 2026-09-26T17:44:13Z; HEAD with them: HTTP 404 NotFound (404)
+PASS   info         hold                5 requests over 40s, no errors, 4 refresh(es) crossed
+         · 17:46:23 credentials refreshed: expiry 17:44:13 → 17:44:23
+         · 17:46:33 credentials refreshed: expiry 17:44:23 → 17:44:33
+         · 17:46:43 credentials refreshed: expiry 17:44:33 → 17:44:43
+         · 17:46:53 credentials refreshed: expiry 17:44:43 → 17:44:53
+
+HTTP requests sent: 10 (DELETE 204:1 GET 200:1 HEAD 200:1 HEAD 404:6 PUT 200:1)
+
+=================== stand-in request log (stub.log), by kind
+     39 GET /v1/credentials
+      4 IMDS GET /latest/meta-data/iam/security-credentials/
+      4 IMDS GET /latest/meta-data/iam/security-credentials/otel-publisher
+      2 IMDS PUT /latest/api/token
+      6 POST AssumeRoleWithWebIdentity
+      6 POST GetCallerIdentity
+      4 S3 /otel/accept/creds/20260926T174613-e13f18/chain.txt
+      4 S3 /otel/accept/creds/20260926T174613-e13f18/static.txt
+
+=================== full s3accept run over TLS through the private-CA proxy (trailing checksums need TLS)
+s3accept: store seaweedfs-tls, s3://otel/accept/20260926T174653-560e51/ (endpoint https://127.0.0.1:18903, path-style), run 20260926T174653-560e51
+  identity           … PASS (0s)
+  create-only        … PASS (20ms)
+  plain-put          … PASS (10ms)
+  if-match           … WARN (20ms)
+  cond-delete        … PASS (20ms)
+  create-race        … PASS (70ms)
+  cas-race           … PASS (1.4s)
+  cas-vs-delete      … PASS (130ms)
+  ambiguous-create   … PASS (1.04s)
+  ambiguous-cas      … PASS (1.04s)
+  mpu-race           … FAIL (120ms)
+  metadata           … PASS (10ms)
+  read-after-write   … PASS (420ms)
+  list               … PASS (210ms)
+  head-missing       … PASS (0s)
+  checksum           … PASS (30ms)
+  bucket-config      … INFO (0s)
+  clock              … PASS (0s)
+  perf               … INFO (90ms)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   required     identity            static keys from the environment
+PASS   required     create-only         200, then 412 for a different body and for an identical retry; body unchanged
+PASS   recommended  plain-put           unconditional PUTs allowed (new key and overwrite)
+WARN   required     if-match            If-Match on a missing key answers 412 (AWS: 404)
+       → Harmless for the design (either is 'not applied'), but code must not read 412 as 'exists
+       with another ETag'.
+PASS   recommended  cond-delete         stale 412 (kept), current 204 (gone), * on missing 412
+PASS   required     create-race         5 rounds × 16 writers: exactly one winner each, stored body = winner's
+PASS   required     cas-race            8 writers × 25: final 200 = successes, none installed twice (1056 refused)
+PASS   info         cas-vs-delete       20 rounds: never both succeeded
+PASS   required     ambiguous-create    5 ambiguous creates, each resolved exactly once (5 had landed, 0 had not, 4 late)
+PASS   required     ambiguous-cas       5 ambiguous CASes resolved by read-back (5 had applied, 0 had not)
+FAIL   info         mpu-race            not atomic: winners per round [4 3 4] (want 1 each)
+       → Conditional multipart completion is not atomic on this store (SeaweedFS 4.47 has the
+       same check-then-act race). The design does not use it: log entries, leases and checkpoints
+       are single-part PUTs, and data objects (100 KB-1 MB) are single PUTs. Keep it that way:
+       never raise the exporters' multipart threshold below the object size, and never make a
+       control object multipart.
+PASS   required     metadata            9 keys (incl. a 400-byte value) and content type round-trip on HEAD and GET; a losing create keeps the first metadata
+PASS   required     read-after-write    30 keys: create, overwrite and delete all visible to the next GET/HEAD
+PASS   required     list                LIST-after-write consistent (30/30); StartAfter, pagination, delimiter as AWS
+PASS   required     head-missing        HEAD 404, GET HTTP 404 NoSuchKey (404)
+PASS   recommended  checksum            default CRC32 (header and trailer), CRC32C, SHA256, when_required, DeleteObjects: all accepted
+INFO   info         bucket-config       versioning never enabled
+PASS   info         clock               max |store Date − local| 1s (1 s resolution)
+INFO   info         perf                PUT-INM 100KB p50/p99 10/16 ms; PUT-slot 200B p50/p99 5/8 ms; CAS 200B p50/p99 4/6 ms; see evidence/JSON for GET/HEAD/LIST
+PASS   recommended  cleanup             deleted 119 objects, aborted 0 uploads; prefix empty
+
+What the design can rely on here:
+  ACCEPTED  S3-native control plane: create-only log slots, epoch fence, CAS'd leases and checkpoints
+  ACCEPTED  otap-rs consumer: HEAD slots with metadata, LIST StartAfter discovery, 404 on free slots, DELETE for GC
+  ACCEPTED  Exporter data path: plain and create-only PUTs of 100 KB-1 MB objects with the SDKs' default checksums
+
+HTTP requests sent: 3222 (DELETE 204:64 DELETE 412:2 GET 200:1413 GET 404:33 HEAD 200:53 HEAD 404:26 POST 200:29 POST 412:2 PUT 200:423 PUT 412:1167 PUT error:10)
+JSON report: /home/user/oscope/spike/otel-chdb/acceptance/results/s3accept-seaweedfs-tls.json

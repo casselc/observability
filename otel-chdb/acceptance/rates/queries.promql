@@ -1,0 +1,197 @@
+# PromQL for the sizing calculator's telemetry-rate inputs, measured on an
+# existing cluster. collect.py runs every block; each block is also meant to be
+# pasted into Grafana / the Prometheus UI by hand.
+#
+# Block format: "# name:" starts a block; "# help:" says what it measures;
+# "# kind:" is gauge (a level: series, pods) or rate (a counter rate: logs,
+# spans); "# heavy: yes" blocks run only with --heavy (they touch every series
+# and can be slow on a large Prometheus). Every further non-comment line is an
+# ALTERNATIVE query: the first that returns data is used, and which one is
+# recorded. Placeholders: {W} the rate window, {SEL} an extra label matcher
+# (e.g. ,cluster="prod-1" from --selector; empty by default).
+#
+# Double counting: series come from ONE Prometheus (HA pairs double
+# prometheus_tsdb_head_series; divide, or query one replica). Spans counted at
+# a collector's receiver are counted again at every tier (agent → gateway), so
+# prefer the backend's received count, or restrict {SEL} to one tier's job.
+
+# ---------------------------------------------------------------- inventory
+
+# name: pods
+# help: running pods
+# kind: gauge
+count(kube_pod_status_phase{phase="Running"{SEL}} == 1)
+count(count by (namespace, pod) (kube_pod_info{{SEL}}))
+count(count by (namespace, pod) (container_last_seen{pod!=""{SEL}}))
+
+# name: nodes
+# help: nodes
+# kind: gauge
+count(kube_node_info{{SEL}})
+count(up{job=~".*node-exporter.*"{SEL}})
+count(count by (instance) (container_last_seen{{SEL}}))
+
+# name: clusters
+# help: clusters seen (a Thanos/Mimir/federated Prometheus labels series with cluster)
+# kind: gauge
+count(count by (cluster) (up{cluster!=""{SEL}}))
+
+# name: scrape_interval_s
+# help: median scrape interval, seconds (the calculator's export interval)
+# kind: gauge
+quantile(0.5, prometheus_target_interval_length_seconds{quantile="0.5"{SEL}})
+
+# ---------------------------------------------------------------- series
+
+# name: head_series
+# help: active series in the TSDB head (per Prometheus; HA pairs count twice)
+# kind: gauge
+sum(prometheus_tsdb_head_series{{SEL}})
+sum(cortex_ingester_memory_series{{SEL}}) / 3
+
+# name: series_scraped
+# help: series scraped per interval, all targets (after relabeling)
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{{SEL}})
+sum(scrape_samples_scraped{{SEL}})
+
+# name: series_cadvisor
+# help: cAdvisor series (per container, so they belong to pods)
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{metrics_path="/metrics/cadvisor"{SEL}})
+sum(scrape_samples_post_metric_relabeling{job=~".*cadvisor.*"{SEL}})
+count({__name__=~"container_.+"{SEL}})
+
+# name: series_node_exporter
+# help: node-exporter series
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{job=~".*node-exporter.*"{SEL}})
+count({__name__=~"node_.+"{SEL}})
+
+# name: series_kubelet
+# help: kubelet's own /metrics (not cAdvisor, probes or resource)
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{job="kubelet", metrics_path="/metrics"{SEL}})
+count({__name__=~"kubelet_.+"{SEL}})
+
+# name: series_ksm
+# help: kube-state-metrics series (per object; counted per node in the calculator's split)
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{job=~".*kube-state-metrics.*"{SEL}})
+count({__name__=~"kube_.+"{SEL}})
+
+# name: series_control_plane
+# help: apiserver, scheduler, controller-manager, etcd, coredns, kube-proxy
+# kind: gauge
+sum(scrape_samples_post_metric_relabeling{job=~"apiserver|kube-apiserver|kube-scheduler|kube-controller-manager|kube-etcd|etcd|coredns|kube-dns|kube-proxy"{SEL}})
+
+# name: series_by_job
+# help: series per scrape job (for a human: what dominates)
+# kind: gauge
+sort_desc(sum by (job) (scrape_samples_post_metric_relabeling{{SEL}}))
+
+# name: series_per_pod_p50
+# help: median series per pod, counted directly (every series with a pod label, excluding kube-state-metrics)
+# kind: gauge
+# heavy: yes
+quantile(0.5, count by (namespace, pod) ({pod!="", job!~".*kube-state-metrics.*"{SEL}}))
+
+# name: series_per_pod_p90
+# help: 90th percentile of series per pod
+# kind: gauge
+# heavy: yes
+quantile(0.9, count by (namespace, pod) ({pod!="", job!~".*kube-state-metrics.*"{SEL}}))
+
+# name: otel_metric_points
+# help: metric points/s accepted by OpenTelemetry collectors (if metrics go through OTel, not Prometheus)
+# kind: rate
+sum(rate({__name__=~"otelcol_receiver_accepted_metric_points(_total)?"{SEL}}[{W}]))
+
+# ---------------------------------------------------------------- logs
+
+# name: logs_fluentbit_pod
+# help: Fluent Bit tail inputs (container logs), lines/s
+# kind: rate
+sum(rate(fluentbit_input_records_total{name=~"tail.*"{SEL}}[{W}]))
+
+# name: logs_fluentbit_node
+# help: Fluent Bit systemd/journal inputs (kubelet, runtime), lines/s
+# kind: rate
+sum(rate(fluentbit_input_records_total{name=~"systemd.*"{SEL}}[{W}]))
+
+# name: logs_fluentbit_bytes
+# help: Fluent Bit tail input bytes/s (bytes per line = this / logs_fluentbit_pod)
+# kind: rate
+sum(rate(fluentbit_input_bytes_total{name=~"tail.*"{SEL}}[{W}]))
+
+# name: logs_vector_pod
+# help: Vector kubernetes_logs source, events/s
+# kind: rate
+sum(rate(vector_component_received_events_total{component_kind="source", component_type="kubernetes_logs"{SEL}}[{W}]))
+
+# name: logs_vector_node
+# help: Vector journald source, events/s
+# kind: rate
+sum(rate(vector_component_received_events_total{component_kind="source", component_type="journald"{SEL}}[{W}]))
+
+# name: logs_promtail_pod
+# help: Promtail lines/s read from /var/log/pods
+# kind: rate
+sum(rate(promtail_read_lines_total{path=~"/var/log/pods/.*"{SEL}}[{W}]))
+
+# name: logs_promtail_node
+# help: Promtail lines/s from anything else (journal targets count separately)
+# kind: rate
+sum(rate(promtail_read_lines_total{path!~"/var/log/pods/.*"{SEL}}[{W}]))
+
+# name: logs_otelcol_pod
+# help: OpenTelemetry filelog receiver, records/s
+# kind: rate
+sum(rate({__name__=~"otelcol_receiver_accepted_log_records(_total)?", receiver=~"filelog.*"{SEL}}[{W}]))
+
+# name: logs_otelcol_node
+# help: OpenTelemetry journald receiver, records/s
+# kind: rate
+sum(rate({__name__=~"otelcol_receiver_accepted_log_records(_total)?", receiver=~"journald.*"{SEL}}[{W}]))
+
+# name: logs_loki
+# help: lines/s received by Loki (all sources; not split by pod/node)
+# kind: rate
+sum(rate(loki_distributor_lines_received_total{{SEL}}[{W}]))
+
+# name: logs_loki_bytes
+# help: bytes/s received by Loki
+# kind: rate
+sum(rate(loki_distributor_bytes_received_total{{SEL}}[{W}]))
+
+# ---------------------------------------------------------------- spans
+
+# name: spans_tempo
+# help: spans/s received by Tempo (after any edge sampling)
+# kind: rate
+sum(rate(tempo_distributor_spans_received_total{{SEL}}[{W}]))
+
+# name: spans_tempo_bytes
+# help: bytes/s received by Tempo (OTLP wire bytes per span = this / spans_tempo)
+# kind: rate
+sum(rate(tempo_distributor_bytes_received_total{{SEL}}[{W}]))
+
+# name: spans_jaeger
+# help: spans/s received by the Jaeger collector
+# kind: rate
+sum(rate(jaeger_collector_spans_received_total{{SEL}}[{W}]))
+
+# name: spans_otelcol
+# help: spans/s accepted by OTel collector receivers (ALL tiers: double counts agent → gateway)
+# kind: rate
+sum(rate({__name__=~"otelcol_receiver_accepted_spans(_total)?"{SEL}}[{W}]))
+
+# name: spans_otelcol_by_job
+# help: spans/s per collector job and receiver (for a human: pick one tier)
+# kind: rate
+sort_desc(sum by (job, receiver) (rate({__name__=~"otelcol_receiver_accepted_spans(_total)?"{SEL}}[{W}])))
+
+# name: spans_otelcol_exported
+# help: spans/s sent by collector exporters, per job (the last tier's export = after tail sampling)
+# kind: rate
+sort_desc(sum by (job, exporter) (rate({__name__=~"otelcol_exporter_sent_spans(_total)?"{SEL}}[{W}])))

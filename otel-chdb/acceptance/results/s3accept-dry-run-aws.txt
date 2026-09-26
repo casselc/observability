@@ -1,0 +1,53 @@
+DRY RUN: nothing is sent.
+
+target      s3://otel-telemetry/otel-accept/20260926T174200-3c1ebf/
+store       aws
+endpoint    AWS, from the region (virtual-hosted)
+region      eu-west-1
+CA bundle   system roots
+credentials the default chain; environment seen:
+              AWS_REGION=eu-west-1
+
+checks, in order (SDK retries off; per-request timeout 30s):
+ 1. identity           required    credential source and caller identity
+                       resolve credentials through the default chain (no S3 request); STS GetCallerIdentity on AWS or with --sts-endpoint
+ 2. create-only        required    PUT If-None-Match:* (create-only), incl. identical retry
+                       3 PUT If-None-Match:* on one key (new, other body, identical retry), 1 GET
+ 3. plain-put          recommended unconditional PUT (bucket policy check)
+                       2 unconditional PUTs (new key, overwrite)
+ 4. if-match           required    PUT If-Match CAS
+                       PUT; PUT If-Match current, stale, made-up, on a missing key, unquoted; 1 GET
+ 5. cond-delete        recommended DELETE If-Match
+                       2 PUT, DELETE If-Match stale/current/* on missing, 2 HEAD, 1 GET
+ 6. create-race        required    N concurrent create-only writers on one key
+                       20 rounds × 16 concurrent PUT If-None-Match:* on one key per round (320 PUTs), 1 GET per round
+ 7. cas-race           required    concurrent read-CAS increments (lost-update detection)
+                       8 writers × 25 successful GET + PUT If-Match increments of one counter (plus refused attempts)
+ 8. cas-vs-delete      info        CAS racing a conditional DELETE
+                       20 rounds: PUT, then PUT If-Match ∥ DELETE If-Match on the same ETag
+ 9. ambiguous-create   required    create-only PUT cancelled mid-request, then resolved
+                       20 × (PUT If-None-Match:* cancelled once written, HEAD, wait 200ms, identical PUT, GET on 412)
+10. ambiguous-cas      required    If-Match PUT cancelled mid-request, then resolved
+                       20 × (PUT If-Match cancelled once written, wait 200ms, identical PUT If-Match, GET on 412)
+11. mpu-race           info        conditional CompleteMultipartUpload (not used by the design)
+                       2 sequential single-part uploads completed If-None-Match:*; 3 rounds × 4 concurrent completions; AbortMultipartUpload for every loser
+12. metadata           required    user metadata round trip on HEAD/GET
+                       PUT If-None-Match:* with 9 x-amz-meta-* headers; a losing create; HEAD; GET
+13. read-after-write   required    read-after-create/overwrite/delete
+                       30 × (PUT If-None-Match:*, GET, HEAD, PUT overwrite, GET, DELETE, GET)
+14. list               required    LIST-after-write, StartAfter order, pagination, delimiter
+                       30 × (PUT, LIST until visible ≤ 10s); 16 slot PUTs; 6 StartAfter LISTs; a MaxKeys=3 paginated LIST; a delimiter LIST
+15. head-missing       required    HEAD/GET of a missing key: 404, not 403
+                       HEAD and GET of a key never written
+16. checksum           recommended SDK default CRC32 (header and trailer), when_required, DeleteObjects
+                       5 PUTs of 100 KB (default CRC32, streamed trailer, CRC32C, SHA256, when_required), 1 GET with validation, 2 DeleteObjects
+17. bucket-config      info        versioning, lifecycle, bucket policy condition keys
+                       GetBucketVersioning, GetBucketLifecycleConfiguration, GetBucketPolicy (403s are reported, not failures)
+18. clock              info        store clock vs local clock
+                       no extra request: the Date header of every response
+19. perf               info        latency and throughput at the exporters' object sizes
+                       per size [100KB 1MB]: 200 PUT If-None-Match:*, 200 GET, 200 HEAD at concurrency 8 (220 MB written); 50 LIST; 200 200-byte slot PUTs, 200 CAS, 200 HEAD-404
+20. cleanup            recommended delete this run's prefix
+                       LIST the run prefix, DeleteObjects (or DELETE one by one), ListMultipartUploads + Abort
+
+report: table on stdout, JSON to s3accept-run.json

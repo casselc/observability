@@ -1,0 +1,175 @@
+{
+  "tool": "s3accept",
+  "mode": "run",
+  "started": "2026-09-26T17:43:59.717632699Z",
+  "finished": "2026-09-26T17:44:01.066220755Z",
+  "store": "seaweedfs",
+  "target": {
+    "bucket": "otel",
+    "ca_bundle": "/tmp/tmp.iZCdW0RaeA/ca.pem",
+    "endpoint": "http://127.0.0.1:18333",
+    "path_style": true,
+    "profile": "",
+    "race_endpoints": [
+      "https://127.0.0.1:18903",
+      "https://127.0.0.1:18903=127.0.0.1"
+    ],
+    "region": "",
+    "role_arn": "",
+    "root": "accept/20260926T174359-63419b",
+    "static_keys_flag": true
+  },
+  "params": {
+    "race_writers": 16,
+    "race_rounds": 20,
+    "cas_writers": 8,
+    "cas_increments": 25,
+    "ambiguous_n": 20,
+    "settle_ns": 200000000,
+    "mpu_writers": 4,
+    "mpu_rounds": 3,
+    "consistency_n": 30,
+    "list_lag_max_ns": 10000000000,
+    "perf_ops": 200,
+    "perf_concurrency": 8,
+    "perf_sizes": [
+      100000,
+      1000000
+    ],
+    "perf_warn_p99_ns": 2000000000
+  },
+  "results": [
+    {
+      "id": "identity",
+      "title": "credential source and caller identity",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer",
+        "exporter-data"
+      ],
+      "status": "PASS",
+      "summary": "static keys (flags)",
+      "evidence": [
+        "credential source: StaticCredentials → static keys (flags)",
+        "key ****, session token false, expires never, retrieved in 0s",
+        "STS GetCallerIdentity skipped: custom endpoint and no --sts-endpoint (Nutanix Objects has no STS)"
+      ],
+      "data": {
+        "access_key": "****",
+        "env": {},
+        "mode": "static keys (flags)",
+        "retrieve_ms": 0,
+        "session_token": false,
+        "source": "StaticCredentials"
+      },
+      "duration_ms": 0
+    },
+    {
+      "id": "create-race",
+      "title": "N concurrent create-only writers on one key",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "20 rounds × 16 writers: exactly one winner each, stored body = winner's",
+      "evidence": [
+        "writers spread over 3 endpoints (main + --race-endpoints)",
+        "winners per round histogram: map[1:20]; 409 ConditionalRequestConflict: 0; other errors: 0"
+      ],
+      "data": {
+        "conflicts_409": 0,
+        "endpoints": 3,
+        "other_errors": 0,
+        "rounds": 20,
+        "winners_histogram": {
+          "1": 20
+        },
+        "writers": 16
+      },
+      "duration_ms": 225
+    },
+    {
+      "id": "cas-race",
+      "title": "concurrent read-CAS increments (lost-update detection)",
+      "level": "required",
+      "capabilities": [
+        "control-plane",
+        "inline-consumer"
+      ],
+      "status": "PASS",
+      "summary": "8 writers × 25: final 200 = successes, none installed twice (814 refused)",
+      "evidence": [
+        "8 writers × 25 increments: 200 CAS won, 814 refused (412), 0 409, final value 200, values installed twice 0"
+      ],
+      "data": {
+        "duplicates": 0,
+        "final": "200",
+        "refused": 814,
+        "won": 200
+      },
+      "duration_ms": 1099
+    },
+    {
+      "id": "cleanup",
+      "title": "delete this run's prefix",
+      "level": "recommended",
+      "status": "PASS",
+      "summary": "deleted 21 objects, aborted 0 uploads; prefix empty",
+      "evidence": [
+        "deleted 21 objects (0 failed), aborted 0 uploads, 0 left under accept/20260926T174359-63419b/"
+      ],
+      "duration_ms": 0
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "control-plane",
+      "title": "S3-native control plane: create-only log slots, epoch fence, CAS'd leases and checkpoints",
+      "if_fail": "Do not run the manifest-less / S3-native commit on this store. Put the control plane (log slots, leases, checkpoint, gc.json) behind the Coordinator interface on ClickHouse Keeper (model/S3NATIVE.md section 9, fallback (b)); data objects can stay on this store with plain PUTs.",
+      "verdict": "UNPROVEN",
+      "unproven": [
+        "create-only",
+        "if-match",
+        "ambiguous-create",
+        "ambiguous-cas",
+        "read-after-write",
+        "head-missing"
+      ]
+    },
+    {
+      "id": "inline-consumer",
+      "title": "otap-rs consumer: HEAD slots with metadata, LIST StartAfter discovery, 404 on free slots, DELETE for GC",
+      "if_fail": "The consumer as built (otap-rs README, Consumer) cannot run unchanged: see each failing check for the workaround.",
+      "verdict": "UNPROVEN",
+      "unproven": [
+        "create-only",
+        "if-match",
+        "ambiguous-cas",
+        "metadata",
+        "read-after-write",
+        "list",
+        "head-missing"
+      ]
+    },
+    {
+      "id": "exporter-data",
+      "title": "Exporter data path: plain and create-only PUTs of 100 KB-1 MB objects with the SDKs' default checksums",
+      "if_fail": "Exporters need configuration (IAM, bucket policy, or AWS_REQUEST_CHECKSUM_CALCULATION=when_required) before they can publish.",
+      "verdict": "UNPROVEN",
+      "unproven": [
+        "plain-put",
+        "checksum",
+        "clock"
+      ]
+    }
+  ],
+  "requests": {
+    "GET 200": 1038,
+    "POST 200": 1,
+    "PUT 200": 221,
+    "PUT 412": 1114
+  }
+}

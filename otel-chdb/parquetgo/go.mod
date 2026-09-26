@@ -12,6 +12,7 @@ require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/zeebo/blake3 v0.2.4
+	github.com/zeebo/xxh3 v1.1.0
 	go.opentelemetry.io/collector/pdata v1.67.0
 )
 
@@ -44,7 +45,6 @@ require (
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
-	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.67.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect

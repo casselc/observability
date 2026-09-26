@@ -9,7 +9,7 @@
 //!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
 //!           [--idle-backoff 1s..30s | off] [--idle-after 10s] [--linger 0ms]
 //!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
-//!           [--check-horizon 1d | all] [--no-check-range]
+//!           [--check-horizon 3d | all] [--no-check-range]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
@@ -259,7 +259,7 @@ async fn main() {
     cfg.balance.min_hold_ms = opt_ms(&args, "--min-hold", "30s");
     cfg.balance.loads_every_ms = opt_ms(&args, "--loads-every", "10s");
     cfg.horizon_ms = match arg(&args, "--check-horizon").as_deref() {
-        None => Some(86_400_000),
+        None => Some(consumer::worker::DEFAULT_HORIZON_MS),
         Some("all") => None,
         Some(h) => Some(dur_ms(h)),
     };

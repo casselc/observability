@@ -917,3 +917,34 @@ async fn copies_within_the_horizon_and_lying_metadata() {
     let ck = w.checkpoint("p1/traces").unwrap().clone();
     assert_eq!(ck.next("E2"), 2);
 }
+
+/// The default copy horizon is 3 days: a copy received 2.5 days after its
+/// original is found by the check and skipped; one received 4 days after is
+/// out of the check's reach and is ingested twice. That second case is what
+/// `consume horizon-audit` exists to report (`audit.rs`).
+#[tokio::test(flavor = "current_thread")]
+async fn the_default_horizon_is_three_days() {
+    let (b, c, clk) = setup();
+    let cf = cfg("w1");
+    assert_eq!(Config::new(ROOT, CTL, "x").horizon_ms, Some(3 * 86_400_000));
+    clk.0.set(at(20_024, 12, 0) / 1_000_000);
+    let mut w = Worker::new(Config { horizon_ms: Config::new(ROOT, CTL, "x").horizon_ms, ..cf }, b.clone(), c.clone(), clk.clone());
+    // Two originals, ingested: one received on day 20,020 at noon, one on day 20,021 at noon.
+    put_obj(&b, "p1/traces", "E1", 0, "far", 5, at(20_020, 12, 0)).await;
+    put_obj(&b, "p1/traces", "E1", 1, "near", 5, at(20_021, 12, 0)).await;
+    for _ in 0..3 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!((c.count("otel_traces", "far"), c.count("otel_traces", "near")), (5, 5));
+    // Their copies, resent into a new epoch: "near" 2.5 days later, "far" 4 days later.
+    put_obj(&b, "p1/traces", "E2", 0, "near", 5, at(20_024, 0, 0)).await;
+    put_obj(&b, "p1/traces", "E2", 1, "far", 5, at(20_024, 12, 0)).await;
+    for _ in 0..4 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(c.count("otel_traces", "near"), 5, "a copy within 3 days is found and skipped");
+    assert_eq!(c.count("otel_traces", "far"), 10, "a copy 4 days later is out of the check's reach: ingested twice");
+    assert_eq!(w.checkpoint("p1/traces").unwrap().next("E2"), 2);
+}

@@ -125,9 +125,17 @@ pub struct Config {
     pub linger_ms: u64,
     pub balance: Balance,
     /// The count check's copy horizon: None reads every partition; Some(h)
-    /// reads the partitions of the objects' own `received_at` ± h.
+    /// reads the partitions of the objects' own `received_at` ± h. A copy of
+    /// a request received more than h after its original is not found, and
+    /// is ingested twice: `consume horizon-audit` reports such copies
+    /// (`audit.rs`). Default 3 days (`DEFAULT_HORIZON_MS`).
     pub horizon_ms: Option<u64>,
 }
+
+/// The default copy horizon of the count check (`--check-horizon`): 3 days.
+/// A resend from an edge's durable buffer after an outage, or a sender's
+/// retry, must be received within it of its original.
+pub const DEFAULT_HORIZON_MS: u64 = 3 * 86_400_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BalanceMode {
@@ -180,7 +188,7 @@ impl Config {
             backoff: Backoff::default(),
             linger_ms: 0,
             balance: Balance::default(),
-            horizon_ms: Some(86_400_000),
+            horizon_ms: Some(DEFAULT_HORIZON_MS),
         }
     }
 }

@@ -1,0 +1,51 @@
+# quintgo binding: a Go metrics request split over two lanes (two
+# namespaces of one edge: metrics_gauge as G, metrics_sum as S), recorded by
+# translate.go, as calls of ../../model/s3InlineMetrics.qnt (through
+# s3InlineMetricsObs.qnt, which re-exports it unchanged and adds the value
+# constructors the arguments need): each lane's
+# steps are s3Inline's (prefixed g / s), plus the request level: ackRequest
+# when the edge answered the request with success, crash when the edge
+# process restarts. s3InlineMetrics fixes its sizes (requests 1 and 2, 3
+# epochs, 4 slots); the runs stay within them.
+spec: s3InlineMetricsObs.qnt
+module: s3InlineMetricsObs
+
+constants:
+  ACK_ANY: 'false'   # the design; an ack-on-any Go run must then fail to conform
+
+actions:
+  ackRequest: { args: { p: '{{.p}}' } }
+  crash: { args: { pend: 'pendSet({{.p1}}, {{.p2}})' } }
+  gStartPush: { args: { e: '{{.e}}', p: '{{.p}}' } }
+  gSwitchPayload: { args: { e: '{{.e}}', p: '{{.p}}' } }
+  gSend: { args: { e: '{{.e}}' } }
+  gReceive: { args: { e: '{{.e}}', r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' } }
+  gTimeout: { args: { e: '{{.e}}' } }
+  gResolve: { args: { e: '{{.e}}' } }
+  gApply: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' } }
+  gLose: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' } }
+  gCCheck: { args: { e: '{{.e}}' } }
+  gCInsert: {}
+  gCAdvance: {}
+  gCSeeTomb: { args: { e: '{{.e}}' } }
+  gCTomb: { args: { e: '{{.e}}' } }
+  gCTombReceive: { args: { r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' } }
+  sStartPush: { args: { e: '{{.e}}', p: '{{.p}}' } }
+  sSwitchPayload: { args: { e: '{{.e}}', p: '{{.p}}' } }
+  sSend: { args: { e: '{{.e}}' } }
+  sReceive: { args: { e: '{{.e}}', r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' } }
+  sTimeout: { args: { e: '{{.e}}' } }
+  sResolve: { args: { e: '{{.e}}' } }
+  sApply: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' } }
+  sLose: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' } }
+  sCCheck: { args: { e: '{{.e}}' } }
+  sCInsert: {}
+  sCAdvance: {}
+  sCSeeTomb: { args: { e: '{{.e}}' } }
+  sCTomb: { args: { e: '{{.e}}' } }
+  sCTombReceive: { args: { r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' } }
+
+invariants:
+  - reqAckedImpliesAllCommitted
+  - noObjectLost
+  - safety

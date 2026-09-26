@@ -117,6 +117,10 @@ type Event struct {
 	Found    Slot       // head
 	NewEpoch string     // halted
 	Err      string
+	// The lane's state when the event is emitted.
+	Epoch string
+	Next  uint64
+	Phase Phase
 }
 
 // Observer receives every Event, in order per lane.
@@ -175,7 +179,7 @@ type Lane struct {
 
 func (l *Lane) emit(e Event) {
 	if l.Observer != nil {
-		e.Lane = l.Name
+		e.Lane, e.Epoch, e.Next, e.Phase = l.Name, l.epoch, l.next, l.phase
 		l.Observer.Observe(e)
 	}
 }

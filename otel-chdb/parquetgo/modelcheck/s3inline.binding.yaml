@@ -1,0 +1,61 @@
+# quintgo binding: a Go edge lane's recorded run (translate.go) as calls of
+# ../../model/s3Inline.qnt. The translator computes the model's epochs,
+# payloads, requests and responses and passes them as numbers; the defs
+# build the model's values from them. The expect after a lane step is the
+# lane's own state (phase, next slot) against the model writer's (ee = 0:
+# a step with no lane state to compare).
+spec: ../../model/s3Inline.qnt
+module: s3Inline
+
+# The design as built (s3InlineDesign's flags), sized to the run.
+constants:
+  PAYLOADS: '{{ set "p" }}'
+  MAX_EPOCH: '{{ add (count "newIncarnation") 1 }}'
+  MAX_SLOT: '{{ add (max "slot") 1 }}'
+  AMBIGUOUS: 'true'
+  ZOMBIES: 'true'
+  CONSUMER_CRASH: 'true'
+  COND_PUT: 'true'
+  ATOMIC_COND: 'true'
+  RESOLVE_BY_HEAD: 'true'
+  HALT_ON_TOMB: 'true'
+  TOMB_GAPS: 'true'
+  CHECK_CENTRAL: 'true'
+
+defs: |
+  // The translator passes numbers; these build the model's values.
+  // kind: 0 Free, 1 Data, 2 Tomb. phase: 0 WIdle .. 4 WHalted.
+  pure def kindOf(k: int): Kind = if (k == 1) Data else if (k == 2) Tomb else Free
+  pure def ent(k: int, e: int, p: int): Entry = { kind: kindOf(k), epoch: e, payload: p }
+  pure def rq(e: int, s: int, k: int, p: int, f: bool): Req = { epoch: e, slot: s, entry: ent(k, e, p), sawFree: f }
+  pure def rs(e: int, s: int, k: int, p: int, ok: bool): Resp = { epoch: e, slot: s, entry: ent(k, e, p), ok: ok }
+  pure def phaseOf(k: int): WPhase =
+    if (k == 0) WIdle else if (k == 1) WReady else if (k == 2) WWaiting else if (k == 3) WUnresolved else WHalted
+
+actions:
+  newIncarnation: { args: { zombie: '{{.zombie}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  startPush: { args: { e: '{{.e}}', p: '{{.p}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  switchPayload: { args: { e: '{{.e}}', p: '{{.p}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  send: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  receive: { args: { e: '{{.e}}', r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  timeout: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  resolve: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  apply: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  lose: { args: { q: 'rq({{.qe}}, {{.qs}}, {{.qk}}, {{.qp}}, {{.qf}})' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cCheck: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cInsert: { expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cAdvance: { expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cSeeTomb: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cTomb: { args: { e: '{{.e}}' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+  cTombReceive: { args: { r: 'rs({{.re}}, {{.rs}}, {{.rk}}, {{.rp}}, {{.rok}})' }, expect: '{{.ee}} == 0 or (writers.get({{.ee}}).phase == phaseOf({{.ph}}) and writers.get({{.ee}}).nextSlot == {{.nx}})' }
+
+invariants:
+  - payloadIngestedAtMostOnce
+  - epochNoDuplicatePayload
+  - onlyCommittedIngested
+  - noCommitLost
+  - ackedImpliesCommitted
+  - noPayloadLost
+  - gapNeverTakenForLoss
+  - consumerNeverSkipsCommitted
+  - noCommitAfterClose

@@ -1,0 +1,104 @@
+=== RUN   TestLaneConformsToS3Inline
+=== RUN   TestLaneConformsToS3Inline/seed1
+    model_test.go:249: 48 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed2
+    model_test.go:249: 50 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed3
+    model_test.go:249: 47 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:2], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed4
+    model_test.go:249: 52 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:0 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed5
+    model_test.go:249: 51 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:2], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed6
+    model_test.go:249: 55 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed7
+    model_test.go:249: 61 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed8
+    model_test.go:249: 54 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed9
+    model_test.go:249: 45 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed10
+    model_test.go:249: 45 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed11
+    model_test.go:249: 45 model steps, 5 incarnations, map[committed:2 halted:0 known_skipped:0 learned_other:0 resent:0 resolved_own:3], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed12
+    model_test.go:249: 61 model steps, 5 incarnations, map[committed:4 halted:1 known_skipped:0 learned_other:0 resent:0 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed13
+    model_test.go:249: 60 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:1 resent:1 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed14
+    model_test.go:249: 48 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:0 resent:0 resolved_own:2], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed15
+    model_test.go:249: 53 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:2], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed16
+    model_test.go:249: 54 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:1 resent:1 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed17
+    model_test.go:249: 54 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed18
+    model_test.go:249: 53 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:1 resent:0 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed19
+    model_test.go:249: 57 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:3 resolved_own:1], notes 2
+=== RUN   TestLaneConformsToS3Inline/seed20
+    model_test.go:249: 57 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:0], notes 3
+=== RUN   TestLaneConformsToS3Inline/seed21
+    model_test.go:249: 43 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:0 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed22
+    model_test.go:249: 46 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:1], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed23
+    model_test.go:249: 49 model steps, 5 incarnations, map[committed:3 halted:0 known_skipped:0 learned_other:1 resent:0 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed24
+    model_test.go:249: 58 model steps, 5 incarnations, map[committed:5 halted:1 known_skipped:0 learned_other:0 resent:0 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed25
+    model_test.go:249: 50 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:2 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed26
+    model_test.go:249: 53 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:3 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed27
+    model_test.go:249: 47 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:0 resolved_own:1], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed28
+    model_test.go:249: 49 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:0], notes 0
+=== RUN   TestLaneConformsToS3Inline/seed29
+    model_test.go:249: 51 model steps, 5 incarnations, map[committed:5 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:0], notes 1
+=== RUN   TestLaneConformsToS3Inline/seed30
+    model_test.go:249: 62 model steps, 5 incarnations, map[committed:4 halted:0 known_skipped:0 learned_other:0 resent:1 resolved_own:1], notes 1
+    model_test.go:252: 30 runs, 1558 model steps; lane events map[committed:124 halted:2 known_skipped:0 learned_other:4 resent:31 resolved_own:22]
+--- PASS: TestLaneConformsToS3Inline (277.37s)
+=== RUN   TestLaneScriptedFaults
+    model_test.go:291: 59 model steps, conforms; map[committed:4 halted:1 known_skipped:0 learned_other:1 resent:1 resolved_own:1]
+--- PASS: TestLaneScriptedFaults (7.29s)
+=== RUN   TestLaneMutantsCaught
+=== RUN   TestLaneMutantsCaught/retryNewKey
+    model_test.go:323: caught: conformance: FAIL | step [4] is not a transition of the model from the state reached | quint:    send(1)
+=== RUN   TestLaneMutantsCaught/noHalt
+    model_test.go:323: caught: conformance: FAIL | step [15] is not a transition of the model from the state reached | quint:    send(1)
+--- PASS: TestLaneMutantsCaught (9.18s)
+    model_test.go:482: 20 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 29 model steps, 3 epochs, acked map[1:true 2:true], notes 3
+    model_test.go:482: 19 model steps, 2 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 27 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 21 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 20 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 27 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 29 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 31 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 22 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 25 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 27 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 23 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 27 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 24 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 20 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 21 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 20 model steps, 3 epochs, acked map[1:true 2:true], notes 0
+    model_test.go:482: 23 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:482: 23 model steps, 3 epochs, acked map[1:true 2:true], notes 1
+    model_test.go:510: caught: the 2xx for request 1 (ackRequest(1)) is not a transition: its sum object is unresolved (7 steps before it conform)
+ok  	github.com/casselc/observability/otel-chdb/parquetgo/modelcheck	483.142s

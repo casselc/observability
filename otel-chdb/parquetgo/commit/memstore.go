@@ -39,6 +39,8 @@ type MemStore struct {
 	// OnApply sees every PUT the store decides (applied or not), for the
 	// model recorder: late=true for a released held PUT.
 	OnApply func(key string, applied, late bool, meta map[string]string)
+	// OnLose sees every PUT a Drop fault lost.
+	OnLose func(key string, meta map[string]string)
 }
 
 type MemObject struct {
@@ -90,6 +92,9 @@ func (s *MemStore) PutCreate(ctx context.Context, key string, body []byte, _ str
 		s.createLocked(key, body, meta, false)
 		return PutUnknown
 	case Drop:
+		if s.OnLose != nil {
+			s.OnLose(key, meta)
+		}
 		return PutUnknown
 	case Hold:
 		s.held = append(s.held, heldPut{key, append([]byte(nil), body...), maps.Clone(meta)})
@@ -160,4 +165,11 @@ func (s *MemStore) Keys(prefix string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ClearFaults drops the faults not used yet.
+func (s *MemStore) ClearFaults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.faults, s.hfaults = nil, nil
 }

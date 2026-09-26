@@ -1,0 +1,67 @@
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed1
+    model_test.go:494: 20 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed2
+    model_test.go:494: 30 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 2
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed3
+    model_test.go:494: 19 model steps, 2 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed4
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed5
+    model_test.go:494: 36 model steps, 3 epochs, acked map[1:true 2:true], 3 NACKs (2 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed6
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed7
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed8
+    model_test.go:494: 20 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed9
+    model_test.go:494: 27 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed10
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed11
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed12
+    model_test.go:494: 21 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed13
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed14
+    model_test.go:494: 30 model steps, 3 epochs, acked map[1:true 2:true], 2 NACKs (2 half-committed), notes 2
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed15
+    model_test.go:494: 28 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed16
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed17
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed18
+    model_test.go:494: 28 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed19
+    model_test.go:494: 21 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed20
+    model_test.go:494: 23 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed21
+    model_test.go:494: 27 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed22
+    model_test.go:494: 32 model steps, 3 epochs, acked map[1:true 2:true], 2 NACKs (2 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed23
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed24
+    model_test.go:494: 36 model steps, 3 epochs, acked map[1:true 2:true], 3 NACKs (2 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed25
+    model_test.go:494: 24 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed26
+    model_test.go:494: 20 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed27
+    model_test.go:494: 21 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed28
+    model_test.go:494: 20 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 0
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed29
+    model_test.go:494: 23 model steps, 3 epochs, acked map[1:true 2:true], 0 NACKs (0 half-committed), notes 1
+=== RUN   TestMetricsRequestConformsToS3InlineMetrics/seed30
+    model_test.go:494: 26 model steps, 3 epochs, acked map[1:true 2:true], 1 NACKs (1 half-committed), notes 2
+    model_test.go:481: 30 runs, 748 model steps, 59 restarts; 20 NACKed pushes, 18 of them with another part committed
+--- PASS: TestMetricsRequestConformsToS3InlineMetrics (164.30s)
+=== RUN   TestMetricsAckOnAnyCaught
+    model_test.go:523: caught: the 2xx for request 1 (ackRequest(1)) is not a transition: its sum object is unresolved (7 steps before it conform)
+--- PASS: TestMetricsAckOnAnyCaught (10.27s)
+ok  	github.com/casselc/observability/otel-chdb/parquetgo/modelcheck	174.585s

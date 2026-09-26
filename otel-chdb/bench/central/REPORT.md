@@ -128,7 +128,10 @@ fully deduplicated, so it can't be used to detect dedup.
   - Reader lifetime hazards and leaked objects.
   - Thousands of disk and table entries in the catalog.
   - Edge and central versions must be pinned together.
-  - About 11× the edge's S3 writes (51 against 4.7 per batch) [R].
+  - About 11× the edge's S3 writes (51 against 4.7 per batch, both by chDB's
+    `S3WriteRequestsCount`) [R]. A counting proxy later saw 2 HTTP PUTs per
+    Parquet batch ([`../../parquetgo/README.md`](../../parquetgo/README.md)),
+    and the manifest-less exporters make 1 (note added 2026-09-26).
   - Not usable directly by a lakehouse.
 
 **Parquet via `s3()`**
@@ -185,3 +188,5 @@ and even then native can be used for that alone while ingest stays on Parquet.
   the dedup ids include source-part identity.
 - **Not tested at all:** Databricks/Spark reading these Parquet types, a
   replicated or multi-node central, and logs (everything here is traces).
+  (2026-09-26: a replicated central has since been tested, in
+  [`../../central-replicated/README.md`](../../central-replicated/README.md).)

@@ -9,6 +9,8 @@ receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
 processors:
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
+  # config.edge.yaml batches before the persistent queue (awss3/README.md).
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.161.0
 exporters:
   - gomod: github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0
     path: ../chdbexporter

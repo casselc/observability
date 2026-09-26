@@ -5,6 +5,12 @@ box. The otap-rs consumer ingests into ReplicatedMergeTree versions of the
 central tables: a local "hot" volume, then a TTL move to an S3 volume on
 SeaweedFS, with `allow_remote_fs_zero_copy_replication = 1`.
 
+> **The title names the experiment, not the decision.** Zero-copy was tested
+> here and **rejected**: the chosen design is plain ReplicatedMergeTree with a
+> copy per replica ([Verdict](#verdict); [`../DECISIONS.md`](../DECISIONS.md)
+> D13). The commit that added this directory is titled "replicated central
+> with zero-copy replication on S3" for the same reason.
+
 Labels: **[M]** measured here, **[D]** from the 26.10 docs or source
 (commit `596f844`, the build's), **[E]** estimate.
 

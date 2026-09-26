@@ -172,8 +172,14 @@ published somewhere a central consumer can read it after this process is
 gone, and a manifest announces it once it's durable. The embedded database
 keeps hours of state, never more than 72; everything older lives only in
 object storage until the consumer has taken it. This covers the chDB side
-only. The central consumer and catalog aren't built yet; `cmd/chdbattach`
-shows the core of what they would do.
+only; `cmd/chdbattach` shows the core of what a consumer of it would do.
+
+> **Superseded (2026-09-26).** This section describes the chDB exporter as it
+> was built. Per-batch manifests are superseded by manifest-less create-only
+> slots ([`awss3/README.md`](awss3/README.md); [DECISIONS.md](DECISIONS.md)
+> D3), native parts as the transfer format are rejected (D2), and chDB is no
+> longer the chosen publisher (D1). The central consumer **is** built, for the
+> manifest-less layout ([`otap-rs/README.md`](otap-rs/README.md) §Consumer).
 
 ```yaml
 chdb:
@@ -184,7 +190,7 @@ chdb:
     secret_access_key: ...
     generation: 1h                   # rotate tables
     local_retention: 6h              # then DETACH locally; objects stay
-    seal_optimize: true              # OPTIMIZE FINAL when sealing
+    seal_optimize: false             # true: OPTIMIZE FINAL when sealing (makes the exit leak certain)
     compact_parts: true              # never wide parts: ~20 objects per part, not ~150
     old_parts_lifetime: 10m          # keep merged-away parts for running readers
   parquet:                           # and/or one Parquet object per batch
@@ -194,6 +200,9 @@ chdb:
 ```
 
 [`otelcol/config.edge.yaml`](otelcol/config.edge.yaml) is a complete config.
+It batches before the persistent queue and retries forever
+(`max_elapsed_time: 0`), as [`awss3/README.md`](awss3/README.md)
+§Recommendation requires.
 
 ### Layout and commit protocol
 
@@ -349,6 +358,9 @@ Raw output is in `bench/results/publish.txt`.
 
 - **Parquet is the cheap boundary:** under 5 S3 writes per batch, and faster
   than local MergeTree, because it skips sorting, indexes and merges.
+  (2026-09-26: the 4.7 is chDB's counter. A counting proxy saw **2 HTTP PUTs**
+  per batch, the object and its manifest ([`parquetgo/README.md`](parquetgo/README.md)
+  §What chDB does on this path), and the manifest-less Rust exporter makes 1.)
 - **Native parts cost about 24 objects per inserted part** (data, marks,
   checksums, primary index, one file per skip index — this schema has six
   bloom filters — and a `plain_rewritable` prefix record). The traces signal

@@ -33,6 +33,14 @@ Labels:
   - 5.9 TB/day compressed, one copy;
   - 90-day storage of about 990 TB with the default replicated local cold
     tier, or about 530 TB with one cold copy on S3.
+  - (Updated 2026-09-26: after the idle-box re-measurement the calculator
+    gives **91 vCPU** and 992 TB, a 5.3 vCPU Rust edge fleet-wide, and
+    4.0 µs/span at the edge. One cold copy on S3 needs zero-copy
+    replication, which is rejected
+    ([`../central-replicated/README.md`](../central-replicated/README.md)
+    §Verdict); the calculator's one-copy figure is 504 TB. The honest
+    comparison for this note is against **992 TB**. The figures below keep
+    the older values.)
 
 **What that means:**
 
@@ -258,7 +266,8 @@ lookup API or a ClickHouse UDF, which HyperDX wouldn't call.
 
 **Edge cost** [E]: one hash of the dimension tuple plus one histogram insert
 per span, about 0.1–0.2 µs, so **fleet +0.1 vCPU**. That is next to the
-edge's 5.9 vCPU fleet-wide [D: calc.py].
+edge's 5.9 vCPU fleet-wide [D: calc.py] (5.3 vCPU since the idle-box
+re-measurement).
 
 **Size** [E]:
 
@@ -477,7 +486,8 @@ locality compaction [D: Husky compaction post]:
 **Compactor cost** [E, from the spike's per-row numbers]:
 
 - Parquet decode + sort + encode at about 5–6 µs per span or log (the Rust
-  edge spends 4.5 µs/span encoding from OTLP [M]), twice (L1, L2).
+  edge spends 4.5 µs/span encoding from OTLP [M]; 4.0 on an idle box),
+  twice (L1, L2).
 - Metrics at about 2 µs per point.
 - **≈15–20 vCPU continuous**, stateless, spot-friendly.
 - **S3 requests:** about 7.8 M raw GETs/day (~$3) plus about 25k PUTs/day
@@ -497,7 +507,8 @@ locality compaction [D: Husky compaction post]:
   there [D: calc.py]).
 - For 90 days: **about 400 TB on S3**, against about 530 TB with
   ClickHouse cold on S3 (one copy) or about 990 TB replicated locally
-  [E: calc.py].
+  [E: calc.py]. (2026-09-26: the one-copy option needs zero-copy, which is
+  rejected, so compare with 992 TB, a copy per replica, local or S3.)
 - Central shrinks to the hot tier:
   - D = 1: 15 TB hot;
   - D = 7: 106 TB hot [E: calc.py].

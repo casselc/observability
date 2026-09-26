@@ -556,7 +556,9 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
 - Log truncation, lease expiry, reader lease expiry and DETACH are not
   modelled.
 - The central check-before-insert assumes read-your-writes (on a replicated
-  central, `select_sequential_consistency`).
+  central, `select_sequential_consistency`; superseded 2026-09-26: measured,
+  it needs `SYSTEM SYNC REPLICA … LIGHTWEIGHT`,
+  [`../central-replicated/README.md`](../central-replicated/README.md)).
 - The consumer's time bound is an assumption, encoded as
   `ZOMBIE_INSERT_BOUNDED`.
 - SeaweedFS's multipart race is outside the model, which assumes atomic
@@ -599,6 +601,15 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
 | GC and readers | Planned catalog | One CAS'd `gc.json` (horizon plus leases); orphans in closed namespaces | Indexer-driven | Checkpoints with expiry; min-age GC; boundary files | VACUUM with a retention period (time-based) |
 
 ## 8. Recommendation and next steps
+
+> **Superseded for Parquet (2026-09-26).** Item 1 below was overtaken by the
+> manifest-less inline design: each Parquet batch is its own
+> create-only commit record, with no log, fence entry or replay
+> ([`../awss3/README.md`](../awss3/README.md); `../DECISIONS.md` D3). The log
+> and fence are kept only for native chDB tables, which are rejected as the
+> transfer format (D2). The consumer's lease and CAS'd checkpoint from this
+> design were adopted ([`../otap-rs/README.md`](../otap-rs/README.md)
+> §Consumer).
 
 1. **Adopt the log and fence for the control plane**, in Go (aws-sdk-go-v2).
    Keep data writes in chDB (plain PUT into the epoch's namespace), or use a

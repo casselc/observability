@@ -19,6 +19,11 @@ an OTAP-native pipeline.
     cost.
   - The exporter's value rendering needs fixing first: `SPAN_KIND_SERVER`
     instead of `Server`, and doubles through `ryu` (`5.0` instead of `5`).
+  - **Superseded (2026-09-26):** the Rust edge was built as its own exporter
+    instead, which walks the OTLP bytes directly, commits manifest-less
+    (one create-only PUT per batch) and avoids upstream's exporters
+    ([`../otap-rs/README.md`](../otap-rs/README.md) §Upstream: what was
+    changed, what was found).
 - **Storing OTAP's own tables is feasible but costs more at central.**
   - **As Parquet star tables (option a):** 3–4× the central CPU of flat Parquet.
   - **As the raw OTAP Arrow IPC payloads (option d, `raw`):** 5× the central
@@ -49,7 +54,9 @@ Building otap-dataflow was not practical:
 
 `cargo tree` alone installed the toolchain and 300 MB of crates, and both
 were removed straight away. The Rust facts below come from reading the source
-at `main` 5db8358 (2026-09-24) **[D]**.
+at `main` 5db8358 (2026-09-24) **[D]**. (2026-09-26: otap-dataflow was later
+built and measured, an 11-minute clean release build; see
+[`../otap-rs/README.md`](../otap-rs/README.md) §Build and footprint.)
 
 The environment:
 
@@ -450,7 +457,9 @@ before relying on it there. `object_store` can send conditional PUTs
   deployed**, and denormalise to the flat ClickStack Parquet before S3
   (option b):
   - Rust: adapt the ClickHouse exporter's transform, then write Parquet per
-    batch plus a manifest, and ack after the commit.
+    batch plus a manifest, and ack after the commit. (Superseded
+    2026-09-26: `../otap-rs` wrote its own exporter that walks OTLP bytes
+    and commits manifest-less; see the note under the short answer.)
   - Go: decode to pdata and use parquetgo, once the silent-drop bug is fixed
     or guarded against, as `via-pdata` does.
 - **Don't make central join OTAP's tables** (a, d). It moves 3–5× the CPU to

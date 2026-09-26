@@ -610,6 +610,11 @@ Why this layout:
     (request hash, signal). A retried request then resolves the types that
     already committed as "ours" (step 1 of `Log.Append`) and appends only
     the missing ones [E: not wired, `../awss3` is outside this directory].
+  - (2026-09-26: still true of `parquetgo`. The Rust edge does commit each
+    type in its own inline lane with a request-level ack
+    ([`../otap-rs/README.md`](../otap-rs/README.md) §Metrics). The Go path is
+    kept (`../DECISIONS.md` D1), and wiring these lanes here is recorded
+    there as follow-up work.)
 - **A retry is byte-identical.** The same pdata and the same envelope give
   the same bytes: fresh or reused encoder, serial or `Parallelism: 4`, and
   whether one type is encoded alone (`PGEncoder.MetricsOf`, the call an
@@ -842,6 +847,12 @@ gives the same values.
   ±30%, scaling with attribute entries per point.
 
 ### The sizing calculator's three numbers
+
+(Superseded 2026-09-26: the calculator no longer uses the "assumed" column.
+It now carries per-layout constants measured on an idle box: for the default
+series layout B, 1.18 µs central, 6.7 B stored and 1.82 µs edge per point;
+for the ClickStack tables, 4.47 µs, 26.4 B, and 7.47 µs (Go) or 5.05 µs
+(Rust) at the edge. See [`../DECISIONS.md`](../DECISIONS.md) §3.)
 
 | calculator input | assumed | measured replacement | notes |
 | --- | --- | --- | --- |

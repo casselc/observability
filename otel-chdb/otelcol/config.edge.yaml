@@ -3,6 +3,16 @@
 # by a manifest. Generations rotate hourly, are sealed, and are detached
 # locally after 6h; the objects stay for a central consumer to read and
 # reclaim. Credentials come from the environment.
+#
+# Delivery settings follow awss3/README.md §Recommendation (collector config)
+# and DECISIONS.md D4 (2026-09-26): batch BEFORE the persistent queue with the
+# batch processor, never `sending_queue.batch` (it re-batches redelivered
+# requests after a restart, so request identity and its content hash change);
+# `retry_on_failure.max_elapsed_time: 0` (the 300 s default deletes the item
+# from the queue after the last failure); `seal_optimize: false` (OPTIMIZE
+# FINAL at seal makes the object leak on exit certain: bench/central/REPORT.md,
+# model/README.md). The batch processor's in-memory window is lost on a crash;
+# the receiver has already acked it.
 receivers:
   otlp:
     protocols:
@@ -31,7 +41,7 @@ exporters:
       secret_access_key: ${env:S3_SECRET_ACCESS_KEY}
       generation: 1h
       local_retention: 6h
-      seal_optimize: true
+      seal_optimize: false             # see the header
       compact_parts: true
       old_parts_lifetime: 10m
     parquet:
@@ -39,15 +49,21 @@ exporters:
       access_key_id: ${env:S3_ACCESS_KEY_ID}
       secret_access_key: ${env:S3_SECRET_ACCESS_KEY}
       compression: zstd
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0              # retry forever; never drop from the queue
+    # No `batch:` here: batching happens in the pipeline, before the queue.
     sending_queue:
       storage: file_storage/queue
       num_consumers: 2
       sizer: items
       queue_size: 200000
-      batch:
-        flush_timeout: 5s
-        min_size: 5000
-        max_size: 20000
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 5000
+    send_batch_max_size: 20000
 
 service:
   extensions: [file_storage/queue]
@@ -57,7 +73,9 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
+      processors: [batch]
       exporters: [chdb]
     logs:
       receivers: [otlp]
+      processors: [batch]
       exporters: [chdb]

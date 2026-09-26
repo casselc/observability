@@ -59,11 +59,11 @@ Rediscovered from the Quint model, against the real Go code (shrunk):
   `TestFindingSealUndercountOnS3`): ambiguous manifest write; shutdown →
   `_sealed.json` says 0 batches, 1 manifest exists.
 
-New, outside what the model can express:
-
 Findings 1–3 are **fixed** in `publish.go`; their tests now assert the
 fixed behaviour (`TestPBTFixed*`, `TestFixed*`, and the default state
-machine for 3):
+machine for 3).
+
+New, outside what the model can express:
 
 1. **Restart reused the previous epoch's tables** (persistent `path`, as in
    `config.edge.yaml`). Table names carried the generation, not the epoch,

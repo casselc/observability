@@ -6,7 +6,10 @@ statement shape. Raw per-merge and per-insert records are in `results/<run>/`.
 
 ## Numbers for the calculator
 
-The calculator currently models merges as **1.5× insert CPU [E]**. That is
+The calculator modelled merges as **1.5× insert CPU [E]** when this was
+written. (2026-09-26: it now charges merges per row, `mergeRow`,
+`mergePointB` and `mergePointA`, at the idle-box values 10.1, 4.1 and
+19.4 µs from [`../clean/README.md`](../clean/README.md) block 3.) That is
 too low wherever a partition takes more than a few hundred parts, and it grows
 with partition size. Merge CPU scales with **rows × merge levels**, not with
 inserted objects, so it should be charged per row and not on the fixed

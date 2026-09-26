@@ -61,8 +61,9 @@ larger. Keep parquetgo where the edge is, or must stay, a Go collector.**
     narrow points, the series id computed at the edge): the Go prototype's
     rows and ids exactly, the views equal to contrib's rows, **1.8 µs of edge
     CPU per point against 5.0** for the ClickStack tables, 4 objects per
-    request instead of 5 (gauge and sum merged). No smaller on the wire than
-    this crate's ClickStack objects: its gain is central, as the spike found.
+    request instead of 5 (gauge and sum merged). On the wire, about 8% under
+    this crate's ClickStack objects on the fleet data (18.1 against 19.8
+    B/point) since BYTE_STREAM_SPLIT; its gain is central, as the spike found.
     See [Metrics layout B](#metrics-layout-b-the-series-table-the-default).
   - **Edge durability:** upstream's durable buffer works in this pipeline;
     requests acked before a SIGKILL are all committed after the restart,
@@ -629,6 +630,8 @@ exporter's five tables. The default is now layout B: see
 identical to the contrib clickhouseexporter v0.161.0's own rows, including
 on hostile input. Edge CPU is 3.8–6.8 µs per data point by type, not the
 calculator's 2 µs, and about half of parquetgo's. Central is at parity.**
+(The calculator's 2 µs was an early placeholder; it now uses 5.05 µs/point
+for this layout and 1.82 for layout B.)
 
 ### Upstream's metrics support [D, then M]
 
@@ -702,8 +705,10 @@ calculator's 2 µs, and about half of parquetgo's. Central is at parity.**
   - `metrics-extra.pb` (wire-built duplicate keys, all five types) shows it:
     the Rust rows equal contrib's, while parquetgo's differ from both, and
     only in the order of equal keys.
-  - The spec's text still says maps are "in pdata order"; its code sorts.
-- **Two worked `dt` examples have arithmetic slips.**
+  - The spec's text said maps are "in pdata order"; its code sorts.
+    (Fixed in METRICS_SCHEMA.md since: revision 1, "sorted by key".)
+- **Two worked `dt` examples had arithmetic slips** (corrected in
+  METRICS_SCHEMA.md since: revision 2).
   - `MaxInt64` gives `633_437_444_000`, and `1<<63` gives
     `3_661_529_851_000`.
   - The formula and parquetgo's `dtMillis` agree with this crate.
@@ -838,7 +843,9 @@ request with 2,000 points of each type, so 5 objects.
 - **Commit:** 5–7.5 ms per object on localhost. The mixed row's 20.6 ms is
   the five commits one after another in `encbench`; the exporter runs them
   concurrently.
-- **The calculator's 2 µs/point is too low:**
+- **The calculator's 2 µs/point is too low** (the calculator has since
+  dropped that value: it uses 1.82 µs/point for layout B and 5.05 for this
+  layout, from the `../bench/sorting` bisect; 2026-09-26):
   - the Rust edge measures 3.8 µs/point (gauge, sum) to 6.8 µs/point
     (histograms, mixed traffic);
   - parquetgo measures 8.7–14 µs/point;
@@ -1763,8 +1770,13 @@ covers the edge change.
   moves only when a worker is above its share.
 - **The server fence needs synchronized wall clocks** (within the margin)
   between worker and ClickHouse; the client-side bound doesn't.
-- **Replicated or SharedMergeTree central** wasn't tested: the check would
-  need `select_sequential_consistency`, and dedup storage differs [D].
+- **Replicated or SharedMergeTree central** wasn't tested here: the check
+  would need `select_sequential_consistency`, and dedup storage differs
+  [D]. (2026-09-26: replicated central was since tested. That setting does
+  nothing without quorum inserts; the consumer's `--sync-replica` runs
+  `SYSTEM SYNC REPLICA … LIGHTWEIGHT` before the check:
+  [`../central-replicated/README.md`](../central-replicated/README.md).
+  SharedMergeTree is still untested.)
 - **Compaction's assumptions:**
   - the zombie bound, which GC already needed;
   - no producer clock steps back by more than about the zombie bound.

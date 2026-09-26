@@ -33,7 +33,11 @@ on these assumptions:
   alone.
 - **A5. Read your writes.** The importer's check sees every committed part:
   the same assumption as `edgePublish`'s `CHECK_CENTRAL`. On a replicated
-  central this needs `select_sequential_consistency = 1`.
+  central this needs `select_sequential_consistency = 1`. (Superseded
+  2026-09-26: measured, that setting does nothing without quorum inserts;
+  the check needs `SYSTEM SYNC REPLICA … LIGHTWEIGHT` first:
+  [`../central-replicated/README.md`](../central-replicated/README.md)
+  §The three questions.)
 
 The dedup token is not needed in this design. It is a backstop for
 violations of A3, and it works only if both paths form the same single block
@@ -162,6 +166,10 @@ held connection for about the busy timeout (0.25 s at 200 ms, 1.06 s at
    [Q].
 4. **Insert** with `INSERT … SELECT FROM s3('<exact key>')`, the token, and
    the single-block settings. Then advance the checkpoint with a CAS.
+   (Superseded 2026-09-26: the built consumer squashes up to 32 objects per
+   statement, with a token over the ordered key list, and verifies each
+   object with the projection check afterwards;
+   [`../otap-rs/README.md`](../otap-rs/README.md) §Consumer.)
 
 **The target.**
 
@@ -582,7 +590,11 @@ Scenario: 500 producers, one 10k-span batch per producer every 10 s. That's
 
 ## 6. What to adopt regardless
 
-These fall out of this work and apply to the importer-only plan:
+These fall out of this work and apply to the importer-only plan.
+(2026-09-26: adopted in the built consumer with two changes. The projection
+is keyed by `content_key`, and a statement squashes up to 32 objects into one
+block rather than inserting one object at a time;
+[`../otap-rs/README.md`](../otap-rs/README.md) §Consumer.)
 
 1. **Check against the target with an aggregating projection** on
    (`producer_id`, `producer_epoch`, `batch_id`) → `count()`. Compare with
@@ -614,7 +626,10 @@ These fall out of this work and apply to the importer-only plan:
 - **Not tested:**
   - a central crash mid-flush [D];
   - replicated or SharedMergeTree central (different dedup storage;
-    `select_sequential_consistency` for the check) [D];
+    `select_sequential_consistency` for the check) [D]. (2026-09-26:
+    replicated central has since been tested, and the check needs
+    `SYSTEM SYNC REPLICA … LIGHTWEIGHT`, not that setting:
+    [`../central-replicated/README.md`](../central-replicated/README.md).)
   - ClickHouse versions other than 26.10.1;
   - real network hops and proxies;
   - AWS and Nutanix endpoints.

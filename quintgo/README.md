@@ -298,4 +298,7 @@ Everything else is generic.
   Orchestrion's cold build takes ~70 s. Validation with the typescript
   backend takes 4–8 s per trace.
 - The example validates a stand-in of `publish.go` (same control flow, store
-  behind an interface), not the real exporter, which was not modified.
+  behind an interface), not the real exporter, which was not modified. The
+  real publisher is validated separately, through trace files and without
+  importing quintgo ([`../otel-chdb/PBT.md`](../otel-chdb/PBT.md) §PBT and
+  the Quint model).

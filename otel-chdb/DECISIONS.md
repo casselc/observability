@@ -4,7 +4,7 @@ The architecture decision record for this spike. It gathers findings that are
 spread over about twenty READMEs, several of which changed direction more than
 once. Where a README and this file disagree, the README is the evidence and
 this file is the summary. Section 5 lists the places where the READMEs
-disagree with each other.
+disagreed with each other, and how each was resolved.
 
 - **Branch:** `claude/brave-pascal-0fecgh`, head `67df2a6` (2026-09-26).
 - **Scope:** the spike commits from `d128ba4` (chdb-go vendored) to `67df2a6`
@@ -41,7 +41,7 @@ disagree with each other.
 
 | # | Decision | Status |
 |---|---|---|
-| [D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb) | Edge publisher: Rust otap-dataflow exporter where it can run, Go `parquetgo` for Go collectors, not chDB | accepted; **is the Go path frozen? open** |
+| [D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb) | Edge publisher: Rust otap-dataflow exporter where it can run, Go `parquetgo` for Go collectors, not chDB | accepted; **Go path kept** (2026-09-26), its gaps are follow-up work |
 | [D2](#d2-transfer-format-parquet-read-with-s3-not-native-parts) | Transfer format: Parquet read with `s3()`, not native parts on `s3_plain_rewritable` | accepted |
 | [D3](#d3-commit-protocol-manifest-less-create-only-slots) | Commit protocol: manifest-less create-only slots | accepted; manifests and the S3-native log superseded |
 | [D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred) | awss3exporter: stock rejected, patched version prototyped, own exporter preferred | stock rejected; Go choice open |
@@ -141,8 +141,9 @@ Assumptions every model makes, and which the code must therefore guarantee:
 ### D1. Edge publisher: Rust otap-dataflow exporter, Go parquetgo, not chDB
 
 **Status:** accepted: chDB rejected for publishing; Rust where the Rust engine
-can run; Go `parquetgo` where the edge must stay a Go collector. **Whether the
-Go path is frozen is not recorded anywhere; see below.**
+can run; Go `parquetgo` where the edge must stay a Go collector. **The Go path
+is kept for now** (decided 2026-09-26 by the project owner: not frozen, not
+deprecated; see below).
 
 **Decision.** Publish ClickStack-shaped Parquet from a native writer at the
 edge. The Rust exporter (`otap-rs`, `urn:otel:exporter:s3pq`) walks the OTLP
@@ -188,7 +189,19 @@ variants ([D5](#d5-otap-variants-otap-only-as-an-input-transport)).
 - The saving is not where the money is. 28 ms saved per traces batch is about
   1.4 cores fleet-wide at 500 producers [E]. Central dominates cost.
 
-**Is the Go path frozen? Open.** No README decides it. In practice:
+**Is the Go path frozen? Decided 2026-09-26: no. The Go path is kept.** The
+project owner decided to keep Go `parquetgo` as a supported edge for
+collectors that must stay Go, neither frozen nor deprecated. That commits the
+project to:
+
+- keeping the Go edge row-identical to the Rust one, with the server-side
+  conformance tests (`parquetgo/compare`, `otap-rs/scripts/correctness.py`)
+  in CI (see Consequences);
+- keeping the Go collector config on the D4 settings (persistent queue,
+  `max_elapsed_time: 0`, batching before the queue);
+- treating the Go gaps below as known follow-up work, **not done now**.
+
+The Go gaps, as they stand:
 
 - `parquetgo` was last changed in `fa3af89`. It still commits with manifests.
 - The manifest-less commit exists in Go only as the `awss3inline` prototype,
@@ -199,9 +212,15 @@ variants ([D5](#d5-otap-variants-otap-only-as-an-input-transport)).
   checkpoint compaction were all built in Rust only (`8cf80ad` → `67df2a6`).
 
 So a Go edge today cannot produce what the consumer and the default metrics
-layout expect without further work. **Decide:** either freeze Go at "traces
-and logs via `awss3inline`, ClickStack metrics", or fund a Go layout-B lane and
-wire the inline appender into `parquetgo`.
+layout expect. Until the follow-up lands, a Go edge can commit manifest-less
+only through the `awss3inline` prototype, for traces and logs. The follow-up
+is: manifest-less commits for every signal in Go, with per-type metrics lanes
+behind a request-level ack (through the patched awss3exporter or through
+`parquetgo` plus the appender, which is D4's open choice); and a Go layout-B
+lane built from `seriesenc`, with the wire encodings. The consumer is
+Rust-only and serves both edges. A Go edge's durable buffer is the
+collector's persistent queue ([D19](#d19-durable-buffer-at-the-edge)), and
+sorting is off everywhere ([D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8)).
 
 **Open risks.** otap-dataflow is pre-1.0. Its OTAP receiver closes the whole
 stream on one undecodable batch (U10). Edges that must be `otelcol-contrib`
@@ -351,8 +370,10 @@ manifest fields in the footer, and stock awss3exporter can use it. The
   2. `if_none_match` plus a content-derived key;
   3. `key_mode: sequence` (U15).
 
-**Open risks.** `otelcol/config.edge.yaml` still uses post-queue batching and
-the default `max_elapsed_time` ([§5](#5-contradictions-and-stale-statements), item 16).
+**Open risks.** None in config: `otelcol/config.edge.yaml` now batches
+before the queue with the `batch` processor and sets `max_elapsed_time: 0`
+and `seal_optimize: false` ([§5](#5-contradictions-and-stale-statements),
+item 16).
 
 ---
 
@@ -741,8 +762,11 @@ The soak skipped 357 copies by the check, with `over_count` 0.
 
 ### D13. Replicated central: plain ReplicatedMergeTree, no zero-copy
 
-**Status:** accepted (`666b8ec`; the commit's title names zero-copy, and its
-verdict rejects it).
+**Status:** accepted (`666b8ec`). **Zero-copy is rejected.** That commit's
+title, "replicated central with zero-copy replication on S3", names the
+experiment, not the decision; the verdict in
+[`central-replicated/README.md`](central-replicated/README.md) (which now
+says so under its title) rejects it.
 
 **Decision.**
 
@@ -941,9 +965,10 @@ UUID/FLBA #118371, #120986); `version-hint` write bugs; predicate pushdown
 through the `UNION ALL` view is unverified; content-key dedup would live in two
 places.
 
-**Note.** The calculator's lake mode models something different: raw edge
+**Note.** The calculator's lake mode modelled something different: raw edge
 objects kept, served "through sidecar indexes and edge-built cubes", with no
-compactor cost ([§5](#5-contradictions-and-stale-statements), item 19).
+compactor cost. This was fixed in the calculator, v10
+([§5](#5-contradictions-and-stale-statements), item 19).
 
 ---
 
@@ -1137,7 +1162,7 @@ how likely it is.
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
 | 8 | **Consumer check reads the cold tier** | The projection check touches cold parts on S3: 11 ms CPU and 5 GETs per check in the replicated soak. At 90 days that is every cold partition. | Add the partition predicate to the check (not implemented). |
 | 9 | **Replicated insert cost** | 58.6–66.7 µs/row measured on replicas (loaded box, 7.9 objects per statement), against about 12 on one node. If even part of that is real, the calculator is low. | Re-measure replicated inserts on an idle box at 32 objects per statement. |
-| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. Fix `otelcol/config.edge.yaml`. |
+| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26.) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |
 | 13 | **Rust upstream maturity** | otap-dataflow is pre-1.0, pinned at `5db8358` plus 2 patches. The OTAP receiver closes a whole stream on a poison batch. The build needs a pinned 577 MB toolchain. | Upstream the patches (U2, U11); track releases. |
@@ -1148,37 +1173,43 @@ how likely it is.
 
 ## 5. Contradictions and stale statements
 
-Each item names where the stale text is and what is current. Nothing was
-edited. Line numbers are at `67df2a6`.
+These were the places where the READMEs were stale or contradicted each other
+at `67df2a6`. **All were resolved on 2026-09-26** in the source files, by a
+corrected sentence or a short dated "superseded" note where the historical
+text still has value; recorded results and logs were not edited. Paths are
+relative to `otel-chdb/`. The commit hashes in this file are from the
+original oscope branch and do not resolve in this repository, whose move
+(`ce95da6`) rewrote them: for example `67df2a6` is `7125a72` here, `666b8ec`
+is `1a88da1`, and `ebf5376` is `bd1ae88`.
 
-| # | Stale or conflicting statement | Current position |
+| # | Was stale or conflicting | Status (files changed) |
 |---|---|---|
-| 1 | [`README.md`](README.md):172–176: the edge publishes with "a manifest [that] announces it", and "the central consumer and catalog aren't built yet" | Manifests are superseded by create-only slots ([`awss3/README.md`](awss3/README.md)), and the consumer is built ([`otap-rs/README.md`](otap-rs/README.md) §Consumer). README.md describes the chDB exporter only. |
-| 2 | [`README.md`](README.md):344, 350 and [`bench/central/REPORT.md`](bench/central/REPORT.md):131: Parquet costs "4.7" S3 writes per batch; native costs "11×" | chDB's `S3WriteRequestsCount` said 4.7; a counting proxy saw **2 HTTP PUTs** ([`parquetgo/README.md`](parquetgo/README.md):52). The Rust exporter makes 1. |
-| 3 | [`model/README.md`](model/README.md):131: set `non_replicated_deduplication_window` "or `_seconds`" | There is **no** `_seconds` variant for non-replicated MergeTree in 26.10 ([`model/S3NATIVE.md`](model/S3NATIVE.md):171–175). |
-| 4 | [`model/README.md`](model/README.md):131, [`model/FASTPATH.md`](model/FASTPATH.md):34–36 (A5), [`model/S3NATIVE.md`](model/S3NATIVE.md):558–559, [`otap-rs/README.md`](otap-rs/README.md):1766–1767: a replicated central's check needs `select_sequential_consistency = 1` or `insert_quorum` | Measured: `select_sequential_consistency` without quorum does nothing. What is needed is **`SYSTEM SYNC REPLICA … LIGHTWEIGHT`** ([`central-replicated/README.md`](central-replicated/README.md):75–85, 162–206). Also [`bench/central/REPORT.md`](bench/central/REPORT.md):186–187 and FASTPATH.md:616–617 list replicated central as untested; it has been tested. |
-| 5 | [`model/README.md`](model/README.md):143–145: the Go code "isn't linked to the model"; quintgo "works toward" checking it | Real publisher runs are validated against edgePublish.qnt, and model traces drive the real publisher ([`PBT.md`](PBT.md):121–143). [`../quintgo/README.md`](../quintgo/README.md):300–301 still says only a stand-in is validated; that is true of quintgo's own example. |
-| 6 | [`model/S3NATIVE.md`](model/S3NATIVE.md):601–608: "Adopt the log and fence for the control plane … drop per-batch manifests" | Superseded for Parquet by the manifest-less inline design ([`awss3/README.md`](awss3/README.md):571–572 keeps the log only for native tables, which are rejected). |
-| 7 | [`otap/README.md`](otap/README.md):43–52: "Building otap-dataflow was not practical"; the Rust facts are from source only | It was built ([`otap-rs/README.md`](otap-rs/README.md) §Build, 11-minute release build). |
-| 8 | [`otap/README.md`](otap/README.md):14–21, 452–453: for Rust edges, adapt upstream's ClickHouse exporter to write Parquet plus a manifest | otap-rs wrote its own exporter that walks OTLP bytes directly and commits manifest-less. The upstream exporters are avoided ([`otap-rs/README.md`](otap-rs/README.md):219–227). |
-| 9 | [`otap-rs/README.md`](otap-rs/README.md):697–709: METRICS_SCHEMA.md "still says maps are in pdata order" and has two `dt` arithmetic slips | [`parquetgo/METRICS_SCHEMA.md`](parquetgo/METRICS_SCHEMA.md):14–21, 69, 71–77 already says sorted by key, with corrected examples. The otap-rs section is stale. |
-| 10 | [`otap-rs/README.md`](otap-rs/README.md):64–65: layout B is "no smaller on the wire than this crate's ClickStack objects" | The same file, :888–889 and :1054: after BYTE_STREAM_SPLIT, 8% smaller on the fleet (18.13 against 19.8 B/point). The summary bullet predates `d4bb951`. |
-| 11 | [`metrics-layout/README.md`](metrics-layout/README.md):19, 22: B cuts central insert CPU per point "7×" and wire bytes "1.6×" | Idle box: 4.47 against 1.18 µs, **3.8×** ([`bench/clean/README.md`](bench/clean/README.md):20–21). Against the Rust ClickStack writer, B's wire saving is **8%**, not 1.6× ([`otap-rs/README.md`](otap-rs/README.md):1007–1014). |
-| 12 | [`metrics-layout/README.md`](metrics-layout/README.md):509–515: points lanes use exact-key, one-object `INSERT`s with the dedup token and a count check against `row_ordinal` | The consumer batches up to 32 objects per squashed statement, with a token over the key list and the `content_key` projection check ([`otap-rs/README.md`](otap-rs/README.md):1302–1322). FASTPATH.md:163–164 and :592–595 (one insert per object) are superseded the same way. |
-| 13 | [`metrics-layout/README.md`](metrics-layout/README.md):537–545: the announce invariant and mutation are "[E, not written]" | Written: `announcedOnlyAfterCommit` and `announceEarly` in `s3InlineConsumer.qnt` ([`otap-rs/README.md`](otap-rs/README.md):1503–1517). |
-| 14 | [`metrics-layout/README.md`](metrics-layout/README.md):572–573, 582: gauge+sum merge "not built"; exemplar `FilteredAttributes` not carried | Both are built in the Rust edge and on by default ([`otap-rs/README.md`](otap-rs/README.md):901–908, 935–940). |
-| 15 | [`parquetgo/README.md`](parquetgo/README.md):844–851: the calculator assumes 2.5 µs central, 10 B stored and 2 µs edge per point, to be replaced by about 8.2, 25 and 7.8 | The calculator now uses layout-B constants: 1.18 µs, 6.7 B, 1.82 µs. [`otap-rs/README.md`](otap-rs/README.md):628–631, 841–846 ("the calculator's 2 µs is too low") refers to the same superseded value. |
-| 16 | [`otelcol/config.edge.yaml`](otelcol/config.edge.yaml):34, 42–50, referred to from [`README.md`](README.md):196 as "a complete config": `seal_optimize: true`, post-queue `sending_queue.batch`, no `max_elapsed_time: 0` | `seal_optimize` makes the leak on exit "certain" ([`bench/central/REPORT.md`](bench/central/REPORT.md):103–108; [`model/README.md`](model/README.md):136 suggests `false`). Post-queue batching breaks request identity, and the default `max_elapsed_time` drops data ([`awss3/README.md`](awss3/README.md):134, 550–557; commit `ebf5376` says it "affects config.edge.yaml too"). |
-| 17 | [`bench/clean/README.md`](bench/clean/README.md):33, 35, 167–172 and commit `8e998eb`: the Rust metrics edge paths are 18–33% slower, "merits a look"; clean `edgePointB` 2.06, `edgeRsPointA` 6.20 | A harness artefact, not a regression ([`bench/sorting/README.md`](bench/sorting/README.md):10–19, `52dc893`). The calculator uses the bisect values, 1.82 and 5.05. |
-| 18 | `central-sizing.html` (scratchpad):283, 410: the series-layout edge constant is labelled "Go encoder; Rust not built", and the text says the encoder is "prototyped in Go, about 2 µs" | The Rust layout-B encoder is built and is the default. The value 1.82 is the Rust pipeline's, from the bisect. |
-| 19 | `central-sizing.html`:408: lake mode keeps the edge's raw Parquet, queried "through sidecar indexes and edge-built cubes" | [`lake/DESIGN.md`](lake/DESIGN.md):39–46, 64, 206–217: raw edge objects are too small and too many to query; sidecar indexes are rejected; the design needs a compactor (15–20 vCPU [E]) that the calculator doesn't charge. |
-| 20 | [`bench/merges/README.md`](bench/merges/README.md):9–13: "The calculator currently models merges as 1.5× insert CPU" | The calculator charges merges per row (`mergeRow`, `mergePoint*`). The idle-box values are 10.1, 4.1 and 19.4 µs. |
-| 21 | [`lake/DESIGN.md`](lake/DESIGN.md):31–35, 261, 480, 498–500: central is "about 115 vCPU", the edge is "5.9 vCPU", the Rust edge "4.5 µs/span"; the comparison is against "about 530 TB with one cold copy on S3" | After the idle-box re-measurement: 91 vCPU, 5.3 vCPU Rust edge, 4.0 µs/span. One cold copy needs zero-copy, which is rejected ([`central-replicated/README.md`](central-replicated/README.md):13–16); the calculator's one-copy figure is 504 TB. The honest comparison is 992 TB. |
-| 22 | [`bench/sorting/README.md`](bench/sorting/README.md):316: the sorting code in otap-rs is "(uncommitted)" | It was committed in `67df2a6` (`src/encode.rs` +263, `src/batch.rs`, `encbench.rs`, `tests/determinism.rs`). |
-| 23 | [`awss3/README.md`](awss3/README.md):318: `aws_signing_helper serve` for Roles Anywhere is "[E]" | Measured against an IMDS stand-in for Go, chDB and ClickHouse ([`parquetgo/README.md`](parquetgo/README.md):333, 450–457) and for Rust ([`otap-rs/README.md`](otap-rs/README.md):430). |
-| 24 | [`parquetgo/README.md`](parquetgo/README.md):599–612 and [`parquetgo/METRICS_SCHEMA.md`](parquetgo/METRICS_SCHEMA.md):28–30: metrics commit "object then manifest, per type"; the inline lanes "are not wired" | True of `parquetgo`, but the chosen design (Rust) commits each type in its own inline lane with a request-level ack ([`otap-rs/README.md`](otap-rs/README.md):683–687). This is the gap behind "is the Go path frozen" ([D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb)). |
-| 25 | [`PBT.md`](PBT.md):62–66: "New, outside what the model can express:" is followed at once by "Findings 1–3 are **fixed**…" | An editing slip: the heading belongs to the numbered list that follows the paragraph. |
-| 26 | Commit `666b8ec`, titled "replicated central with zero-copy replication on S3" | Its verdict rejects zero-copy. The title describes the experiment, not the decision. |
+| 1 | README.md §Publishing: manifests announce batches; "consumer and catalog aren't built yet" | fixed: superseded note (create-only slots, consumer built) (`README.md`) |
+| 2 | README.md, bench/central/REPORT.md: Parquet costs "4.7" S3 writes per batch, native "11×" | fixed: 4.7 labelled as chDB's counter; the proxy saw 2 PUTs, Rust makes 1 (`README.md`, `bench/central/REPORT.md`) |
+| 3 | model/README.md: `non_replicated_deduplication_window` "or `_seconds`" | fixed: no `_seconds` variant (`model/README.md`) |
+| 4 | replicated check needs `select_sequential_consistency` / `insert_quorum`; replicated central untested | fixed: needs `SYSTEM SYNC REPLICA … LIGHTWEIGHT`; tested (`model/README.md`, `model/FASTPATH.md` A5 and §7, `model/S3NATIVE.md`, `otap-rs/README.md`, `bench/central/REPORT.md`) |
+| 5 | model/README.md: Go code "isn't linked to the model" | fixed (`model/README.md`); quintgo's stand-in statement was true, a pointer to PBT.md added (`../quintgo/README.md`) |
+| 6 | model/S3NATIVE.md §8: adopt the log and fence, drop manifests | fixed: superseded note, log kept for native tables only (`model/S3NATIVE.md`) |
+| 7 | otap/README.md: building otap-dataflow "not practical" | fixed: dated note, built in 11 min (`otap/README.md`) |
+| 8 | otap/README.md: for Rust, adapt upstream's ClickHouse exporter plus a manifest | fixed: superseded notes in the short answer and the recommendation (`otap/README.md`) |
+| 9 | otap-rs/README.md: METRICS_SCHEMA.md "still says" pdata order, `dt` slips | fixed: marked as corrected there since (`otap-rs/README.md`) |
+| 10 | otap-rs/README.md summary: layout B "no smaller on the wire" | fixed: 8% smaller, 18.1 against 19.8 B/point (`otap-rs/README.md`) |
+| 11 | metrics-layout/README.md: B cuts insert CPU "7×", wire "1.6×" | fixed: dated note, 3.8× idle, 8% against the Rust writer (`metrics-layout/README.md`) |
+| 12 | metrics-layout/README.md, model/FASTPATH.md: one exact-key object per insert | fixed: superseded notes, 32-object squashed statements and `content_key` check (`metrics-layout/README.md`, `model/FASTPATH.md` §1 step 4 and §6) |
+| 13 | metrics-layout/README.md: announce invariant "[E, not written]" | fixed: written, `announcedOnlyAfterCommit` / `announceEarly` (`metrics-layout/README.md`) |
+| 14 | metrics-layout/README.md: gauge+sum merge, exemplar `FilteredAttributes` not built | fixed: built in Rust, on by default (`metrics-layout/README.md`) |
+| 15 | parquetgo/README.md, otap-rs/README.md: calculator's 2.5 µs / 10 B / 2 µs per point | fixed: notes give the current per-layout constants (`parquetgo/README.md`, `otap-rs/README.md`) |
+| 16 | otelcol/config.edge.yaml: `seal_optimize: true`, post-queue `sending_queue.batch`, default `max_elapsed_time` | fixed: `seal_optimize: false`, `batch` processor before the queue, `retry_on_failure.max_elapsed_time: 0`; `batchprocessor` added to the ocb build; passes `otelcol-chdb validate` (`otelcol/config.edge.yaml`, `otelcol/builder-config.yaml`, `README.md`) |
+| 17 | bench/clean/README.md: Rust metrics edge 18–33% slower, "merits a look" | fixed: harness artefact, calculator uses 1.82 / 5.05 (`bench/clean/README.md`); commit `8e998eb`'s message can't change |
+| 18 | `central-sizing.html`: series edge constant "Go encoder; Rust not built" | fixed outside the repo: fixed in the calculator, v10 |
+| 19 | `central-sizing.html`: lake mode via "sidecar indexes and edge-built cubes" | fixed outside the repo: fixed in the calculator, v10 |
+| 20 | bench/merges/README.md: calculator models merges as 1.5× insert | fixed: dated note, per-row constants (`bench/merges/README.md`) |
+| 21 | lake/DESIGN.md: 115 vCPU, 5.9 vCPU edge, 4.5 µs/span, 530 TB one-copy baseline | fixed: dated notes, 91 vCPU, 5.3, 4.0, compare with 992 TB (`lake/DESIGN.md`) |
+| 22 | bench/sorting/README.md: sorting code "(uncommitted)" | fixed (`bench/sorting/README.md`) |
+| 23 | awss3/README.md: `aws_signing_helper serve` "[E]" | fixed: measured against an IMDS stand-in (`awss3/README.md`) |
+| 24 | parquetgo/README.md, METRICS_SCHEMA.md: metrics commit object then manifest; inline lanes "not wired" | true of `parquetgo`, and now a recorded gap: D1 keeps the Go path, with this as follow-up work (note in `parquetgo/README.md`; METRICS_SCHEMA.md already describes both designs, unchanged) |
+| 25 | PBT.md: "New, outside what the model can express:" before "Findings 1–3 are fixed" | fixed: heading moved to the list it introduces (`PBT.md`) |
+| 26 | commit `666b8ec` titled "replicated central with zero-copy replication on S3" | cannot change history; documented (`central-replicated/README.md` note under the title; D13 status) |
 
 ---
 

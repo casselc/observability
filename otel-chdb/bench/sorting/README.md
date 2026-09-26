@@ -313,7 +313,7 @@ narrow projection, direct ranged path (unmerged). Values are GB/h.
     output).
   - Query setup: `services.json`, `buckets.json`.
 - **Step 0:** `bisect/`.
-- **Code** in `otap-rs` (uncommitted):
+- **Code** in `otap-rs` (committed with this experiment):
   - `src/encode.rs`: `SortOptions`, `sort_plan` and `parquet_groups`.
   - `src/batch.rs`: `sort_batch` and the sorted encode path.
   - `src/bin/encbench.rs`: `--sort`, `--row-groups`, `--split` and

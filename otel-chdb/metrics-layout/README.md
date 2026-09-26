@@ -21,6 +21,13 @@ Compared with the ClickStack tables (A) on the same data, B cuts:
 - edge encode CPU by **5.7×**;
 - the Parquet sent over the wire by **1.6×**.
 
+(Updated 2026-09-26: these ratios are from the loaded box and the Go
+prototype. On an idle box, central insert CPU per point is 4.47 µs for A
+against 1.18 for B, **3.8×**
+([`../bench/clean/README.md`](../bench/clean/README.md) block 2). Against the
+Rust edge's ClickStack objects, B's wire saving is **8%**, not 1.6×
+([`../otap-rs/README.md`](../otap-rs/README.md) §Metrics layout B).)
+
 It is lossless. The compatibility views over B return **exactly** A's rows:
 72 M rows, count and hash equal.
 
@@ -508,7 +515,10 @@ the materialized view it would be. Results are in `results/rollup-*`:
 
 - **Points lanes** are unchanged: exact-key `INSERT … SELECT`, the
   single-block settings, the dedup token, and the count check against
-  `row_ordinal` (FASTPATH).
+  `row_ordinal` (FASTPATH). (Superseded 2026-09-26: the built consumer
+  squashes up to 32 objects per statement, with a token over the key list
+  and a `content_key` projection check; see
+  [`../otap-rs/README.md`](../otap-rs/README.md) §Consumer.)
   - `row_ordinal` costs 0.01 B/point in B's order.
   - With the per-batch-constant partition, a batch never lands partly, so
     the stored `row_ordinal` could be dropped and computed at insert only
@@ -535,7 +545,10 @@ the materialized view it would be. Results are in `results/rollup-*`:
   state, so a retry of the same request can produce a different series
   object, or none.
 - **What the model would need is a new invariant plus a mutation** [E, not
-  written]:
+  written; since written (2026-09-26): `announcedOnlyAfterCommit` and the
+  mutant `announceEarly` in `../model/s3InlineConsumer.qnt`, see
+  [`../otap-rs/README.md`](../otap-rs/README.md) §Model and model-based
+  test]:
   - the invariant: every ingested point's series id has an ingested series
     row, eventually, from the same producer;
   - the mutation: update the cache before the series commit resolves as
@@ -571,6 +584,9 @@ the materialized view it would be. Results are in `results/rollup-*`:
 
 - **Merging gauge and sum into one points object and table** is recommended
   but not built. Its 4-core estimate is arithmetic on the measured fit.
+  (2026-09-26: built in the Rust edge, on by default,
+  `series.merge_number_points`: [`../otap-rs/README.md`](../otap-rs/README.md)
+  §Metrics layout B.)
 - **Series id collisions.** It is 64-bit: the chance of any collision among
   10⁹ series ever seen is about 3% [E]. A collision merges two series'
   attributes. A 128-bit id would cost about 0.03 B/point stored (the column
@@ -580,6 +596,8 @@ the materialized view it would be. Results are in `results/rollup-*`:
   ordinal with the id in the series object would shrink it, but central
   would then have to map ordinals back to ids [E].
 - **Exemplar `FilteredAttributes`** are not carried by B's prototype.
+  (2026-09-26: the Rust edge carries them, on by default,
+  `series.exemplar_attributes`.)
 - **HyperDX was not run live.** Its SQL was taken from its own test
   snapshots, and its metadata fallback read from `metadata.ts`.
 - **VictoriaMetrics** was not built.

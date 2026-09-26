@@ -39,6 +39,23 @@ the Rust objects on these datasets (1.32 MB against 1.03 MB; traces and logs
 against parquet-rs's. Wire bytes are not billed by S3, and central reads the
 same rows; see `../parquetgo/README.md` for the cost measurements.
 
+## Faults [M] (`go_faults.sh`, `results/go-faults.txt`)
+
+The Rust edge's fault scenarios (`../otap-rs/scripts/faults.sh`), with the Go
+edge (`otelcol-s3pq`, `go-edge.yaml`, `put_timeout: 1s`) behind
+`faultproxy2`, a sender that resends until it gets a 2xx, and the Rust
+consumer. Six distinct 10k-span requests per scenario. **All six pass:
+60,000 rows and 6 content keys in central in every scenario.**
+
+| Scenario | Fault | Go edge | S3 | Central |
+|---|---|---|---|---|
+| ambiguous | every 2nd PUT applied, answer held 3 s | 3 committed, **3 resolved as ours by HEAD** | 6 objects | 60,000 / 6 |
+| applylate | every 2nd PUT held 2.5 s before it reaches S3 | **5 resent** after HEAD found the slot free; the late copies got 412 | 6 | 60,000 / 6 |
+| dropped | every 3rd PUT answered 503, never applied | the SDK's retry or a resend after HEAD (2) | 6 | 60,000 / 6 |
+| unresolved | PUT answers and the first 2 HEADs held 3 s | requests answered 503 while unresolved; the retries resolved their slots first (3 own) | 6 | 60,000 / 6 |
+| crash | answers held 8 s, SIGKILL at 3 s, restart | the resent request committed again in the new epoch | 7 (1 copy) | 60,000 / 6: the copy skipped by the content check |
+| zombie | edge A keeps running after B starts | A met the consumer's tombstone: **halted**, new epoch | 6, 2 tombstones | 60,000 / 6 |
+
 ## What is compared
 
 - **Datasets** (`$D`): `otap-rs/tools/cmd/otlpgen -out` and `-metrics -out`

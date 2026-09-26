@@ -1,0 +1,26 @@
+run gf1, 6 requests of 10k spans per scenario, Go edge (otelcol-s3pq)
+PASS ambiguous: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: "committed": 3, "resolved_own": 3, "resent": 0, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 6, "puts": 6, "heads": 3
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":99,"ckpt_epochs_max":1,"ckpt_writes":1,"cpu_ms":7.0539999999999985,"dedup_skipped":0,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":229,"epochs_closed":0
+  proxy PUT lines: 9
+PASS applylate: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: "committed": 6, "resolved_own": 0, "resent": 5, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 6, "puts": 11, "heads": 5
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":99,"ckpt_epochs_max":1,"ckpt_writes":1,"cpu_ms":7.490999999999998,"dedup_skipped":0,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":232,"epochs_closed":0,
+  proxy PUT lines: 21
+PASS dropped: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: "committed": 6, "resolved_own": 0, "resent": 2, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 6, "puts": 8, "heads": 2
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":99,"ckpt_epochs_max":1,"ckpt_writes":1,"cpu_ms":6.7330000000000005,"dedup_skipped":0,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":233,"epochs_closed":0
+  proxy PUT lines: 8
+PASS unresolved: requests=6 objects=6 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: "committed": 3, "resolved_own": 3, "resent": 0, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 6, "puts": 8, "heads": 5
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":99,"ckpt_epochs_max":1,"ckpt_writes":1,"cpu_ms":7.440999999999999,"dedup_skipped":0,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":247,"epochs_closed":0,
+  proxy PUT lines: 12
+PASS crash: requests=6 objects=7 tombstones=0 central(rows, distinct content, epochs)=60000 6 1
+  edge: "committed": 1, "resolved_own": 0, "resent": 0, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 1, "puts": 1, "heads": 0
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":142,"ckpt_epochs_max":2,"ckpt_writes":1,"cpu_ms":7.446999999999999,"dedup_skipped":1,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":233,"epochs_closed":0
+  proxy PUT lines: 10
+PASS zombie: requests=6 objects=6 tombstones=2 central(rows, distinct content, epochs)=60000 6 3
+  edge: "committed": 4, "resolved_own": 0, "resent": 0, "learned_other": 0, "halted": 1, "known_skipped": 0, "encodes": 5, "puts": 5, "heads": 1
+  edge: "committed": 2, "resolved_own": 0, "resent": 0, "learned_other": 0, "halted": 0, "known_skipped": 0, "encodes": 2, "puts": 2, "heads": 0
+  consumer: {"ch_checks":2,"ch_replica":0,"ch_statements":1,"ch_switches":0,"ch_sync_errors":0,"ch_syncs":0,"checks":2,"ckpt_bytes_max":213,"ckpt_epochs_max":3,"ckpt_writes":2,"cpu_ms":23.39,"dedup_skipped":0,"deferred_by_lease":0,"deferred_unsettled":0,"elapsed_ms":4180,"epochs_closed":1,"epochs_co
+  proxy PUT lines: 7

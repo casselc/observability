@@ -3,9 +3,9 @@ module github.com/casselc/observability/otel-chdb/parquetgo/compare
 go 1.26.0
 
 replace (
-	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
 	github.com/casselc/observability/otel-chdb/chdbexporter => ../../chdbexporter
 	github.com/casselc/observability/otel-chdb/parquetgo => ../
+	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
 )
 
 require (
@@ -67,6 +67,7 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
+	github.com/zeebo/blake3 v0.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/collector/config/configtls v1.67.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumererror/xconsumererror v0.161.0 // indirect
@@ -80,10 +81,10 @@ require (
 )
 
 require (
+	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000 // indirect
-	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

@@ -200,7 +200,7 @@ func seriesParquet(o SeriesOptions, base Options) Options {
 type SeriesEncoder struct {
 	opts  SeriesOptions
 	popts Options
-	pools map[string]*sync.Pool
+	pools map[string]*freeList[*pgSignal]
 
 	mu          sync.Mutex
 	window      int64
@@ -228,19 +228,19 @@ func NewSeriesEncoder(o SeriesOptions, base Options) *SeriesEncoder {
 	if base.Compression == "" && base.DataPageSize == 0 {
 		base = DefaultOptions()
 	}
-	e := &SeriesEncoder{opts: o, popts: seriesParquet(o, base), pools: map[string]*sync.Pool{},
+	e := &SeriesEncoder{opts: o, popts: seriesParquet(o, base), pools: map[string]*freeList[*pgSignal]{},
 		window: max(int64(o.Window/time.Second), 1), cache: map[uint64]int32{}, cacheEpochs: map[string]struct{}{},
 		maxWin: math.MinInt32, seen: map[uint64]struct{}{}}
 	for _, sig := range o.SeriesSignals() {
 		root, cols := seriesCols(sig, o)
 		popts := e.popts
-		e.pools[sig] = &sync.Pool{New: func() any {
+		e.pools[sig] = newFreeList(64, func() *pgSignal {
 			s, err := newPGSignalNamed(root, cols, popts)
 			if err != nil {
 				panic(err) // a static schema
 			}
 			return s
-		}}
+		})
 	}
 	return e
 }
@@ -363,7 +363,7 @@ func (e *SeriesEncoder) Walk(md pmetric.Metrics) (*SeriesBatch, error) {
 	get := func(sig string) *SeriesObject {
 		o := objs[sig]
 		if o == nil {
-			s := e.pools[sig].Get().(*pgSignal)
+			s := e.pools[sig].Get()
 			s.reset()
 			o = &SeriesObject{Signal: sig, sig: s}
 			objs[sig] = o
@@ -795,6 +795,41 @@ func contribKVs(dst []attrKV, m pcommon.Map) []attrKV {
 	})
 	slices.SortFunc(kvs, func(a, b attrKV) int { return strings.Compare(a.k, b.k) })
 	return kvs
+}
+
+// freeList keeps encoders (their column buffers, writers and zstd state)
+// across requests. A sync.Pool would do, except that it empties at every GC,
+// and an encoder rebuilt after each GC allocates far more than it saves.
+type freeList[T any] struct {
+	ch  chan T
+	new func() T
+}
+
+func newFreeList[T any](n int, f func() T) *freeList[T] {
+	return &freeList[T]{ch: make(chan T, n), new: f}
+}
+
+// NewFreeList is a free list of up to n values made by f, for callers that
+// keep encoders (../edge).
+func NewFreeList[T any](n int, f func() T) *FreeList[T] { return &FreeList[T]{*newFreeList(n, f)} }
+
+// FreeList is freeList, exported.
+type FreeList[T any] struct{ freeList[T] }
+
+func (l *freeList[T]) Get() T {
+	select {
+	case v := <-l.ch:
+		return v
+	default:
+		return l.new()
+	}
+}
+
+func (l *freeList[T]) Put(v T) {
+	select {
+	case l.ch <- v:
+	default:
+	}
 }
 
 // ---- envelope-at-encode and footer, for objects walked once ----------------

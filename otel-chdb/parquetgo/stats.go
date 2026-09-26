@@ -18,7 +18,8 @@ import (
 // drops both. parquet-go writes the whole values, so one 1 MiB attribute
 // value put 2 MiB into the footer. Only the footer changes: data pages,
 // indexes and bloom filters keep their offsets (they precede it). A file
-// with nothing to truncate is returned as is.
+// with nothing to truncate is returned as is; otherwise file's own memory is
+// reused (the result aliases it).
 func TruncateStatistics(file []byte, n int) ([]byte, error) {
 	size := len(file)
 	if size < 12 || !bytes.Equal(file[size-4:], []byte("PAR1")) {
@@ -73,9 +74,8 @@ func TruncateStatistics(file []byte, n int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode footer: %w", err)
 	}
-	out := make([]byte, 0, start+len(footer)+8)
-	out = append(out, file[:start]...)
-	out = append(out, footer...)
+	// In place: the footer only shrank, so it fits where the old one was.
+	out := append(file[:start], footer...)
 	out = binary.LittleEndian.AppendUint32(out, uint32(len(footer)))
 	return append(out, "PAR1"...), nil
 }

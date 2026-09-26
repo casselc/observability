@@ -5,6 +5,12 @@
 //
 //	pubbench -impl go|chdb -url file:///dir|http://host/bucket/prefix -signal traces|logs|metrics|metrics_gauge|... \
 //	         -n 10000 -batches 30 -warmup 3 [-count-s3]
+//	pubbench -impl edge [-layout series_table|clickstack_tables] -url http://host/bucket/prefix ...
+//
+// -impl edge is the manifest-less Go edge (../../edge, the s3pq exporter's
+// core): one create-only PUT per object, content keys, lanes. Every batch
+// differs from the previous one in one timestamp (for every impl), so the
+// edge's lanes never skip a batch as already committed.
 package main
 
 import (
@@ -20,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"sync"
@@ -29,6 +36,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"github.com/casselc/observability/otel-chdb/parquetgo/compare"
+	"github.com/casselc/observability/otel-chdb/parquetgo/edge"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
@@ -119,6 +128,9 @@ func main() {
 	countS3 := flag.Bool("count-s3", false, "route S3 through a counting proxy")
 	bloom := flag.Bool("bloom", true, "go: write bloom filters")
 	compression := flag.String("compression", "zstd", "go: parquet codec")
+	layout := flag.String("layout", "series_table", "edge: metrics layout")
+	memprofile := flag.String("memprofile", "", "write an allocation profile of the measured batches")
+	cpuprofile := flag.String("cpuprofile", "", "write a CPU profile of the measured batches")
 	flag.Parse()
 
 	s3, _ := compare.S3FromEnv()
@@ -150,7 +162,56 @@ func main() {
 			metricSignals = []string{sig}
 		}
 	}
+	// vary makes batch i distinct (one timestamp), the same way for every impl.
+	vary := func(i int) {
+		switch {
+		case len(metricSignals) > 0:
+			rm := md.ResourceMetrics().At(0).ScopeMetrics().At(0).Metrics()
+			for k := 0; k < rm.Len(); k++ {
+				if m := rm.At(k); m.Type() == pmetric.MetricTypeGauge && m.Gauge().DataPoints().Len() > 0 {
+					m.Gauge().DataPoints().At(0).SetStartTimestamp(pcommon.Timestamp(i))
+					return
+				}
+			}
+			for k := 0; k < rm.Len(); k++ {
+				m := rm.At(k)
+				switch m.Type() {
+				case pmetric.MetricTypeSum:
+					m.Sum().DataPoints().At(0).SetStartTimestamp(pcommon.Timestamp(i))
+				case pmetric.MetricTypeHistogram:
+					m.Histogram().DataPoints().At(0).SetStartTimestamp(pcommon.Timestamp(i))
+				case pmetric.MetricTypeExponentialHistogram:
+					m.ExponentialHistogram().DataPoints().At(0).SetStartTimestamp(pcommon.Timestamp(i))
+				case pmetric.MetricTypeSummary:
+					m.Summary().DataPoints().At(0).SetStartTimestamp(pcommon.Timestamp(i))
+				default:
+					continue
+				}
+				return
+			}
+		case *signal == "traces":
+			sp := td.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
+			sp.SetEndTimestamp(sp.StartTimestamp() + pcommon.Timestamp(i))
+		default:
+			ld.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).SetObservedTimestamp(pcommon.Timestamp(i))
+		}
+	}
 	switch *impl {
+	case "edge":
+		e, err := edge.New(edge.Config{S3: parquetgo.Config{URL: url, AccessKeyID: s3.Key, SecretAccessKey: s3.Secret},
+			ProducerID: producer + "-" + epoch, MetricsLayout: *layout})
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch {
+		case len(metricSignals) > 0:
+			push = func() error { return e.PushMetrics(ctx, md) }
+		case *signal == "traces":
+			push = func() error { return e.PushTraces(ctx, td) }
+		default:
+			push = func() error { return e.PushLogs(ctx, ld) }
+		}
+		closeFn = func() error { return nil }
 	case "chdb":
 		if len(metricSignals) > 0 {
 			log.Fatal("the chdb exporter publishes no metrics")
@@ -190,12 +251,17 @@ func main() {
 		log.Fatalf("impl %q", *impl)
 	}
 	name := *impl
+	if *impl == "edge" && len(metricSignals) > 0 {
+		name += "-" + *layout
+	}
 	if *par > 1 {
 		name += fmt.Sprintf("-par%d", *par)
 	}
 	if !*bloom {
 		name += "-nobloom"
 	}
+	inner, round := push, 0
+	push = func() error { round++; vary(round); return inner() }
 	r := result{Impl: name, Signal: *signal, Rows: *n, Batches: *batches}
 	r.Dest = "local"
 	if strings.HasPrefix(*dest, "http") {
@@ -216,6 +282,16 @@ func main() {
 	if cnt != nil {
 		c0 = cnt.snapshot()
 	}
+	if *memprofile != "" {
+		runtime.MemProfileRate = 64 << 10
+	}
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		_ = pprof.StartCPUProfile(f)
+	}
 	var ms0, ms1 runtime.MemStats
 	runtime.ReadMemStats(&ms0)
 	cpu0 := cpu()
@@ -230,6 +306,15 @@ func main() {
 	}
 	el := time.Since(t0)
 	cpu1 := cpu()
+	if *cpuprofile != "" {
+		pprof.StopCPUProfile()
+	}
+	if *memprofile != "" {
+		if f, err := os.Create(*memprofile); err == nil {
+			_ = pprof.Lookup("allocs").WriteTo(f, 0)
+			f.Close()
+		}
+	}
 	runtime.ReadMemStats(&ms1)
 	sort.Float64s(lat)
 	r.MedianMS, r.MinMS, r.MaxMS = lat[len(lat)/2], lat[0], lat[len(lat)-1]

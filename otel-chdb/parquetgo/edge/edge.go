@@ -102,9 +102,7 @@ type Edge struct {
 	lanes    map[string][]*commit.Lane
 	stats    *commit.Stats
 	series   *parquetgo.SeriesEncoder
-	encs     sync.Pool
-	bufs     sync.Pool
-	nsLayout []string
+	encs     *parquetgo.FreeList[*parquetgo.PGEncoder]
 }
 
 // Namespaces are every lane namespace, in the Rust edge's order.
@@ -169,8 +167,7 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.MetricsLayout == SeriesTable {
 		e.series = parquetgo.NewSeriesEncoder(cfg.Series, cfg.Parquet)
 	}
-	e.encs.New = func() any { return parquetgo.NewPGEncoder(cfg.Parquet) }
-	e.bufs.New = func() any { return new(bytes.Buffer) }
+	e.encs = parquetgo.NewFreeList(64, func() *parquetgo.PGEncoder { return parquetgo.NewPGEncoder(cfg.Parquet) })
 	return e, nil
 }
 
@@ -245,7 +242,7 @@ func (e *Edge) env(r commit.Ref, received uint64) *parquetgo.Envelope {
 // slot's envelope, the description into the footer once the rows are known.
 func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64,
 	walk func(*parquetgo.PGEncoder, *bytes.Buffer, *parquetgo.Envelope) (int, error)) (commit.Object, error) {
-	enc := e.encs.Get().(*parquetgo.PGEncoder)
+	enc := e.encs.Get()
 	defer e.encs.Put(enc)
 	var meta map[string]string
 	enc.Footer = func(rows int, env *parquetgo.Envelope) map[string]string {

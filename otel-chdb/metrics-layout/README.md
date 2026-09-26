@@ -66,7 +66,9 @@ It is lossless. The compatibility views over B return **exactly** A's rows:
 - **What gets slower through the views:**
   - filtering on a resource attribute: 2.1× the CPU of A;
   - the metric-name picker: HyperDX's primary-index fast path refuses a
-    view, so it scans (1.26 s against 0.08 s);
+    view, so it scans (264 ms against 17 ms at 6 M points in HyperDX
+    2.39.1's 1–3-day window; it grows with the points in the window and
+    would time out at fleet scale);
   - the contrib exporter can't write to the views.
 - **Queries written for B** are 1.5–20× cheaper than A.
 - **Complexity:**
@@ -396,6 +398,16 @@ Cells are **server CPU ms / MB read** [M]:
 
 ## HyperDX (ClickStack UI) compatibility
 
+**Run live, 2026-09-26** ([`../hyperdx/README.md`](../hyperdx/README.md)):
+HyperDX 2.39.1 against the Rust edge's views confirms this section, with
+three corrections. (1) The picker's scan covers HyperDX's 1–3-day window,
+not 1 h, and grows with it; the proposed helper needs a HyperDX change
+before HyperDX can use it. (2) HyperDX 2.39.1 has no rollup acceleration for
+metric sources, so its absence costs nothing. (3) HyperDX's chart SQL costs
+0.9–1.0× stock for gauges and exponential histograms, 1.4× for histograms,
+1.8–2.4× for cumulative counters, and 3.3× with a selective
+resource-attribute filter.
+
 **What works** [M]:
 
 - `sql/b_compat_views.sql` presents `otel_metrics_{gauge,sum,histogram,exponential_histogram,summary}`
@@ -439,7 +451,8 @@ Cells are **server CPU ms / MB read** [M]:
 - **HyperDX's rollup acceleration** looks for `MaterializedView` engines on
   the source table. That machinery doesn't apply to views [D:
   `metadata.ts`], so B's rollups (below) would be queried by our own
-  dashboards, not by HyperDX.
+  dashboards, not by HyperDX. (2.39.1: metric sources have no
+  `materializedViews` at all; only log and trace sources do.)
 - **Exemplar FilteredAttributes.** The prototype doesn't carry
   `Exemplars.FilteredAttributes`: the view returns empty maps. Adding them is
   one more list column. They were empty in A too, for this data.

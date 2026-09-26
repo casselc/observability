@@ -7,8 +7,11 @@
 #     -> SeaweedFS
 #     <- 3 consumer workers sharing the 21 lanes (leases + checkpoints on S3)
 #     -> ClickHouse (a private database)
-#   plus `consume gc` every few seconds and `consume audit` recording every
-#   committed object (the ground truth, kept after GC deletes it).
+#   plus `consume gc` every few seconds (with the horizon audit beside it,
+#   every AUDIT_EVERY, and its metrics endpoint) and `consume audit`
+#   recording every committed object (the ground truth, kept after GC
+#   deletes it). The soak's copies are resent within seconds, so the horizon
+#   audit must report no copy at all: neither late nor unexplained.
 #
 # Chaos, one event every CHAOS_MIN..CHAOS_MAX s: SIGKILL a worker (restarted
 # 1-3 s later as a new incarnation), SIGSTOP a worker for longer than its
@@ -32,6 +35,8 @@ DB=${DBP:-otaprs_consumer_}$RUN
 RATE=${RATE:-3}          # traces and logs requests/s per edge (metrics: 1/s)
 CHAOS_MIN=${CHAOS_MIN:-8}
 CHAOS_MAX=${CHAOS_MAX:-20}
+AUDIT_EVERY=${AUDIT_EVERY:-60s}
+MPORT=${MPORT:-19470}    # metrics: gc/audit on MPORT, worker i on MPORT + i
 here=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$OUT"
 echo "$RUN" > "$OUT/run.txt"
@@ -67,6 +72,7 @@ worker() { # i
   INC[$1]=$((${INC[$1]:-0} + 1))
   "$B/consume" --s3 "$ROOT" --db "$DB" --worker "w$1" --poll 200ms --ttl 6s --margin 1s --budget 2s --allow-short-margin ${WFLAGS:-} \
     --discover 1s --quiet 3s --full-list 10s --stats "$OUT/w$1-${INC[$1]}.stats.json" --stats-every 1s \
+    --metrics-addr 127.0.0.1:$((MPORT + $1)) \
     >> "$OUT/w$1.log" 2>&1 &
   PID[w$1]=$!
 }
@@ -78,7 +84,8 @@ for i in 1 2 3; do edge $i; done
 sleep 2
 for i in 1 2 3; do sender $i; done
 for i in 1 2 3; do worker $i; done
-"$B/consume" gc --s3 "$ROOT" --every 5s --delay 10s --zombie 60s --run-for 100000s >> "$OUT/gc.log" 2>&1 &
+"$B/consume" gc --s3 "$ROOT" --every 5s --delay 10s --zombie 60s --run-for 100000s \
+  --ch "$CH" --db "$DB" --audit-every "$AUDIT_EVERY" --metrics-addr 127.0.0.1:$MPORT > "$OUT/gc.log" 2> "$OUT/gc.err" &
 PID[gc]=$!
 "$B/consume" audit --s3 "$ROOT" --out "$OUT/committed.jsonl" --every 1s --run-for 100000s >> "$OUT/audit.log" 2>&1 &
 PID[audit]=$!
@@ -95,7 +102,7 @@ n_kill=0 n_stop=0 n_edge=0
 while [ "$(date +%s)" -lt "$end" ]; do
   sleep $((CHAOS_MIN + RANDOM % (CHAOS_MAX - CHAOS_MIN + 1)))
   avail=$(df --output=avail -BM / | tail -1 | tr -dc 0-9)
-  if [ "$avail" -lt 3500 ]; then log "disk: ${avail} MB free, stopping early"; break; fi
+  if [ "$avail" -lt "${MIN_FREE_MB:-3500}" ]; then log "disk: ${avail} MB free, stopping early"; break; fi
   case $((RANDOM % 3)) in
     0) i=$((1 + RANDOM % 3)); log "SIGKILL worker w$i (pid ${PID[w$i]})"; kill -KILL "${PID[w$i]}" 2>/dev/null
        n_kill=$((n_kill + 1)); ( sleep $((1 + RANDOM % 3)) ) ; worker $i; log "restarted w$i (incarnation ${INC[$i]})" ;;
@@ -123,7 +130,13 @@ for _ in $(seq 1 120); do
 done
 sleep 2
 log "central stable: $cur"
+# Metrics as the fleet ends: GC and the audit, and each worker.
+curl -s "127.0.0.1:$MPORT/metrics" > "$OUT/metrics-gc.txt"
+for i in 1 2 3; do curl -s "127.0.0.1:$((MPORT + i))/metrics" > "$OUT/metrics-w$i.txt"; done
 kill -TERM "${PID[audit]}" "${PID[gc]}" 2>/dev/null
+# One last horizon audit over everything the soak wrote (no saved state).
+"$B/consume" horizon-audit --s3 "$ROOT" --ch "$CH" --db "$DB" --audit-lookback 30d --audit-no-state \
+  > "$OUT/horizon-audit.json" 2> "$OUT/horizon-audit.err"
 "$B/consume" audit --s3 "$ROOT" --out "$OUT/committed.jsonl" --run-for 0s >> "$OUT/audit.log" 2>&1
 for i in 1 2 3; do kill -TERM "${PID[w$i]}" 2>/dev/null; done
 sleep 1
@@ -132,3 +145,17 @@ sleep 2
 for i in 1 2 3; do kill -KILL "${PID[w$i]}" "${PID[edge$i]}" "${PID[proxy$i]}" 2>/dev/null; done
 wait 2>/dev/null
 python3 "$here/scripts/consumer_soak_check.py" "$OUT" "$DB" | tee "$OUT/summary.txt"
+python3 - "$OUT" <<'PY' | tee -a "$OUT/summary.txt"
+import json, sys
+out = sys.argv[1]
+runs = [json.loads(l)["horizon_audit"] for l in open(f"{out}/gc.log") if l.startswith('{"horizon_audit"')]
+last = json.loads(open(f"{out}/horizon-audit.json").read())["horizon_audit"]
+late = sum(len(r["late"]) for r in runs) + len(last["late"])
+unexp = sum(len(r["unexplained"]) for r in runs) + len(last["unexplained"])
+errs = sum(len(r["errors"]) for r in runs) + len(last["errors"])
+m = [l for l in open(f"{out}/metrics-gc.txt") if l.startswith(("consumer_late_copies_total", "consumer_audit_runs_total"))]
+print(f"horizon audit: {len(runs)} runs beside GC + 1 final over {last['tables']} tables; "
+      f"late {late}, unexplained {unexp}, errors {errs}, candidates in the final run {last['candidates']} -> "
+      + ("PASS" if late == 0 and unexp == 0 and errs == 0 and last["tables"] > 0 else "FAIL"))
+print("gc metrics: " + "; ".join(l.strip() for l in m))
+PY

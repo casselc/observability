@@ -129,7 +129,7 @@ keys = ["objects_inserted", "series_objects_inserted", "rows_inserted", "dedup_s
         "lanes_released", "lanes_lapsed", "lanes_lost_cas", "renewals", "ckpt_writes", "errors", "cpu_ms", "elapsed_ms"]
 print(f"workers: {incs} incarnations; " + ", ".join(f"{k} {round(tot[k], 1)}" for k in keys))
 print(f"worker S3 requests: {dict(s3)}")
-gc = [json.loads(l) for l in open(os.path.join(OUT, "gc.log")) if l.startswith("{")]
+gc = [json.loads(l) for l in open(os.path.join(OUT, "gc.log")) if l.startswith("{\"gc\"")]
 print(f"gc: {len(gc)} runs, deleted data {sum(g['gc']['deleted_data'] for g in gc)}, tombstones {sum(g['gc']['deleted_tombstones'] for g in gc)}, "
       f"epochs retired {sum(g['gc']['epochs_retired'] for g in gc)}, CAS conflicts {sum(g['gc']['cas_conflict'] for g in gc)}")
 print("VERDICT:", "PASS" if ok and tot["over_count"] == 0 else "FAIL")

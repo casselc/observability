@@ -1,0 +1,85 @@
+# HELP consumer_objects_ingested_total Committed objects inserted into central (verified).
+# TYPE consumer_objects_ingested_total counter
+consumer_objects_ingested_total{kind="data"} 6321
+consumer_objects_ingested_total{kind="series"} 1391
+# HELP consumer_rows_ingested_total Rows inserted into central.
+# TYPE consumer_rows_ingested_total counter
+consumer_rows_ingested_total 510160
+# HELP consumer_statements_total INSERT statements sent (a statement holds up to --max-batch objects).
+# TYPE consumer_statements_total counter
+consumer_statements_total 2295
+# HELP consumer_copies_skipped_total Objects the count check found already in central (copies and retries).
+# TYPE consumer_copies_skipped_total counter
+consumer_copies_skipped_total 26
+# HELP consumer_repairs_total Objects re-inserted after a verify: missing (whole object) or partial (row repair).
+# TYPE consumer_repairs_total counter
+consumer_repairs_total{kind="missing"} 0
+consumer_repairs_total{kind="partial"} 0
+# HELP consumer_over_count_total Objects with more rows in central than committed (never fixed silently).
+# TYPE consumer_over_count_total counter
+consumer_over_count_total 0
+# HELP consumer_insert_errors_total Statements that failed.
+# TYPE consumer_insert_errors_total counter
+consumer_insert_errors_total 0
+# HELP consumer_unsettled_statements_total Statements with no answer, waited out before their lanes are touched again.
+# TYPE consumer_unsettled_statements_total counter
+consumer_unsettled_statements_total 0
+# HELP consumer_checks_total Count checks: restricted to a partition range, or over every partition.
+# TYPE consumer_checks_total counter
+consumer_checks_total{range="ranged"} 3787
+consumer_checks_total{range="all"} 0
+# HELP consumer_check_recounts_total Recounts over the horizon after a restricted verify fell short.
+# TYPE consumer_check_recounts_total counter
+consumer_check_recounts_total 0
+# HELP consumer_range_guard_failures_total Inserts whose received_at assertion fired.
+# TYPE consumer_range_guard_failures_total counter
+consumer_range_guard_failures_total 0
+# HELP consumer_lane_lists_total LISTs of held lanes' data.
+# TYPE consumer_lane_lists_total counter
+consumer_lane_lists_total 20289
+# HELP consumer_lane_lists_skipped_total Polls a lane skipped while backing off.
+# TYPE consumer_lane_lists_skipped_total counter
+consumer_lane_lists_skipped_total 11352
+# HELP consumer_s3_requests_total S3 requests by kind.
+# TYPE consumer_s3_requests_total counter
+consumer_s3_requests_total{op="delete"} 1
+consumer_s3_requests_total{op="get"} 478
+consumer_s3_requests_total{op="head"} 7754
+consumer_s3_requests_total{op="list"} 21011
+consumer_s3_requests_total{op="put_cas"} 5231
+consumer_s3_requests_total{op="put_create"} 153
+consumer_s3_requests_total{op="put_plain"} 335
+# HELP consumer_lane_changes_total Lane lease changes of this worker.
+# TYPE consumer_lane_changes_total counter
+consumer_lane_changes_total{event="taken"} 48
+consumer_lane_changes_total{event="released"} 20
+consumer_lane_changes_total{event="lapsed"} 16
+consumer_lane_changes_total{event="lost_cas"} 0
+# HELP consumer_gaps_seen_total Free slots with a later slot listed (LIST lag or a deleted slot).
+# TYPE consumer_gaps_seen_total counter
+consumer_gaps_seen_total 0
+# HELP consumer_epochs_closed_total Epochs closed with a tombstone.
+# TYPE consumer_epochs_closed_total counter
+consumer_epochs_closed_total 111
+# HELP consumer_errors_total Errors on the worker's step (S3 or central).
+# TYPE consumer_errors_total counter
+consumer_errors_total 1
+# HELP consumer_lanes_held Lanes this worker holds.
+# TYPE consumer_lanes_held gauge
+consumer_lanes_held 12
+# HELP consumer_lanes_known Lanes this worker knows of.
+# TYPE consumer_lanes_known gauge
+consumer_lanes_known 21
+# HELP consumer_live_workers Live workers seen through the heartbeats.
+# TYPE consumer_live_workers gauge
+consumer_live_workers 3
+# HELP consumer_visible_seconds Receive (edge) to insert returned, over the run.
+# TYPE consumer_visible_seconds gauge
+consumer_visible_seconds{quantile="0.5"} 0.5834208984375
+consumer_visible_seconds{quantile="0.99"} 26.475642333984375
+# HELP consumer_cpu_seconds_total The process's CPU time.
+# TYPE consumer_cpu_seconds_total counter
+consumer_cpu_seconds_total 10.486549
+# HELP consumer_check_horizon_seconds The count check's copy horizon (-1: every partition).
+# TYPE consumer_check_horizon_seconds gauge
+consumer_check_horizon_seconds 259200

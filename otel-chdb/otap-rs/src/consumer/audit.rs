@@ -399,6 +399,11 @@ pub async fn run(ch: &ClickHouse, db: &str, cfg: &AuditConfig, state: &mut Audit
             None => continue,
         }
         rep.tables += 1;
+        // Every audited table has its counters, at 0 until a copy is found
+        // (an alert on `increase()` needs the series to exist).
+        let label = format!("{}/{}", t.signal, t.table);
+        let _ = state.late_total.entry(label.clone()).or_default();
+        let _ = state.unexplained_total.entry(label).or_default();
         match audit_table(ch, db, &t, cfg, since, h, &mut rep).await {
             Ok(f) => found.extend(f),
             Err(e) => rep.errors.push(format!("{}: {e}", t.table)),
@@ -618,6 +623,7 @@ mod tests {
         let mut st2 = AuditState::default();
         let rep3 = run(&ch, &db, &AuditConfig { sample_hex: 1, ..cfg.clone() }, &mut st2, now).await;
         assert!(rep3.late.is_empty() && rep3.candidates == 0 && rep3.errors.is_empty(), "{rep3:?}");
+        assert_eq!(st2.late_total.get("logs/otel_logs"), Some(&0), "an audited table's counter exists at 0");
         // Both steps are answered as designed: the candidates by the projection.
         let ex = ch.query(&format!("EXPLAIN projections = 1 {}", candidates_sql(&format!("{db}.otel_logs"), now - 2 * D, 0, 10).replace(" FORMAT TSV", "")), &[]).await.unwrap();
         assert_eq!(ex.matches("ReadFromMergeTree (by_content)").count(), 1, "{ex}");
@@ -737,7 +743,8 @@ mod tests {
         };
         for (objs, want) in [(&originals, (7, 5)), (&copies, (14, 5))] {
             for (key, body, meta, _) in objs.iter() {
-                assert!(matches!(bucket.put(key, body.clone(), Cond::Create, meta).await, Put::Ok(_)));
+                let r = bucket.put(key, body.clone(), Cond::Create, meta).await;
+                assert!(matches!(r, Put::Ok(_)), "PUT {key}: {r:?}");
             }
             for _ in 0..40 {
                 let _ = w.step().await;

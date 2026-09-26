@@ -172,7 +172,7 @@ Section 5 has the plan and success criteria.
 
 | Index | Edge CPU [E] | Size [E] | What it buys |
 |---|---|---|---|
-| Zone maps (min/max per row group and page) | 0: Parquet statistics and page index already exist. ClickHouse reads row-group min/max through `ParquetMetadata` [M: ../awss3]. Sorting each object by (ServiceName, Timestamp) at the edge makes them selective: about 1 ms per 10k rows | 0 | Row-group skipping inside an object. Nothing across objects. |
+| Zone maps (min/max per row group and page) | 0: Parquet statistics and page index already exist. ClickHouse reads row-group min/max through `ParquetMetadata` [M: ../awss3]. Sorting each object by (ServiceName, Timestamp) at the edge makes them selective only when its row groups are cut by service range (hash buckets defeat min/max), and costs 12–16 ms per 10k rows (+20–26% edge CPU, about +1.2 vCPU at the mid scenario) [M: ../bench/sorting] | 0 | Row-group skipping inside an object. Nothing across objects. ClickHouse's default S3 read fetches a ~1 MB object whole anyway; ranged reads need `remote_filesystem_read_method = 'read'` and `remote_read_min_bytes_for_seek = 0` [M: ../bench/sorting]. |
 | Trace-id filter per object: binary fuse 8 (≈9 bits/key, FP ≈0.4%) [D: Graf & Lemire] | ≈50 ns/key → <1 ms per 10k spans; fleet +0.03 vCPU | 2–5k distinct trace ids per object → 2–6 KB; about 20 GB/day. For comparison, the Parquet split-block bloom on TraceId costs 16 KB per 10k spans (131 against 115 KB) [M: ../otap-rs] | Only a raw-tier trace lookup that probes every object in the window: 216k probes an hour. Useless without a merged index, and the merged index is built better by the compactor from the TraceId column. |
 | Attribute dictionaries + roaring postings (service, status, k8s.*, http.*) | ≈0.4 µs/row for ~10 columns; fleet +0.3 vCPU | a few KB per object | The objects that contain value v. A service is present in almost every object of its cluster's 3 publishers, so the posting list barely prunes (§2.1 fan-out). It pays only on large objects, so build it in the compactor. |
 | Token blooms over log bodies (words, not n-grams) | ≈1.5 µs/log (tokenize ~150 B, ~20 inserts); fleet +0.3 vCPU. Trigrams: ~150 inserts/log, about 10× that | 20–50k distinct tokens per 10k logs × 10 bits → 25–60 KB, **5–12% of the object**; 40–100 GB/day | Negative lookups on rare tokens. Hourly merge can't OR blooms of this many keys without saturating them, so it must concatenate: 72k blooms an hour, about 3.6 GB to read per hour searched. |
@@ -205,7 +205,13 @@ lookup API or a ClickHouse UDF, which HyperDX wouldn't call.
 
 **Verdict.**
 
-- Keep zone maps, and sort within the object at the edge.
+- Keep zone maps. Edge sorting is available (`parquet.sort`, 4 range row
+  groups) but **off by default**: it costs more edge CPU than it saves
+  central, and the compactor sorts anyway [M: ../bench/sorting].
+- To cut a service query's candidate objects, route by service at the
+  cluster gateway (`routing_key: service`): about 3.6k objects per
+  cluster-hour at any N instead of 10.8k–57.6k, at the cost of publisher load
+  skew (up to 4× the mean at N = 16) [M: ../bench/sorting].
 - Consider **dropping** the edge's Parquet bloom on TraceId (−12% trace
   bytes [M: 131 → 115 KB]) once the compactor builds the trace index.
 - Build everything else in the compactor.

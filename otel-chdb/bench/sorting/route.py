@@ -94,7 +94,7 @@ def direct_reads():
         d = json.loads(l)
         for rank in d["objects"][0]["q"]:
             for cols in ("narrow", "all"):
-                k = f"{cols}/fg64k/co1024k"
+                k = f"{cols}/fg64k/co0k"  # unmerged: ranges merged within 1 MiB read a ~1 MB object whole
                 rec = {}
                 for pick in ("whole", "minmax", "bucket"):
                     xs = [o["q"][rank][k].get(pick) for o in d["objects"]]
@@ -128,6 +128,13 @@ def main():
                         meas = f" [{ms[('none', sig)]:.0f} at 10k]"
                     print(f"| {sig} | {n} | {'service' if routed else 'none'} | {T:g} s | {s['obj_s_fleet']:,.0f} | {s['rows_per_obj']:,.0f} | {s['svc_per_obj']:.1f}{meas} | "
                           f"{s['obj_s_fleet'] * FIXED_1 / 1000:.2f} | {s['obj_s_fleet'] * FIXED_32 / 1000:.2f} |")
+    print("\n## Publisher load with routing_key service (the ring's split of mixgen's mix)\n")
+    print("| N | busiest publisher's share of the cluster | × the mean (1/N) | quietest publisher's share | services per publisher (min–max) |")
+    print("|---|---|---|---|---|")
+    for n in NS[1:]:
+        p = pubs(n, True)
+        sh = sorted(x[0] for x in p)
+        print(f"| {n} | {sh[-1] * 100:.1f}% | {sh[-1] * n:.1f} | {sh[0] * 100:.2f}% | {min(len(x[1]) for x in p)}–{max(len(x[1]) for x in p)} |")
     if any(k[0] != "none" for k in ms):
         print("\nServices per generated 10k-row object with routing (mixgen -route service, 8 objects per publisher):\n")
         print("| publisher set | signal | services/object |\n|---|---|---|")
@@ -138,10 +145,23 @@ def main():
     if not dr:
         return
     print("\n## One-service, one-hour query in one cluster: objects, GETs and bytes (T = 1 s)\n")
-    print("Per object: the direct ranged path's median over the set's objects (footer suffix GET 64 KiB, ranges merged within 1 MiB), "
-          "scaled to the scenario's rows per object. 'whole' reads each touched object in one GET. Columns: the narrow projection.\n")
-    print("| signal | query service (share) | N | routing | objects touched/h | GETs/h whole | MB/h whole | config | GETs/h pruned | MB/h pruned | pruned/whole bytes |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|")
+    print("Per object: the direct ranged path (footer: one 64 KiB suffix GET; then one GET per run of needed column chunks, "
+          "unmerged), the mean over the measured set's objects, with the column-chunk bytes scaled to the scenario's rows per "
+          "object (the suffix GET is fixed, capped at the object's size). Narrow projection. Baselines: 'whole' (one GET per "
+          "object) and 'unsorted' (a-unsorted objects, the same projection: column pruning without row-group pruning). "
+          "Without routing every object of the cluster-hour is touched; with routing only the owning publisher's.\n")
+    print("| signal | query service (share) | N | routing | objects/h | whole MB/h | unsorted GETs/h | unsorted MB/h | config (pick) | GETs/h | MB/h | vs unsorted |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    SUF = 65536
+
+    def per_obj(rec, pick, rows):
+        scale = rows / B
+        size = rec["size"] * scale
+        got = min(rec["size"], max(SUF, rec["footer"]))
+        fr = rec[pick]
+        data = max(0.0, fr["bytes"] - got) * scale
+        return fr["gets"], min(size, got) + data, size
+
     for sig in ("traces", "logs"):
         for rank, q in sv.items():
             for n in NS:
@@ -153,26 +173,21 @@ def main():
                     if routed:
                         j = r[q["service"]]["publisher"]
                         p = s["per"][j]
-                        objs_h = p["obj_s"] * 3600
-                        rows = p["rows"]
-                        setname = f"route/N{n}p{j}"
+                        objs_h, rows, setname = p["obj_s"] * 3600, p["rows"], f"route/N{n}p{j}"
                     else:
-                        objs_h = s["obj_s_cluster"] * 3600
-                        rows = s["rows_per_obj"]
-                        setname = "set"
+                        objs_h, rows, setname = s["obj_s_cluster"] * 3600, s["rows_per_obj"], "set"
+                    base = dr.get((setname, "a-unsorted", sig, rank, "narrow"))
+                    if not base:
+                        continue
+                    bg, bb, bsize = per_obj(base, "minmax", rows)
                     for cfg, pick in (("b-sorted-1rg", "minmax"), ("d-hash-16rg", "bucket"), ("f-range-16rg", "minmax")):
                         rec = dr.get((setname, cfg, sig, rank, "narrow"))
-                        base = dr.get((setname, "a-unsorted", sig, rank, "narrow")) or dr.get(("set", "a-unsorted", sig, rank, "narrow"))
-                        if not rec or pick not in rec or not base:
+                        if not rec or pick not in rec:
                             continue
-                        scale = rows / B
-                        whole_b = (base["size"] - base["footer"]) * scale + base["footer"]
-                        fr = rec[pick]
-                        # footer bytes don't scale; the data part does
-                        pr_b = min(fr["bytes"], rec["footer"]) + max(0.0, fr["bytes"] - rec["footer"]) * scale
+                        g, b, _ = per_obj(rec, pick, rows)
                         print(f"| {sig} | {rank} {q['service']} ({q['share'] * 100:.2f}%) | {n} | {'service' if routed else 'none'} | {objs_h:,.0f} | "
-                              f"{objs_h:,.0f} | {objs_h * whole_b / 1e6:,.0f} | {cfg} ({pick}) | {objs_h * fr['gets']:,.0f} | {objs_h * pr_b / 1e6:,.1f} | {pr_b / whole_b:.2f} |")
-
+                              f"{objs_h * bsize / 1e6:,.0f} | {objs_h * bg:,.0f} | {objs_h * bb / 1e6:,.0f} | {cfg} ({pick}) | {objs_h * g:,.0f} | "
+                              f"{objs_h * b / 1e6:,.0f} | {b / bb:.2f} |")
 
 if __name__ == "__main__":
     main()

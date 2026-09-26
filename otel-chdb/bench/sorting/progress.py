@@ -40,4 +40,6 @@ print("| step | what | state | progress |\n|---|---|---|---|")
 for k, what, prog in steps:
     st = "done" if os.path.exists(os.path.join(H, "state", k)) else "pending"
     print(f"| {k} | {what} | {st} | {prog} |")
-print("\nAnalysis (summarize.py → results.md, route.py → route.md), README and cleanup (S3 otel/sorting/, sort_* databases) run after the last step.")
+fin = os.path.exists(os.path.join(H, "state", "cleanup"))
+print("\nAnalysis (summarize.py → results.md, route.py → route.md), README and cleanup (S3 otel/sorting/, sort_* databases, "
+      "chpriv.sh wipe) run after the last step: " + ("**done**, see README.md." if fin else "pending."))

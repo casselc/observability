@@ -1,0 +1,8 @@
+{"batch":0,"rows":10000,"window_ms":77409.516102,"start_ns":1790416800000000000,"services":{"billing-6":4511,"orders":2420,"recommend-2":1963,"recommend-4":1106},"pods":38,"bytes":2140567}
+{"batch":1,"rows":10000,"window_ms":77409.516102,"start_ns":1790416877409516102,"services":{"billing-6":4661,"orders":2375,"recommend-2":1883,"recommend-4":1081},"pods":38,"bytes":2140120}
+{"batch":2,"rows":10000,"window_ms":77409.516102,"start_ns":1790416954819032204,"services":{"billing-6":4536,"orders":2336,"recommend-2":1990,"recommend-4":1138},"pods":38,"bytes":2142482}
+{"batch":3,"rows":10000,"window_ms":77409.516102,"start_ns":1790417032228548306,"services":{"billing-6":4505,"orders":2476,"recommend-2":1899,"recommend-4":1120},"pods":38,"bytes":2141213}
+{"batch":4,"rows":10000,"window_ms":77409.516102,"start_ns":1790417109638064408,"services":{"billing-6":4566,"orders":2428,"recommend-2":1896,"recommend-4":1110},"pods":38,"bytes":2142675}
+{"batch":5,"rows":10000,"window_ms":77409.516102,"start_ns":1790417187047580510,"services":{"billing-6":4551,"orders":2438,"recommend-2":1952,"recommend-4":1059},"pods":38,"bytes":2141745}
+{"batch":6,"rows":10000,"window_ms":77409.516102,"start_ns":1790417264457096612,"services":{"billing-6":4503,"orders":2474,"recommend-2":1953,"recommend-4":1070},"pods":38,"bytes":2137623}
+{"batch":7,"rows":10000,"window_ms":77409.516102,"start_ns":1790417341866612714,"services":{"billing-6":4514,"orders":2447,"recommend-2":1916,"recommend-4":1123},"pods":38,"bytes":2143916}

@@ -9,14 +9,14 @@ After a container restart: `cd spike/otel-chdb/bench/sorting && setsid nohup bas
 |---|---|---|---|
 | bisect | step 0: bisect, 3 variants × 5 reps (bisect/) | done | 15/15 runs |
 | build | build the sort-option binaries | done |  |
-| tests | existing + new tests (tests.log) | pending |  |
-| data | mixgen data, query services | pending |  |
-| edge-cpu | step 1 edge CPU, 8 configs × 2 signals × 5 reps (edge.jsonl) | pending | 0/80 |
-| edge-set | step 1 object sets (otel/sorting/set/) | pending | 0/16 |
-| central | step 1 central INSERT…SELECT, 4 configs × 2 batch sizes × 5 reps (raw/) | pending | 0/40 |
-| reads-direct | step 1 direct ranged reads (direct.jsonl) | pending |  |
-| reads-ch | step 1 ClickHouse s3() reads (ch.jsonl, ch-events.jsonl) | pending | 0 queries |
-| route | step 2 routed object sets (data/route-*) | pending | 0 publishers |
-| reads-route | step 2 reads on routed sets | pending |  |
+| tests | existing + new tests (tests.log) | done |  |
+| data | mixgen data, query services | done |  |
+| edge-cpu | step 1 edge CPU, 8 configs × 2 signals × 5 reps (edge.jsonl) | done | 80/80 |
+| edge-set | step 1 object sets (otel/sorting/set/) | done | 16/16 |
+| central | step 1 central INSERT…SELECT, 4 configs × 2 batch sizes × 5 reps (raw/) | done | 40/40 |
+| reads-direct | step 1 direct ranged reads (direct.jsonl) | done |  |
+| reads-ch | step 1 ClickHouse s3() reads (ch.jsonl, ch-events.jsonl) | done | 4608 queries |
+| route | step 2 routed object sets (data/route-*) | done | 9 publishers |
+| reads-route | step 2 reads on routed sets | done |  |
 
-Analysis (summarize.py → results.md, route.py → route.md), README and cleanup (S3 otel/sorting/, sort_* databases) run after the last step.
+Analysis (summarize.py → results.md, route.py → route.md), README and cleanup (S3 otel/sorting/, sort_* databases, chpriv.sh wipe) run after the last step: **done**, see README.md.

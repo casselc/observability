@@ -88,6 +88,32 @@ pub fn content_hash_cols(signal: Signal, cols: &[ArrayRef]) -> String {
     hex::encode(&h.finalize().as_bytes()[..16])
 }
 
+/// A trace or log batch in (ServiceName, Timestamp) order, and its plan.
+pub fn sort_batch(
+    rb: &arrow::array::RecordBatch,
+    o: &encode::SortOptions,
+) -> Result<(encode::SortPlan, arrow::array::RecordBatch), arrow::error::ArrowError> {
+    use arrow::array::{BinaryArray, TimestampNanosecondArray};
+    let col = |name: &str| {
+        rb.column_by_name(name)
+            .ok_or_else(|| arrow::error::ArrowError::SchemaError(format!("no {name} column")))
+    };
+    let svc = col("ServiceName")?;
+    let ts = col("Timestamp")?;
+    let svc = svc
+        .as_any()
+        .downcast_ref::<BinaryArray>()
+        .ok_or_else(|| arrow::error::ArrowError::SchemaError("ServiceName is not Binary".into()))?;
+    let ts = ts
+        .as_any()
+        .downcast_ref::<TimestampNanosecondArray>()
+        .ok_or_else(|| arrow::error::ArrowError::SchemaError("Timestamp is not ns".into()))?;
+    let plan = encode::sort_plan(svc, ts, o);
+    let idx = arrow::array::UInt32Array::from(plan.perm.clone());
+    let sorted = arrow::compute::take_record_batch(rb, &idx)?;
+    Ok((plan, sorted))
+}
+
 /// Reusable per-signal state: schemas and column buffers.
 pub struct Encoder {
     pub traces_sc: Schemas,
@@ -294,7 +320,19 @@ impl Encoder {
             let _ = footer.insert(k.to_string(), v);
         }
         let mut out = Vec::with_capacity(512 << 10);
+        let sorted = self.opts.sort.enabled() && matches!(f.signal, Signal::Traces | Signal::Logs);
         let content_type = match self.format {
+            Format::Parquet if sorted => {
+                // Rows by (ServiceName, Timestamp), cut into row groups by
+                // service (`encode::sort_plan`); a pure function of the rows,
+                // so a retry's object is byte-identical. row_ordinal moves
+                // with its row: it still names the row's place in the request.
+                let (plan, rb) = sort_batch(&rb, &self.opts.sort).map_err(|x| EncodeError(x.to_string()))?;
+                let _ = footer.insert(encode::META_SORT.to_string(), plan.footer_value(&self.opts.sort));
+                encode::parquet_groups(sc, &self.opts, &rb, &plan.groups, plan.max_services, &footer, &mut out)
+                    .map_err(|x| EncodeError(x.to_string()))?;
+                PARQUET_CONTENT_TYPE
+            }
             Format::Parquet => {
                 encode::parquet(sc, &self.opts, &rb, &footer, &mut out).map_err(|x| EncodeError(x.to_string()))?;
                 PARQUET_CONTENT_TYPE

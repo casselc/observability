@@ -10,17 +10,23 @@ logs-testgen-3000.pb sort k=1 Hash: 30391 bytes, 1 row groups, identical on re-e
 logs-testgen-3000.pb sort k=4 Hash: 42681 bytes, 3 row groups, identical on re-encode
 logs-testgen-3000.pb sort k=16 Hash: 42684 bytes, 3 row groups, identical on re-encode
 logs-testgen-3000.pb sort k=4 Range: 42676 bytes, 3 row groups, identical on re-encode
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.65s
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.11s
 
 
-test result: ok. 4 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 7.83s
+test result: ok. 4 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 11.87s
 
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 30.77s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.90s
 
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 83.96s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 78.43s
+
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 123.84s
+
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.88s
 

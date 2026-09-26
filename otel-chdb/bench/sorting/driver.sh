@@ -11,9 +11,11 @@ mkdir -p $here/state
 log() { echo "$(date -u +%FT%TZ) $*"; }
 step() { [ -f $here/state/$1 ] && return 1; log "step $1"; return 0; }
 mark() { touch $here/state/$1; python3 $here/progress.py > $here/PROGRESS.md; log "done $1"; }
-freeok() { awk -v f="$(df -B1 --output=avail / | tail -1)" 'BEGIN{exit !(f >= 2.5e9)}' || { log "free disk < 2.5 GB, stop"; exit 1; }; }
+freeok() { awk -v f="$(df -B1 --output=avail / | tail -1)" 'BEGIN{exit !(f >= 2.7e9)}' || { log "free disk < 2.7 GB (SeaweedFS stops writing below 2.56 GB; hard floor 2.5), stop"; exit 1; }; }
 sh $S/start-services.sh
 for i in $(seq 1 120); do curl -s -m 3 -o /dev/null http://127.0.0.1:18123/ping && curl -sf -m 3 -o /dev/null 'http://127.0.0.1:18888/buckets/otel/?limit=1' -H 'Accept: application/json' && break; sleep 2; done
+bash $here/swvac.sh off; bash $here/swvac.sh now
+bash $here/chpriv.sh start   # query_log for central and reads-ch
 freeok
 if step bisect; then bash $here/bisect/run.sh >> $here/bisect/run.log 2>&1 && [ $(wc -l < $here/bisect/done.txt) -ge 15 ] && mark bisect; fi
 [ -f $here/state/bisect ] || exit 1

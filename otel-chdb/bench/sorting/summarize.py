@@ -68,37 +68,34 @@ def direct():
     for x in d:
         rgs[(x["signal"], x["config"])] = f"{st.mean(o['rgs'] for o in x['objects']):.1f}"
     print("## Reads, direct ranged path (modelled exactly from each object's footer)\n")
-    print("A one-service, one-hour query over the 32-object set (all objects are in the hour). Per object, mean over the 32: "
-          "GETs and KB read. 'whole' = one GET of the object. Footer: one 64 KiB suffix GET (a second if the footer is longer); "
-          "column chunks of the picked row groups merged into one GET when within 1 MiB (object_store's default). "
-          "In brackets: 16 KiB footer guess / no merging, where it differs.\n")
+    print("A one-service, one-hour query over the 32-object set (all objects are in the hour). Per object, mean over the 32. "
+          "'whole' = one GET of the object. Footer: one 64 KiB suffix GET (a second if the footer is longer; 16 KiB guess in the "
+          "last column). Column chunks of the picked row groups: GETs and KB with ranges merged when within 1 MiB (object_store's "
+          "default, which on ~1 MB objects merges nearly everything) / unmerged (one GET per chunk run).\n")
     for cols in ("narrow", "all"):
         print(f"\n### Columns: {cols} ({'Timestamp, ServiceName, SpanName/SeverityText, Duration/Body' if cols == 'narrow' else 'SELECT *'})\n")
-        print("| signal | config | object KB | footer KB | query service | pick | row groups read | GETs/object | KB/object | read / whole |")
-        print("|---|---|---|---|---|---|---|---|---|---|")
+        print("| signal | config | object KB | footer KB | query service | pick | row groups read | GETs/object merged / unmerged | KB/object merged / unmerged | unmerged / whole | GETs, 16 KiB footer guess |")
+        print("|---|---|---|---|---|---|---|---|---|---|---|")
         for sig in ("traces", "logs"):
-            for x in d:
-                if x["signal"] != sig:
-                    continue
+            for x in sorted((x for x in d if x["signal"] == sig), key=lambda x: CFGS.index(x["config"])):
                 objs = x["objects"]
                 size = st.mean(o["size"] for o in objs)
                 foot = st.mean(o["footer"] for o in objs)
                 for rank, q in sv.items():
                     for pick in ("minmax", "bucket") if x["config"] != "a-unsorted" else ("whole", "minmax"):
-                        k = f"{cols}/fg64k/co1024k"
-                        vals = [o["q"][rank][k].get(pick) for o in objs]
+                        if pick == "bucket" and "hash" not in x["config"]:
+                            continue
+                        vals = [o["q"][rank][f"{cols}/fg64k/co1024k"].get(pick) for o in objs]
                         if not all(vals):
                             continue
-                        g = st.mean(v["gets"] for v in vals)
-                        b = st.mean(v["bytes"] for v in vals)
+                        un = [o["q"][rank][f"{cols}/fg64k/co0k"][pick] for o in objs]
+                        g16 = [o["q"][rank][f"{cols}/fg16k/co1024k"][pick] for o in objs]
+                        g, b = st.mean(v["gets"] for v in vals), st.mean(v["bytes"] for v in vals)
+                        gu, bu = st.mean(v["gets"] for v in un), st.mean(v["bytes"] for v in un)
                         rr = st.mean(v["rgs"] for v in vals)
-                        alt = [o["q"][rank][f"{cols}/fg16k/co1024k"][pick] for o in objs]
-                        alt2 = [o["q"][rank][f"{cols}/fg64k/co0k"][pick] for o in objs]
-                        ga, ba, g2 = st.mean(v["gets"] for v in alt), st.mean(v["bytes"] for v in alt), st.mean(v["gets"] for v in alt2)
-                        extra = f" [{ga:.1f} / {g2:.1f}]" if (abs(ga - g) > 0.05 or abs(g2 - g) > 0.05) else ""
-                        extrab = f" [{ba / 1000:.1f}]" if abs(ba - b) > 500 else ""
                         print(f"| {sig} | {x['config']} | {size / 1000:.1f} | {foot / 1000:.1f} | {rank} {q['service']} ({q['share'] * 100:.2f}%) | {pick} | "
-                              f"{rr:.1f} of {st.mean(o['rgs'] for o in objs):.1f} | {g:.2f}{extra} | {b / 1000:.1f}{extrab} | {b / size:.2f} |")
+                              f"{rr:.1f} of {st.mean(o['rgs'] for o in objs):.1f} | {g:.1f} / {gu:.1f} | {b / 1000:.0f} / {bu / 1000:.0f} | {bu / size:.2f} | "
+                              f"{st.mean(v['gets'] for v in g16):.1f} |")
     print()
 
 
@@ -110,19 +107,38 @@ def chreads():
     keys = sorted({k for e in ev for k in e.get("pe", {})})
     print("## Reads through ClickHouse s3()\n")
     print(f"ProfileEvents seen: {', '.join(k for k in keys if 'S3' in k or 'Parquet' in k or 'RowGroup' in k)}.\n")
-    print("Per query over the 32-object set, median over repetitions. GET = S3GetObject; KB = ReadBufferFromS3Bytes; "
-          "'nopushdown' = row-group filtering off (reads whole objects' needed columns), 'minmax' = input_format_parquet_filter_push_down, "
-          "'+bloom' = input_format_parquet_bloom_filter_push_down; seek 0 = remote_read_min_bytes_for_seek = 0 (default 4 MiB).\n")
+    print("One query over the 32-object set; per cell: S3GetObject / KB (ReadBufferFromS3Bytes) / row groups read "
+          "(ParquetReadRowGroups), median over 3 repetitions. Pruning: 'none' = input_format_parquet_filter_push_down = 0 "
+          "(and bloom off), 'minmax' = on, '+bloom' = input_format_parquet_bloom_filter_push_down = 1 as well. "
+          "IO: 'default' = remote_filesystem_read_method threadpool with prefetch, which fetches each (≤ 4 MiB) object "
+          "whole whatever the pruning (remote_read_min_bytes_for_seek = 0 alone changes nothing, not shown); "
+          "'ranged' = method 'read' and remote_read_min_bytes_for_seek = 0, footer cache off (use_parquet_metadata_cache = 0); "
+          "'ranged+cache' = the same with the footer cache on (warm after the first repetition).\n")
     g = defaultdict(list)
     for e in ev:
-        g[(e["signal"], e["config"], e["rank"], e["cols"], e["variant"], e["seek"])].append(e)
-    rgk = [k for k in keys if "RowGroup" in k or "Pruned" in k]
-    print("| signal | config | service | cols | variant | seek | GETs | KB read | rows read | " + " | ".join(rgk) + " |")
-    print("|---|---|---|---|---|---|---|---|---|" + "---|" * len(rgk))
-    for (sig, c, rank, cols, v, sk), es in sorted(g.items(), key=lambda kv: (kv[0][0], CFGS.index(kv[0][1]), kv[0][2], kv[0][3], kv[0][4], str(kv[0][5]))):
-        med = lambda k: st.median(e["pe"].get(k, 0) for e in es)
-        print(f"| {sig} | {c} | {rank} | {cols} | {v} | {sk if sk is not None else 'def'} | {med('S3GetObject'):.0f} | {med('ReadBufferFromS3Bytes') / 1000:.0f} | "
-              f"{st.median(e['read_rows'] for e in es):,.0f} | " + " | ".join(f"{med(k):.0f}" for k in rgk) + " |")
+        g[(e["signal"], e["config"], e["rank"], e["cols"], e["variant"], str(e["seek"]))].append(e)
+    IO = [("None", "default"), ("read0", "ranged"), ("read0-mdcache", "ranged+cache")]
+    VN = [("nopushdown", "none"), ("minmax", "minmax"), ("minmax+bloom", "+bloom")]
+    ranks = list(sv)
+    for cols in ("narrow", "all"):
+        print(f"\n### Columns: {cols}\n")
+        print("| signal | config | pruning | IO | " + " | ".join(f"{r} {sv[r]['service']}" for r in ranks) + " |")
+        print("|---|---|---|---|" + "---|" * len(ranks))
+        for sig in ("traces", "logs"):
+            for c in CFGS:
+                for vk, vn in VN:
+                    for ik, iname in IO:
+                        cells = []
+                        for r in ranks:
+                            es = g.get((sig, c, r, cols, vk, ik))
+                            if not es:
+                                cells.append("–")
+                                continue
+                            med = lambda k: st.median(e["pe"].get(k, 0) for e in es)
+                            cells.append(f"{med('S3GetObject'):.0f} / {med('ReadBufferFromS3Bytes') / 1000:,.0f} / {med('ParquetReadRowGroups'):.0f}")
+                        if all(x == "–" for x in cells):
+                            continue
+                        print(f"| {sig} | {c} | {vn} | {iname} | " + " | ".join(cells) + " |")
     print()
 
 
@@ -138,7 +154,8 @@ def central():
     sts = [s for s in sts if s["attempt"] == last[(s["config"], s["max_batch"], s["rep"])] and s.get("exception_code", 0) == 0]
     per = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0]))
     for s in sts:
-        t = s["tables"][0].split(".")[-1] if s["tables"] else "?"
+        tt = [x for x in s["tables"] if not x.startswith("_table_function")]
+        t = tt[0].split(".")[-1] if tt else "?"
         sig = "traces" if "traces" in t else "logs" if "logs" in t else t
         a = per[(sig, s["config"], s["max_batch"])][s["rep"]]
         a[0] += s["cpu_us"]; a[1] += s["inserted_rows"] or s["written_rows"]; a[2] += s["sort_us"]

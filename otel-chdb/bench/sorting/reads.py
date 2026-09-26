@@ -28,7 +28,7 @@ import io
 HERE = os.path.dirname(os.path.abspath(__file__))
 S = "/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad"
 FILER = "http://127.0.0.1:18888/buckets/otel/sorting"
-CH = os.environ.get("CH", "http://127.0.0.1:18123")
+CH = os.environ.get("CH", "http://127.0.0.1:18723")  # chpriv.sh (query_log)
 NARROW = {"traces": ["Timestamp", "ServiceName", "SpanName", "Duration"], "logs": ["Timestamp", "ServiceName", "SeverityText", "Body"]}
 HOUR = ("2026-09-26 10:00:00", "2026-09-26 11:00:00")
 RANKS = [1, 10, 60, 120]
@@ -68,13 +68,8 @@ def listing(prefix):
 
 
 def fetch(key):
-    cache = f"{S}/sorting/objcache/{key}"
-    if os.path.exists(cache):
-        return open(cache, "rb").read()
-    b = urllib.request.urlopen(f"http://127.0.0.1:18888/buckets/otel/{key}").read()
-    os.makedirs(os.path.dirname(cache), exist_ok=True)
-    open(cache, "wb").write(b)
-    return b
+    # no local cache: disk is short (SeaweedFS stops writing below 1% free)
+    return urllib.request.urlopen(f"http://127.0.0.1:18888/buckets/otel/{key}").read()
 
 
 def chunk_range(cc):
@@ -178,7 +173,7 @@ def check_bucket(b, svc, bucket):
 def direct(setdirs):
     sv = json.load(open(f"{HERE}/services.json"))
     bk = buckets_helper()
-    bucket_of = lambda s, n: bk[s][str(n)]
+    bucket_of = lambda s, n: 0 if n == 1 else bk[s][str(n)]  # one row group: "hash:1;0"
     outp = open(f"{HERE}/direct.jsonl", "a")
     done = set()
     if os.path.exists(f"{HERE}/direct.jsonl"):
@@ -246,6 +241,12 @@ def chq(configs, setdir="set", reps=3):
         if k in have:
             extra[k] = 0
     seek = [None] + ([0] if "remote_read_min_bytes_for_seek" in have else [])
+    # The default remote read (threadpool with prefetch) downloads a whole
+    # small object whatever the pruning; method 'read' with seek 0 makes
+    # ranged GETs. "read0-mdcache" also keeps the footer cache on (rep 1
+    # warms it: reps 2-3 are the cached-footer case).
+    if os.environ.get("RANGED", "1") == "1":
+        seek += ["read0", "read0-mdcache"]
     outp = open(f"{HERE}/ch.jsonl", "a")
     done = set()
     if os.path.exists(f"{HERE}/ch.jsonl"):
@@ -265,7 +266,13 @@ def chq(configs, setdir="set", reps=3):
                                 if key in done:
                                     continue
                                 settings = dict(vset, **extra)
-                                if sk is not None:
+                                if sk in ("read0", "read0-mdcache"):
+                                    settings["remote_read_min_bytes_for_seek"] = 0
+                                    settings["remote_filesystem_read_method"] = "'read'"
+                                    if sk == "read0-mdcache":
+                                        for k in extra:
+                                            settings[k] = 1
+                                elif sk is not None:
                                     settings["remote_read_min_bytes_for_seek"] = sk
                                 qid = f"sort-{setdir}-{cfg}-{sig}-{rank}-{cols}-{vname}-{sk}-{rep}-{os.getpid()}".replace("+", "_")
                                 sql = (f"SELECT {sel} FROM s3('{url}', 'otel', 'otelsecret', 'Parquet', '{STRUCT[sig]}{ENV}') "

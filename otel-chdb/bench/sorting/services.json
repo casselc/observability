@@ -1,0 +1,18 @@
+{
+ "rank1": {
+  "service": "recommend",
+  "share": 0.22771535678099797
+ },
+ "rank10": {
+  "service": "gateway-4",
+  "share": 0.018088073737146004
+ },
+ "rank60": {
+  "service": "recommend-2",
+  "share": 0.0025201474088669936
+ },
+ "rank120": {
+  "service": "gateway-2",
+  "share": 0.0011756903380044522
+ }
+}

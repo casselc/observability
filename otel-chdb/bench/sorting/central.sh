@@ -5,20 +5,20 @@
 # object set (edge.sh "set": 32 traces + 32 logs objects of 10k rows) into a
 # fresh database, at --max-batch 1 and 32. Each INSERT's CPU
 # (OSCPUVirtualTimeMicroseconds), rows and the MergeTree writer's sort time
-# and "block already sorted" count come from query_log. The shared
-# ClickHouse on CPUs 1-3, consume and SeaweedFS on CPU 0. NREP repetitions,
+# and "block already sorted" count come from query_log. The private
+# ClickHouse (chpriv.sh) on CPUs 1-3, consume and SeaweedFS on CPU 0. NREP repetitions,
 # configurations rotated per repetition, each run gated on load <= 0.45.
 # Restart-safe: a run with its tables line in raw/tables.jsonl is skipped.
 set -u
 here=$(cd "$(dirname "$0")" && pwd); spike=$(dirname "$(dirname "$here")")
 S=/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad
 export ENVLOG=$here/central-env.jsonl; . "$spike/bench/clean/lib/env.sh"
-CH=http://127.0.0.1:18123
+CH=http://127.0.0.1:18723   # chpriv.sh: the shared server has no query_log
 ch() { curl -sS "$CH/" --data-binary "$1"; }
 CONSUME=$S/sorting/bin/sort/consume
 mkdir -p $here/raw
 touch $here/raw/tables.jsonl
-chpid=$(awk '/^PID/{print $2}' $S/chsrv/data/status)
+chpid=$(bash $here/chpriv.sh pid)
 taskset -a -cp 1-3 $chpid > /dev/null
 for p in $(pgrep -x weed); do taskset -a -cp 0 "$p" > /dev/null; done
 CFGS=(a-unsorted b-sorted-1rg d-hash-16rg f-range-16rg)

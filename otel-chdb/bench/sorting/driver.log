@@ -4,3 +4,162 @@
     Finished `release` profile [optimized] target(s) in 0.42s
 2026-09-26T06:48:05Z done build
 2026-09-26T06:48:05Z step tests
+2026-09-26T06:54:20Z step tests
+2026-09-26T07:00:55Z done tests
+2026-09-26T07:00:55Z step data
+traces: 32 batches of 10000 rows, publisher 0/3 route=none, 120 services, rate 10000 rows/s, window 1s
+logs: 32 batches of 10000 rows, publisher 0/3 route=none, 120 services, rate 3333 rows/s, window 3s
+{"rank1": {"service": "recommend", "share": 0.22771535678099797}, "rank10": {"service": "gateway-4", "share": 0.018088073737146004}, "rank60": {"service": "recommend-2", "share": 0.0025201474088669936}, "rank120": {"service": "gateway-2", "share": 0.0011756903380044522}}
+2026-09-26T07:01:05Z done data
+2026-09-26T07:01:05Z step edge-cpu
+2026-09-26T07:49:23Z step edge-cpu
+2026-09-26T07:57:50Z done edge-cpu
+2026-09-26T07:57:50Z step edge-set
+2026-09-26T08:00:21Z done edge-set
+2026-09-26T08:00:21Z step central
+2026-09-26T08:14:12Z done central
+2026-09-26T08:14:12Z step reads-direct
+set a-unsorted traces 32 objects
+set a-unsorted logs 32 objects
+Traceback (most recent call last):
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 301, in <module>
+    direct(sys.argv[2:] or ["set"])
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 206, in direct
+    m = model(b, s["service"], bucket_of, NARROW[sig] if cols == "narrow" else "all", fg, co)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 117, in model
+    if buckets[g] == bucket_of(svc, n):
+                     ^^^^^^^^^^^^^^^^^
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 176, in <lambda>
+    bucket_of = lambda s, n: bk[s][str(n)]
+                             ~~~~~^^^^^^^^
+KeyError: '1'
+2026-09-26T08:14:12Z step reads-ch
+Traceback (most recent call last):
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 305, in <module>
+    chlog()
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 286, in chlog
+    for l in ch(q).splitlines():
+             ^^^^^
+  File "/home/user/oscope/spike/otel-chdb/bench/sorting/reads.py", line 224, in ch
+    return urllib.request.urlopen(r).read().decode()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 216, in urlopen
+    return opener.open(url, data, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 525, in open
+    response = meth(req, response)
+               ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 634, in http_response
+    response = self.parent.error(
+               ^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 563, in error
+    return self._call_chain(*args)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 496, in _call_chain
+    result = func(*args)
+             ^^^^^^^^^^^
+  File "/usr/lib/python3.11/urllib/request.py", line 643, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 404: Not Found
+2026-09-26T08:16:46Z step route
+2026-09-26T08:17:44Z done route
+2026-09-26T08:17:44Z step reads-route
+route/N3p0 a-unsorted traces 8 objects
+route/N3p0 a-unsorted logs 8 objects
+route/N3p0 b-sorted-1rg traces 8 objects
+route/N3p0 b-sorted-1rg logs 8 objects
+route/N3p0 d-hash-16rg traces 8 objects
+route/N3p0 d-hash-16rg logs 8 objects
+route/N3p0 f-range-16rg traces 8 objects
+route/N3p0 f-range-16rg logs 8 objects
+route/N3p1 a-unsorted traces 8 objects
+route/N3p1 a-unsorted logs 8 objects
+route/N3p1 b-sorted-1rg traces 8 objects
+route/N3p1 b-sorted-1rg logs 8 objects
+route/N3p1 d-hash-16rg traces 8 objects
+route/N3p1 d-hash-16rg logs 8 objects
+route/N3p1 f-range-16rg traces 8 objects
+route/N3p1 f-range-16rg logs 8 objects
+route/N3p2 a-unsorted traces 8 objects
+route/N3p2 a-unsorted logs 8 objects
+route/N3p2 b-sorted-1rg traces 8 objects
+route/N3p2 b-sorted-1rg logs 8 objects
+route/N3p2 d-hash-16rg traces 8 objects
+route/N3p2 d-hash-16rg logs 8 objects
+route/N3p2 f-range-16rg traces 8 objects
+route/N3p2 f-range-16rg logs 8 objects
+route/N8p4 a-unsorted traces 8 objects
+route/N8p4 a-unsorted logs 8 objects
+route/N8p4 b-sorted-1rg traces 8 objects
+route/N8p4 b-sorted-1rg logs 8 objects
+route/N8p4 d-hash-16rg traces 8 objects
+route/N8p4 d-hash-16rg logs 8 objects
+route/N8p4 f-range-16rg traces 8 objects
+route/N8p4 f-range-16rg logs 8 objects
+route/N8p5 a-unsorted traces 8 objects
+route/N8p5 a-unsorted logs 8 objects
+route/N8p5 b-sorted-1rg traces 8 objects
+route/N8p5 b-sorted-1rg logs 8 objects
+route/N8p5 d-hash-16rg traces 8 objects
+route/N8p5 d-hash-16rg logs 8 objects
+route/N8p5 f-range-16rg traces 8 objects
+route/N8p5 f-range-16rg logs 8 objects
+route/N8p6 a-unsorted traces 8 objects
+route/N8p6 a-unsorted logs 8 objects
+route/N8p6 b-sorted-1rg traces 8 objects
+route/N8p6 b-sorted-1rg logs 8 objects
+route/N8p6 d-hash-16rg traces 8 objects
+route/N8p6 d-hash-16rg logs 8 objects
+route/N8p6 f-range-16rg traces 8 objects
+route/N8p6 f-range-16rg logs 8 objects
+route/N16p4 a-unsorted traces 8 objects
+route/N16p4 a-unsorted logs 8 objects
+route/N16p4 b-sorted-1rg traces 8 objects
+route/N16p4 b-sorted-1rg logs 8 objects
+route/N16p4 d-hash-16rg traces 8 objects
+route/N16p4 d-hash-16rg logs 8 objects
+route/N16p4 f-range-16rg traces 8 objects
+route/N16p4 f-range-16rg logs 8 objects
+route/N16p6 a-unsorted traces 8 objects
+route/N16p6 a-unsorted logs 8 objects
+route/N16p6 b-sorted-1rg traces 8 objects
+route/N16p6 b-sorted-1rg logs 8 objects
+route/N16p6 d-hash-16rg traces 8 objects
+route/N16p6 d-hash-16rg logs 8 objects
+route/N16p6 f-range-16rg traces 8 objects
+route/N16p6 f-range-16rg logs 8 objects
+route/N16p8 a-unsorted traces 8 objects
+route/N16p8 a-unsorted logs 8 objects
+route/N16p8 b-sorted-1rg traces 8 objects
+route/N16p8 b-sorted-1rg logs 8 objects
+route/N16p8 d-hash-16rg traces 8 objects
+route/N16p8 d-hash-16rg logs 8 objects
+route/N16p8 f-range-16rg traces 8 objects
+route/N16p8 f-range-16rg logs 8 objects
+2026-09-26T08:17:53Z done reads-route
+2026-09-26T08:17:53Z all steps done
+2026-09-26T08:26:17Z step central
+2026-09-26T08:37:53Z done central
+2026-09-26T08:37:53Z step reads-direct
+set b-sorted-1rg traces 32 objects
+set b-sorted-1rg logs 32 objects
+set c-hash-4rg traces 32 objects
+set c-hash-4rg logs 32 objects
+set d-hash-16rg traces 32 objects
+set d-hash-16rg logs 32 objects
+set e-range-4rg traces 32 objects
+set e-range-4rg logs 32 objects
+set f-range-16rg traces 32 objects
+set f-range-16rg logs 32 objects
+set g-hash-4rg-bloom traces 32 objects
+set g-hash-4rg-bloom logs 32 objects
+set h-hash-16rg-bloom traces 32 objects
+set h-hash-16rg-bloom logs 32 objects
+2026-09-26T08:38:03Z done reads-direct
+2026-09-26T08:38:03Z step reads-ch
+2026-09-26T08:40:47Z done reads-ch
+2026-09-26T08:40:47Z all steps done
+2026-09-26T08:48:47Z step reads-ch
+2026-09-26T09:06:34Z done reads-ch
+2026-09-26T09:06:34Z all steps done

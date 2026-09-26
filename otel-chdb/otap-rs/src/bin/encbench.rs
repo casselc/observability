@@ -21,10 +21,11 @@
 //!            [--path direct|via_otap] [--format parquet|arrow] [--bloom traceid|none|all]
 //!            [--zstd 3] [--batches 30] [--warmup 3] [--out FILE] [--label NAME]
 //!            [--layout clickstack|series] [--files LIST|DIR]
+//!            [--sort none|service_time --row-groups N --split hash|range] [--bloom-add COL]
 
 use otap_s3pq::Signal;
 use otap_s3pq::batch::{Encoder, Format, Input};
-use otap_s3pq::encode::ParquetOptions;
+use otap_s3pq::encode::{ParquetOptions, RowGroupSplit, SortBy};
 use otap_s3pq::flatten::Envelope;
 use otap_s3pq::proto::{Lane, PutOutcome, new_epoch};
 use otap_s3pq::runner::{self, EncodedCache, Stats, Timeouts};
@@ -134,6 +135,28 @@ fn main() {
         Some("none") => enc.opts.bloom_columns.clear(),
         Some("all") => enc.opts.bloom_columns = ParquetOptions::all_blooms(enc.schemas(signal)),
         _ => {}
+    }
+    // Trace and log row order (bench/sorting): --sort service_time
+    // [--row-groups N] [--split hash|range]; --bloom-add COL adds a filter.
+    if let Some(s) = arg(&args, "--sort") {
+        enc.opts.sort.by = match s.as_str() {
+            "service_time" => SortBy::ServiceTime,
+            "none" => SortBy::None,
+            o => panic!("--sort {o}"),
+        };
+    }
+    if let Some(k) = arg(&args, "--row-groups") {
+        enc.opts.sort.row_groups = k.parse().expect("--row-groups N");
+    }
+    if let Some(s) = arg(&args, "--split") {
+        enc.opts.sort.split = match s.as_str() {
+            "hash" => RowGroupSplit::Hash,
+            "range" => RowGroupSplit::Range,
+            o => panic!("--split {o}"),
+        };
+    }
+    if let Some(c) = arg(&args, "--bloom-add") {
+        enc.opts.bloom_columns.push(c);
     }
     let bodies: Vec<bytes::Bytes> = files.iter().map(|f| bytes::Bytes::from(std::fs::read(f).expect("read --file"))).collect();
     let body = bodies[0].clone();

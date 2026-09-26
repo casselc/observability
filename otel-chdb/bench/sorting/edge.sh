@@ -47,7 +47,7 @@ one() { # pass rep signal config
   gate || return 1
   snap "start $pass-$rep-$sig-$c"
   local line
-  line=$(taskset -c 0,1 $EB --files "$files" --signal $sig $extra ${CFG[$c]} --label $c \
+  line=$(timeout 300 taskset -c 0,1 $EB --files "$files" --signal $sig $extra ${CFG[$c]} --label $c \
     --s3 $url/sort-$c --key otel --secret otelsecret)
   local rc=$?
   snap "end $pass-$rep-$sig-$c rc=$rc"
@@ -70,6 +70,7 @@ else
       done
     done
     curl -s -X DELETE "http://127.0.0.1:18888/buckets/otel/sorting/cpu?recursive=true&ignoreRecursiveError=true" > /dev/null
+    bash $here/swvac.sh now   # reclaim the deleted objects' space (between reps, not measured)
   done
 fi
 header "edge after"

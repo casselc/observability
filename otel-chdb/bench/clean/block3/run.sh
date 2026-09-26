@@ -5,13 +5,16 @@
 # load <= 0.45. Parts per partition are bounded by the disk budget:
 # --max-db-gb 1.0 of active parts leaves room for a top-level merge within
 # the 2 GB data budget (free disk never below 2.5 GB); --min-free-gb 2.7.
-# Afterwards: analyze.py, fit.py, proj_clean.py.
+# Afterwards: analyze.py, fit.py, proj_clean.py. Restart-safe: a run with
+# results/<run>/run.json is skipped; a killed one is redone from scratch
+# (merges.py drops its database first).
 set -u
 here=$(cd "$(dirname "$0")" && pwd); clean=$(dirname "$here")
 export ENVLOG=$here/env.jsonl; . "$clean/lib/env.sh"
 header "block3 before"
 run() { # name args...
   local name=$1; shift
+  [ -f $here/results/$name/run.json ] && return 0  # restart-safe: finished runs are kept
   gate; snap "begin b3-$name free=$(freegb)"
   taskset -c 0 python3 $here/merges.py --run $name --workers 3 --drain 120 --max-db-gb ${MAXDB:-1.0} --min-free-gb 2.7 "$@" >> $here/run.log 2>&1
   snap "finish b3-$name free=$(freegb)"

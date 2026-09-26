@@ -1,6 +1,7 @@
 #!/bin/bash
 # bench/clean copy of otap-rs/scripts/consumer_latency.sh; the only change is
-# the S3 prefix (otel/clean/b5/... instead of otel/otap-rs-consumer/...).
+# the S3 prefix (otel/clean/b5/... instead of otel/otap-rs-consumer/...), the
+# config path, and a "rep" field on each output line (REP).
 # consumer_latency.sh: steady state, one edge and one worker, no faults.
 # Measures, per poll period: end-to-end latency to query visibility (the
 # edge's receive time, in the object's metadata, to the worker's INSERT
@@ -14,7 +15,8 @@ OUT=${OUT:-results/consumer/latency.jsonl}
 SECS=${SECS:-90}
 CH=${CH:-http://127.0.0.1:18123}
 S3=${S3:-http://127.0.0.1:18333}
-here=$(cd "$(dirname "$0")/.." && pwd)
+# the edge config is otap-rs/scripts/consumer_soak_edge.yaml (this copy lives in bench/clean/block5)
+here=$(cd "$(dirname "$0")/../../../otap-rs" && pwd)
 tmp=$(mktemp -d)
 ch() { curl -sS "$CH/" --data-binary "$1"; }
 cpu() { ch "SELECT sum(value) FROM system.events WHERE event IN ('UserTimeMicroseconds', 'SystemTimeMicroseconds')"; }
@@ -38,13 +40,13 @@ for poll in ${POLLS:-200ms 1s}; do
   c1=$(cpu)
   kill -TERM $W $E 2>/dev/null; wait $W $E 2>/dev/null
   python3 - "$poll" "$c0" "$c1" "$tmp/stats.json" "$tmp/acked.jsonl" <<'EOF' | tee -a "$OUT"
-import json, statistics, sys
+import json, os, statistics, sys
 poll, c0, c1, sf, af = sys.argv[1:]
 s = json.load(open(sf))
 acks = [json.loads(l)["ack_ms"] for l in open(af)]
 objs = s["objects_inserted"] + s["series_objects_inserted"]
 s3 = s["s3"]
-print(json.dumps({"poll": poll, "objects": objs, "rows": s["rows_inserted"], "statements": s["statements"],
+print(json.dumps({"poll": poll, "rep": int(os.environ.get("REP", "0")), "objects": objs, "rows": s["rows_inserted"], "statements": s["statements"],
     "objects_per_statement": round(s["statement_objects"] / max(s["statements"], 1), 2),
     "visible_ms_p50": round(s["visible_ms_p50"]), "visible_ms_p90": round(s["visible_ms_p90"]),
     "visible_ms_p99": round(s["visible_ms_p99"]), "visible_ms_max": round(s["visible_ms_max"]),

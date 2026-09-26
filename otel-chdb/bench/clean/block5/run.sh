@@ -11,6 +11,7 @@
 #     objects, and 10k-row / 100k-point objects), --poll 200ms and 1s,
 #     --exit-after-idle 2s, fresh database and checkpoint each; rows/s is
 #     rows over the time to the last statement. 5 repetitions.
+# Restart-safe: a (rep, poll) already in latency.jsonl / drain.jsonl is skipped.
 set -u
 here=$(cd "$(dirname "$0")" && pwd); clean=$(dirname "$here")
 S=/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad
@@ -25,8 +26,9 @@ ch() { curl -sS "$CH/" --data-binary "$1"; }
 header "block5 before"
 for rep in $(seq 1 "${NREP:-5}"); do
   for poll in 200ms 1s; do
+    grep -q "\"poll\": \"$poll\", \"rep\": $rep," $here/latency.jsonl 2>/dev/null && continue  # restart-safe
     gate; snap "begin b5a-$poll-r$rep"
-    B=$W OUT=$here/latency.jsonl POLLS=$poll SECS=90 bash $here/latency.sh > /dev/null 2>> $here/run.log
+    REP=$rep B=$W OUT=$here/latency.jsonl POLLS=$poll SECS=90 bash $here/latency.sh > /dev/null 2>> $here/run.log
     snap "finish b5a-$poll-r$rep"
   done
 done
@@ -35,6 +37,7 @@ for rep in $(seq 1 "${NREP:-5}"); do
   for root in large small; do
     for poll in 200ms 1s; do
       db=clean_b5_${root}_$rep
+      grep -q "\"root\":\"$root\",\"poll\":\"$poll\",\"rep\":$rep," $here/drain.jsonl 2>/dev/null && continue  # restart-safe
       ch "DROP DATABASE IF EXISTS $db SYNC"
       gate; snap "begin b5b-$root-$poll-r$rep"
       c0=$(ch "SELECT sum(value) FROM system.events WHERE event IN ('UserTimeMicroseconds', 'SystemTimeMicroseconds')")

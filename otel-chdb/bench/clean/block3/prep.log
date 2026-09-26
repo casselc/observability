@@ -1,0 +1,4 @@
+traces: 10 objects
+logs: 10 objects
+2026/09/26 03:08:06 clean/merges/pool/big: 24 rounds, 200 pods, 200 pods/batch: 241 objects, 108.7 MB, B rows by type [672000 1248000 384000 48000 48000 100000], 25.6s
+2026/09/26 03:08:15 clean/merges/pool/big50: 50 rounds, 200 pods, 200 pods/batch: 100 objects, 8.0 MB, B rows by type [1400000 2600000 800000 100000 100000 100000], 9.7s

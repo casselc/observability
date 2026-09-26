@@ -1,0 +1,114 @@
+{
+ "usRow": {
+  "clean": 3.4287875000000003,
+  "lo": 2.8716000000000004,
+  "hi": 3.9640250000000004,
+  "n": 5,
+  "earlier": 5.0,
+  "src": "block 2: all-in CPU/row of 1-object 10k-row statements, traces\u00b70.75 + logs\u00b70.25"
+ },
+ "_usRow_marginal": {
+  "clean": 2.2107483863837403,
+  "lo": 1.8817634124834928,
+  "hi": 2.383486558494836,
+  "n": 5,
+  "earlier": null,
+  "src": "block 2 fit: marginal \u00b5s/row, traces\u00b70.75 + logs\u00b70.25 (no fixed cost)"
+ },
+ "usPointB": {
+  "clean": 1.1767274876220781,
+  "lo": 1.0112303312553284,
+  "hi": 1.3637827559993327,
+  "n": 5,
+  "earlier": 1.15,
+  "src": "block 2: u_row, B points mix + series/120"
+ },
+ "usPointA": {
+  "clean": 4.470241249254403,
+  "lo": 3.645574791834331,
+  "hi": 4.803018823073858,
+  "n": 5,
+  "earlier": 7.85,
+  "src": "block 2: u_row, ClickStack tables mix"
+ },
+ "fixedMs": {
+  "clean": 15.304429646530572,
+  "lo": 11.618351751322752,
+  "hi": 18.556135328632507,
+  "n": 5,
+  "earlier": 17.0,
+  "src": "block 2: 1-object statements of 20 points, CPU \u2212 rows\u00b7u_row"
+ },
+ "_fixed_fit": {
+  "clean": 14.963693682110984,
+  "lo": 13.148771050700368,
+  "hi": 17.392210098573848,
+  "n": 5,
+  "earlier": 17.0,
+  "src": "block 2 fit: F_stmt + F_obj, median over metrics tables"
+ },
+ "_fixed_at32": {
+  "clean": 2.117310012977687,
+  "lo": 1.80042106344585,
+  "hi": 2.2438128848335985,
+  "n": 5,
+  "earlier": null,
+  "src": "block 2 fit: F_stmt/32 + F_obj per object at 32 objects/statement"
+ },
+ "edgeGoSpan": {
+  "clean": 6.81,
+  "lo": 6.33,
+  "hi": 6.890000000000001,
+  "n": 5,
+  "earlier": 7.290000000000001,
+  "src": "block 1: parquet-go, traces, s3"
+ },
+ "edgeGoLog": {
+  "clean": 4.76,
+  "lo": 4.66,
+  "hi": 4.970000000000001,
+  "n": 5,
+  "earlier": 5.24,
+  "src": "block 1: parquet-go, logs, s3"
+ },
+ "edgeRsSpan": {
+  "clean": 4.0,
+  "lo": 3.96,
+  "hi": 4.07,
+  "n": 5,
+  "earlier": 4.470000000000001,
+  "src": "block 1: rust-direct, traces, s3"
+ },
+ "edgeRsLog": {
+  "clean": 2.94,
+  "lo": 2.92,
+  "hi": 3.06,
+  "n": 5,
+  "earlier": 3.2600000000000002,
+  "src": "block 1: rust-direct, logs, s3"
+ },
+ "edgePointB": {
+  "clean": 2.06,
+  "lo": 1.98,
+  "hi": 2.15,
+  "n": 5,
+  "earlier": 1.67,
+  "src": "block 1: rust-pipeline-series_table, metrics fleet, s3 (the calculator's 2.0 is the Go prototype)"
+ },
+ "edgeRsPointA": {
+  "clean": 6.2,
+  "lo": 6.16,
+  "hi": 6.26,
+  "n": 5,
+  "earlier": 4.65,
+  "src": "block 1: rust-pipeline-clickstack_tables, metrics fleet, s3"
+ },
+ "edgeGoPointA": {
+  "clean": 7.468,
+  "lo": 7.209499999999999,
+  "hi": 7.766000000000001,
+  "n": 5,
+  "earlier": 7.823,
+  "src": "block 1: parquet-go per type, local, mix blend (earlier: the parquetgo results it was built from)"
+ }
+}

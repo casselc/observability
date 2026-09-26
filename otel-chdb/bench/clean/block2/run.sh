@@ -6,7 +6,8 @@
 # OSCPUVirtualTimeMicroseconds, User+System beside it), rows and objects come
 # from query_log. analyze.py fits CPU = per statement + per object + per row.
 # ClickHouse on CPUs 1-3; consume and SeaweedFS on CPU 0. 5 repetitions,
-# each consumer run gated on load <= 0.45.
+# each consumer run gated on load <= 0.45. Restart-safe: finished runs are
+# skipped (see the tables.jsonl check).
 set -u
 here=$(cd "$(dirname "$0")" && pwd); clean=$(dirname "$here")
 S=/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad
@@ -19,6 +20,10 @@ for rep in $(seq 1 "${NREP:-5}"); do
   for root in small large; do
     for mb in 1 32; do
       db=clean_b2_${root}_m${mb}_r$rep
+      # restart-safe: a run is done once its tables.jsonl line (the last step) exists
+      grep -q "\"db\":\"$db\"" $here/raw/tables.jsonl 2>/dev/null && continue
+      # a redo: drop statement rows a killed attempt may have appended
+      python3 $here/../lib/gzfilter.py $here/raw/statements.jsonl.gz $root $mb $rep
       ch "DROP DATABASE IF EXISTS $db SYNC"
       gate
       snap "begin b2-$root-m$mb-r$rep"

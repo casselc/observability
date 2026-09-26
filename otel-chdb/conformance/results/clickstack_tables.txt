@@ -1,0 +1,213 @@
+PASS central: same tables: rust only [], go only []
+PASS otel_metrics_exponential_histogram: count + hash: rust 5603	13933733702650341628 go 5603	13933733702650341628
+PASS otel_metrics_exponential_histogram: rows in rust not in go: 0
+PASS otel_metrics_exponential_histogram: rows in go not in rust: 0
+PASS otel_metrics_exponential_histogram: same content keys and rows per key (5): rust 5 keys, go 5, common 5
+PASS otel_metrics_exponential_histogram: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
+PASS otel_metrics_exponential_histogram: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
+PASS otel_metrics_gauge: count + hash: rust 6143	9489138890454034510 go 6143	9489138890454034510
+PASS otel_metrics_gauge: rows in rust not in go: 0
+PASS otel_metrics_gauge: rows in go not in rust: 0
+PASS otel_metrics_gauge: same content keys and rows per key (5): rust 5 keys, go 5, common 5
+PASS otel_metrics_gauge: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
+PASS otel_metrics_gauge: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
+PASS otel_metrics_histogram: count + hash: rust 5663	16401052171648431877 go 5663	16401052171648431877
+PASS otel_metrics_histogram: rows in rust not in go: 0
+PASS otel_metrics_histogram: rows in go not in rust: 0
+PASS otel_metrics_histogram: same content keys and rows per key (5): rust 5 keys, go 5, common 5
+PASS otel_metrics_histogram: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
+PASS otel_metrics_histogram: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
+PASS otel_metrics_sum: count + hash: rust 5783	12952669055766220475 go 5783	12952669055766220475
+PASS otel_metrics_sum: rows in rust not in go: 0
+PASS otel_metrics_sum: rows in go not in rust: 0
+PASS otel_metrics_sum: same content keys and rows per key (5): rust 5 keys, go 5, common 5
+PASS otel_metrics_sum: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
+PASS otel_metrics_sum: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
+PASS otel_metrics_summary: count + hash: rust 5543	11314457839106238261 go 5543	11314457839106238261
+PASS otel_metrics_summary: rows in rust not in go: 0
+PASS otel_metrics_summary: rows in go not in rust: 0
+PASS otel_metrics_summary: same content keys and rows per key (5): rust 5 keys, go 5, common 5
+PASS otel_metrics_summary: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
+PASS otel_metrics_summary: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
+PASS objects: same namespaces: rust ['metrics_exponential_histogram', 'metrics_gauge', 'metrics_histogram', 'metrics_sum', 'metrics_summary'] go ['metrics_exponential_histogram', 'metrics_gauge', 'metrics_histogram', 'metrics_sum', 'metrics_summary']
+PASS metrics_exponential_histogram: same object count: rust 5 go 5
+PASS metrics_exponential_histogram/00000000000000000000.parquet: S3 metadata
+PASS metrics_exponential_histogram/00000000000000000000.parquet: footer = metadata (go): []
+PASS metrics_exponential_histogram/00000000000000000000.parquet: footer keys as rust's: []
+PASS metrics_exponential_histogram/00000000000000000000.parquet: Parquet schema: []
+PASS metrics_exponential_histogram/00000000000000000000.parquet: wire encodings and statistics: []
+PASS metrics_exponential_histogram/00000000000000000000.parquet: rows: rust 3000 go 3000
+INFO metrics_exponential_histogram/00000000000000000000.parquet: bytes: rust 89571 (footer 6815) go 129565 (footer 6561)
+PASS metrics_exponential_histogram/00000000000000000001.parquet: S3 metadata
+PASS metrics_exponential_histogram/00000000000000000001.parquet: footer = metadata (go): []
+PASS metrics_exponential_histogram/00000000000000000001.parquet: footer keys as rust's: []
+PASS metrics_exponential_histogram/00000000000000000001.parquet: Parquet schema: []
+PASS metrics_exponential_histogram/00000000000000000001.parquet: wire encodings and statistics: []
+PASS metrics_exponential_histogram/00000000000000000001.parquet: rows: rust 420 go 420
+INFO metrics_exponential_histogram/00000000000000000001.parquet: bytes: rust 43746 (footer 6766) go 54359 (footer 6450)
+PASS metrics_exponential_histogram/00000000000000000002.parquet: S3 metadata
+PASS metrics_exponential_histogram/00000000000000000002.parquet: footer = metadata (go): []
+PASS metrics_exponential_histogram/00000000000000000002.parquet: footer keys as rust's: []
+PASS metrics_exponential_histogram/00000000000000000002.parquet: Parquet schema: []
+PASS metrics_exponential_histogram/00000000000000000002.parquet: wire encodings and statistics: []
+PASS metrics_exponential_histogram/00000000000000000002.parquet: rows: rust 3 go 3
+INFO metrics_exponential_histogram/00000000000000000002.parquet: bytes: rust 11428 (footer 6293) go 11829 (footer 6029)
+PASS metrics_exponential_histogram/00000000000000000003.parquet: S3 metadata
+PASS metrics_exponential_histogram/00000000000000000003.parquet: footer = metadata (go): []
+PASS metrics_exponential_histogram/00000000000000000003.parquet: footer keys as rust's: []
+PASS metrics_exponential_histogram/00000000000000000003.parquet: Parquet schema: []
+PASS metrics_exponential_histogram/00000000000000000003.parquet: wire encodings and statistics: []
+PASS metrics_exponential_histogram/00000000000000000003.parquet: rows: rust 180 go 180
+INFO metrics_exponential_histogram/00000000000000000003.parquet: bytes: rust 33907 (footer 6715) go 37527 (footer 6421)
+PASS metrics_exponential_histogram/00000000000000000004.parquet: S3 metadata
+PASS metrics_exponential_histogram/00000000000000000004.parquet: footer = metadata (go): []
+PASS metrics_exponential_histogram/00000000000000000004.parquet: footer keys as rust's: []
+PASS metrics_exponential_histogram/00000000000000000004.parquet: Parquet schema: []
+PASS metrics_exponential_histogram/00000000000000000004.parquet: wire encodings and statistics: []
+PASS metrics_exponential_histogram/00000000000000000004.parquet: rows: rust 2000 go 2000
+INFO metrics_exponential_histogram/00000000000000000004.parquet: bytes: rust 65044 (footer 6804) go 92337 (footer 6548)
+PASS metrics_gauge: same object count: rust 5 go 5
+PASS metrics_gauge/00000000000000000000.parquet: S3 metadata
+PASS metrics_gauge/00000000000000000000.parquet: footer = metadata (go): []
+PASS metrics_gauge/00000000000000000000.parquet: footer keys as rust's: []
+PASS metrics_gauge/00000000000000000000.parquet: Parquet schema: []
+PASS metrics_gauge/00000000000000000000.parquet: wire encodings and statistics: []
+PASS metrics_gauge/00000000000000000000.parquet: rows: rust 3000 go 3000
+INFO metrics_gauge/00000000000000000000.parquet: bytes: rust 33279 (footer 5203) go 57824 (footer 5040)
+PASS metrics_gauge/00000000000000000001.parquet: S3 metadata
+PASS metrics_gauge/00000000000000000001.parquet: footer = metadata (go): []
+PASS metrics_gauge/00000000000000000001.parquet: footer keys as rust's: []
+PASS metrics_gauge/00000000000000000001.parquet: Parquet schema: []
+PASS metrics_gauge/00000000000000000001.parquet: wire encodings and statistics: []
+PASS metrics_gauge/00000000000000000001.parquet: rows: rust 420 go 420
+INFO metrics_gauge/00000000000000000001.parquet: bytes: rust 32553 (footer 5321) go 37886 (footer 5066)
+PASS metrics_gauge/00000000000000000002.parquet: S3 metadata
+PASS metrics_gauge/00000000000000000002.parquet: footer = metadata (go): []
+PASS metrics_gauge/00000000000000000002.parquet: footer keys as rust's: []
+PASS metrics_gauge/00000000000000000002.parquet: Parquet schema: []
+PASS metrics_gauge/00000000000000000002.parquet: wire encodings and statistics: []
+PASS metrics_gauge/00000000000000000002.parquet: rows: rust 3 go 3
+INFO metrics_gauge/00000000000000000002.parquet: bytes: rust 9144 (footer 4975) go 9427 (footer 4764)
+PASS metrics_gauge/00000000000000000003.parquet: S3 metadata
+PASS metrics_gauge/00000000000000000003.parquet: footer = metadata (go): []
+PASS metrics_gauge/00000000000000000003.parquet: footer keys as rust's: []
+PASS metrics_gauge/00000000000000000003.parquet: Parquet schema: []
+PASS metrics_gauge/00000000000000000003.parquet: wire encodings and statistics: []
+PASS metrics_gauge/00000000000000000003.parquet: rows: rust 720 go 720
+INFO metrics_gauge/00000000000000000003.parquet: bytes: rust 41359 (footer 5444) go 56845 (footer 5194)
+PASS metrics_gauge/00000000000000000004.parquet: S3 metadata
+PASS metrics_gauge/00000000000000000004.parquet: footer = metadata (go): []
+PASS metrics_gauge/00000000000000000004.parquet: footer keys as rust's: []
+PASS metrics_gauge/00000000000000000004.parquet: Parquet schema: []
+PASS metrics_gauge/00000000000000000004.parquet: wire encodings and statistics: []
+PASS metrics_gauge/00000000000000000004.parquet: rows: rust 2000 go 2000
+INFO metrics_gauge/00000000000000000004.parquet: bytes: rust 25497 (footer 5195) go 42136 (footer 5030)
+PASS metrics_histogram: same object count: rust 5 go 5
+PASS metrics_histogram/00000000000000000000.parquet: S3 metadata
+PASS metrics_histogram/00000000000000000000.parquet: footer = metadata (go): []
+PASS metrics_histogram/00000000000000000000.parquet: footer keys as rust's: []
+PASS metrics_histogram/00000000000000000000.parquet: Parquet schema: []
+PASS metrics_histogram/00000000000000000000.parquet: wire encodings and statistics: []
+PASS metrics_histogram/00000000000000000000.parquet: rows: rust 3000 go 3000
+INFO metrics_histogram/00000000000000000000.parquet: bytes: rust 46352 (footer 6315) go 93110 (footer 6063)
+PASS metrics_histogram/00000000000000000001.parquet: S3 metadata
+PASS metrics_histogram/00000000000000000001.parquet: footer = metadata (go): []
+PASS metrics_histogram/00000000000000000001.parquet: footer keys as rust's: []
+PASS metrics_histogram/00000000000000000001.parquet: Parquet schema: []
+PASS metrics_histogram/00000000000000000001.parquet: wire encodings and statistics: []
+PASS metrics_histogram/00000000000000000001.parquet: rows: rust 420 go 420
+INFO metrics_histogram/00000000000000000001.parquet: bytes: rust 46414 (footer 6237) go 56147 (footer 5918)
+PASS metrics_histogram/00000000000000000002.parquet: S3 metadata
+PASS metrics_histogram/00000000000000000002.parquet: footer = metadata (go): []
+PASS metrics_histogram/00000000000000000002.parquet: footer keys as rust's: []
+PASS metrics_histogram/00000000000000000002.parquet: Parquet schema: []
+PASS metrics_histogram/00000000000000000002.parquet: wire encodings and statistics: []
+PASS metrics_histogram/00000000000000000002.parquet: rows: rust 3 go 3
+INFO metrics_histogram/00000000000000000002.parquet: bytes: rust 10541 (footer 5775) go 10876 (footer 5525)
+PASS metrics_histogram/00000000000000000003.parquet: S3 metadata
+PASS metrics_histogram/00000000000000000003.parquet: footer = metadata (go): []
+PASS metrics_histogram/00000000000000000003.parquet: footer keys as rust's: []
+PASS metrics_histogram/00000000000000000003.parquet: Parquet schema: []
+PASS metrics_histogram/00000000000000000003.parquet: wire encodings and statistics: []
+PASS metrics_histogram/00000000000000000003.parquet: rows: rust 240 go 240
+INFO metrics_histogram/00000000000000000003.parquet: bytes: rust 39715 (footer 6210) go 44579 (footer 5915)
+PASS metrics_histogram/00000000000000000004.parquet: S3 metadata
+PASS metrics_histogram/00000000000000000004.parquet: footer = metadata (go): []
+PASS metrics_histogram/00000000000000000004.parquet: footer keys as rust's: []
+PASS metrics_histogram/00000000000000000004.parquet: Parquet schema: []
+PASS metrics_histogram/00000000000000000004.parquet: wire encodings and statistics: []
+PASS metrics_histogram/00000000000000000004.parquet: rows: rust 2000 go 2000
+INFO metrics_histogram/00000000000000000004.parquet: bytes: rust 34144 (footer 6299) go 65596 (footer 6048)
+PASS metrics_sum: same object count: rust 5 go 5
+PASS metrics_sum/00000000000000000000.parquet: S3 metadata
+PASS metrics_sum/00000000000000000000.parquet: footer = metadata (go): []
+PASS metrics_sum/00000000000000000000.parquet: footer keys as rust's: []
+PASS metrics_sum/00000000000000000000.parquet: Parquet schema: []
+PASS metrics_sum/00000000000000000000.parquet: wire encodings and statistics: []
+PASS metrics_sum/00000000000000000000.parquet: rows: rust 3000 go 3000
+INFO metrics_sum/00000000000000000000.parquet: bytes: rust 17970 (footer 5412) go 41832 (footer 5262)
+PASS metrics_sum/00000000000000000001.parquet: S3 metadata
+PASS metrics_sum/00000000000000000001.parquet: footer = metadata (go): []
+PASS metrics_sum/00000000000000000001.parquet: footer keys as rust's: []
+PASS metrics_sum/00000000000000000001.parquet: Parquet schema: []
+PASS metrics_sum/00000000000000000001.parquet: wire encodings and statistics: []
+PASS metrics_sum/00000000000000000001.parquet: rows: rust 420 go 420
+INFO metrics_sum/00000000000000000001.parquet: bytes: rust 39733 (footer 5551) go 48674 (footer 5290)
+PASS metrics_sum/00000000000000000002.parquet: S3 metadata
+PASS metrics_sum/00000000000000000002.parquet: footer = metadata (go): []
+PASS metrics_sum/00000000000000000002.parquet: footer keys as rust's: []
+PASS metrics_sum/00000000000000000002.parquet: Parquet schema: []
+PASS metrics_sum/00000000000000000002.parquet: wire encodings and statistics: []
+PASS metrics_sum/00000000000000000002.parquet: rows: rust 3 go 3
+INFO metrics_sum/00000000000000000002.parquet: bytes: rust 9542 (footer 5206) go 9823 (footer 4989)
+PASS metrics_sum/00000000000000000003.parquet: S3 metadata
+PASS metrics_sum/00000000000000000003.parquet: footer = metadata (go): []
+PASS metrics_sum/00000000000000000003.parquet: footer keys as rust's: []
+PASS metrics_sum/00000000000000000003.parquet: Parquet schema: []
+PASS metrics_sum/00000000000000000003.parquet: wire encodings and statistics: []
+PASS metrics_sum/00000000000000000003.parquet: rows: rust 360 go 360
+INFO metrics_sum/00000000000000000003.parquet: bytes: rust 24986 (footer 5526) go 30445 (footer 5285)
+PASS metrics_sum/00000000000000000004.parquet: S3 metadata
+PASS metrics_sum/00000000000000000004.parquet: footer = metadata (go): []
+PASS metrics_sum/00000000000000000004.parquet: footer keys as rust's: []
+PASS metrics_sum/00000000000000000004.parquet: Parquet schema: []
+PASS metrics_sum/00000000000000000004.parquet: wire encodings and statistics: []
+PASS metrics_sum/00000000000000000004.parquet: rows: rust 2000 go 2000
+INFO metrics_sum/00000000000000000004.parquet: bytes: rust 15312 (footer 5402) go 31538 (footer 5252)
+PASS metrics_summary: same object count: rust 5 go 5
+PASS metrics_summary/00000000000000000000.parquet: S3 metadata
+PASS metrics_summary/00000000000000000000.parquet: footer = metadata (go): []
+PASS metrics_summary/00000000000000000000.parquet: footer keys as rust's: []
+PASS metrics_summary/00000000000000000000.parquet: Parquet schema: []
+PASS metrics_summary/00000000000000000000.parquet: wire encodings and statistics: []
+PASS metrics_summary/00000000000000000000.parquet: rows: rust 3000 go 3000
+INFO metrics_summary/00000000000000000000.parquet: bytes: rust 56411 (footer 4713) go 83909 (footer 4531)
+PASS metrics_summary/00000000000000000001.parquet: S3 metadata
+PASS metrics_summary/00000000000000000001.parquet: footer = metadata (go): []
+PASS metrics_summary/00000000000000000001.parquet: footer keys as rust's: []
+PASS metrics_summary/00000000000000000001.parquet: Parquet schema: []
+PASS metrics_summary/00000000000000000001.parquet: wire encodings and statistics: []
+PASS metrics_summary/00000000000000000001.parquet: rows: rust 420 go 420
+INFO metrics_summary/00000000000000000001.parquet: bytes: rust 32872 (footer 4573) go 37714 (footer 4335)
+PASS metrics_summary/00000000000000000002.parquet: S3 metadata
+PASS metrics_summary/00000000000000000002.parquet: footer = metadata (go): []
+PASS metrics_summary/00000000000000000002.parquet: footer keys as rust's: []
+PASS metrics_summary/00000000000000000002.parquet: Parquet schema: []
+PASS metrics_summary/00000000000000000002.parquet: wire encodings and statistics: []
+PASS metrics_summary/00000000000000000002.parquet: rows: rust 3 go 3
+INFO metrics_summary/00000000000000000002.parquet: bytes: rust 7757 (footer 4212) go 8092 (footer 4055)
+PASS metrics_summary/00000000000000000003.parquet: S3 metadata
+PASS metrics_summary/00000000000000000003.parquet: footer = metadata (go): []
+PASS metrics_summary/00000000000000000003.parquet: footer keys as rust's: []
+PASS metrics_summary/00000000000000000003.parquet: Parquet schema: []
+PASS metrics_summary/00000000000000000003.parquet: wire encodings and statistics: []
+PASS metrics_summary/00000000000000000003.parquet: rows: rust 120 go 120
+INFO metrics_summary/00000000000000000003.parquet: bytes: rust 19967 (footer 4542) go 21742 (footer 4325)
+PASS metrics_summary/00000000000000000004.parquet: S3 metadata
+PASS metrics_summary/00000000000000000004.parquet: footer = metadata (go): []
+PASS metrics_summary/00000000000000000004.parquet: footer keys as rust's: []
+PASS metrics_summary/00000000000000000004.parquet: Parquet schema: []
+PASS metrics_summary/00000000000000000004.parquet: wire encodings and statistics: []
+PASS metrics_summary/00000000000000000004.parquet: rows: rust 2000 go 2000
+INFO metrics_summary/00000000000000000004.parquet: bytes: rust 42822 (footer 4703) go 61376 (footer 4519)
+0 failed

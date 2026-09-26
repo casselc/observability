@@ -1,0 +1,46 @@
+# The Go edge for the conformance run: OTLP/HTTP in -> s3pq, with no
+# sending queue and no retry, so the response follows the commit (as the
+# Rust edge's configs/edge.yaml with wait_for_result) and the sender
+# resends what it got no 2xx for. The deployed publisher
+# (../deploy/base/go/publisher-config.yaml) adds the persistent queue.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: ${env:OTLP_HTTP:-127.0.0.1:14518}
+        max_request_body_size: 268435456
+extensions:
+  health_check:
+    endpoint: ${env:HEALTH:-127.0.0.1:14533}
+exporters:
+  s3pq:
+    producer_id: ${env:PRODUCER:-edge-go}
+    lanes: ${env:LANES:-1}
+    metrics_layout: ${env:METRICS_LAYOUT:-series_table}
+    s3:
+      url: ${env:S3_URL}
+      region: us-east-1
+      put_timeout: ${env:PUT_TIMEOUT:-10s}
+      head_timeout: 2s
+    timeout: 120s
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: false
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: none
+    logs:
+      level: ${env:LOG_LEVEL:-info}
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [s3pq]
+    logs:
+      receivers: [otlp]
+      exporters: [s3pq]
+    metrics:
+      receivers: [otlp]
+      exporters: [s3pq]

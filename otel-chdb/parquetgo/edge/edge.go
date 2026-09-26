@@ -86,6 +86,9 @@ type Config struct {
 func EdgeParquet() parquetgo.Options {
 	o := parquetgo.DefaultOptions()
 	o.BloomColumns = []string{"TraceId"}
+	// otap-rs schema.rs HIGH_CARDINALITY: no dictionary on the near-unique leaves.
+	o.PlainFor = append(o.PlainFor, "Value", "Sum", "Exemplars.TimeUnix.list.element", "Exemplars.Value.list.element",
+		"Exemplars.SpanId.list.element", "Exemplars.TraceId.list.element")
 	o.Statistics = false // page-header statistics; chunk statistics stay
 	o.ColumnIndexLimit, o.TruncateStatistics = 64, 64
 	return o

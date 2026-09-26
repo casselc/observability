@@ -17,6 +17,8 @@
 //! | `wTomb`, `wSeeTomb` | a create-only tombstone in the bucket, `CkptDoc::close`, `plan::found` |
 //! | `gc` | `gc::doomed` must pick exactly the model's slots |
 //! | `wCrash` | the process's state (held lease, observer) is gone |
+//! | `wRelease` | `coord::may_act` must allow it (no statement of the worker can still land: `Held::settled_by`); `coord::release` |
+//! | `newDay`, the partitions | the objects' received time is their epoch's day; the check and the verify read the partitions `plan::check_range` / `plan::own_range` give (the verify's recount over the horizon included) |
 //! | series actions | not driven (the edge's cache is `series.rs`; see the model) |
 //!
 //! After every step the implementation's state is projected onto the
@@ -24,7 +26,8 @@
 //! checkpoint view, phase and objects, the checkpoint, central, statements
 //! in flight) and compared, together with what each worker's clock allows
 //! it now: `takeable`, `mayStart` and `lapsed` per worker, which the model
-//! computes from its own formulas and the implementation from `coord.rs`.
+//! computes from its own formulas and the implementation from `coord.rs`,
+//! and `mayRelease`; and central's rows per payload and day.
 //!
 //! Two instances are replayed: `s3InlineConsumerDesign` (the full hostile
 //! environment) and `designQuiet` (no writer faults, no series lane), where
@@ -46,7 +49,7 @@
 //! `CkptDoc::compact` would drop, run on a copy of the checkpoint.
 //!
 //!   cargo test --release --test mbt_s3inline_consumer -- --nocapture
-//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact cargo test --release --test mbt_s3inline_consumer   # must fail
+//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact|release_in_flight|wall_range cargo test --release --test mbt_s3inline_consumer   # must fail
 
 #[path = "../src/consumer/mod.rs"]
 #[allow(dead_code, unused_imports)]
@@ -55,29 +58,40 @@ mod common;
 
 use common::s3inline::*;
 use consumer::coord::{self, CkptDoc, EpochPos, Held, LeaseDoc, Mutation, Observer, Timing};
-use consumer::plan::{self, Found, Verdict};
+use consumer::plan::{self, DAY_NS, Found, Verdict};
 use otap_s3pq::proto;
 use quint_connect::*;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-// The model's design instances: 2 epochs, 3 slots, TTL 6, MARGIN 1, BUDGET 1.
+// The model's design instances: 2 epochs, 3 slots, TTL 6, MARGIN 1,
+// BUDGET 1, SLACK 1; days 0..1 and a copy horizon of 1 day.
 const EPOCHS: i64 = 2;
 const SLOTS: i64 = 3;
 const LANE: &str = "mbt/lane";
+const MAX_DAY: i64 = 1;
+const HORIZON_DAYS: u64 = 1;
 
 fn timing() -> Timing {
     Timing {
         ttl_ms: 6,
         margin_ms: 1,
         budget_ms: 1,
+        slack_ms: 1,
         mutation: match std::env::var("OTAPRS_CONSUMER_MUTANT").as_deref() {
             Ok("no_time_bound") => Mutation::NoTimeBound,
             Ok("no_verify") => Mutation::NoVerify,
             Ok("early_compact") => Mutation::EarlyCompact,
+            Ok("release_in_flight") => Mutation::ReleaseInFlight,
+            Ok("wall_range") => Mutation::WallRange,
             _ => Mutation::None,
         },
     }
+}
+
+/// A model day as a received time: noon of that day (ns).
+fn day_ns(d: i64) -> u64 {
+    d as u64 * DAY_NS + DAY_NS / 2
 }
 
 // ---- the model's types ------------------------------------------------------------
@@ -152,24 +166,31 @@ struct Raw {
     l_inflight: BTreeSet<Req>,
     #[serde(rename = "s3InlineConsumer::L::responses", alias = "s3InlineConsumerCompact::L::responses")]
     l_responses: BTreeSet<Resp>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time", alias = "designCopies::s3InlineConsumer::time",
         alias = "compactDesign::s3InlineConsumerCompact::time", alias = "compactQuiet::s3InlineConsumerCompact::time")]
     time: i64,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease", alias = "designCopies::s3InlineConsumer::lease",
         alias = "compactDesign::s3InlineConsumerCompact::lease", alias = "compactQuiet::s3InlineConsumerCompact::lease")]
     lease: LeaseM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers", alias = "designCopies::s3InlineConsumer::workers",
         alias = "compactDesign::s3InlineConsumerCompact::workers", alias = "compactQuiet::s3InlineConsumerCompact::workers")]
     workers: BTreeMap<i64, WorkerM>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt", alias = "designCopies::s3InlineConsumer::ckpt",
         alias = "compactDesign::s3InlineConsumerCompact::ckpt", alias = "compactQuiet::s3InlineConsumerCompact::ckpt")]
     ckpt: CkptM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central", alias = "designCopies::s3InlineConsumer::central",
         alias = "compactDesign::s3InlineConsumerCompact::central", alias = "compactQuiet::s3InlineConsumerCompact::central")]
     central: BTreeMap<i64, i64>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts", alias = "designCopies::s3InlineConsumer::stmts",
         alias = "compactDesign::s3InlineConsumerCompact::stmts", alias = "compactQuiet::s3InlineConsumerCompact::stmts")]
     stmts: BTreeSet<StmtM>,
+    // s3InlineConsumer only (absent: no partitions in the instance)
+    #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::crows", alias = "designQuiet::s3InlineConsumer::crows",
+        alias = "designCopies::s3InlineConsumer::crows")]
+    crows: Option<BTreeMap<i64, BTreeMap<i64, i64>>>,
+    #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::day", alias = "designQuiet::s3InlineConsumer::day",
+        alias = "designCopies::s3InlineConsumer::day")]
+    day: i64,
     // s3InlineConsumerCompact only (absent: no compaction in the instance)
     #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::floor", alias = "compactQuiet::s3InlineConsumerCompact::floor")]
     floor: i64,
@@ -185,6 +206,7 @@ pub struct Allowed {
     takeable: BTreeMap<i64, bool>,
     may_start: BTreeMap<i64, bool>,
     lapsed: BTreeMap<i64, bool>,
+    may_release: BTreeMap<i64, bool>,
     compactable: BTreeSet<i64>,
 }
 
@@ -203,6 +225,10 @@ pub struct Spec {
     workers: BTreeMap<i64, WorkerM>,
     ckpt: CkptM,
     central: BTreeMap<i64, i64>,
+    /// Central's rows per (payload, day), nonzero only (a model without
+    /// partitions: every row on day 0).
+    crows: BTreeMap<(i64, i64), i64>,
+    day: i64,
     stmts: BTreeSet<StmtM>,
     floor: i64,
     retired: BTreeSet<i64>,
@@ -214,15 +240,29 @@ impl From<Raw> for Spec {
     fn from(r: Raw) -> Self {
         // The model's formulas (s3InlineConsumer.qnt: takeable, mayStart, lapsed).
         let t = timing();
-        let (ttl, m, b) = (t.ttl_ms as i64, t.margin_ms as i64, t.budget_ms as i64);
+        let (ttl, m, b, sl) = (t.ttl_ms as i64, t.margin_ms as i64, t.budget_ms as i64, t.slack_ms as i64);
         let allowed = Allowed {
             takeable: r.workers.iter().map(|(w, x)| (*w, !x.holds && (r.lease.owner == 0 || r.time >= x.seen + ttl + m))).collect(),
             may_start: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time + b <= x.sent + ttl - m)).collect(),
             lapsed: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time >= x.sent + ttl - m)).collect(),
+            // s3InlineConsumer's mayRelease (the design: RELEASE_GUARD)
+            may_release: r
+                .workers
+                .iter()
+                .map(|(w, x)| {
+                    let current = r.lease == LeaseM { owner: *w, epoch: x.lease_epoch, sent: x.sent };
+                    let settled = r.stmts.iter().filter(|q| q.worker == *w && q.inc == x.inc).all(|q| r.time > q.fence + m + b + sl);
+                    (*w, x.holds && current && settled)
+                })
+                .collect(),
             // s3InlineConsumerCompact's dropsOf (the design: closed and retired, above the floor)
             compactable: (1..=EPOCHS).filter(|e| *e > r.floor && r.ckpt.closed[e] && r.retired.contains(e)).collect(),
         };
         let view_floor = r.view_floor.unwrap_or_else(|| r.workers.keys().map(|w| (*w, 0)).collect());
+        let crows = match r.crows {
+            Some(c) => c.iter().flat_map(|(p, ds)| ds.iter().filter(|(_, n)| **n > 0).map(|(d, n)| ((*p, *d), *n))).collect(),
+            None => r.central.iter().filter(|(_, n)| **n > 0).map(|(p, n)| ((*p, 0), *n)).collect(),
+        };
         Spec {
             log: r.l_log,
             writers: r.l_writers,
@@ -236,6 +276,8 @@ impl From<Raw> for Spec {
             workers: r.workers,
             ckpt: r.ckpt,
             central: r.central,
+            crows,
+            day: r.day,
             stmts: r.stmts,
             floor: r.floor,
             retired: r.retired,
@@ -300,7 +342,14 @@ pub struct ConsumerDriver {
     /// first saw the current lease version)
     seen: BTreeMap<i64, i64>,
     central: BTreeMap<i64, i64>,
+    /// Rows per (payload, day).
+    crows: BTreeMap<(i64, i64), i64>,
+    /// The calendar, and each epoch's day.
+    day: i64,
+    eday: BTreeMap<i64, i64>,
     stmts: Vec<StmtM>,
+    /// Per statement in flight (same order): the code's `Held::settled_by`.
+    settle: Vec<u64>,
     etags: u64,
     /// Epochs GC removed entirely (gc.json's `retired`).
     retired: BTreeSet<String>,
@@ -330,8 +379,82 @@ impl ConsumerDriver {
         self.workers = [1, 2].into_iter().map(|w| (w, Worker::new())).collect();
         self.seen = [(1, 0), (2, 0)].into_iter().collect();
         self.central = PAYLOADS.into_iter().map(|p| (p, 0)).collect();
+        self.crows.clear();
+        self.day = 0;
+        self.eday = [(1, 0), (2, 0)].into_iter().collect();
         self.stmts.clear();
+        self.settle.clear();
         self.retired.clear();
+    }
+
+    /// An object of the model as the code sees it: received on its epoch's day.
+    fn obj(&self, o: &ObjM) -> plan::Obj {
+        plan::Obj {
+            lane: LANE.into(),
+            epoch: ename(o.epoch),
+            seq: o.slot as u64,
+            key: proto::slot_key(&self.l.prefix, &ename(o.epoch), o.slot as u64),
+            size: 1,
+            content: format!("p{}", o.payload),
+            rows: 1,
+            received_ns: day_ns(self.eday[&o.epoch]),
+            seen_ms: 0,
+        }
+    }
+
+    /// What central shows of payload p in a range (None: every partition).
+    fn visible(&self, p: i64, r: Option<plan::CheckRange>) -> u64 {
+        (0..=MAX_DAY)
+            .filter(|d| r.is_none_or(|r| r.covers(day_ns(*d))))
+            .map(|d| self.crows.get(&(p, d)).copied().unwrap_or(0) as u64)
+            .sum()
+    }
+
+    fn wall_ns(&self) -> u64 {
+        day_ns(self.day)
+    }
+
+    /// The pre-check's count for an object (`plan::check_range`).
+    fn precheck(&self, o: &ObjM) -> u64 {
+        let x = self.obj(o);
+        let r = plan::check_range(&[&x], &Default::default(), Some(HORIZON_DAYS * DAY_NS), timing().mutation, self.wall_ns());
+        self.visible(o.payload, r)
+    }
+
+    /// The verify's count: the statement's own range, then over the horizon if short.
+    fn verify(&self, o: &ObjM) -> u64 {
+        let x = self.obj(o);
+        let own = plan::own_range(&[&x], &Default::default(), timing().mutation, self.wall_ns());
+        let n = self.visible(o.payload, own);
+        if matches!(plan::verdict(1, n), Verdict::Absent | Verdict::Partial(_)) {
+            n.max(self.precheck(o))
+        } else {
+            n
+        }
+    }
+
+    /// Whether the code lets worker w release its lane now.
+    fn may_release(&self, w: i64) -> bool {
+        let t = timing();
+        let x = &self.workers[&w];
+        let Some(h) = &x.held else { return false };
+        let current = self.lease.as_ref().is_some_and(|(_, e)| *e == h.etag);
+        let until = self.stmts.iter().zip(&self.settle).filter(|(q, _)| q.worker == w && q.inc == x.inc).map(|(_, u)| *u).max();
+        x.holds && current && coord::may_act(until, self.now(), &t)
+    }
+
+    fn release(&mut self, w: i64) {
+        let now = self.now();
+        assert!(self.may_release(w), "the model releases worker {w}'s lane at {now}; the code may not (a statement may still land)");
+        let h = self.workers[&w].held.clone().expect("holds");
+        let doc = coord::release(&h.doc, now);
+        let etag = self.etag();
+        self.lease = Some((doc, etag.clone()));
+        self.observe_all(&etag);
+        let x = self.w(w);
+        x.idle();
+        x.holds = false;
+        x.held = None;
     }
 
     /// The epochs a full listing shows the worker (every epoch the writers
@@ -463,7 +586,7 @@ impl ConsumerDriver {
         // The pre-check: absent ones only, one object per content key (the first).
         let mut pending: Vec<ObjM> = Vec::new();
         for o in &objs {
-            let absent = plan::verdict(1, self.central[&o.payload] as u64) == Verdict::Absent;
+            let absent = plan::verdict(1, self.precheck(o)) == Verdict::Absent;
             if absent && !pending.iter().any(|p| p.payload == o.payload) {
                 pending.push(*o);
             }
@@ -484,21 +607,28 @@ impl ConsumerDriver {
         if !x.pending.is_empty() {
             let fence = h.fence_wall_ms(&t).min(1000) as i64; // the model's NEVER is 1000
             self.stmts.push(StmtM { worker: w, inc: x.inc, objs: x.pending.iter().copied().collect(), fence });
+            self.settle.push(h.settled_by(&t));
         }
         self.w(w).phase = WPhaseM::WSent;
     }
 
     fn take_stmt(&mut self, q: &StmtM) -> StmtM {
         let i = self.stmts.iter().position(|s| s == q).expect("a statement in flight");
+        let _ = self.settle.remove(i);
         self.stmts.remove(i)
     }
 
     fn c_apply(&mut self, q: StmtM, sub: BTreeSet<ObjM>) {
+        let t = timing();
         let s = self.take_stmt(&q);
-        // The server-side fence: `WHERE now64() <= fence`.
-        assert!(self.time <= s.fence, "the model lands a statement after its fence");
+        // The server-side fence (`WHERE now64() <= fence`) plus the budget and
+        // the commit's slack: the latest a statement can land.
+        assert!(self.time <= s.fence + (t.budget_ms + t.slack_ms) as i64, "the model lands a statement after fence + budget + slack");
         for p in sub.iter().map(|o| o.payload).collect::<BTreeSet<_>>() {
             *self.central.get_mut(&p).expect("payload") += 1;
+        }
+        for o in &sub {
+            *self.crows.entry((o.payload, self.eday[&o.epoch])).or_default() += 1;
         }
     }
 
@@ -512,7 +642,7 @@ impl ConsumerDriver {
             .objs
             .iter()
             .map(|o| {
-                let v = plan::verdict(1, self.central[&o.payload] as u64);
+                let v = plan::verdict(1, self.verify(o));
                 (o.slot, t.mutation == Mutation::NoVerify || matches!(v, Verdict::Present | Verdict::Over(_)))
             })
             .collect();
@@ -610,10 +740,15 @@ impl Driver for ConsumerDriver {
             lResolve(e: i64) => self.l.resolve(e),
             lSwitchPayload(e: i64, p: i64) => self.l.switch_payload(e, p),
             lReceive(e: i64, q: Resp) => self.l.receive(e, q),
-            lNewIncarnation(z: bool) => self.l.new_incarnation(z),
+            lNewIncarnation(z: bool) => {
+                self.l.new_incarnation(z);
+                let _ = self.eday.insert(self.l.lease, self.day);
+            },
             lApply(q: Req) => self.l.apply(q),
             lLose(q: Req) => self.l.lose(q),
             tick => self.time += 1,
+            newDay => self.day += 1,
+            wRelease(w: i64) => self.release(w),
             wAcquire(w: i64) => self.acquire(w),
             wRenew(w: i64) => self.renew(w),
             wLapse(w: i64) => self.lapse(w),
@@ -699,6 +834,7 @@ impl State<ConsumerDriver> for Spec {
                 .collect(),
             may_start: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.may_start(now, &t)))).collect(),
             lapsed: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.lapsed(now, &t)))).collect(),
+            may_release: d.workers.keys().map(|w| (*w, d.may_release(*w))).collect(),
             compactable: d.compactable(),
         };
         let keep = |m: &BTreeMap<i64, BTreeMap<i64, Entry>>| -> BTreeMap<i64, BTreeMap<i64, Entry>> {
@@ -717,6 +853,8 @@ impl State<ConsumerDriver> for Spec {
             workers,
             ckpt: ckpt_m(&d.ckpt),
             central: d.central.clone(),
+            crows: d.crows.iter().filter(|(_, n)| **n > 0).map(|(k, n)| (*k, *n)).collect(),
+            day: d.day,
             stmts: d.stmts.iter().cloned().collect(),
             floor: epoch_num(&d.ckpt.floor),
             retired: d.retired.iter().map(|e| epoch_num(e)).collect(),
@@ -732,9 +870,16 @@ fn s3inline_consumer_design_simulation() -> impl Driver {
 }
 
 /// The design with no writer faults and no series lane: the steps go to
-/// the workers (checks, statements, verifies, takeovers, GC).
+/// the workers (checks, statements, verifies, takeovers, releases, GC).
 #[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designQuiet", max_samples = 1000, max_steps = 80)]
 fn s3inline_consumer_quiet_simulation() -> impl Driver {
+    ConsumerDriver::default()
+}
+
+/// Writer faults without the series lane: copies of a request in a later
+/// epoch, received on a later day, against the check's partition range.
+#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designCopies", max_samples = 500, max_steps = 80)]
+fn s3inline_consumer_copies_simulation() -> impl Driver {
     ConsumerDriver::default()
 }
 

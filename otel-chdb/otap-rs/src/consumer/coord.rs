@@ -104,6 +104,12 @@ pub struct Timing {
     pub margin_ms: u64,
     /// The longest an INSERT may run (`max_execution_time`).
     pub budget_ms: u64,
+    /// How long a statement's commit can outlive `max_execution_time`: on a
+    /// replicated table, one Keeper request (`operation_timeout_ms`, 10 s by
+    /// default; central-replicated/README.md §A time-bound caveat). The
+    /// margin must cover it (`check`), and a statement whose answer was lost
+    /// is treated as possibly landing until `Held::settled_by`.
+    pub slack_ms: u64,
     /// A deliberate bug, for the model-based test (never set in production).
     pub mutation: Mutation,
 }
@@ -122,18 +128,69 @@ pub enum Mutation {
     /// closed and retired or not (../model/s3InlineConsumerCompact.qnt's
     /// `earlyCompact`).
     EarlyCompact,
+    /// A lane is released (or re-checked) while a statement whose answer was
+    /// lost may still land (../model/s3InlineConsumer.qnt's `releaseInFlight`).
+    ReleaseInFlight,
+    /// The check's partition range comes from the worker's wall clock (today),
+    /// not from the objects' data (the model's `wallRange`).
+    WallRange,
 }
 
+/// The smallest lease margin a production worker accepts: a replicated
+/// central's Keeper request can outlive `max_execution_time` by
+/// `operation_timeout_ms` (10 s), and the margin must cover that
+/// (DECISIONS.md risk 5c). `--allow-short-margin` overrides it (tests).
+pub const MIN_MARGIN_MS: u64 = 10_000;
+
 impl Timing {
-    /// Sanity: a statement must fit inside a lease with room to renew.
+    /// Sanity: a statement must fit inside a lease with room to renew, and
+    /// the margin must cover how long a commit can outlive its time limit.
+    ///
+    /// Why margin ≥ slack: a statement sent under a lease version written at
+    /// `sent` starts on the server by the fence, `sent + ttl − margin −
+    /// budget` on the server's clock, which may be up to `margin` behind ours
+    /// (the clock assumption); it runs at most `budget` and commits at most
+    /// `slack` later: it has landed by `sent + ttl + slack` on our clock. No
+    /// other worker may take the lane before `sent + ttl + margin`.
     pub fn check(&self) -> Result<(), String> {
         if self.budget_ms + 2 * self.margin_ms + self.ttl_ms / 3 > self.ttl_ms {
             return Err(format!(
-                "lease ttl {} ms is too short for budget {} ms + 2 × margin {} ms + a renewal at ttl/3",
-                self.ttl_ms, self.budget_ms, self.margin_ms
+                "lease ttl {} ms is too short for budget {} ms + 2 × margin {} ms + a renewal at ttl/3 (need ttl ≥ {} ms)",
+                self.ttl_ms,
+                self.budget_ms,
+                self.margin_ms,
+                (self.budget_ms + 2 * self.margin_ms) * 3 / 2
+            ));
+        }
+        if self.slack_ms > self.margin_ms {
+            return Err(format!(
+                "lease margin {} ms is shorter than the commit slack {} ms: a statement could land after another worker took the lane",
+                self.margin_ms, self.slack_ms
             ));
         }
         Ok(())
+    }
+
+    /// `check`, plus the production floor on the margin (`MIN_MARGIN_MS`)
+    /// unless `allow_short` (tests with compressed timing).
+    pub fn check_production(&self, allow_short: bool) -> Result<(), String> {
+        self.check()?;
+        if !allow_short && self.margin_ms < MIN_MARGIN_MS {
+            return Err(format!(
+                "lease margin {} ms is below the minimum {} ms: on a replicated central one Keeper request can \
+                 outlive max_execution_time by operation_timeout_ms (10 s), and the margin must cover it \
+                 (DECISIONS.md D9, risk 5c). Raise --margin (and --ttl), or pass --allow-short-margin for a test.",
+                self.margin_ms, MIN_MARGIN_MS
+            ));
+        }
+        Ok(())
+    }
+
+    /// The production defaults: ttl 45 s, margin 10 s, budget 10 s, slack 10 s
+    /// (45 = 1.5 × (10 + 2 × 10): a statement plus both margins fit in the
+    /// two-thirds of the TTL left after a renewal is due).
+    pub const fn production() -> Timing {
+        Timing { ttl_ms: 45_000, margin_ms: 10_000, budget_ms: 10_000, slack_ms: 10_000, mutation: Mutation::None }
     }
 }
 
@@ -164,6 +221,24 @@ impl Held {
     pub fn lapsed(&self, now: u64, t: &Timing) -> bool {
         t.mutation != Mutation::NoTimeBound && now >= self.safe_until(t)
     }
+
+    /// On our monotonic clock, the latest a statement sent under this lease
+    /// version can still land: its fence plus the server clock's allowed lag
+    /// (margin), its budget and the commit slack: `sent + ttl + slack`. A
+    /// statement whose answer was lost (and whose KILL wasn't confirmed) is
+    /// treated as possibly landing until then: its lane is neither checked
+    /// again nor released before (`may_act`). With `slack ≤ margin` this is
+    /// never after the earliest takeover, `sent + ttl + margin`.
+    pub fn settled_by(&self, t: &Timing) -> u64 {
+        self.sent_ms + self.doc.ttl_ms + t.slack_ms
+    }
+}
+
+/// May a worker act on a lane again (check it, insert, release it) given the
+/// deadline of a statement whose outcome it doesn't know (`None`: none)?
+/// The model's rule: a worker acts only once its own statements are gone.
+pub fn may_act(unsettled_until: Option<u64>, now: u64, t: &Timing) -> bool {
+    t.mutation == Mutation::ReleaseInFlight || unsettled_until.is_none_or(|u| now > u)
 }
 
 /// What a worker has observed of the leases it doesn't hold: per lane, the
@@ -204,6 +279,86 @@ impl Observer {
 /// Lanes per worker: ceil(lanes / live workers), at least 1.
 pub fn fair_share(lanes: usize, workers: usize) -> usize {
     lanes.div_ceil(workers.max(1)).max(1)
+}
+
+// ---- load-based balancing (sans-IO) -------------------------------------------------
+//
+// A lane's weight is a base (what holding any lane costs: its LISTs, its
+// renewals) plus its recent rows/s (an EWMA). A worker's load is the sum of
+// its lanes' weights; the target is the total weight of every known lane
+// over the live workers. Inside target × (1 ± h) nothing moves; above it a
+// worker gives back one lane per round, the heaviest that doesn't take it
+// below the band; below it, it takes free or expired lanes that keep it
+// inside the band. Leases are untouched: a take is still `Observer::may_take`
+// plus the lease CAS and the checkpoint fence, and a release (`release`)
+// happens only once no statement of the lane can still land (`may_act`).
+
+/// An exponentially weighted moving sum; `rate` is per second over `window_ms`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Ewma {
+    v: f64,
+    at: u64,
+}
+
+impl Ewma {
+    fn decayed(&self, now: u64, window_ms: u64) -> f64 {
+        if window_ms == 0 {
+            return self.v;
+        }
+        self.v * (-(now.saturating_sub(self.at) as f64) / window_ms as f64).exp()
+    }
+    pub fn add(&mut self, x: f64, now: u64, window_ms: u64) {
+        self.v = self.decayed(now, window_ms) + x;
+        self.at = self.at.max(now);
+    }
+    pub fn rate(&self, now: u64, window_ms: u64) -> f64 {
+        self.decayed(now, window_ms) / (window_ms.max(1) as f64 / 1000.0)
+    }
+    /// An EWMA that currently reads `rate` (a lane taken over: its previous holder's figure).
+    pub fn seeded(rate: f64, now: u64, window_ms: u64) -> Ewma {
+        Ewma { v: rate * window_ms as f64 / 1000.0, at: now }
+    }
+}
+
+/// The target load per worker: the water level. A lane heavier than an
+/// even split can't be split, so it gets a worker to itself and leaves the
+/// split: repeatedly, the heaviest lane above (remaining weight / remaining
+/// workers) is set aside with one worker. The rest share what is left.
+pub fn load_target(weights: &[f64], workers: usize) -> f64 {
+    let mut w: Vec<f64> = weights.to_vec();
+    w.sort_by(|a, b| b.total_cmp(a));
+    let (mut total, mut n) = (w.iter().sum::<f64>(), workers.max(1));
+    for x in &w {
+        if n > 1 && *x > total / n as f64 {
+            total -= x;
+            n -= 1;
+        } else {
+            break;
+        }
+    }
+    total / n as f64
+}
+
+/// Which held lane to give back, if any: `mine` is (lane, weight,
+/// releasable now). Only above the band, never the last lane, and never one
+/// that would leave this worker below the band (that lane would come back).
+pub fn pick_release(mine: &[(String, f64, bool)], target: f64, h: f64) -> Option<String> {
+    let load: f64 = mine.iter().map(|m| m.1).sum();
+    if mine.len() <= 1 || load <= target * (1.0 + h) {
+        return None;
+    }
+    mine.iter()
+        .filter(|m| m.2 && load - m.1 >= target * (1.0 - h))
+        .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|m| m.0.clone())
+}
+
+/// Whether a worker at `load` takes an unheld lane of weight `w`: if it
+/// stays inside the band; or, if it is the least loaded live worker (so
+/// some worker always takes a lane nobody holds), while below the target;
+/// or if the lane has been unheld too long (stale load figures).
+pub fn take_by_load(load: f64, w: f64, target: f64, h: f64, least: bool, orphaned: bool) -> bool {
+    load + w <= target * (1.0 + h) || (least && load < target) || orphaned
 }
 
 // ---- the checkpoint ------------------------------------------------------------
@@ -375,7 +530,7 @@ pub fn nonce() -> String {
 mod tests {
     use super::*;
 
-    const T: Timing = Timing { ttl_ms: 9000, margin_ms: 1000, budget_ms: 3000, mutation: Mutation::None };
+    const T: Timing = Timing { ttl_ms: 9000, margin_ms: 1000, budget_ms: 3000, slack_ms: 1000, mutation: Mutation::None };
 
     #[test]
     fn windows_never_overlap() {
@@ -421,10 +576,63 @@ mod tests {
     #[test]
     fn timing_checks() {
         assert!(T.check().is_ok());
-        assert!(Timing { ttl_ms: 3000, margin_ms: 500, budget_ms: 2000, mutation: Mutation::None }.check().is_err());
+        assert!(Timing { ttl_ms: 3000, margin_ms: 500, budget_ms: 2000, slack_ms: 0, mutation: Mutation::None }.check().is_err());
+        // the margin must cover the commit slack
+        let e = Timing { slack_ms: 1001, ..T }.check().unwrap_err();
+        assert!(e.contains("shorter than the commit slack"), "{e}");
+        // the production floor: refused below 10 s unless overridden
+        let e = T.check_production(false).unwrap_err();
+        assert!(e.contains("below the minimum 10000 ms") && e.contains("--allow-short-margin"), "{e}");
+        assert!(T.check_production(true).is_ok());
+        // the defaults comply; the old ones (30 s / 2 s / 10 s) don't
+        assert!(Timing::production().check_production(false).is_ok());
+        let old = Timing { ttl_ms: 30_000, margin_ms: 2_000, budget_ms: 10_000, slack_ms: 2_000, mutation: Mutation::None };
+        assert!(old.check().is_ok() && old.check_production(false).is_err());
+        // D9's "TTL 30 s and margin ≥ 10 s" doesn't fit a 10 s budget
+        let d9 = Timing { ttl_ms: 30_000, margin_ms: 10_000, ..Timing::production() };
+        assert!(d9.check().unwrap_err().contains("need ttl ≥ 45000 ms"));
+        // a lost statement has settled before anyone may take the lane over
+        let h = Held { doc: take("l", None, "w", T.ttl_ms, 0), etag: "e".into(), sent_ms: 100, sent_wall_ms: 0 };
+        assert!(h.settled_by(&T) <= 100 + T.ttl_ms + T.margin_ms);
+        assert!(!may_act(Some(h.settled_by(&T)), h.settled_by(&T), &T) && may_act(Some(h.settled_by(&T)), h.settled_by(&T) + 1, &T));
+        assert!(may_act(None, 0, &T));
         assert_eq!(fair_share(7, 3), 3);
         assert_eq!(fair_share(0, 3), 1);
         assert_eq!(fair_share(4, 0), 4);
+    }
+
+    #[test]
+    fn load_balancing_decisions() {
+        let l = |n: &str, w: f64| (n.to_string(), w, true);
+        // one heavy lane and small ones: the heavy lane is never given back
+        // alone, and a release never drops the worker below the band
+        assert_eq!(pick_release(&[l("h", 100.0)], 55.0, 0.2), None, "the last lane stays");
+        assert_eq!(pick_release(&[l("h", 100.0), l("s", 10.0)], 55.0, 0.2).as_deref(), Some("s"));
+        assert_eq!(pick_release(&[l("a", 30.0), l("b", 30.0)], 55.0, 0.2), None, "inside the band");
+        assert_eq!(pick_release(&[l("a", 40.0), l("b", 30.0), l("c", 5.0)], 50.0, 0.2).as_deref(), Some("b"));
+        assert_eq!(pick_release(&[("a".into(), 40.0, false), l("b", 40.0)], 50.0, 0.2).as_deref(), Some("b"), "not releasable: kept");
+        assert_eq!(pick_release(&[("a".into(), 40.0, false), ("b".into(), 40.0, false)], 50.0, 0.2), None);
+        // the target sets a lane heavier than an even split aside with its own worker
+        assert_eq!(load_target(&[4001.0, 26.0, 26.0, 26.0, 26.0], 3), 52.0);
+        assert_eq!(load_target(&[10.0, 10.0, 10.0], 3), 10.0);
+        assert_eq!(load_target(&[100.0, 100.0, 1.0], 2), 100.5);
+        assert_eq!(load_target(&[5.0], 0), 5.0);
+        // takes: inside the band; the least loaded below the target; an orphan always
+        assert!(take_by_load(30.0, 20.0, 50.0, 0.2, false, false));
+        assert!(!take_by_load(50.0, 20.0, 50.0, 0.2, false, false));
+        assert!(take_by_load(40.0, 100.0, 50.0, 0.2, true, false));
+        assert!(!take_by_load(50.0, 100.0, 50.0, 0.2, true, false));
+        assert!(take_by_load(90.0, 100.0, 50.0, 0.2, false, true));
+        // the moving rate
+        let w = 10_000;
+        let mut e = Ewma::default();
+        for t in 0..600 {
+            e.add(100.0, t * 100, w); // 1,000 rows/s for a minute
+        }
+        assert!((e.rate(60_000, w) - 1000.0).abs() < 25.0, "{}", e.rate(60_000, w));
+        assert!(e.rate(60_000 + 5 * w, w) < 10.0, "decays when idle");
+        let s = Ewma::seeded(250.0, 7, w);
+        assert!((s.rate(7, w) - 250.0).abs() < 1e-9);
     }
 
     #[test]

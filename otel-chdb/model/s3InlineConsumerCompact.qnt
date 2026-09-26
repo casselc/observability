@@ -28,6 +28,11 @@
  *  - `viewFloor`: each worker's view of the floor (a stale worker acts on
  *    its own view, as the code does).
  *
+ * Like s3InlineConsumer (2026-09-26, fleet scale): a holder may release
+ * its lane once none of its statements can still land (`wRelease`), and a
+ * statement's commit lands by fence + BUDGET + SLACK. (The partitions and
+ * the check's range are s3InlineConsumer's only.)
+ *
  * The changed guards: a worker never checks, tombstones or closes an epoch
  * at or below its view of the floor; GC never touches one at or below the
  * floor. Taking the lane reads the floor with the checkpoint.
@@ -56,6 +61,7 @@ module s3InlineConsumerCompact {
   const WRITER_FAULTS: bool    // ambiguous and lost PUTs, zombie writers
   const SERIES: bool           // the series lane's actions
   const TTL: int               // the lease TTL, in ticks
+  const SLACK: int             // how long a commit can outlive its budget (the design: MARGIN)
   // Checkpoint compaction (this module): the mutation.
   const EARLY_COMPACT: bool    // compaction drops superseded epochs, closed and retired or not
 
@@ -123,6 +129,15 @@ module s3InlineConsumerCompact {
   // Its lease is still the one it wrote (a CAS on it would succeed).
   def current(w: int): bool =
     lease == { owner: w, epoch: workers.get(w).leaseEpoch, sent: workers.get(w).sent }
+
+  // A statement lands by fence + BUDGET + SLACK, and its worker treats it
+  // as settled from fence + MARGIN + BUDGET + SLACK on (s3InlineConsumer).
+  pure def landBy(q: Stmt): int = q.fence + BUDGET + SLACK
+  pure def settledBy(q: Stmt): int = q.fence + MARGIN + BUDGET + SLACK
+  def mayRelease(w: int): bool = {
+    val wk = workers.get(w)
+    wk.holds and current(w) and stmts.forall(q => (q.worker == w and q.inc == wk.inc) implies time > settledBy(q))
+  }
 
   // The consecutive done prefix from `from` (worker.rs: advance).
   pure def advanceTo(from: int, objs: Set[Obj], done: Set[Obj]): int =
@@ -210,6 +225,18 @@ module s3InlineConsumerCompact {
     }
   }
 
+  // Give the lane back once none of its statements can still land (s3InlineConsumer's wRelease).
+  action wRelease(w: int): bool = {
+    val wk = workers.get(w)
+    all {
+      mayRelease(w),
+      lease' = { owner: 0, epoch: lease.epoch + 1, sent: time },
+      workers' = seeAll(workers.set(w, { ...idle(wk), holds: false })),
+      cevents' = cevents.union(Set("released")),
+      time' = time, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries,
+    }
+  }
+
   // Check the next k slots of epoch e (all data) against central.
   action wCheck(w: int, e: int, k: int): bool = {
     val wk = workers.get(w)
@@ -241,7 +268,7 @@ module s3InlineConsumerCompact {
 
   // Central runs a statement: only by its fence; any part of it may land.
   action cApply(q: Stmt, sub: Set[Obj]): bool = all {
-    stmts.contains(q), time <= q.fence, sub.subseteq(q.objs), sub != Set(),
+    stmts.contains(q), time <= landBy(q), sub.subseteq(q.objs), sub != Set(),
     central' = central.keys().mapBy(p => central.get(p) + (if (sub.exists(o => o.payload == p)) 1 else 0)),
     stmts' = stmts.exclude(Set(q)),
     cevents' = cevents.union(
@@ -462,7 +489,7 @@ module s3InlineConsumerCompact {
       all { L::responses != Set(), nondet q = L::responses.oneOf() lReceive(e, q) },
       all { L::inflight != Set(), nondet q = L::inflight.oneOf() any { lApply(q), lLose(q) } },
       tick,
-      wAcquire(w), wRenew(w), wLapse(w), wCheck(w, e, k), wSend(w), wAdvance(w), wSeeTomb(w, e), wCrash(w),
+      wAcquire(w), wRenew(w), wLapse(w), wRelease(w), wCheck(w, e, k), wSend(w), wAdvance(w), wSeeTomb(w, e), wCrash(w),
       wTomb(w, e, workers.get(w).view.next.get(e)),
       all { stmts != Set(), nondet q = stmts.oneOf() all {
         nondet sub = q.objs.powerset().oneOf()
@@ -539,6 +566,7 @@ module s3InlineConsumerCompact {
 
   val compactSafety: bool = and { safety, neverSkipsCommittedCompact, noCommitBelowFloor, floorSound, viewFloorSound }
 
+  val wReleased: bool = cevents.contains("released")
   val wRetired: bool = retired != Set()
   val wCompacted: bool = floor > 0
   val wCompactedAllIngested: bool = floor > 0 and wAllIngested
@@ -547,17 +575,17 @@ module s3InlineConsumerCompact {
 // The design, in the full hostile environment.
 module compactDesign {
   import s3InlineConsumerCompact(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    EARLY_COMPACT = false, WRITER_FAULTS = true, SERIES = true, TTL = 6).*
+    EARLY_COMPACT = false, WRITER_FAULTS = true, SERIES = true, TTL = 6, SLACK = 1).*
 }
 // The design with no writer faults and no series lane: most steps go to the workers.
 module compactQuiet {
   import s3InlineConsumerCompact(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    EARLY_COMPACT = false, WRITER_FAULTS = false, SERIES = false, TTL = 6).*
+    EARLY_COMPACT = false, WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1).*
 }
 // Mutation: compaction drops superseded epochs before they are closed, ingested and retired.
 module earlyCompact {
   import s3InlineConsumerCompact(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    EARLY_COMPACT = true, WRITER_FAULTS = false, SERIES = false, TTL = 6).*
+    EARLY_COMPACT = true, WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1).*
 }
 
 /**

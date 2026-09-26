@@ -3,10 +3,12 @@
 //! fence, partial statements, lost answers, GC, and a randomized run.
 
 use super::bucket::{Bucket, Cond, MemBucket, MemFaults, Put};
-use super::coord::Timing;
+use super::coord::{Mutation, Timing};
+use super::discovery::{Backoff, MemHints};
 use super::gc::{GcConfig, gc_step};
+use super::plan::DAY_NS;
 use super::sql::MemCentral;
-use super::worker::{Config, FakeClock, Worker};
+use super::worker::{BalanceMode, Config, FakeClock, Worker};
 use bytes::Bytes;
 use otap_s3pq::proto;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -14,17 +16,38 @@ use std::rc::Rc;
 
 const ROOT: &str = "r/edges";
 const CTL: &str = "r/ctl";
-const T: Timing = Timing { ttl_ms: 9000, margin_ms: 1000, budget_ms: 3000, mutation: super::coord::Mutation::None };
+const T: Timing = Timing { ttl_ms: 9000, margin_ms: 1000, budget_ms: 3000, slack_ms: 1000, mutation: Mutation::None };
 
 type W = Worker<MemBucket, MemCentral, FakeClock>;
 
+/// The original configuration: count-based fair share, a LIST every poll,
+/// no linger (the tests written before the fleet-scale features).
 fn cfg(name: &str) -> Config {
     let mut c = Config::new(ROOT, CTL, name);
     c.timing = T;
     c.discover_ms = 0;
+    c.lanes_every_ms = 0;
     c.full_list_ms = 0;
     c.quiet_ms = 2000;
     c.limits.max_objects = 4;
+    c.backoff = Backoff::off();
+    c.poll_ms = 0;
+    c.balance.mode = BalanceMode::Count;
+    c
+}
+
+/// The fleet-scale configuration: load balancing, idle backoff, a linger,
+/// the check's partition range with a one-day horizon.
+fn scale_cfg(name: &str) -> Config {
+    let mut c = cfg(name);
+    c.backoff = Backoff { min_ms: 500, max_ms: 8_000, jitter: 0.2 };
+    c.linger_ms = 300;
+    c.balance.mode = BalanceMode::Load;
+    c.balance.min_hold_ms = 2_000;
+    c.balance.loads_every_ms = 1_000;
+    c.balance.window_ms = 10_000;
+    c.balance.base_weight = 1.0;
+    c.horizon_ms = Some(86_400_000);
     c
 }
 
@@ -33,7 +56,15 @@ fn worker(name: &str, b: &Rc<MemBucket>, c: &Rc<MemCentral>, clk: &FakeClock) ->
 }
 
 fn meta(epoch: &str, seq: u64, content: &str, rows: u64) -> BTreeMap<String, String> {
+    meta_at(epoch, seq, content, rows, 0)
+}
+
+/// With `received_ns` > 0, the object's received time (the partition source).
+fn meta_at(epoch: &str, seq: u64, content: &str, rows: u64, received_ns: u64) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
+    if received_ns > 0 {
+        let _ = m.insert(proto::META_RECEIVED.to_string(), received_ns.to_string());
+    }
     for (k, v) in [
         (proto::META_KIND, proto::KIND_DATA.to_string()),
         (proto::META_EPOCH, epoch.to_string()),
@@ -53,12 +84,19 @@ struct Edge {
     epoch: String,
     next: u64,
     n_epochs: u32,
+    /// Stamps each object's received time (ns) from this clock (ms), if set.
+    recv_clock: Option<Rc<std::cell::Cell<u64>>>,
 }
 
 impl Edge {
     fn new(producer: &str, signal: &str) -> Self {
-        let mut e = Edge { producer: producer.into(), signal: signal.into(), epoch: String::new(), next: 0, n_epochs: 0 };
+        let mut e = Edge { producer: producer.into(), signal: signal.into(), epoch: String::new(), next: 0, n_epochs: 0, recv_clock: None };
         e.new_epoch();
+        e
+    }
+    fn stamped(producer: &str, signal: &str, clk: &FakeClock) -> Self {
+        let mut e = Edge::new(producer, signal);
+        e.recv_clock = Some(clk.0.clone());
         e
     }
     fn prefix(&self) -> String {
@@ -74,7 +112,8 @@ impl Edge {
     async fn commit(&mut self, b: &MemBucket, content: &str, rows: u64) -> (String, u64) {
         loop {
             let key = proto::slot_key(&self.prefix(), &self.epoch, self.next);
-            let m = meta(&self.epoch, self.next, content, rows);
+            let recv = self.recv_clock.as_ref().map_or(0, |c| c.get() * 1_000_000);
+            let m = meta_at(&self.epoch, self.next, content, rows, recv);
             match b.put(&key, Bytes::from(vec![0u8; 100]), Cond::Create, &m).await {
                 Put::Ok(_) => {
                     self.next += 1;
@@ -134,7 +173,7 @@ async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
     assert_eq!((s.tombstones_won, s.epochs_closed, s.dedup_skipped), (1, 1, 1), "{s:?}");
     assert!(s.statements <= 2, "5 + 1 objects in at most 2 statements of 4: {}", s.statements);
     // The dead writer (a zombie) tries its next slot: the tombstone halts it.
-    let mut z = Edge { producer: "p1".into(), signal: "traces".into(), epoch: "E0001".into(), next: 5, n_epochs: 5 };
+    let mut z = Edge { producer: "p1".into(), signal: "traces".into(), epoch: "E0001".into(), next: 5, n_epochs: 5, recv_clock: None };
     let (ep, _) = z.commit(&b, "h9", 10).await;
     assert_eq!(ep, "E0006", "halted and moved on");
 }
@@ -268,12 +307,15 @@ async fn partial_statements_and_lost_answers_are_repaired_by_the_verify() {
         e.commit(&b, &format!("h{i}"), 7).await;
     }
     let mut ws = vec![worker("w1", &b, &c, &clk)];
-    run(&mut ws, &clk, 5, 100).await;
+    // (A lost answer leaves its lane alone until the statement has settled:
+    // ttl + slack = 10 s after the lease version it was sent under.)
+    run(&mut ws, &clk, 200, 500).await;
     for i in 0..20 {
         assert_eq!(c.count("otel_traces", &format!("h{i}")), 7, "h{i}");
     }
     assert_eq!(c.applied.borrow().len(), 20, "each object applied exactly once");
     assert!(ws[0].stats.retried_missing > 0 && ws[0].stats.insert_errors > 0);
+    assert!(ws[0].stats.unsettled > 0, "{:?}", ws[0].stats);
     assert_eq!(ws[0].checkpoint("p1/traces").unwrap().next("E0001"), 20);
 }
 
@@ -357,7 +399,7 @@ async fn early_compaction_would_skip_a_late_batch() {
         e2.commit(&b, "c", 2).await;
         let mut cfg = cfg("w1");
         if mutant {
-            cfg.timing.mutation = super::coord::Mutation::EarlyCompact;
+            cfg.timing.mutation = Mutation::EarlyCompact;
         }
         let mut w = Worker::new(cfg, b.clone(), c.clone(), clk.clone());
         let _ = w.step().await;
@@ -430,7 +472,19 @@ async fn writes_into_retired_epochs_are_ignored_or_ingested_once() {
 #[tokio::test(flavor = "current_thread")]
 async fn randomized_fleet() {
     for seed in 1..=12u64 {
-        randomized(seed, 60_000).await;
+        randomized(seed, 60_000, false).await;
+    }
+}
+
+/// The same fleet with every fleet-scale feature on: load balancing, idle
+/// backoff, a linger, the check's partition range (objects carry received
+/// times; the run crosses midnight, and copies of a request made after an
+/// edge restart carry a later one), and statements that get no answer and
+/// land late.
+#[tokio::test(flavor = "current_thread")]
+async fn randomized_fleet_at_scale() {
+    for seed in 1..=12u64 {
+        randomized(seed, 60_000, true).await;
     }
 }
 
@@ -441,7 +495,7 @@ async fn randomized_fleet() {
 async fn randomized_fleet_compacting() {
     let mut compacted = 0;
     for seed in 1..=12u64 {
-        compacted += randomized(seed, 3_000).await;
+        compacted += randomized(seed, 3_000, seed % 2 == 0).await;
     }
     assert!(compacted > 50, "compaction ran: {compacted} epochs");
 }
@@ -459,21 +513,29 @@ impl Rng {
     }
 }
 
-async fn randomized(seed: u64, zombie_ms: u64) -> u64 {
+async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
     let (b, c, clk) = setup();
+    if scale {
+        // three minutes before midnight (UTC day 20,000)
+        clk.0.set(20_000 * 86_400_000 - 180_000);
+    }
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11 };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
+    c.late_every.set(11);
+    c.late_by_ms.set(1500);
+    c.slack_ms.set(T.slack_ms);
     let mut rng = Rng(seed * 0x9E37_79B9_7F4A_7C15 + 1);
     let mut edges: Vec<Edge> = Vec::new();
     for p in 0..3 {
         for s in ["traces", "logs", "metrics_gauge"] {
-            edges.push(Edge::new(&format!("p{p}"), s));
+            edges.push(if scale { Edge::stamped(&format!("p{p}"), s, &clk) } else { Edge::new(&format!("p{p}"), s) });
         }
     }
+    let mk = |name: &str| Worker::new(if scale { scale_cfg(name) } else { cfg(name) }, b.clone(), c.clone(), clk.clone());
     let mut committed: HashMap<(String, String), u64> = HashMap::new(); // (table, content) -> rows
     let mut last: HashMap<usize, String> = HashMap::new();
-    let mut ws: Vec<W> = (0..3).map(|i| worker(&format!("w{i}-0"), &b, &c, &clk)).collect();
+    let mut ws: Vec<W> = (0..3).map(|i| mk(&format!("w{i}-0"))).collect();
     let mut paused: Vec<u64> = vec![0; 3];
     let mut incarn = vec![0u32; 3];
     let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: T.ttl_ms + T.margin_ms + 2000, zombie_ms, dry_run: false };
@@ -505,7 +567,7 @@ async fn randomized(seed: u64, zombie_ms: u64) -> u64 {
                 // a worker crash: a new incarnation (new id)
                 let i = rng.below(3) as usize;
                 incarn[i] += 1;
-                ws[i] = worker(&format!("w{i}-{}", incarn[i]), &b, &c, &clk);
+                ws[i] = mk(&format!("w{i}-{}", incarn[i]));
             }
             10 => {
                 // a pause long enough to lose the lease
@@ -532,6 +594,8 @@ async fn randomized(seed: u64, zombie_ms: u64) -> u64 {
         }
         clk.0.set(clk.0.get() + 500);
     }
+    c.flush_late();
+    assert!(c.late.borrow().is_empty());
     let mut missing = Vec::new();
     for ((table, content), rows) in &committed {
         if c.count(table, content) != *rows {
@@ -547,5 +611,308 @@ async fn randomized(seed: u64, zombie_ms: u64) -> u64 {
     assert!(extra.is_empty(), "seed {seed}: uncommitted content ingested: {extra:?}");
     let s: u64 = ws.iter().map(|w| w.stats.lanes_taken).sum();
     assert!(s > 0);
+    assert!(c.landed_late.get() > 0, "seed {seed}: a late statement landed");
+    if scale {
+        let rc: u64 = ws.iter().map(|w| w.stats.range_checks).sum();
+        assert!(rc > 0 && c.range_checks.get() > 0, "seed {seed}: checks used a range");
+    }
     ws.iter().map(|w| w.stats.epochs_compacted).sum()
+}
+
+// ---- fleet scale -----------------------------------------------------------------------
+
+/// Idle lanes back off: 1 busy lane and 9 idle ones; the idle lanes are
+/// LISTed far less often, a hint brings an idle lane's new object in at the
+/// next poll, and with no hint it still comes in within the longest backoff.
+#[tokio::test(flavor = "current_thread")]
+async fn idle_lanes_back_off_and_hints_wake_them() {
+    let (b, c, clk) = setup();
+    let mut busy = Edge::new("busy", "traces");
+    let mut idle: Vec<Edge> = (0..9).map(|i| Edge::new(&format!("idle{i}"), "traces")).collect();
+    for e in idle.iter_mut() {
+        e.commit(&b, &format!("{}-0", e.producer), 1).await;
+    }
+    let mut cf = cfg("w1");
+    cf.backoff = Backoff { min_ms: 1_000, max_ms: 16_000, jitter: 0.2 };
+    cf.poll_ms = 200;
+    cf.full_list_ms = 60_000;
+    let hints = Rc::new(MemHints::default());
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    w.hints = Some(hints.clone());
+    // 5 minutes at a 200 ms poll; the busy lane gets an object every poll.
+    let mut n = 0;
+    for _ in 0..1500 {
+        n += 1;
+        busy.commit(&b, &format!("b{n}"), 1).await;
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    let per = |p: &str| w.stats.lists_by_lane.get(&format!("{p}/traces")).copied().unwrap_or(0);
+    let busy_lists = per("busy");
+    let idle_lists: u64 = (0..9).map(|i| per(&format!("idle{i}"))).sum::<u64>() / 9;
+    assert!(busy_lists >= 1400, "the busy lane is listed every poll: {busy_lists}");
+    // 300 s at a 16 s cap: about 25 LISTs per idle lane (the doubling first), not 1,500.
+    assert!(idle_lists <= 35, "idle lanes back off: {idle_lists} LISTs each");
+    for i in 1..=n {
+        assert_eq!(c.count("otel_traces", &format!("b{i}")), 1);
+    }
+    // A hint: the idle lane's new object is in at the next poll.
+    idle[3].commit(&b, "idle3-1", 1).await;
+    hints.push("idle3/traces");
+    let _ = w.step().await;
+    assert_eq!(c.count("otel_traces", "idle3-1"), 1, "woken by the hint");
+    assert_eq!(w.stats.hint_wakeups, 1);
+    // No hint (lost): it still comes in, within the cap (16 s + jitter).
+    idle[5].commit(&b, "idle5-1", 1).await;
+    let mut waited = 0;
+    while c.count("otel_traces", "idle5-1") == 0 {
+        clk.0.set(clk.0.get() + 200);
+        waited += 200;
+        let _ = w.step().await;
+        assert!(waited <= 18_000, "an idle lane is listed at least every max backoff");
+    }
+    // Spurious hints (lanes with nothing new, unknown lanes) change nothing.
+    hints.push("idle1/traces");
+    hints.push("nope/traces");
+    hints.push("garbage");
+    let before = c.applied.borrow().len();
+    let _ = w.step().await;
+    assert_eq!(c.applied.borrow().len(), before);
+    assert_eq!(w.stats.hint_new_lanes, 1, "an unknown lane named by a hint is learnt");
+}
+
+/// The linger fills statements at a low rate, and bounds the wait.
+#[tokio::test(flavor = "current_thread")]
+async fn linger_fills_statements_within_its_bound() {
+    for linger in [0, 1_000] {
+        let (b, c, clk) = setup();
+        let mut edges: Vec<Edge> = (0..4).map(|i| Edge::stamped(&format!("p{i}"), "logs", &clk)).collect();
+        let mut cf = cfg("w1");
+        cf.linger_ms = linger;
+        cf.limits.max_objects = 8;
+        let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+        let mut n = 0;
+        let mut max_wait = 0;
+        // one object every 100 ms, round robin over 4 lanes; a 100 ms poll
+        let mut first: HashMap<String, u64> = HashMap::new();
+        for step in 0..400 {
+            if step < 300 {
+                n += 1;
+                let name = format!("x{n}");
+                let _ = edges[n % 4].commit(&b, &name, 1).await;
+                let _ = first.insert(name, clk.0.get());
+            }
+            let _ = w.step().await;
+            for (name, t) in first.iter() {
+                if c.count("otel_logs", name) == 1 {
+                    max_wait = max_wait.max(clk.0.get() - t);
+                }
+            }
+            first.retain(|name, _| c.count("otel_logs", name) == 0);
+            clk.0.set(clk.0.get() + 100);
+        }
+        assert!(first.is_empty());
+        let s = &w.stats;
+        let per = s.statement_objects as f64 / s.statements as f64;
+        if linger == 0 {
+            assert!(per < 1.5, "no linger: about one object per statement ({per})");
+        } else {
+            assert!(per >= 7.0, "the linger fills statements of 8 ({per})");
+            assert!(max_wait <= linger + 100, "bounded: {max_wait} ms");
+            assert!(s.linger_deferred > 0);
+        }
+        assert_eq!(c.applied.borrow().len(), 300);
+    }
+}
+
+/// Load-based balancing: one heavy lane and several light ones over 3
+/// workers. The loads end inside the band (or a worker holds only the
+/// heavy lane), the lanes stop moving, and everything is ingested once.
+#[tokio::test(flavor = "current_thread")]
+async fn load_balancing_spreads_weight_and_settles() {
+    let (b, c, clk) = setup();
+    let mut heavy = Edge::new("heavy", "traces");
+    let mut light: Vec<Edge> = (0..8).map(|i| Edge::new(&format!("l{i}"), "traces")).collect();
+    let mut ws: Vec<W> = (0..3).map(|i| Worker::new(scale_cfg(&format!("w{i}")), b.clone(), c.clone(), clk.clone())).collect();
+    let mut n = 0;
+    let mut released_at_half = 0;
+    for step in 0..1200 {
+        n += 1;
+        heavy.commit(&b, &format!("h{n}"), 400).await; // 4,000 rows/s at a 100 ms tick
+        let i = step % 8;
+        light[i].commit(&b, &format!("l{n}"), 20).await; // 25 rows/s per light lane
+        for w in ws.iter_mut() {
+            let _ = w.step().await;
+        }
+        clk.0.set(clk.0.get() + 100);
+        if step == 600 {
+            released_at_half = ws.iter().map(|w| w.stats.lanes_released).sum();
+        }
+    }
+    let released: u64 = ws.iter().map(|w| w.stats.lanes_released).sum();
+    assert_eq!(released, released_at_half, "no lane moved in the second minute: settled");
+    let held: Vec<Vec<String>> = ws.iter().map(|w| w.held_lanes()).collect();
+    let with_heavy = held.iter().position(|h| h.contains(&"heavy/traces".to_string())).expect("the heavy lane is held");
+    assert_eq!(held[with_heavy].len(), 1, "the heavy lane's worker holds nothing else: {held:?}");
+    let others: Vec<usize> = (0..3).filter(|i| *i != with_heavy).map(|i| held[i].len()).collect();
+    assert_eq!(others.iter().sum::<usize>(), 8, "{held:?}");
+    assert!(others.iter().all(|x| (3..=5).contains(x)), "the light lanes split evenly: {held:?}");
+    run(&mut ws, &clk, 30, 100).await;
+    let applied = c.applied.borrow().len();
+    assert_eq!(applied, 2 * n, "each object once");
+    for i in 1..=n {
+        assert_eq!(c.count("otel_traces", &format!("h{i}")), 400);
+    }
+}
+
+/// A statement with no answer lands late (after the worker gave up on it,
+/// up to its fence + budget + slack). The worker neither re-checks nor
+/// retries nor releases the lane before it has settled, so nothing is
+/// ingested twice; the `ReleaseInFlight` mutant (acting at once) does.
+#[tokio::test(flavor = "current_thread")]
+async fn an_unanswered_statement_is_waited_out() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        c.late_every.set(1);
+        c.late_by_ms.set(1000);
+        c.slack_ms.set(T.slack_ms);
+        let mut e = Edge::new("p1", "traces");
+        e.commit(&b, "h0", 5).await;
+        let mut cf = cfg("w1");
+        if mutant {
+            cf.timing.mutation = Mutation::ReleaseInFlight;
+        }
+        let mut w1 = Worker::new(cf.clone(), b.clone(), c.clone(), clk.clone());
+        let _ = w1.step().await; // takes the lane, sends: no answer
+        assert_eq!(w1.stats.unsettled, 1);
+        c.late_every.set(0);
+        // The worker keeps polling; then stops gracefully (release_all).
+        for _ in 0..3 {
+            clk.0.set(clk.0.get() + 300);
+            let _ = w1.step().await;
+        }
+        w1.release_all().await;
+        // Another worker: it may take the lane only once the lease is
+        // released (the mutant) or expired (the design).
+        let mut w2 = Worker::new(cfg("w2"), b.clone(), c.clone(), clk.clone());
+        for _ in 0..80 {
+            clk.0.set(clk.0.get() + 250);
+            let _ = w2.step().await;
+        }
+        c.flush_late();
+        let n = c.count("otel_traces", "h0");
+        if mutant {
+            assert_eq!(n, 10, "the mutant re-inserts while the first statement is still to land");
+        } else {
+            assert_eq!(n, 5, "exactly once");
+            assert_eq!(c.landed_late.get(), 1);
+            assert!(w1.stats.deferred_unsettled > 0 && w1.stats.retried_missing == 0, "{:?}", w1.stats);
+        }
+    }
+}
+
+fn at(day: u64, h: u64, m: u64) -> u64 {
+    day * DAY_NS + (h * 60 + m) * 60_000_000_000
+}
+
+/// Commits an object with an explicit received time (ns).
+async fn put_obj(b: &MemBucket, lane: &str, epoch: &str, seq: u64, content: &str, rows: u64, recv: u64) {
+    let key = proto::slot_key(&format!("{ROOT}/{lane}"), epoch, seq);
+    b.insert(&key, Bytes::from(vec![0u8; 100]), meta_at(epoch, seq, content, rows, recv));
+}
+
+/// The check's partition range comes from the objects: a batch spanning a
+/// day boundary, and objects received days before they are ingested (with
+/// an earlier attempt already in central), are checked correctly; the
+/// `WallRange` mutant (today's partition, from the worker's clock) ingests
+/// the old object twice.
+#[tokio::test(flavor = "current_thread")]
+async fn the_check_range_follows_the_data() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        clk.0.set(at(20_010, 12, 0) / 1_000_000); // the worker's clock: day 20,010, noon
+        let mut cf = cfg("w1");
+        cf.horizon_ms = Some(3_600_000); // one hour: the day boundary must come from the data
+        if mutant {
+            cf.timing.mutation = Mutation::WallRange;
+        }
+        // Spanning a day boundary: 23:59 on day 20,009 and 00:01 on day 20,010.
+        put_obj(&b, "p1/logs", "E1", 0, "span-a", 4, at(20_009, 23, 59)).await;
+        put_obj(&b, "p1/logs", "E1", 1, "span-b", 4, at(20_010, 0, 1)).await;
+        // Old: received five days ago; an earlier attempt (a worker that
+        // crashed before its checkpoint write) already put its rows in.
+        put_obj(&b, "p2/logs", "E1", 0, "old", 6, at(20_005, 8, 0)).await;
+        let old = super::plan::Obj {
+            lane: "p2/logs".into(),
+            epoch: "E1".into(),
+            seq: 0,
+            key: proto::slot_key(&format!("{ROOT}/p2/logs"), "E1", 0),
+            size: 100,
+            content: "old".into(),
+            rows: 6,
+            received_ns: at(20_005, 8, 0),
+            seen_ms: 0,
+        };
+        let k = super::sql::LaneKind::for_signal("logs").unwrap();
+        let f = super::sql::Fence { wall_ms: u64::MAX, budget_ms: 1 };
+        use super::sql::Central;
+        c.insert(&k, &[&old], f, "t", true).await.unwrap();
+        // The span batch's first attempt landed only its first object (a partial statement).
+        c.partial_every.set(1);
+        let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+        for _ in 0..6 {
+            let _ = w.step().await;
+            c.partial_every.set(0);
+            clk.0.set(clk.0.get() + 200);
+        }
+        let s = &w.stats;
+        if mutant {
+            assert!(c.count("otel_logs", "old") >= 12, "the mutant misses the day-old rows and inserts them again");
+        } else {
+            for (x, r) in [("span-a", 4), ("span-b", 4), ("old", 6)] {
+                assert_eq!(c.count("otel_logs", x), r, "{x}: {s:?}");
+            }
+            assert_eq!(c.applied.borrow().iter().filter(|(_, k)| k == "old").count(), 1);
+            assert!(s.range_checks > 0 && s.full_checks == 0, "every check used a range: {s:?}");
+            assert_eq!(c.full_checks.get(), 0);
+        }
+    }
+}
+
+/// A copy of a request, received later (after an edge restart, in a new
+/// epoch), is found by the check within the horizon; an object whose rows
+/// don't carry its metadata's received time trips the insert's assertion
+/// and is checked over every partition from then on; both exactly once.
+#[tokio::test(flavor = "current_thread")]
+async fn copies_within_the_horizon_and_lying_metadata() {
+    let (b, c, clk) = setup();
+    clk.0.set(at(20_020, 10, 0) / 1_000_000);
+    let mut cf = cfg("w1");
+    cf.horizon_ms = Some(86_400_000);
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    // The original, received 23:50 on day 20,019, ingested.
+    put_obj(&b, "p1/traces", "E1", 0, "req", 5, at(20_019, 23, 50)).await;
+    for _ in 0..3 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(c.count("otel_traces", "req"), 5);
+    // Its copy: resent after the edge restarted, received 20 hours later.
+    put_obj(&b, "p1/traces", "E2", 0, "req", 5, at(20_020, 19, 50)).await;
+    // An object whose rows carry received times other than its metadata's (a foreign producer).
+    put_obj(&b, "p1/traces", "E2", 1, "liar", 4, at(20_020, 9, 0)).await;
+    let _ = c.true_recv.borrow_mut().insert(proto::slot_key(&format!("{ROOT}/p1/traces"), "E2", 1), vec![at(20_018, 9, 0), at(20_019, 9, 0)]);
+    for _ in 0..6 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(c.count("otel_traces", "req"), 5, "the copy was found within the horizon");
+    assert_eq!(c.count("otel_traces", "liar"), 4, "exactly once");
+    assert_eq!(w.stats.range_guard_failures, 1);
+    assert!(w.stats.full_checks > 0, "the liar was verified over every partition");
+    // A fresh worker (another holder) doesn't know about the liar: its guarded insert
+    // fails again and nothing is written twice.
+    let _ = c.rows.borrow_mut().insert(("otel_traces".into(), "liar".into()), 4);
+    let ck = w.checkpoint("p1/traces").unwrap().clone();
+    assert_eq!(ck.next("E2"), 2);
 }

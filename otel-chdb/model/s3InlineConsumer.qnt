@@ -29,6 +29,20 @@
  *  - The series lane of metrics layout B, as the edge runs it: a series is
  *    announced (not sent again in this epoch) only once the series object
  *    that carried it has committed.
+ *  - Release (load balancing): a holder gives its lane back (the lease CAS
+ *    to "no owner", fencing epoch + 1), and anyone may take it at once. It
+ *    does so only once none of its statements can still land.
+ *  - A statement's commit can outlive its budget by SLACK (on a replicated
+ *    central, one Keeper request): it lands by fence + BUDGET + SLACK. The
+ *    design's rule is SLACK <= MARGIN (the code refuses to start otherwise).
+ *  - Partitions and the check's range. Every object of epoch e was
+ *    received on day eDay(e) (an epoch's day is the calendar day when its
+ *    incarnation started; a copy of a request, resent into a later epoch,
+ *    carries that later day). Central keeps rows per payload and day; a
+ *    check or verify of objects of day d reads only days d - HORIZON ..
+ *    d + HORIZON (the code: the objects' own received time, widened by the
+ *    horizon). The environment makes every copy within MAX_DAY days of its
+ *    original; the design takes HORIZON >= MAX_DAY.
  *
  * Mutations (design flags):
  *  - TIME_BOUND = false: workers ignore their windows and statements carry
@@ -42,6 +56,16 @@
  *  - ANNOUNCE_EARLY: the edge marks a series announced when it sends the
  *    series object; if that PUT is lost, later requests' points reference a
  *    series row that never lands.
+ *  - RELEASE_GUARD = false: a worker releases its lane while its statement
+ *    may still land; the next holder checks and inserts the same batch.
+ *  - SLACK > MARGIN: a commit outlives the margin (a Keeper request past
+ *    max_execution_time with a margin below it) and lands after another
+ *    worker took the lane and inserted the batch.
+ *  - HORIZON < MAX_DAY: the check misses the original of a copy received on
+ *    a later day, and ingests the copy too.
+ *  - WALL_RANGE: the check reads today's partition by the worker's clock:
+ *    a batch received on an earlier day, whose first statement landed, is
+ *    checked again after midnight and inserted twice.
  */
 module s3InlineConsumer {
   const TIME_BOUND: bool
@@ -54,6 +78,11 @@ module s3InlineConsumer {
   const WRITER_FAULTS: bool    // ambiguous and lost PUTs, zombie writers
   const SERIES: bool           // the series lane's actions
   const TTL: int               // the lease TTL, in ticks
+  const SLACK: int             // how long a commit can outlive its budget (the design: MARGIN)
+  const RELEASE_GUARD: bool    // release only once no statement of the worker can still land
+  const HORIZON: int           // the check reads the objects' own day +- HORIZON
+  const WALL_RANGE: bool       // mutation: the check reads today's day only
+  const MAX_DAY: int           // the environment: the calendar runs days 0..MAX_DAY
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -78,6 +107,7 @@ module s3InlineConsumer {
     view: Ckpt, phase: WPhase, epoch: int, objs: Set[Obj], pending: Set[Obj],
   }
   type Stmt = { worker: int, inc: int, objs: Set[Obj], fence: int }
+  pure val DAYS: Set[int] = 0.to(MAX_DAY)
   type Lease = { owner: int, epoch: int, sent: int }
   type SObj = { epoch: int, r: int }
 
@@ -87,6 +117,9 @@ module s3InlineConsumer {
   var workers: int -> Worker
   var ckpt: Ckpt
   var central: int -> int          // inserts per payload
+  var crows: int -> (int -> int)   // inserts per payload and day (the partitions)
+  var day: int                     // the calendar (the workers' and the edges' clocks agree)
+  var eDay: int -> int             // the day each epoch's objects were received
   var stmts: Set[Stmt]             // statements in flight
   var cevents: Set[str]
   // the series lane (edge side)
@@ -116,6 +149,23 @@ module s3InlineConsumer {
   def current(w: int): bool =
     lease == { owner: w, epoch: workers.get(w).leaseEpoch, sent: workers.get(w).sent }
 
+  // The check's range for objects of epoch e (plan.rs: check_range), and
+  // what central shows of payload p there.
+  def rangeLo(e: int): int = if (WALL_RANGE) day else eDay.get(e) - HORIZON
+  def rangeHi(e: int): int = if (WALL_RANGE) MAX_DAY else eDay.get(e) + HORIZON
+  def visible(p: int, e: int): int =
+    DAYS.filter(d => rangeLo(e) <= d and d <= rangeHi(e)).fold(0, (acc, d) => acc + crows.get(p).get(d))
+  // A statement's objects can land until fence + BUDGET + SLACK; the worker
+  // treats it as settled from fence + MARGIN + BUDGET + SLACK on (coord.rs:
+  // Held::settled_by = sent + TTL + SLACK, the server clock allowed MARGIN behind).
+  pure def landBy(q: Stmt): int = q.fence + BUDGET + SLACK
+  pure def settledBy(q: Stmt): int = q.fence + MARGIN + BUDGET + SLACK
+  def mayRelease(w: int): bool = {
+    val wk = workers.get(w)
+    wk.holds and current(w) and
+      (RELEASE_GUARD implies stmts.forall(q => (q.worker == w and q.inc == wk.inc) implies time > settledBy(q)))
+  }
+
   // The consecutive done prefix from `from` (worker.rs: advance).
   pure def advanceTo(from: int, objs: Set[Obj], done: Set[Obj]): int =
     0.to(2).fold(from, (n, i) =>
@@ -139,8 +189,9 @@ module s3InlineConsumer {
   }
   action keepC = all {
     time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
-    cevents' = cevents,
+    cevents' = cevents, keepDays, crows' = crows,
   }
+  action keepDays = all { day' = day, eDay' = eDay }
 
   // ---- the log: s3Inline's writer, S3 and network ---------------------------------------
   action lStartPush(e: int, p: int): bool = all { L::startPush(e, p), keepC, keepSeries }
@@ -149,7 +200,12 @@ module s3InlineConsumer {
   action lResolve(e: int): bool = all { L::resolve(e), keepC, keepSeries }
   action lSwitchPayload(e: int, p: int): bool = all { L::switchPayload(e, p), keepC, keepSeries }
   action lReceive(e: int, r: L::Resp): bool = all { L::receive(e, r), keepC, keepSeries }
-  action lNewIncarnation(z: bool): bool = all { L::newIncarnation(z), keepC, keepSeries }
+  // A new incarnation's epoch is named (and its objects received) today.
+  action lNewIncarnation(z: bool): bool = all {
+    L::newIncarnation(z), eDay' = eDay.set(L::lease + 1, day), day' = day,
+    time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
+    cevents' = cevents, crows' = crows, keepSeries,
+  }
   action lApply(q: L::Req): bool = all { L::apply(q), keepC, keepSeries }
   action lLose(q: L::Req): bool = all { L::lose(q), keepC, keepSeries }
 
@@ -157,7 +213,14 @@ module s3InlineConsumer {
   action tick: bool = all {
     time < MAX_TIME, time' = time + 1,
     lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents,
-    keepL, keepSeries,
+    keepL, keepSeries, keepDays, crows' = crows,
+  }
+
+  // Midnight.
+  action newDay: bool = all {
+    day < MAX_DAY, day' = day + 1, eDay' = eDay,
+    time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
+    cevents' = cevents.union(Set("midnight")), crows' = crows, keepL, keepSeries,
   }
 
   // ---- workers -------------------------------------------------------------------------------
@@ -173,7 +236,7 @@ module s3InlineConsumer {
       ckpt' = nc,
       workers' = seeAll(workers.set(w, { ...idle(wk), holds: true, leaseEpoch: ne, sent: time, view: nc })),
       cevents' = cevents.union(if (lease.owner != 0) Set("takeover") else Set()),
-      time' = time, central' = central, stmts' = stmts, keepL, keepSeries,
+      time' = time, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -183,7 +246,7 @@ module s3InlineConsumer {
       wk.holds, current(w), not(lapsed(wk)),
       lease' = { ...lease, sent: time },
       workers' = seeAll(workers.set(w, { ...wk, sent: time })),
-      time' = time, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents, keepL, keepSeries,
+      time' = time, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -194,7 +257,21 @@ module s3InlineConsumer {
       wk.holds, lapsed(wk),
       workers' = workers.set(w, { ...idle(wk), holds: false }),
       cevents' = cevents.union(Set("lapsed")),
-      time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries,
+      time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
+    }
+  }
+
+  // Give the lane back (load balancing): a lease CAS to no owner, fencing
+  // epoch + 1; anyone may take it at once. Only once none of its
+  // statements can still land (RELEASE_GUARD; worker.rs: coord::may_act).
+  action wRelease(w: int): bool = {
+    val wk = workers.get(w)
+    all {
+      mayRelease(w),
+      lease' = { owner: 0, epoch: lease.epoch + 1, sent: time },
+      workers' = seeAll(workers.set(w, { ...idle(wk), holds: false })),
+      cevents' = cevents.union(Set("released")),
+      time' = time, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -206,12 +283,12 @@ module s3InlineConsumer {
     all {
       wk.holds, wk.phase == WIdle, mayStart(wk), e <= L::lease, not(wk.view.closed.get(e)),
       s0 + k - 1 < L::MAX_SLOT, s0.to(s0 + k - 1).forall(s => L::at(e, s).kind == L::Data),
-      // absent ones only, one object per payload (a copy rides on it)
-      val absent = objs.filter(o => central.get(o.payload) == 0)
+      // absent ones only (in the check's range), one object per payload (a copy rides on it)
+      val absent = objs.filter(o => visible(o.payload, e) == 0)
       val pending = absent.filter(o => absent.forall(x => x.payload == o.payload implies x.slot >= o.slot))
       workers' = workers.set(w, { ...wk, phase: WChecked, epoch: e, objs: objs, pending: pending }),
       time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents,
-      keepL, keepSeries,
+      keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -223,17 +300,23 @@ module s3InlineConsumer {
       stmts' = if (wk.pending == Set()) stmts
                else stmts.union(Set({ worker: w, inc: wk.inc, objs: wk.pending, fence: fenceOf(wk) })),
       workers' = workers.set(w, { ...wk, phase: WSent }),
-      time' = time, lease' = lease, ckpt' = ckpt, central' = central, cevents' = cevents, keepL, keepSeries,
+      time' = time, lease' = lease, ckpt' = ckpt, central' = central, cevents' = cevents, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
-  // Central runs a statement: only by its fence; any part of it may land.
+  // Central runs a statement: it starts only by its fence, and its commit
+  // lands by fence + BUDGET + SLACK; any part of it may land. Rows go to
+  // the partition of the day their object was received.
   action cApply(q: Stmt, sub: Set[Obj]): bool = all {
-    stmts.contains(q), time <= q.fence, sub.subseteq(q.objs), sub != Set(),
+    stmts.contains(q), time <= landBy(q), sub.subseteq(q.objs), sub != Set(),
     central' = central.keys().mapBy(p => central.get(p) + (if (sub.exists(o => o.payload == p)) 1 else 0)),
+    crows' = crows.keys().mapBy(p => crows.get(p).keys().mapBy(d =>
+      crows.get(p).get(d) + (if (sub.exists(o => o.payload == p and eDay.get(o.epoch) == d)) 1 else 0))),
+    keepDays,
     stmts' = stmts.exclude(Set(q)),
     cevents' = cevents.union(
       (if (sub != q.objs) Set("partial") else Set()).union(
+      (if (time > q.fence) Set("lateLanding") else Set())).union(
        if (not(workers.get(q.worker).holds and workers.get(q.worker).inc == q.inc and current(q.worker)))
          Set("zombieLanded") else Set())),
     time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, keepL, keepSeries,
@@ -244,13 +327,13 @@ module s3InlineConsumer {
     stmts.contains(q),
     stmts' = stmts.exclude(Set(q)),
     cevents' = cevents.union(if (time > q.fence) Set("fenced") else Set()),
-    time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, keepL, keepSeries,
+    time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, keepL, keepSeries, keepDays, crows' = crows,
   }
 
   // Once its statement is gone: count what landed and CAS the checkpoint past the done prefix.
   action wAdvance(w: int): bool = {
     val wk = workers.get(w)
-    val done = if (VERIFY) wk.objs.filter(o => central.get(o.payload) >= 1) else wk.objs
+    val done = if (VERIFY) wk.objs.filter(o => visible(o.payload, o.epoch) >= 1) else wk.objs
     val n = advanceTo(wk.view.next.get(wk.epoch), wk.objs, done)
     val nc = { ...ckpt, version: ckpt.version + 1, next: ckpt.next.set(wk.epoch, n) }
     all {
@@ -264,7 +347,7 @@ module s3InlineConsumer {
         workers' = workers.set(w, { ...idle(wk), holds: false }),
         cevents' = cevents.union(Set("casLost")),
       },
-      time' = time, lease' = lease, central' = central, stmts' = stmts, keepL, keepSeries,
+      time' = time, lease' = lease, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -283,7 +366,7 @@ module s3InlineConsumer {
       ckpt' = nc,
       workers' = workers.set(w, { ...wk, view: nc }),
       cevents' = cevents.union(Set("closed")),
-      time' = time, lease' = lease, central' = central, stmts' = stmts, keepLog, keepSeries,
+      time' = time, lease' = lease, central' = central, stmts' = stmts, keepLog, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -295,7 +378,7 @@ module s3InlineConsumer {
       wk.holds, wk.phase == WIdle, not(wk.view.closed.get(e)), wk.view.next.get(e) < L::MAX_SLOT,
       L::at(e, wk.view.next.get(e)).kind == L::Tomb, ckpt.version == wk.view.version,
       ckpt' = nc, workers' = workers.set(w, { ...wk, view: nc }),
-      time' = time, lease' = lease, central' = central, stmts' = stmts, cevents' = cevents, keepL, keepSeries,
+      time' = time, lease' = lease, central' = central, stmts' = stmts, cevents' = cevents, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -306,7 +389,7 @@ module s3InlineConsumer {
       wk.holds or wk.phase != WIdle,
       workers' = workers.set(w, { ...idle(wk), holds: false, inc: wk.inc + 1, seen: time }),
       cevents' = cevents.union(Set("workerCrash")),
-      time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries,
+      time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -326,7 +409,7 @@ module s3InlineConsumer {
       L::everLog' = L::everLog,
       cevents' = cevents.union(Set("gc")),
       keepLog, time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
-      keepSeries,
+      keepSeries, keepDays, crows' = crows,
     }
   }
 
@@ -384,6 +467,9 @@ module s3InlineConsumer {
                                      phase: WIdle, epoch: 0, objs: Set(), pending: Set() }),
     ckpt' = C0,
     central' = L::PAYLOADS.mapBy(_ => 0),
+    crows' = L::PAYLOADS.mapBy(_ => DAYS.mapBy(_ => 0)),
+    day' = 0,
+    eDay' = 1.to(2).mapBy(_ => 0),
     stmts' = Set(),
     cevents' = Set(),
     sEpoch' = 1, sCache' = Set(), sInflight' = Set(), sCommitted' = Set(), sPoints' = Set(),
@@ -400,8 +486,8 @@ module s3InlineConsumer {
       lStartPush(e, p), lSend(e), lTimeout(e), lResolve(e), lSwitchPayload(e, p), lNewIncarnation(z),
       all { L::responses != Set(), nondet q = L::responses.oneOf() lReceive(e, q) },
       all { L::inflight != Set(), nondet q = L::inflight.oneOf() any { lApply(q), lLose(q) } },
-      tick,
-      wAcquire(w), wRenew(w), wLapse(w), wCheck(w, e, k), wSend(w), wAdvance(w), wSeeTomb(w, e), wCrash(w),
+      tick, newDay,
+      wAcquire(w), wRenew(w), wLapse(w), wRelease(w), wCheck(w, e, k), wSend(w), wAdvance(w), wSeeTomb(w, e), wCrash(w),
       wTomb(w, e, workers.get(w).view.next.get(e)),
       all { stmts != Set(), nondet q = stmts.oneOf() all {
         nondet sub = q.objs.powerset().oneOf()
@@ -458,40 +544,142 @@ module s3InlineConsumer {
   val wAllIngested: bool = L::PAYLOADS.forall(p => central.get(p) == 1)
   val wTakeoverIngest: bool = wTakeover and wAllIngested
   val wAnnounced: bool = sCache != Set()
+  val wReleased: bool = cevents.contains("released")
+  val wReleasedIngest: bool = wReleased and wAllIngested
+  val wMidnight: bool = cevents.contains("midnight")
+  // A copy on a later day than its original, both ingested once.
+  val wCopyAcrossDays: bool = L::PAYLOADS.exists(p => central.get(p) == 1 and
+    L::everLog.exists(x => x.entry.kind == L::Data and x.entry.payload == p and
+      L::everLog.exists(y => y.entry.kind == L::Data and y.entry.payload == p and eDay.get(y.epoch) > eDay.get(x.epoch))))
+  // A statement landed after its fence (inside the slack).
+  val wLateLanding: bool = cevents.contains("lateLanding")
+
+  // ---- scripted scenarios (s3InlineConsumer_test.sh) -------------------------------------
+  // Each mutant's counterexample as a fixed run (`*BreaksTest`: run on the
+  // mutant's instance, it ends with the invariant broken), and the same
+  // prefix on the design (`*DesignTest`: the step the counterexample needs
+  // is disabled there). Random simulation needs about a dozen specific steps
+  // among ~30 kinds of action for these; the runs make them certain.
+
+  // Writer e commits payload p at slot s (not acked).
+  action lCommit(e: int, p: int): bool =
+    lStartPush(e, p).then(lSend(e)).then(all { L::inflight != Set(), nondet q = L::inflight.oneOf() lApply(q) })
+  // Worker w's statement lands whole.
+  action cLand(w: int): bool = all {
+    stmts.exists(q => q.worker == w), nondet q = stmts.filter(x => x.worker == w).oneOf() cApply(q, q.objs)
+  }
+
+  // Release: w1 sends its statement, then gives the lane back.
+  run releasePrefix = init.then(lCommit(1, 1)).then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1))
+  run releaseInFlightDesignTest = releasePrefix.expect(not(mayRelease(1)))
+  run releaseInFlightBreaksTest =
+    releasePrefix.then(wRelease(1)).then(wAcquire(2)).then(wCheck(2, 1, 1)).then(wSend(2)).then(cLand(2)).then(cLand(1))
+      .expect(not(atMostOnce))
+  // ... while after its statement has settled, a release is harmless.
+  run releaseSettledDesignTest =
+    releasePrefix.then((TTL + SLACK + 1).reps(_ => tick)).then(wRelease(1)).then(wAcquire(2)).then(wCheck(2, 1, 1)).then(wSend(2))
+      .then(cLand(2)).expect(and { atMostOnce, stmts.forall(q => q.worker == 1 implies time > landBy(q)) })
+
+  // The commit slack: w1's statement is still in flight when w2 takes the
+  // lane over at the earliest (seen + TTL + MARGIN).
+  run slackPrefix =
+    init.then(lCommit(1, 1)).then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then((TTL + MARGIN).reps(_ => tick))
+      .then(wAcquire(2)).then(wCheck(2, 1, 1)).then(wSend(2)).then(cLand(2))
+  run keeperOverrunDesignTest = slackPrefix.expect(stmts.forall(q => q.worker == 1 implies time > landBy(q)))
+  run keeperOverrunBreaksTest = slackPrefix.then(cLand(1)).expect(not(atMostOnce))
+
+  // The copy horizon: payload 1 is committed on day 0 (epoch 1) and, not
+  // acked, again on day 1 (epoch 2, after a restart); the day-0 copy is ingested first.
+  run horizonPrefix =
+    init.then(lCommit(1, 1)).then(newDay).then(lNewIncarnation(false)).then(lCommit(2, 1))
+      .then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wAdvance(1))
+      .then(wCheck(1, 2, 1)).then(wSend(1))
+  run noHorizonDesignTest = horizonPrefix.expect(and { stmts == Set(), atMostOnce })
+  run noHorizonBreaksTest = horizonPrefix.then(cLand(1)).expect(not(atMostOnce))
+
+  // The range from the data, not the clock: payload 1 (day 0) lands, its
+  // worker dies before advancing, midnight passes, another worker takes over.
+  run wallPrefix =
+    init.then(lCommit(1, 1)).then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wCrash(1))
+      .then(newDay).then((TTL + MARGIN).reps(_ => tick)).then(wAcquire(2)).then(wCheck(2, 1, 1)).then(wSend(2))
+  run wallRangeDesignTest = wallPrefix.expect(and { stmts == Set(), atMostOnce })
+  run wallRangeBreaksTest = wallPrefix.then(cLand(2)).expect(not(atMostOnce))
 }
 
 // The design, in the full hostile environment.
 module s3InlineConsumerDesign {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = true, SERIES = true, TTL = 6).*
+    WRITER_FAULTS = true, SERIES = true, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1).*
 }
 // The design in the mutants' narrower environment (must pass too).
 module designQuiet {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false, TTL = 6).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1).*
 }
 // ... and with the mutants' short lease.
 module designShortLease {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1).*
+}
+// ... and with writer faults (copies of a request in a later epoch, on a later day) and no series lane.
+// (TTL 6: at TTL 3 with writer faults, the unchanged model already breaks
+// neverSkipsCommitted: GC deletes a slot below the checkpoint while its
+// writer hasn't resolved it, and the writer puts another batch there. That
+// is the GC delay's job in the code (`--delay` must cover a writer's
+// resolution), which the model's GC guard, "no request in flight", doesn't.)
+module designCopies {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = false, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = false, SERIES = false, TTL = 3).*
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = true, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = true, SERIES = false, TTL = 3).*
+    WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = true,
-    WRITER_FAULTS = false, SERIES = true, TTL = 3).*
+    WRITER_FAULTS = false, SERIES = true, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
+}
+// Mutation: a worker releases its lane while its statement may still land.
+module releaseInFlight {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = false, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
+}
+// Mutation: a commit outlives the margin (SLACK 2 > MARGIN 1).
+module keeperOverrun {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 2, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0).*
+}
+// Mutation: the check reads only the objects' own day (no copy horizon).
+module noHorizon {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
+    MAX_DAY = 1).*
+}
+// Mutation: the check reads today's partition by the worker's clock.
+module wallRange {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = true,
+    MAX_DAY = 1).*
 }

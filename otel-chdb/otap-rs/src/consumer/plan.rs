@@ -2,8 +2,9 @@
 //! slot's metadata says, the check and verify verdicts against central, and
 //! grouping objects into statements.
 
+use super::coord::Mutation;
 use otap_s3pq::proto;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// A slot the LIST returned: (seq, key, size).
 pub type Listed = (u64, String, u64);
@@ -99,6 +100,78 @@ pub struct Obj {
     pub content: String,
     pub rows: u64,
     pub received_ns: u64,
+    /// When this worker first HEADed the slot (monotonic ms): the linger's clock.
+    pub seen_ms: u64,
+}
+
+// ---- the check's partition range ------------------------------------------------------
+
+pub const DAY_NS: u64 = 86_400 * 1_000_000_000;
+
+/// The partitions a count check reads: those whose `toDate(received_at)`
+/// lies in [toDate(lo), toDate(hi)] (`_partition_value`, which keeps the
+/// by_content projection in use [M]; a predicate on `received_at` itself
+/// makes ClickHouse read the table instead).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CheckRange {
+    pub lo_ns: u64,
+    pub hi_ns: u64,
+}
+
+impl CheckRange {
+    pub fn union(self, o: CheckRange) -> CheckRange {
+        CheckRange { lo_ns: self.lo_ns.min(o.lo_ns), hi_ns: self.hi_ns.max(o.hi_ns) }
+    }
+    pub fn widen(self, by_ns: u64) -> CheckRange {
+        CheckRange { lo_ns: self.lo_ns.saturating_sub(by_ns), hi_ns: self.hi_ns.saturating_add(by_ns) }
+    }
+    /// Whether a row received at `ns` is in a partition the range reads
+    /// (UTC days here; ClickHouse uses its own time zone for both sides).
+    pub fn covers(&self, ns: u64) -> bool {
+        (self.lo_ns / DAY_NS..=self.hi_ns / DAY_NS).contains(&(ns / DAY_NS))
+    }
+}
+
+/// Where the rows of these objects are, from the objects themselves: each
+/// object's `received_at` (constant per object: the edge writes the same
+/// value into every row and into `x-amz-meta-oscope-received`), and the
+/// insert asserts that every row it writes matches it (`throwIf`, see
+/// `sql.rs`), so the rows an insert of an object has written are provably in
+/// this range. None (read every partition) if any object has no such value,
+/// or its assertion once failed (`unranged`).
+///
+/// The `WallRange` mutant takes "today", by the worker's wall clock, instead.
+pub fn own_range(objs: &[&Obj], unranged: &HashSet<String>, mutation: Mutation, wall_ns: u64) -> Option<CheckRange> {
+    if mutation == Mutation::WallRange {
+        return Some(CheckRange { lo_ns: wall_ns, hi_ns: u64::MAX });
+    }
+    let mut r: Option<CheckRange> = None;
+    for o in objs {
+        if o.received_ns == 0 || unranged.contains(&o.content) {
+            return None;
+        }
+        let x = CheckRange { lo_ns: o.received_ns, hi_ns: o.received_ns };
+        r = Some(r.map_or(x, |a| a.union(x)));
+    }
+    r
+}
+
+/// The range for a check that must find *any* object with the same content
+/// key, not just earlier attempts of these: a copy of a request (resent
+/// after a lost ack, into a new epoch) has the same key but a new
+/// `received_at`. The objects' own range widened by the copy horizon: a
+/// copy received within `horizon` of the original is found. None: no
+/// horizon (read everything), or no own range.
+pub fn check_range(objs: &[&Obj], unranged: &HashSet<String>, horizon_ns: Option<u64>, mutation: Mutation, wall_ns: u64) -> Option<CheckRange> {
+    let h = horizon_ns?;
+    let r = own_range(objs, unranged, mutation, wall_ns)?;
+    Some(if mutation == Mutation::WallRange { r } else { r.widen(h) })
+}
+
+/// Whether a table's pending objects already fill a statement (no linger).
+pub fn fills(objs: &[Obj], l: &Limits) -> bool {
+    let (bytes, rows) = objs.iter().fold((0u64, 0u64), |(b, r), o| (b + o.size, r + o.rows));
+    objs.len() >= l.max_objects || bytes >= l.max_bytes || rows >= l.max_rows || objs.iter().any(|o| o.rows > l.solo_rows || o.size > l.solo_bytes)
 }
 
 /// Central's count for a content key against the committed row count.
@@ -234,7 +307,44 @@ mod tests {
             content: format!("c{seq}"),
             rows,
             received_ns: 0,
+            seen_ms: 0,
         }
+    }
+
+    #[test]
+    fn ranges_come_from_the_objects() {
+        let none = HashSet::new();
+        let day = |d: u64, h: u64| d * DAY_NS + h * 3_600_000_000_000;
+        let mut a = o(0, 1, 1);
+        let mut b = o(1, 1, 1);
+        // a batch spanning a day boundary: 23:00 on day 100, 01:00 on day 101
+        a.received_ns = day(100, 23);
+        b.received_ns = day(101, 1);
+        let r = own_range(&[&a, &b], &none, Mutation::None, day(300, 0)).unwrap();
+        assert!(r.covers(day(100, 0)) && r.covers(day(101, 23)) && !r.covers(day(99, 23)) && !r.covers(day(102, 0)));
+        // old timestamps: the range follows the data, not the (much later) wall clock
+        assert_eq!(r, CheckRange { lo_ns: day(100, 23), hi_ns: day(101, 1) });
+        let c = check_range(&[&a, &b], &none, Some(DAY_NS), Mutation::None, day(300, 0)).unwrap();
+        assert!(c.covers(day(99, 0)) && c.covers(day(102, 0)) && !c.covers(day(98, 23)));
+        assert_eq!(check_range(&[&a, &b], &none, None, Mutation::None, 0), None, "no horizon: read everything");
+        // no metadata, or the object's assertion failed: read everything
+        let mut z = o(2, 1, 1);
+        assert_eq!(own_range(&[&a, &z], &none, Mutation::None, 0), None);
+        z.received_ns = day(5, 0);
+        let un: HashSet<String> = [z.content.clone()].into();
+        assert_eq!(own_range(&[&z], &un, Mutation::None, 0), None);
+        // the mutant: today's partition only
+        let w = own_range(&[&a], &none, Mutation::WallRange, day(300, 0)).unwrap();
+        assert!(!w.covers(a.received_ns));
+    }
+
+    #[test]
+    fn a_statement_is_full_at_any_limit() {
+        let lim = Limits { max_objects: 3, max_bytes: 100, max_rows: 50, solo_rows: 40, solo_bytes: 60 };
+        assert!(!fills(&[o(0, 1, 10), o(1, 1, 10)], &lim));
+        assert!(fills(&[o(0, 1, 10), o(1, 1, 10), o(2, 1, 10)], &lim));
+        assert!(fills(&[o(0, 30, 10), o(1, 30, 10)], &lim), "rows");
+        assert!(fills(&[o(0, 1, 70)], &lim), "a solo object");
     }
 
     #[test]

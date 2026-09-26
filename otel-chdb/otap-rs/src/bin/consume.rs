@@ -5,12 +5,22 @@
 //!
 //!   consume --s3 http://127.0.0.1:18333/otel/prefix/edges --ch http://127.0.0.1:18123 --db central
 //!           [--depth 2] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
-//!           [--ttl 30s --margin 2s --budget 10s] [--poll 1s] [--discover 2s] [--quiet 30s]
+//!           [--ttl 45s --margin 10s --budget 10s --keeper-slack 10s [--allow-short-margin]]
+//!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
+//!           [--idle-backoff 1s..30s | off] [--linger 0ms]
+//!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
+//!           [--check-horizon 1d | all] [--no-check-range]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
 //!           [--no-ddl] [--insert-setting k=v ...]
-//!   consume gc --s3 ... [--ctl PREFIX] --delay 40s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
+//!   consume gc --s3 ... [--ctl PREFIX] --delay 75s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
+//!
+//! The lease timing is validated at start: a margin below 10 s is refused
+//! (a replicated central's Keeper request can outlive max_execution_time by
+//! 10 s) unless `--allow-short-margin` (tests with compressed timing), and
+//! the margin must cover `--keeper-slack` (default 10 s; with
+//! `--allow-short-margin`, the margin itself).
 //!
 //! Checkpoints are compacted: once `consume gc` has retired a closed epoch
 //! (after `--zombie`), the lane's holder drops it at its next full listing
@@ -33,7 +43,8 @@ use consumer::bucket::{Bucket, S3Bucket};
 use consumer::coord::{self, Timing};
 use consumer::gc::{GcConfig, gc_step};
 use consumer::sql::ClickHouseCentral;
-use consumer::worker::{Config, RealClock, Worker};
+use consumer::discovery::Backoff;
+use consumer::worker::{BalanceMode, Config, RealClock, Worker};
 use otap_s3pq::store::S3Config;
 use std::rc::Rc;
 use std::time::Duration;
@@ -49,6 +60,10 @@ fn flag(args: &[String], name: &str) -> bool {
 fn dur_ms(s: &str) -> u64 {
     if let Some(ms) = s.strip_suffix("ms") {
         ms.parse().expect("duration")
+    } else if let Some(d) = s.strip_suffix('d') {
+        (d.parse::<f64>().expect("duration") * 86_400_000.0) as u64
+    } else if let Some(h) = s.strip_suffix('h') {
+        (h.parse::<f64>().expect("duration") * 3_600_000.0) as u64
     } else if let Some(m) = s.strip_suffix('m') {
         (m.parse::<f64>().expect("duration") * 60_000.0) as u64
     } else {
@@ -152,7 +167,7 @@ async fn main() {
         let cfg = GcConfig {
             root,
             ctl,
-            delay_ms: opt_ms(&args, "--delay", "40s"),
+            delay_ms: opt_ms(&args, "--delay", "75s"),
             zombie_ms: opt_ms(&args, "--zombie", "10m"),
             dry_run: flag(&args, "--dry-run"),
         };
@@ -203,14 +218,50 @@ async fn main() {
         cfg.signals = vec![s.clone()];
         table_override = arg(&args, "--table");
     }
+    let allow_short = flag(&args, "--allow-short-margin");
+    let d = Timing::production();
+    let margin_ms = arg(&args, "--margin").map_or(d.margin_ms, |s| dur_ms(&s));
     cfg.timing = Timing {
-        ttl_ms: opt_ms(&args, "--ttl", "30s"),
-        margin_ms: opt_ms(&args, "--margin", "2s"),
-        budget_ms: opt_ms(&args, "--budget", "10s"),
+        ttl_ms: arg(&args, "--ttl").map_or(d.ttl_ms, |s| dur_ms(&s)),
+        margin_ms,
+        budget_ms: arg(&args, "--budget").map_or(d.budget_ms, |s| dur_ms(&s)),
+        slack_ms: arg(&args, "--keeper-slack").map_or(if allow_short { d.slack_ms.min(margin_ms) } else { d.slack_ms }, |s| dur_ms(&s)),
         mutation: coord::Mutation::None,
     };
-    cfg.timing.check().expect("lease timing");
+    if let Err(e) = cfg.timing.check_production(allow_short) {
+        eprintln!("consume: refusing to start: {e}");
+        std::process::exit(2);
+    }
     cfg.discover_ms = opt_ms(&args, "--discover", "2s");
+    cfg.lanes_every_ms = opt_ms(&args, "--lanes-every", "30s");
+    cfg.backoff = match arg(&args, "--idle-backoff").as_deref() {
+        None => Backoff::default(),
+        Some("off") => Backoff::off(),
+        Some(r) => {
+            let (lo, hi) = r.split_once("..").expect("--idle-backoff MIN..MAX");
+            Backoff { min_ms: dur_ms(lo), max_ms: dur_ms(hi), ..Backoff::default() }
+        }
+    };
+    cfg.linger_ms = opt_ms(&args, "--linger", "0ms");
+    cfg.balance.mode = match arg(&args, "--balance").as_deref() {
+        None | Some("load") => BalanceMode::Load,
+        Some("count") => BalanceMode::Count,
+        Some(x) => panic!("--balance {x}: load or count"),
+    };
+    if let Some(h) = arg(&args, "--hysteresis") {
+        cfg.balance.hysteresis = h.parse().expect("--hysteresis");
+    }
+    if let Some(w) = arg(&args, "--lane-weight") {
+        cfg.balance.base_weight = w.parse().expect("--lane-weight");
+    }
+    cfg.balance.window_ms = opt_ms(&args, "--load-window", "60s");
+    cfg.balance.min_hold_ms = opt_ms(&args, "--min-hold", "30s");
+    cfg.balance.loads_every_ms = opt_ms(&args, "--loads-every", "10s");
+    cfg.horizon_ms = match arg(&args, "--check-horizon").as_deref() {
+        None => Some(86_400_000),
+        Some("all") => None,
+        Some(h) => Some(dur_ms(h)),
+    };
     cfg.full_list_ms = opt_ms(&args, "--full-list", "30s");
     cfg.quiet_ms = opt_ms(&args, "--quiet", "30s");
     cfg.limits.max_objects = arg(&args, "--max-batch").map_or(32, |s| s.parse().expect("--max-batch"));
@@ -224,6 +275,7 @@ async fn main() {
         cfg.solo = true;
     }
     let poll = opt_ms(&args, "--poll", "1s");
+    cfg.poll_ms = poll;
     let idle_exit = arg(&args, "--exit-after-idle").map(|s| dur_ms(&s));
     let run_for = arg(&args, "--run-for").map(|s| dur_ms(&s));
     let stats_path = arg(&args, "--stats");
@@ -237,6 +289,7 @@ async fn main() {
     let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
     let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), &key, &secret, cfg.timing.budget_ms + 5000);
     central.squash = !flag(&args, "--no-squash");
+    central.use_ranges = !flag(&args, "--no-check-range") && cfg.horizon_ms.is_some();
     // A replicated central (central-replicated/README.md): `--ch r1,r2` fails
     // over between replicas, `--sync-replica` syncs before a check that may
     // follow statements committed on another replica, `--no-ddl` leaves the
@@ -294,8 +347,13 @@ async fn main() {
             break;
         }
         if !(once && progressed) {
+            // Sleep out the poll, or less if a linger ends (or a lane's backoff) sooner.
             let spent = now - t;
-            tokio::time::sleep(Duration::from_millis(poll.saturating_sub(spent))).await;
+            let mut sleep = poll.saturating_sub(spent);
+            if let Some(w) = w.next_wake() {
+                sleep = sleep.min(w.saturating_sub(now).max(5));
+            }
+            tokio::time::sleep(Duration::from_millis(sleep)).await;
         }
     }
     w.release_all().await;

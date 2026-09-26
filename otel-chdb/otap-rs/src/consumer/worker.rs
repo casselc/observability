@@ -33,11 +33,30 @@
 //!    done, in order, and a tombstone at the new position closes the epoch;
 //!    the write is a CAS. A failed CAS means another worker took the lane:
 //!    it is dropped at once.
+//!
+//! For fleet scale (README "Consumer at fleet scale"):
+//! - **Idle-lane backoff** (`discovery::Backoff`): a lane whose LIST found
+//!   nothing to do is LISTed again after a doubling, jittered wait; any work
+//!   found puts it back on every poll. **Hints** (`discovery::Hints`, e.g. S3
+//!   event notifications) cut the wait short; LIST stays the truth.
+//! - **Linger**: a table with fewer pending objects than a statement holds
+//!   waits up to `linger_ms` (from the first object's HEAD) for more. HEADs
+//!   are cached per slot, so waiting costs no second HEAD.
+//! - **Load-based balancing** (`coord::pick_release`, `take_by_load`): lane
+//!   weight = a base + recent rows/s, exchanged through the heartbeats.
+//! - **The check's partition range** (`plan::own_range`, `check_range`):
+//!   derived from the objects' own `received_at`, asserted row by row by the
+//!   insert, widened by the copy horizon for the pre-check.
+//! - **Unsettled statements**: an insert with no answer may still land until
+//!   `Held::settled_by`; until then its lanes are neither checked, verified,
+//!   retried nor released (the model's "a worker acts once its statement is
+//!   gone").
 
 use super::bucket::{Bucket, Cond, Put};
-use super::coord::{self, CkptDoc, Held, Lane, LeaseDoc, Observer, Timing, join};
-use super::plan::{self, Found, Limits, Obj, Verdict};
-use super::sql::{Central, Fence, LaneKind};
+use super::coord::{self, CkptDoc, Ewma, Held, Lane, LeaseDoc, Observer, Timing, join};
+use super::discovery::{Backoff, Hints, Jitter};
+use super::plan::{self, CheckRange, Found, Limits, Obj, Verdict};
+use super::sql::{Central, Fence, InsertErr, LaneKind};
 use bytes::Bytes;
 use otap_s3pq::proto;
 use serde::Serialize;
@@ -84,6 +103,9 @@ pub struct Config {
     pub worker: String,
     pub timing: Timing,
     pub discover_ms: u64,
+    /// The poll period: a busy lane is LISTed once per poll, even when the
+    /// worker wakes sooner (a linger ending, an idle lane's backoff ending).
+    pub poll_ms: u64,
     pub full_list_ms: u64,
     pub quiet_ms: u64,
     pub limits: Limits,
@@ -93,6 +115,47 @@ pub struct Config {
     /// Take every free lane regardless of other workers (a one-shot run).
     pub solo: bool,
     pub verbose: bool,
+    /// How often the lane directories are listed (one LIST per producer);
+    /// leases and heartbeats are listed every `discover_ms`.
+    pub lanes_every_ms: u64,
+    /// Per-lane LIST backoff when a lane is idle.
+    pub backoff: Backoff,
+    /// Wait up to this long (from the oldest pending object's HEAD) for a
+    /// table's statement to fill (0: off).
+    pub linger_ms: u64,
+    pub balance: Balance,
+    /// The count check's copy horizon: None reads every partition; Some(h)
+    /// reads the partitions of the objects' own `received_at` ± h.
+    pub horizon_ms: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BalanceMode {
+    /// Fair share by lane count (⌈lanes / workers⌉).
+    Count,
+    /// By weight: a base per lane plus its recent rows/s.
+    Load,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Balance {
+    pub mode: BalanceMode,
+    /// Nothing moves while a worker's load is within target × (1 ± h).
+    pub hysteresis: f64,
+    /// A lane's weight = base + its recent rows/s.
+    pub base_weight: f64,
+    /// The rate's time constant.
+    pub window_ms: u64,
+    /// A lane isn't given back sooner than this after it was taken.
+    pub min_hold_ms: u64,
+    /// How often the other workers' loads are read (their heartbeats: one GET each).
+    pub loads_every_ms: u64,
+}
+
+impl Default for Balance {
+    fn default() -> Self {
+        Balance { mode: BalanceMode::Load, hysteresis: 0.2, base_weight: 50.0, window_ms: 60_000, min_hold_ms: 30_000, loads_every_ms: 10_000 }
+    }
 }
 
 impl Config {
@@ -103,8 +166,9 @@ impl Config {
             ctl: ctl.trim_matches('/').into(),
             signals: Vec::new(),
             worker: worker.into(),
-            timing: Timing { ttl_ms: 30_000, margin_ms: 2_000, budget_ms: 10_000, mutation: coord::Mutation::None },
+            timing: Timing::production(),
             discover_ms: 2_000,
+            poll_ms: 1_000,
             full_list_ms: 30_000,
             quiet_ms: 30_000,
             limits: Limits::default(),
@@ -112,6 +176,11 @@ impl Config {
             max_lanes: usize::MAX,
             solo: false,
             verbose: false,
+            lanes_every_ms: 30_000,
+            backoff: Backoff::default(),
+            linger_ms: 0,
+            balance: Balance::default(),
+            horizon_ms: Some(86_400_000),
         }
     }
 }
@@ -153,6 +222,31 @@ pub struct Stats {
     pub ckpt_bytes_max: u64,
     pub ckpt_epochs_max: u64,
     pub errors: u64,
+    /// LISTs of held lanes' data (not discovery), and polls a lane skipped
+    /// because it was backing off.
+    pub lane_lists: u64,
+    pub lists_skipped: u64,
+    /// Per lane: its data LISTs (for LISTs per lane per month).
+    pub lists_by_lane: BTreeMap<String, u64>,
+    /// Hints received, lanes they woke early, new lanes they named.
+    pub hints: u64,
+    pub hint_wakeups: u64,
+    pub hint_new_lanes: u64,
+    /// Objects held back a poll by the linger (counted per poll).
+    pub linger_deferred: u64,
+    /// Statements with no answer (unsettled), and objects held back while
+    /// their lane had one.
+    pub unsettled: u64,
+    pub deferred_unsettled: u64,
+    /// Checks restricted to a partition range, over every partition, and
+    /// recounts over the horizon after a restricted verify fell short.
+    pub range_checks: u64,
+    pub full_checks: u64,
+    pub range_recounts: u64,
+    /// Inserts whose range assertion fired (their objects are checked over every partition from then on).
+    pub range_guard_failures: u64,
+    /// Heartbeat reads (the other workers' loads).
+    pub load_reads: u64,
     /// Receive (edge) to insert returned, ms.
     #[serde(skip)]
     pub visible_ms: Vec<f64>,
@@ -172,6 +266,40 @@ struct LaneState {
     compact_due: bool,
     /// Per epoch: when a new slot (or the epoch) was last seen.
     last_seen: HashMap<String, u64>,
+    /// The idle backoff: the current (unjittered) wait, 0 when busy, and
+    /// when the lane is LISTed next (monotonic ms).
+    idle_ms: u64,
+    next_list_at: u64,
+    /// HEADs of slots above the checkpoint (immutable: create-only), with
+    /// when each was first HEADed.
+    heads: HashMap<(String, u64), (Found, u64)>,
+    /// A statement with no answer may land until then (monotonic ms).
+    unsettled_until: Option<u64>,
+    taken_at: u64,
+    /// Rows ingested (the load).
+    load: Ewma,
+}
+
+impl LaneState {
+    fn new(lane: Lane, held: Held, ckpt: CkptDoc, ckpt_etag: String, now: u64, load: Ewma) -> Self {
+        let known = ckpt.epochs.keys().cloned().collect();
+        LaneState {
+            lane,
+            held,
+            ckpt,
+            ckpt_etag,
+            known,
+            last_full: None,
+            compact_due: false,
+            last_seen: HashMap::new(),
+            idle_ms: 0,
+            next_list_at: now,
+            heads: HashMap::new(),
+            unsettled_until: None,
+            taken_at: now,
+            load,
+        }
+    }
 }
 
 /// One epoch's work this step.
@@ -201,6 +329,24 @@ pub struct Worker<B: Bucket, C: Central, K: Clock> {
     logged_gaps: HashSet<SlotId>,
     /// gc.json's retired epochs per lane, and when they were read (mono ms).
     gc_retired: Option<(u64, BTreeMap<String, BTreeSet<String>>)>,
+    pub hints: Option<Rc<dyn Hints>>,
+    /// Lanes learnt from hints since the last lane listing.
+    hinted: HashSet<String>,
+    last_lanes: Option<u64>,
+    jitter: Jitter,
+    /// Content keys whose range assertion failed: always checked over every partition.
+    unranged: HashSet<String>,
+    /// The other live workers' loads (heartbeat key -> load), the rates of
+    /// the lanes they hold, and when they were read.
+    peer_loads: HashMap<String, f64>,
+    peer_lanes: HashMap<String, Vec<String>>,
+    lane_rates: HashMap<String, f64>,
+    last_loads: Option<u64>,
+    /// Since when (mono) each lane no live worker's heartbeat names has been so.
+    unheld_since: HashMap<String, u64>,
+    /// When the worker next has something to do (a linger ending, a lane's
+    /// backoff ending): the caller may sleep until then instead of a whole poll.
+    wake_at: Option<u64>,
 }
 
 fn log(cfg: &Config, msg: &str) {
@@ -209,6 +355,7 @@ fn log(cfg: &Config, msg: &str) {
 
 impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     pub fn new(cfg: Config, bucket: Rc<B>, central: Rc<C>, clock: K) -> Self {
+        let jitter = Jitter::new(&cfg.worker);
         Worker {
             cfg,
             bucket,
@@ -226,7 +373,41 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             beat: 0,
             logged_gaps: HashSet::new(),
             gc_retired: None,
+            hints: None,
+            hinted: HashSet::new(),
+            last_lanes: None,
+            jitter,
+            unranged: HashSet::new(),
+            peer_loads: HashMap::new(),
+            peer_lanes: HashMap::new(),
+            lane_rates: HashMap::new(),
+            last_loads: None,
+            unheld_since: HashMap::new(),
+            wake_at: None,
         }
+    }
+
+    /// When the worker next has something to do (monotonic ms), if sooner than a poll.
+    pub fn next_wake(&self) -> Option<u64> {
+        self.wake_at
+    }
+
+    fn wake(&mut self, at: u64) {
+        self.wake_at = Some(self.wake_at.map_or(at, |w| w.min(at)));
+    }
+
+    /// A lane's weight for balancing: the base plus its recent rows/s.
+    fn weight(&self, id: &str, now: u64) -> f64 {
+        let b = &self.cfg.balance;
+        let rate = match self.held.get(id) {
+            Some(ls) => ls.load.rate(now, b.window_ms),
+            None => self.lane_rates.get(id).copied().unwrap_or(0.0),
+        };
+        b.base_weight + rate
+    }
+
+    fn my_load(&self, now: u64) -> f64 {
+        self.held.keys().map(|id| self.weight(id, now)).sum()
     }
 
     pub fn held_lanes(&self) -> Vec<String> {
@@ -240,6 +421,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     /// One poll. Returns whether any slot was consumed or any epoch closed.
     pub async fn step(&mut self) -> bool {
         self.stats.steps += 1;
+        self.wake_at = None;
         self.maintain().await;
         let now = self.clock.mono();
         if self.last_discover.is_none_or(|t| now >= t + self.cfg.discover_ms) {
@@ -247,14 +429,47 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             self.last_discover = Some(now);
             self.balance().await;
         }
+        self.take_hints().await;
+        let step_start = now;
         let ids: Vec<String> = self.held.keys().cloned().collect();
         let mut objs = Vec::new();
         let mut work = Vec::new();
         for id in &ids {
-            if let Err(e) = self.scan(id, &mut objs, &mut work).await {
-                self.stats.errors += 1;
-                log(&self.cfg, &format!("scan {id}: {e}"));
+            let now = self.clock.mono();
+            let due = self.held.get(id).is_some_and(|l| now >= l.next_list_at);
+            if !due {
+                self.stats.lists_skipped += 1;
+                continue;
             }
+            let (n_objs, n_work) = (objs.len(), work.len());
+            match self.scan(id, &mut objs, &mut work).await {
+                Ok(new_epoch) => {
+                    // Busy (anything to ingest or close, or a new epoch): LIST
+                    // again next poll. Idle: back off.
+                    let busy = objs.len() > n_objs || work.len() > n_work || new_epoch;
+                    let (b, r) = (self.cfg.backoff, self.jitter.next());
+                    if let Some(ls) = self.held.get_mut(id) {
+                        if !b.enabled() {
+                            ls.idle_ms = 0;
+                            ls.next_list_at = step_start;
+                        } else if busy {
+                            ls.idle_ms = 0;
+                            ls.next_list_at = step_start + self.cfg.poll_ms - self.cfg.poll_ms / 10;
+                        } else {
+                            ls.idle_ms = b.next_base(ls.idle_ms);
+                            ls.next_list_at = now + b.jittered(ls.idle_ms, r);
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.stats.errors += 1;
+                    log(&self.cfg, &format!("scan {id}: {e}"));
+                }
+            }
+        }
+        let later: Vec<u64> = self.held.values().map(|l| l.next_list_at).filter(|t| *t > now).collect();
+        if let Some(t) = later.into_iter().min() {
+            self.wake(t);
         }
         let done = self.ingest(objs).await;
         let mut progressed = false;
@@ -262,6 +477,34 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             progressed |= self.advance(id, &work, &done).await;
         }
         progressed
+    }
+
+    /// Hints: wake the named held lanes now; learn lanes not listed yet.
+    async fn take_hints(&mut self) {
+        let Some(h) = self.hints.clone() else { return };
+        let now = self.clock.mono();
+        for id in h.poll().await {
+            self.stats.hints += 1;
+            if let Some(ls) = self.held.get_mut(&id) {
+                if ls.next_list_at > now {
+                    ls.next_list_at = now;
+                    ls.idle_ms = 0;
+                    self.stats.hint_wakeups += 1;
+                }
+            } else if !self.lanes.contains_key(&id) {
+                let lane = match id.rsplit_once('/') {
+                    Some((p, s)) if self.cfg.depth >= 2 => Lane { producer: p.to_string(), signal: s.to_string() },
+                    None if self.cfg.depth == 1 => Lane { producer: String::new(), signal: id.clone() },
+                    _ => continue,
+                };
+                let wanted = self.cfg.signals.is_empty() || self.cfg.signals.contains(&lane.signal);
+                if LaneKind::for_signal(&lane.signal).is_some() && wanted {
+                    self.stats.hint_new_lanes += 1;
+                    let _ = self.hinted.insert(id.clone());
+                    let _ = self.lanes.insert(id, lane);
+                }
+            }
+        }
     }
 
     // ---- leases ------------------------------------------------------------------
@@ -321,7 +564,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
 
     async fn discover(&mut self) {
         let b = self.bucket.clone();
-        // lanes
+        let now = self.clock.mono();
+        if self.last_lanes.is_none_or(|t| now >= t + self.cfg.lanes_every_ms) {
+            if self.list_lanes().await {
+                self.last_lanes = Some(now);
+            }
+        }
+        self.heartbeat_and_leases(&b).await;
+    }
+
+    /// The lane directories: one LIST of the root, one per producer.
+    async fn list_lanes(&mut self) -> bool {
+        let b = self.bucket.clone();
         let mut lanes = BTreeMap::new();
         let producers: Vec<String> = if self.cfg.depth >= 2 {
             match b.list_dirs(&self.cfg.root).await {
@@ -329,7 +583,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 Err(e) => {
                     self.stats.errors += 1;
                     log(&self.cfg, &format!("discover: {e}"));
-                    return;
+                    return false;
                 }
             }
         } else {
@@ -356,17 +610,36 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
             }
         }
+        // A lane a hint named since the last listing stays even if this
+        // listing doesn't show it yet (LIST lag).
+        for id in std::mem::take(&mut self.hinted) {
+            if let Some(l) = self.lanes.get(&id) {
+                let _ = lanes.entry(id).or_insert_with(|| l.clone());
+            }
+        }
         self.lanes = lanes;
-        // heartbeat, and who else is alive
+        true
+    }
+
+    async fn heartbeat_and_leases(&mut self, b: &Rc<B>) {
+        // heartbeat (with this worker's load and its lanes' rates), and who else is alive
         self.beat += 1;
-        let hb = serde_json::json!({"worker": self.cfg.worker, "beat": self.beat, "wall_ms": self.clock.wall()});
-        let wprefix = join(&self.cfg.ctl, "workers");
-        let _ = b.put(&format!("{wprefix}/{}.json", self.cfg.worker), Bytes::from(hb.to_string()), Cond::None, &BTreeMap::new()).await;
         let now = self.clock.mono();
+        let win = self.cfg.balance.window_ms;
+        let rates: BTreeMap<String, f64> =
+            self.held.iter().map(|(id, l)| (id.clone(), (l.load.rate(now, win) * 1000.0).round() / 1000.0)).collect();
+        let hb = serde_json::json!({"worker": self.cfg.worker, "beat": self.beat, "wall_ms": self.clock.wall(),
+            "load": (self.my_load(now) * 1000.0).round() / 1000.0, "lanes": rates});
+        let wprefix = join(&self.cfg.ctl, "workers");
+        let mine = format!("{wprefix}/{}.json", self.cfg.worker);
+        let _ = b.put(&mine, Bytes::from(hb.to_string()), Cond::None, &BTreeMap::new()).await;
         let t = self.cfg.timing;
+        let read_loads = self.cfg.balance.mode == BalanceMode::Load
+            && self.last_loads.is_none_or(|x| now >= x + self.cfg.balance.loads_every_ms);
         if let Ok(items) = b.list(&wprefix, None).await {
             let mut live = 0;
             let mut dead = Vec::new();
+            let mut peers = Vec::new();
             let wall = self.clock.wall();
             for it in items {
                 let id = it.key.clone();
@@ -376,14 +649,38 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 // (LastModified is the store's clock: good enough to discount a
                 // long-dead heartbeat at once. This only balances load.)
                 let stale = wall.saturating_sub(it.modified_ms) > 3 * t.ttl_ms;
-                if id.ends_with(&format!("/{}.json", self.cfg.worker)) || (quiet < t.ttl_ms + t.margin_ms && !stale) {
+                if id == mine {
                     live += 1;
+                } else if quiet < t.ttl_ms + t.margin_ms && !stale {
+                    live += 1;
+                    peers.push(id);
                 } else if quiet > 10 * t.ttl_ms || wall.saturating_sub(it.modified_ms) > 10 * t.ttl_ms {
                     dead.push(id);
                 }
             }
             self.live_workers = if self.cfg.solo { 1 } else { live.max(1) };
             let _ = b.delete(&dead).await;
+            self.peer_loads.retain(|k, _| peers.contains(k));
+            self.peer_lanes.retain(|k, _| peers.contains(k));
+            if read_loads {
+                self.last_loads = Some(now);
+                for id in peers {
+                    self.stats.load_reads += 1;
+                    if let Ok(Some((body, _))) = b.get(&id).await {
+                        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&body) {
+                            let _ = self.peer_loads.insert(id.clone(), v["load"].as_f64().unwrap_or(0.0));
+                            let mut theirs = Vec::new();
+                            if let Some(m) = v["lanes"].as_object() {
+                                for (lane, r) in m {
+                                    let _ = self.lane_rates.insert(lane.clone(), r.as_f64().unwrap_or(0.0));
+                                    theirs.push(lane.clone());
+                                }
+                            }
+                            let _ = self.peer_lanes.insert(id, theirs);
+                        }
+                    }
+                }
+            }
         }
         // leases
         let lprefix = join(&self.cfg.ctl, "lease");
@@ -402,79 +699,150 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     }
 
     async fn balance(&mut self) {
+        match self.cfg.balance.mode {
+            BalanceMode::Count => self.balance_count().await,
+            BalanceMode::Load => self.balance_load().await,
+        }
+    }
+
+    /// May this held lane be given back now: held long enough (load mode),
+    /// and no statement of it can still land (`coord::may_act`).
+    fn releasable(&self, ls: &LaneState, now: u64, min_hold: u64) -> bool {
+        now >= ls.taken_at + min_hold && coord::may_act(ls.unsettled_until, now, &self.cfg.timing)
+    }
+
+    async fn release_lane(&mut self, id: &str, why: &str) {
+        let Some(ls) = self.held.remove(id) else { return };
+        let doc = coord::release(&ls.held.doc, self.clock.wall());
+        let _ = self.write_lease(&ls.lane, &doc, Some(&ls.held.etag)).await;
+        // Its rate goes with it, for whoever takes it next.
+        let now = self.clock.mono();
+        let _ = self.lane_rates.insert(id.to_string(), ls.load.rate(now, self.cfg.balance.window_ms));
+        self.stats.lanes_released += 1;
+        if self.cfg.verbose {
+            log(&self.cfg, &format!("released {id} ({why}, workers {})", self.live_workers));
+        }
+    }
+
+    /// Fair share by lane count.
+    async fn balance_count(&mut self) {
         let share = coord::fair_share(self.lanes.len(), self.live_workers).min(self.cfg.max_lanes);
+        let now = self.clock.mono();
         // Above the fair share: give one lane back per round (hysteresis).
         if self.held.len() > share {
-            if let Some(id) = self.held.keys().next_back().cloned() {
-                let ls = self.held.remove(&id).expect("held");
-                let doc = coord::release(&ls.held.doc, self.clock.wall());
-                let _ = self.write_lease(&ls.lane, &doc, Some(&ls.held.etag)).await;
-                self.stats.lanes_released += 1;
-                if self.cfg.verbose {
-                    log(&self.cfg, &format!("released {id} (share {share}, workers {})", self.live_workers));
-                }
+            let id = self.held.iter().rev().find(|(_, l)| self.releasable(l, now, 0)).map(|(id, _)| id.clone());
+            if let Some(id) = id {
+                self.release_lane(&id, &format!("share {share}")).await;
             }
             return;
         }
-        let now = self.clock.mono();
-        let t = self.cfg.timing;
         let candidates: Vec<String> = self.lanes.keys().filter(|id| !self.held.contains_key(*id)).cloned().collect();
         for id in candidates {
             if self.held.len() >= share {
                 break;
             }
-            let lane = self.lanes[&id].clone();
-            let prev = match self.lease_etags.get(&id) {
-                None => None,
-                Some(_) => {
-                    // Below the share only: read it (it may be released, or
-                    // expired by our observation of its ETag).
-                    match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
-                        Ok(Some((body, etag))) => {
-                            self.obs.observe(&id, Some(&etag), now);
-                            let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { continue };
-                            // (A lease this worker let lapse still names it as
-                            // owner: it is taken again like anyone else's, after
-                            // expiry. Skipping "our own" leases here orphaned
-                            // them while this worker lived: the soak's finding.)
-                            if !self.obs.may_take(&id, &etag, &doc, now, t.margin_ms) {
-                                continue;
-                            }
-                            Some((doc, etag))
+            let _ = self.try_take(&id).await;
+        }
+    }
+
+    /// By load: weights, a target and a band (`coord::pick_release`, `take_by_load`).
+    async fn balance_load(&mut self) {
+        let now = self.clock.mono();
+        let b = self.cfg.balance;
+        let h = b.hysteresis;
+        let weights: Vec<f64> = self.lanes.keys().map(|id| self.weight(id, now)).collect();
+        let target = coord::load_target(&weights, self.live_workers);
+        if self.held.len() > self.cfg.max_lanes {
+            let id = self.held.iter().rev().find(|(_, l)| self.releasable(l, now, 0)).map(|(id, _)| id.clone());
+            if let Some(id) = id {
+                self.release_lane(&id, "max lanes").await;
+            }
+            return;
+        }
+        let mine: Vec<(String, f64, bool)> = self
+            .held
+            .iter()
+            .map(|(id, l)| (id.clone(), self.weight(id, now), self.releasable(l, now, b.min_hold_ms)))
+            .collect();
+        if let Some(id) = coord::pick_release(&mine, target, h) {
+            let why = format!("load {:.0} > target {target:.0} × {:.2}", self.my_load(now), 1.0 + h);
+            self.release_lane(&id, &why).await;
+            return;
+        }
+        // Lanes another live worker's heartbeat says it holds aren't read.
+        let peer_held: HashSet<&String> = self.peer_lanes.values().flatten().collect();
+        let mut candidates: Vec<String> =
+            self.lanes.keys().filter(|id| !self.held.contains_key(*id) && !peer_held.contains(id)).cloned().collect();
+        let unheld: HashSet<String> = candidates.iter().cloned().collect();
+        self.unheld_since.retain(|id, _| unheld.contains(id));
+        for id in &candidates {
+            let _ = self.unheld_since.entry(id.clone()).or_insert(now);
+        }
+        // Heaviest first: they are the hardest to place.
+        candidates.sort_by(|a, b| self.weight(b, now).total_cmp(&self.weight(a, now)).then_with(|| a.cmp(b)));
+        let me = format!("{}/{}.json", join(&self.cfg.ctl, "workers"), self.cfg.worker);
+        for id in candidates {
+            if self.held.len() >= self.cfg.max_lanes {
+                break;
+            }
+            let my = self.my_load(now);
+            let least = self.peer_loads.iter().all(|(k, l)| (my, &me) < (*l, k));
+            let orphaned = self.unheld_since.get(&id).is_some_and(|t| now >= t + 3 * b.loads_every_ms);
+            if !coord::take_by_load(my, self.weight(&id, now), target, h, least, orphaned) {
+                continue;
+            }
+            let _ = self.try_take(&id).await;
+        }
+    }
+
+    /// Takes a lane if its lease is free, released, or expired by our
+    /// observation; then fences its checkpoint. Returns whether it did.
+    async fn try_take(&mut self, id: &str) -> bool {
+        let now = self.clock.mono();
+        let t = self.cfg.timing;
+        let Some(lane) = self.lanes.get(id).cloned() else { return false };
+        let prev = match self.lease_etags.get(id) {
+            None => None,
+            Some(_) => {
+                // Read it (it may be released, or expired by our observation of its ETag).
+                match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
+                    Ok(Some((body, etag))) => {
+                        self.obs.observe(id, Some(&etag), now);
+                        let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { return false };
+                        // (A lease this worker let lapse still names it as
+                        // owner: it is taken again like anyone else's, after
+                        // expiry. Skipping "our own" leases here orphaned
+                        // them while this worker lived: the soak's finding.)
+                        if !self.obs.may_take(id, &etag, &doc, now, t.margin_ms) {
+                            return false;
                         }
-                        Ok(None) => None,
-                        Err(_) => continue,
+                        Some((doc, etag))
                     }
+                    Ok(None) => None,
+                    Err(_) => return false,
                 }
-            };
-            let doc = coord::take(&id, prev.as_ref().map(|p| &p.0), &self.cfg.worker, t.ttl_ms, self.clock.wall());
-            let Some(held) = self.write_lease(&lane, &doc, prev.as_ref().map(|p| p.1.as_str())).await else { continue };
-            // Fence the checkpoint: rewrite it under our lease epoch.
-            match self.fence_checkpoint(&lane, doc.epoch).await {
-                Some((ck, etag)) => {
-                    self.stats.lanes_taken += 1;
-                    if self.cfg.verbose {
-                        log(&self.cfg, &format!("took {id} (lease epoch {}, share {share})", doc.epoch));
-                    }
-                    let known = ck.epochs.keys().cloned().collect();
-                    let _ = self.held.insert(
-                        id.clone(),
-                        LaneState {
-                            lane,
-                            held,
-                            ckpt: ck,
-                            ckpt_etag: etag,
-                            known,
-                            last_full: None,
-                            compact_due: false,
-                            last_seen: HashMap::new(),
-                        },
-                    );
+            }
+        };
+        let doc = coord::take(id, prev.as_ref().map(|p| &p.0), &self.cfg.worker, t.ttl_ms, self.clock.wall());
+        let Some(held) = self.write_lease(&lane, &doc, prev.as_ref().map(|p| p.1.as_str())).await else { return false };
+        // Fence the checkpoint: rewrite it under our lease epoch.
+        match self.fence_checkpoint(&lane, doc.epoch).await {
+            Some((ck, etag)) => {
+                self.stats.lanes_taken += 1;
+                if self.cfg.verbose {
+                    log(&self.cfg, &format!("took {id} (lease epoch {}, workers {})", doc.epoch, self.live_workers));
                 }
-                None => {
-                    let rel = coord::release(&doc, self.clock.wall());
-                    let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
-                }
+                let now = self.clock.mono();
+                let win = self.cfg.balance.window_ms;
+                let load = Ewma::seeded(self.lane_rates.get(id).copied().unwrap_or(0.0), now, win);
+                let _ = self.held.insert(id.to_string(), LaneState::new(lane, held, ck, etag, now, load));
+                let _ = self.unheld_since.remove(id);
+                true
+            }
+            None => {
+                let rel = coord::release(&doc, self.clock.wall());
+                let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
+                false
             }
         }
     }
@@ -508,12 +876,19 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     }
 
     /// Gives every lane back and removes the heartbeat (a graceful stop).
+    /// A lane with an unsettled statement is not released: its lease is left
+    /// to expire, which takes longer than the statement can still land.
     pub async fn release_all(&mut self) {
         let hb = format!("{}/{}.json", join(&self.cfg.ctl, "workers"), self.cfg.worker);
         let _ = self.bucket.delete(&[hb]).await;
+        let now = self.clock.mono();
         let ids: Vec<String> = self.held.keys().cloned().collect();
         for id in ids {
             let ls = self.held.remove(&id).expect("held");
+            if !coord::may_act(ls.unsettled_until, now, &self.cfg.timing) {
+                log(&self.cfg, &format!("{id}: a statement may still land; leaving the lease to expire"));
+                continue;
+            }
             let doc = coord::release(&ls.held.doc, self.clock.wall());
             let _ = self.write_lease(&ls.lane, &doc, Some(&ls.held.etag)).await;
         }
@@ -521,10 +896,29 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
 
     // ---- discovery and slots ---------------------------------------------------------
 
-    async fn scan(&mut self, id: &str, objs: &mut Vec<Obj>, work: &mut Vec<EpochWork>) -> Result<(), String> {
+    /// LISTs a held lane from its checkpoint and HEADs its consecutive slots.
+    /// Returns whether it found an epoch it didn't know.
+    async fn scan(&mut self, id: &str, objs: &mut Vec<Obj>, work: &mut Vec<EpochWork>) -> Result<bool, String> {
         let b = self.bucket.clone();
         let cfg = self.cfg.clone();
         let now = self.clock.mono();
+        let lists_before = b.counts().list.get();
+        let res = self.scan_inner(id, objs, work, &b, &cfg, now).await;
+        let n = b.counts().list.get() - lists_before;
+        self.stats.lane_lists += n;
+        *self.stats.lists_by_lane.entry(id.to_string()).or_default() += n;
+        res
+    }
+
+    async fn scan_inner(
+        &mut self,
+        id: &str,
+        objs: &mut Vec<Obj>,
+        work: &mut Vec<EpochWork>,
+        b: &Rc<B>,
+        cfg: &Config,
+        now: u64,
+    ) -> Result<bool, String> {
         let ls = self.held.get_mut(id).expect("held");
         let prefix = ls.lane.data_prefix(&cfg.root);
         let floor = ls.ckpt.floor.clone();
@@ -578,8 +972,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
             parse(items, &mut listed);
         }
+        let mut new_epoch = false;
         for e in listed.keys() {
-            let _ = ls.known.insert(e.clone());
+            new_epoch |= ls.known.insert(e.clone());
         }
         let newest = ls.known.iter().next_back().cloned();
         let open: Vec<String> = ls.known.iter().filter(|e| !ls.ckpt.closed(e)).cloned().collect();
@@ -604,34 +999,45 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     break;
                 }
                 heads += 1;
-                match b.head(key).await? {
-                    None => {
-                        self.stats.head_missing += 1;
-                        break;
-                    }
-                    Some(meta) => match plan::found(&meta) {
-                        Found::Tomb => {
-                            w.tomb = Some(*seq);
+                // A slot above the checkpoint never changes (create-only), so
+                // its HEAD is kept until the checkpoint passes it.
+                let (found, seen_ms) = match ls.heads.get(&(e.clone(), *seq)) {
+                    Some((f, t)) => (f.clone(), *t),
+                    None => match b.head(key).await? {
+                        None => {
+                            self.stats.head_missing += 1;
                             break;
                         }
-                        Found::Data { content, rows, received_ns } => {
-                            w.data.push(*seq);
-                            objs.push(Obj {
-                                lane: id.to_string(),
-                                epoch: e.clone(),
-                                seq: *seq,
-                                key: key.clone(),
-                                size: *size,
-                                content,
-                                rows,
-                                received_ns,
-                            });
+                        Some(meta) => {
+                            let f = plan::found(&meta);
+                            let _ = ls.heads.insert((e.clone(), *seq), (f.clone(), now));
+                            (f, now)
                         }
                     },
+                };
+                match found {
+                    Found::Tomb => {
+                        w.tomb = Some(*seq);
+                        break;
+                    }
+                    Found::Data { content, rows, received_ns } => {
+                        w.data.push(*seq);
+                        objs.push(Obj {
+                            lane: id.to_string(),
+                            epoch: e.clone(),
+                            seq: *seq,
+                            key: key.clone(),
+                            size: *size,
+                            content,
+                            rows,
+                            received_ns,
+                            seen_ms,
+                        });
+                    }
                 }
             }
             if sc.run.is_empty() && plan::may_tomb(&sc, newest.as_ref() == Some(&e), quiet_for, cfg.quiet_ms) {
-                match tombstone(&*b, &prefix, &e, next).await {
+                match tombstone(&**b, &prefix, &e, next).await {
                     TombResult::Closed(won) => {
                         if won {
                             self.stats.tombstones_won += 1;
@@ -655,7 +1061,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 work.push(w);
             }
         }
-        Ok(())
+        Ok(new_epoch)
     }
 
     // ---- ingest ------------------------------------------------------------------
@@ -679,13 +1085,30 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
 
     async fn ingest(&mut self, objs: Vec<Obj>) -> HashSet<SlotId> {
         let mut done: HashSet<SlotId> = HashSet::new();
+        let now = self.clock.mono();
+        let t = self.cfg.timing;
         let mut by: BTreeMap<String, Vec<Obj>> = BTreeMap::new();
+        let mut waits = Vec::new();
         for o in objs {
-            let sig = self.held.get(&o.lane).map(|l| l.lane.signal.clone()).unwrap_or_default();
-            by.entry(sig).or_default().push(o);
+            let Some(ls) = self.held.get(&o.lane) else { continue };
+            // A lane whose statement may still land: nothing of it is checked
+            // or inserted before that statement has settled.
+            if !coord::may_act(ls.unsettled_until, now, &t) {
+                self.stats.deferred_unsettled += 1;
+                waits.extend(ls.unsettled_until.map(|u| u + 1));
+                continue;
+            }
+            by.entry(ls.lane.signal.clone()).or_default().push(o);
+        }
+        for w in waits {
+            self.wake(w);
         }
         for (sig, list) in by {
             let Some(k) = LaneKind::for_signal(&sig) else { continue };
+            if self.lingers(&list, now) {
+                self.stats.linger_deferred += list.len() as u64;
+                continue;
+            }
             if !self.ensure(&k).await {
                 continue;
             }
@@ -698,16 +1121,17 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     let token = plan::token(&k.signal, &keys);
                     self.stats.statements += 1;
                     self.stats.statement_objects += g.len() as u64;
-                    match self.central.insert(&k, &refs, fence, &token).await {
+                    match self.central.insert(&k, &refs, fence, &token, false).await {
                         Ok(()) if self.clock.wall() <= fence.wall_ms + fence.budget_ms => {
                             for o in &g {
                                 self.stats.series_objects_inserted += 1;
+                                self.add_load(o);
                                 let _ = done.insert((o.lane.clone(), o.epoch.clone(), o.seq));
                             }
                         }
                         // Answered after the fence could have dropped it: not
                         // known to have landed; the next holder re-inserts
-                        // (harmless for this table).
+                        // (harmless for this table, as is a lost answer).
                         Ok(()) => self.stats.fenced_by_server += g.len() as u64,
                         Err(e) => {
                             self.stats.insert_errors += 1;
@@ -732,8 +1156,10 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
             }
             let contents: Vec<&str> = primary.iter().map(|o| o.content.as_str()).collect();
-            self.stats.checks += 1;
-            let pre = match self.central.counts(&k, &contents).await {
+            // The pre-check finds earlier attempts of these objects (in their
+            // own range) and copies of them received within the horizon.
+            let range = self.check_range_of(&k, &primary.iter().collect::<Vec<_>>());
+            let pre = match self.counts(&k, &contents, range).await {
                 Ok(m) => m,
                 Err(e) => {
                     self.stats.errors += 1;
@@ -775,15 +1201,116 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         done
     }
 
+    /// Whether a table's pending objects wait for more (the linger): the
+    /// statement isn't full, the oldest was first HEADed less than
+    /// `linger_ms` ago, and every lane can still start a statement then.
+    fn lingers(&mut self, list: &[Obj], now: u64) -> bool {
+        let l = self.cfg.linger_ms;
+        if l == 0 || plan::fills(list, &self.cfg.limits) {
+            return false;
+        }
+        let oldest = list.iter().map(|o| o.seen_ms).min().unwrap_or(now);
+        if now >= oldest + l {
+            return false;
+        }
+        let t = self.cfg.timing;
+        if list.iter().any(|o| self.held.get(&o.lane).is_none_or(|ls| !ls.held.may_start(oldest + l, &t))) {
+            return false;
+        }
+        self.wake(oldest + l);
+        true
+    }
+
+    /// The pre-check's partition range for these objects (None: every partition).
+    fn check_range_of(&self, k: &LaneKind, objs: &[&Obj]) -> Option<CheckRange> {
+        if !self.central.ranged(k) {
+            return None;
+        }
+        let h = self.cfg.horizon_ms.map(|h| h.saturating_mul(1_000_000));
+        plan::check_range(objs, &self.unranged, h, self.cfg.timing.mutation, self.clock.wall().saturating_mul(1_000_000))
+    }
+
+    /// The range an insert of these objects (guarded) wrote into.
+    fn own_range_of(&self, k: &LaneKind, objs: &[&Obj]) -> Option<CheckRange> {
+        if !self.central.ranged(k) || self.cfg.horizon_ms.is_none() {
+            return None;
+        }
+        plan::own_range(objs, &self.unranged, self.cfg.timing.mutation, self.clock.wall().saturating_mul(1_000_000))
+    }
+
+    /// Whether an insert of these objects asserts their rows' `received_at`.
+    fn guarded(&self, k: &LaneKind, objs: &[&Obj]) -> bool {
+        self.central.ranged(k) && objs.iter().all(|o| o.received_ns > 0 && !self.unranged.contains(&o.content))
+    }
+
+    async fn counts(&mut self, k: &LaneKind, contents: &[&str], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String> {
+        self.stats.checks += 1;
+        if range.is_some() {
+            self.stats.range_checks += 1;
+        } else {
+            self.stats.full_checks += 1;
+        }
+        self.central.counts(k, contents, range).await
+    }
+
+    /// The verify's counts: first in the partitions the statement wrote
+    /// (`range`), then, for any object that falls short there, over the
+    /// check's horizon (a count over fewer partitions can only be lower, so
+    /// a complete one is final; a short one is recounted before anything is
+    /// inserted again).
+    async fn verify_counts(&mut self, k: &LaneKind, objs: &[&Obj], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String> {
+        let contents: Vec<&str> = objs.iter().map(|o| o.content.as_str()).collect();
+        let mut m = self.counts(k, &contents, range).await?;
+        if range.is_some() {
+            let short: Vec<&Obj> = objs
+                .iter()
+                .copied()
+                .filter(|o| matches!(plan::verdict(o.rows, m.get(&o.content).copied().unwrap_or(0)), Verdict::Absent | Verdict::Partial(_)))
+                .collect();
+            if !short.is_empty() {
+                let wide = self.check_range_of(k, &short);
+                if wide != range {
+                    self.stats.range_recounts += 1;
+                    let c: Vec<&str> = short.iter().map(|o| o.content.as_str()).collect();
+                    for (key, n) in self.counts(k, &c, wide).await? {
+                        let e = m.entry(key).or_default();
+                        *e = (*e).max(n);
+                    }
+                }
+            }
+        }
+        Ok(m)
+    }
+
+    /// A statement over these objects got no answer: it may land until each
+    /// lane's `settled_by`. Until then those lanes are left alone.
+    fn unsettle(&mut self, objs: &[&Obj], e: &InsertErr) {
+        let t = self.cfg.timing;
+        self.stats.unsettled += 1;
+        let mut until = 0;
+        for o in objs {
+            if let Some(ls) = self.held.get_mut(&o.lane) {
+                let u = ls.held.settled_by(&t);
+                ls.unsettled_until = Some(ls.unsettled_until.map_or(u, |x| x.max(u)));
+                until = until.max(u);
+            }
+        }
+        log(&self.cfg, &format!("{} objects: {e}; leaving their lanes alone until they have settled (mono {until})", objs.len()));
+        self.wake(until + 1);
+    }
+
     /// The fence for a statement over these objects, if every contributing
-    /// lease can cover it (start now, finish by `budget`, inside the window).
+    /// lease can cover it (start now, finish by `budget`, inside the window)
+    /// and none of their lanes has an unsettled statement.
     fn window(&mut self, objs: &[&Obj]) -> Option<Fence> {
         let t = self.cfg.timing;
         let now = self.clock.mono();
         let mut fence = u64::MAX;
         for o in objs {
             match self.held.get(&o.lane) {
-                Some(ls) if ls.held.may_start(now, &t) => fence = fence.min(ls.held.fence_wall_ms(&t)),
+                Some(ls) if ls.held.may_start(now, &t) && coord::may_act(ls.unsettled_until, now, &t) => {
+                    fence = fence.min(ls.held.fence_wall_ms(&t))
+                }
                 _ => {
                     self.stats.deferred_by_lease += objs.len() as u64;
                     return None;
@@ -802,8 +1329,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // Only objects whose lease can cover the statement.
         let t = self.cfg.timing;
         let now = self.clock.mono();
-        let (g, late): (Vec<Obj>, Vec<Obj>) =
-            g.into_iter().partition(|o| self.held.get(&o.lane).is_some_and(|l| l.held.may_start(now, &t)));
+        let (g, late): (Vec<Obj>, Vec<Obj>) = g
+            .into_iter()
+            .partition(|o| self.held.get(&o.lane).is_some_and(|l| l.held.may_start(now, &t) && coord::may_act(l.unsettled_until, now, &t)));
         self.stats.deferred_by_lease += late.len() as u64;
         if g.is_empty() {
             return;
@@ -812,12 +1340,32 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let Some(fence) = self.window(&refs) else { return };
         let keys: Vec<&str> = g.iter().map(|o| o.key.as_str()).collect();
         let token = plan::token(&k.signal, &keys);
+        let guard = self.guarded(k, &refs);
         self.stats.statements += 1;
         self.stats.statement_objects += g.len() as u64;
-        let res = self.central.insert(k, &refs, fence, &token).await;
-        if let Err(e) = &res {
-            self.stats.insert_errors += 1;
-            log(&self.cfg, &format!("insert {} ({} objects): {e}; verifying", k.signal, g.len()));
+        let res = self.central.insert(k, &refs, fence, &token, guard).await;
+        let mut range_err = false;
+        match &res {
+            Err(e) if !e.settled => {
+                self.stats.insert_errors += 1;
+                self.unsettle(&refs, e);
+                return;
+            }
+            Err(e) => {
+                self.stats.insert_errors += 1;
+                if e.range {
+                    // Some object's rows don't carry its metadata's received
+                    // time: nothing of the statement was written. Its objects
+                    // are checked over every partition from now on.
+                    range_err = true;
+                    self.stats.range_guard_failures += 1;
+                    for o in &g {
+                        let _ = self.unranged.insert(o.content.clone());
+                    }
+                }
+                log(&self.cfg, &format!("insert {} ({} objects): {e}; verifying", k.signal, g.len()));
+            }
+            Ok(()) => {}
         }
         if self.cfg.timing.mutation == coord::Mutation::NoVerify {
             for o in &g {
@@ -825,7 +1373,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
             return;
         }
-        let after = match self.central.counts(k, &g.iter().map(|o| o.content.as_str()).collect::<Vec<_>>()).await {
+        let range = if guard && !range_err { self.own_range_of(k, &refs) } else { None };
+        let after = match self.verify_counts(k, &refs, range).await {
             Ok(m) => m,
             Err(e) => {
                 self.stats.errors += 1;
@@ -833,7 +1382,6 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 return;
             }
         };
-        self.stats.checks += 1;
         let mut missing = Vec::new();
         for o in g {
             match plan::verdict(o.rows, after.get(&o.content).copied().unwrap_or(0)) {
@@ -862,17 +1410,32 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         }
         // Repair only the missing batches: each alone, then verify.
         for o in missing {
-            let Some(fence) = self.window(&[&o]) else { return };
+            let Some(fence) = self.window(&[&o]) else { continue };
             let token = format!("{}/retry", plan::token(&k.signal, &[&o.key]));
+            let guard = self.guarded(k, &[&o]);
             self.stats.statements += 1;
             self.stats.statement_objects += 1;
             self.stats.retried_missing += 1;
-            if let Err(e) = self.central.insert(k, &[&o], fence, &token).await {
-                self.stats.insert_errors += 1;
-                log(&self.cfg, &format!("retry {}: {e}", o.key));
+            let mut range_err = false;
+            match self.central.insert(k, &[&o], fence, &token, guard).await {
+                Err(e) if !e.settled => {
+                    self.stats.insert_errors += 1;
+                    self.unsettle(&[&o], &e);
+                    continue;
+                }
+                Err(e) => {
+                    self.stats.insert_errors += 1;
+                    if e.range {
+                        range_err = true;
+                        self.stats.range_guard_failures += 1;
+                        let _ = self.unranged.insert(o.content.clone());
+                    }
+                    log(&self.cfg, &format!("retry {}: {e}", o.key));
+                }
+                Ok(()) => {}
             }
-            self.stats.checks += 1;
-            if let Ok(m) = self.central.counts(k, &[&o.content]).await {
+            let range = if guard && !range_err { self.own_range_of(k, &[&o]) } else { None };
+            if let Ok(m) = self.verify_counts(k, &[&o], range).await {
                 if plan::verdict(o.rows, m.get(&o.content).copied().unwrap_or(0)) == Verdict::Present {
                     self.inserted(&o, ok);
                 }
@@ -880,9 +1443,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         }
     }
 
+    fn add_load(&mut self, o: &Obj) {
+        let now = self.clock.mono();
+        let win = self.cfg.balance.window_ms;
+        if let Some(ls) = self.held.get_mut(&o.lane) {
+            ls.load.add(o.rows as f64, now, win);
+        }
+    }
+
     fn inserted(&mut self, o: &Obj, ok: &mut HashSet<String>) {
         self.stats.objects_inserted += 1;
         self.stats.rows_inserted += o.rows;
+        self.add_load(o);
         if o.received_ns > 0 && self.stats.visible_ms.len() < 1_000_000 {
             self.stats.visible_ms.push(self.clock.wall() as f64 - o.received_ns as f64 / 1e6);
         }
@@ -890,6 +1462,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     }
 
     /// Inserts the missing row ordinals of a partial batch, then verifies.
+    /// (The repair's `row_ordinal NOT IN` reads every partition, so it never
+    /// adds a row that is anywhere already.)
     async fn repair(&mut self, k: &LaneKind, o: &Obj, have: u64) -> bool {
         let Some(fence) = self.window(&[o]) else { return false };
         self.stats.repaired_partial += 1;
@@ -898,10 +1472,14 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         log(&self.cfg, &format!("{} holds {have} of {} rows of {}: repairing", k.table, o.rows, o.content));
         if let Err(e) = self.central.repair(k, o, fence, &token).await {
             self.stats.insert_errors += 1;
+            if !e.settled {
+                self.unsettle(&[o], &e);
+                return false;
+            }
             log(&self.cfg, &format!("repair {}: {e}", o.key));
         }
-        self.stats.checks += 1;
-        matches!(self.central.counts(k, &[&o.content]).await, Ok(m) if m.get(&o.content).copied() == Some(o.rows))
+        let range = self.own_range_of(k, &[o]);
+        matches!(self.verify_counts(k, &[o], range).await, Ok(m) if m.get(&o.content).copied() == Some(o.rows))
     }
 
     // ---- checkpoints ---------------------------------------------------------------
@@ -953,6 +1531,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 let floor = new.floor.clone();
                 ls.known.retain(|e| coord::above_floor(e, &floor) && !dropped.contains(e));
                 ls.last_seen.retain(|e, _| coord::above_floor(e, &floor) && !dropped.contains(e));
+                // HEADs the checkpoint has passed aren't needed again.
+                ls.heads.retain(|(ep, s), _| ls.known.contains(ep) && !new.closed(ep) && *s >= new.next(ep));
                 ls.ckpt = new;
                 ls.ckpt_etag = e;
                 true
@@ -1005,6 +1585,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let _ = m.insert("lanes_known".into(), self.lanes.len().into());
         let _ = m.insert("live_workers".into(), self.live_workers.into());
         let _ = m.insert("s3".into(), serde_json::to_value(self.bucket.counts().snap()).expect("counts"));
+        let now = self.clock.mono();
+        let weights: Vec<f64> = self.lanes.keys().map(|id| self.weight(id, now)).collect();
+        let _ = m.insert("load".into(), ((self.my_load(now) * 10.0).round() / 10.0).into());
+        let _ = m.insert("load_target".into(), ((coord::load_target(&weights, self.live_workers) * 10.0).round() / 10.0).into());
+        let _ = m.insert("objects_per_statement".into(), (self.stats.statement_objects as f64 / self.stats.statements.max(1) as f64).into());
         let _ = m.insert("visible_n".into(), lat.len().into());
         let _ = m.insert("visible_ms_p50".into(), pct(0.5).into());
         let _ = m.insert("visible_ms_p90".into(), pct(0.9).into());

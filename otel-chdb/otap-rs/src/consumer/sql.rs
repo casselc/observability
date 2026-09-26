@@ -26,7 +26,7 @@
 //!   the server's clock (`coord.rs`).
 
 use super::bucket::Bucket;
-use super::plan::Obj;
+use super::plan::{CheckRange, DAY_NS, Obj};
 use async_trait::async_trait;
 use otap_s3pq::central::{self, ClickHouse, ONE_BLOCK, sq};
 use otap_s3pq::Signal;
@@ -91,6 +91,32 @@ impl LaneKind {
     }
 }
 
+/// Why a statement failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InsertErr {
+    pub msg: String,
+    /// The server answered (with an error): the statement is over, so a
+    /// verify now sees everything it will ever write. `false`: no answer (a
+    /// timeout, a reset, a replica switch): it may still be running, or not
+    /// have arrived yet, and may land until its lease version's
+    /// `Held::settled_by`. A KILL doesn't change that: it can reach the
+    /// server before the statement does.
+    pub settled: bool,
+    /// The partition-range assertion fired: an object's rows don't all carry
+    /// the `received_at` of its metadata. Nothing of the statement was written
+    /// (squashed: one block), or only whole other objects (not squashed).
+    pub range: bool,
+}
+
+impl std::fmt::Display for InsertErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}", self.msg, if self.settled { "" } else { " (no answer: unsettled)" })
+    }
+}
+
+/// The marker of the range assertion's exception.
+pub const RANGE_GUARD: &str = "OTAPRS_RANGE_GUARD";
+
 /// The server-side fence of a statement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fence {
@@ -103,14 +129,18 @@ pub struct Fence {
 #[async_trait(?Send)]
 pub trait Central {
     async fn ensure(&self, k: &LaneKind) -> Result<(), String>;
-    /// Rows per content key (the aggregating projection).
-    async fn counts(&self, k: &LaneKind, contents: &[&str]) -> Result<HashMap<String, u64>, String>;
-    /// One statement for these objects. An error is ambiguous: the caller
-    /// verifies (the implementation first makes sure the statement is no
-    /// longer running).
-    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), String>;
-    /// Inserts the rows of `obj` whose `row_ordinal` central doesn't hold.
-    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), String>;
+    /// Rows per content key (the aggregating projection), in the partitions
+    /// of `range` only (None: every partition; also what a table whose
+    /// partition key isn't `toDate(received_at)` always gets).
+    async fn counts(&self, k: &LaneKind, contents: &[&str], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String>;
+    /// One statement for these objects. With `guard`, every row of each
+    /// object must carry the object's `received_at` (`received_ns`), or the
+    /// statement fails (`InsertErr::range`) before writing that object.
+    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str, guard: bool) -> Result<(), InsertErr>;
+    /// Inserts the rows of `obj` whose `row_ordinal` central doesn't hold (anywhere).
+    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), InsertErr>;
+    /// Whether `counts` honours ranges for this lane kind's table (after `ensure`).
+    fn ranged(&self, k: &LaneKind) -> bool;
 }
 
 // ---- ClickHouse --------------------------------------------------------------------
@@ -154,6 +184,16 @@ pub struct ClickHouseCentral<B: Bucket> {
     pub table_override: RefCell<HashMap<String, String>>,
     /// Squash a statement's objects into one block (one part per partition).
     pub squash: bool,
+    /// Tables (fq) whose partition key is `toDate(received_at)`: their checks
+    /// may be restricted to a partition range (read at `ensure`).
+    ranged_tables: RefCell<std::collections::HashSet<String>>,
+    /// `--check-range off`: never restrict a check.
+    pub use_ranges: bool,
+}
+
+/// A partition key the check's range understands.
+pub fn range_partition_key(key: &str) -> bool {
+    key.chars().filter(|c| !c.is_whitespace()).collect::<String>() == "toDate(received_at)"
 }
 
 impl<B: Bucket> ClickHouseCentral<B> {
@@ -190,7 +230,48 @@ impl<B: Bucket> ClickHouseCentral<B> {
             checks: Cell::new(0),
             table_override: RefCell::new(HashMap::new()),
             squash: true,
+            ranged_tables: RefCell::new(Default::default()),
+            use_ranges: true,
         }
+    }
+
+    /// Reads the table's partition key (for `ranged`).
+    async fn learn_partition_key(&self, fq: &str) -> Result<(), String> {
+        let (db, t) = fq.split_once('.').unwrap_or(("default", fq));
+        let key = self
+            .q(&format!("SELECT partition_key FROM system.tables WHERE database = {} AND name = {}", sq(db), sq(t)), &[])
+            .await?;
+        if self.use_ranges && range_partition_key(&key) {
+            let _ = self.ranged_tables.borrow_mut().insert(fq.to_string());
+        } else {
+            let _ = self.ranged_tables.borrow_mut().remove(fq);
+        }
+        Ok(())
+    }
+
+    /// The count check's partition predicate (on `_partition_value`, which
+    /// keeps the aggregating projection in use).
+    pub fn range_sql(r: &CheckRange) -> String {
+        format!(
+            " AND _partition_value.1 BETWEEN toDate(fromUnixTimestamp64Nano(toInt64({}))) AND toDate(fromUnixTimestamp64Nano(toInt64({})))",
+            r.lo_ns.min(i64::MAX as u64),
+            r.hi_ns.min(i64::MAX as u64)
+        )
+    }
+
+    /// The range assertion: every row carries its object's `received_at`
+    /// (`throwIf` in the SELECT: with the single-block settings it fires
+    /// before the object's block is written).
+    fn guard_sql(&self, objs: &[&Obj]) -> String {
+        let want = if objs.len() == 1 {
+            format!("toInt64({})", objs[0].received_ns)
+        } else {
+            let paths: Vec<String> = objs.iter().map(|o| sq(&self.bucket.path_of(&o.key))).collect();
+            let ns: Vec<String> = objs.iter().map(|o| format!("toInt64({})", o.received_ns)).collect();
+            format!("transform(_path, [{}], [{}], toInt64(-1))", paths.join(", "), ns.join(", "))
+        };
+        let msg = sq(&format!("{RANGE_GUARD}: a row's received_at differs from its object's metadata"));
+        format!(" AND NOT throwIf(toUnixTimestamp64Nano(received_at) != {want}, {msg})")
     }
 
     /// A query on the current replica. A transport error (no HTTP answer)
@@ -247,12 +328,12 @@ impl<B: Bucket> ClickHouseCentral<B> {
         format!("s3({}, {}, {}, 'Parquet', {})", sq(&url), sq(&self.s3_key), sq(&self.s3_secret), sq(&k.structure))
     }
 
-    pub fn insert_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence) -> String {
+    pub fn insert_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, guard: bool) -> String {
         let keys: Vec<&str> = objs.iter().map(|o| o.key.as_str()).collect();
         let src = self.source(k, &keys);
-        let guard = format!("now64(3) <= fromUnixTimestamp64Milli(toInt64({}))", fence.wall_ms);
+        let guard_fence = format!("now64(3) <= fromUnixTimestamp64Milli(toInt64({}))", fence.wall_ms);
         if !k.counted {
-            return format!("INSERT INTO {} ({}) SELECT {} FROM {src} WHERE {guard}", self.fq(k), k.cols, k.select);
+            return format!("INSERT INTO {} ({}) SELECT {} FROM {src} WHERE {guard_fence}", self.fq(k), k.cols, k.select);
         }
         let paths: Vec<String> = objs.iter().map(|o| sq(&self.bucket.path_of(&o.key))).collect();
         let contents: Vec<String> = objs.iter().map(|o| sq(&o.content)).collect();
@@ -261,10 +342,11 @@ impl<B: Bucket> ClickHouseCentral<B> {
         } else {
             format!("transform(_path, [{}], [{}], '')", paths.join(", "), contents.join(", "))
         };
-        format!("INSERT INTO {} ({}, content_key) SELECT {}, {ck} FROM {src} WHERE {guard}", self.fq(k), k.cols, k.select)
+        let assert = if guard && objs.iter().all(|o| o.received_ns > 0) { self.guard_sql(objs) } else { String::new() };
+        format!("INSERT INTO {} ({}, content_key) SELECT {}, {ck} FROM {src} WHERE {fence_sql}{assert}", self.fq(k), k.cols, k.select, fence_sql = guard_fence)
     }
 
-    async fn run_insert(&self, fq: &str, sql: &str, fence: Fence, token: &str) -> Result<(), String> {
+    async fn run_insert(&self, fq: &str, sql: &str, fence: Fence, token: &str) -> Result<(), InsertErr> {
         self.statements.set(self.statements.get() + 1);
         let at = (self.cur.get(), self.switches.get());
         let qid = format!("otaprs-consumer-{token}-{:08x}", rand::random::<u32>());
@@ -295,13 +377,15 @@ impl<B: Bucket> ClickHouseCentral<B> {
         }
         let r = match self.q(sql, &st).await {
             Ok(_) => Ok(()),
+            // The server answered: the statement is over.
+            Err(e) if e.starts_with("clickhouse ") => Err(InsertErr { range: e.contains(RANGE_GUARD), msg: e, settled: true }),
             Err(e) => {
-                // Ambiguous: make sure it isn't still running before anyone verifies.
-                // (After a switch this reaches the new replica, harmlessly; the
-                // switch hold covers the old one.)
+                // No answer: stop it early if it is running (saves work), but
+                // don't trust that: the KILL can reach the server before the
+                // statement does. The caller waits until `settled_by`.
                 let kill = format!("KILL QUERY WHERE query_id = {} SYNC", sq(&qid));
                 let _ = self.q(&kill, &[]).await;
-                Err(e)
+                Err(InsertErr { msg: e, settled: false, range: false })
             }
         };
         // The verify that follows reads the replica this statement ran on:
@@ -327,14 +411,19 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
                 .await?;
             return match e.trim() {
                 "" => Err(format!("{fq} does not exist (--no-ddl: create it with the replicated DDL)")),
-                _ => Ok(()),
+                _ => self.learn_partition_key(&fq).await,
             };
         }
         self.q(&format!("CREATE DATABASE IF NOT EXISTS {}", self.db), &[]).await?;
-        self.q(&k.create_table(&self.fq(k)), &[]).await.map(|_| ())
+        self.q(&k.create_table(&self.fq(k)), &[]).await?;
+        self.learn_partition_key(&self.fq(k)).await
     }
 
-    async fn counts(&self, k: &LaneKind, contents: &[&str]) -> Result<HashMap<String, u64>, String> {
+    fn ranged(&self, k: &LaneKind) -> bool {
+        self.ranged_tables.borrow().contains(&self.fq(k))
+    }
+
+    async fn counts(&self, k: &LaneKind, contents: &[&str], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String> {
         let mut out = HashMap::new();
         if contents.is_empty() || !k.counted {
             return Ok(out);
@@ -343,10 +432,14 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
         self.sync(&fq).await?;
         self.checks.set(self.checks.get() + 1);
         let list: Vec<String> = contents.iter().map(|c| sq(c)).collect();
+        let pred = match range {
+            Some(r) if self.ranged(k) => Self::range_sql(&r),
+            _ => String::new(),
+        };
         let r = self
             .q(
                 &format!(
-                    "SELECT content_key, count() FROM {} WHERE content_key IN ({}) GROUP BY content_key FORMAT TSV",
+                    "SELECT content_key, count() FROM {} WHERE content_key IN ({}){pred} GROUP BY content_key FORMAT TSV",
                     self.fq(k),
                     list.join(", ")
                 ),
@@ -360,12 +453,12 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
         Ok(out)
     }
 
-    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), String> {
-        let sql = self.insert_sql(k, objs, fence);
+    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str, guard: bool) -> Result<(), InsertErr> {
+        let sql = self.insert_sql(k, objs, fence, guard && self.ranged(k));
         self.run_insert(&self.fq(k), &sql, fence, token).await
     }
 
-    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), String> {
+    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), InsertErr> {
         let src = self.source(k, &[&obj.key]);
         let sql = format!(
             "INSERT INTO {t} ({cols}, content_key) SELECT {sel}, {c} FROM {src} WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64({f})) AND row_ordinal NOT IN (SELECT row_ordinal FROM {t} WHERE content_key = {c})",
@@ -382,10 +475,23 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
 // ---- in memory ---------------------------------------------------------------------
 
 /// Central as a count per (table, content key), for tests of the worker.
-/// An insert is evaluated against `wall` like the server-side fence.
+/// An insert is evaluated against `wall` like the server-side fence. Rows
+/// are also kept per day of `received_at` (the partition), so a check with
+/// a range reads only those days.
 #[derive(Default)]
 pub struct MemCentral {
     pub rows: RefCell<BTreeMap<(String, String), u64>>,
+    /// Rows per (table, content key, day of received_at).
+    pub by_day: RefCell<BTreeMap<(String, String, u64), u64>>,
+    /// What an object's rows actually carry as received_at (ns), by object
+    /// key, when it isn't the object's metadata (default: `received_ns` for
+    /// every row); several values spread the rows over them.
+    pub true_recv: RefCell<HashMap<String, Vec<u64>>>,
+    /// Tables whose checks honour ranges (default: all).
+    pub unranged_tables: RefCell<std::collections::HashSet<String>>,
+    /// Checks that read only a range, and every partition.
+    pub range_checks: Cell<u64>,
+    pub full_checks: Cell<u64>,
     /// Inserts applied (per object), for "exactly once" checks.
     pub applied: RefCell<Vec<(String, String)>>,
     /// The server's wall clock (ms): a shared test clock (0: the real clock) plus a skew.
@@ -398,6 +504,14 @@ pub struct MemCentral {
     /// Statements refused by the fence.
     pub fenced: Cell<u64>,
     pub n: Cell<u64>,
+    /// Every n-th statement gets no answer and lands later: `late_by_ms`
+    /// after it was sent, but never after its fence + budget + `slack_ms`
+    /// (what a slow network, or a Keeper request past max_execution_time, does).
+    pub late_every: Cell<u64>,
+    pub late_by_ms: Cell<u64>,
+    pub slack_ms: Cell<u64>,
+    pub late: RefCell<Vec<(u64, String, Vec<Obj>)>>,
+    pub landed_late: Cell<u64>,
 }
 
 impl MemCentral {
@@ -410,6 +524,37 @@ impl MemCentral {
     pub fn count(&self, table: &str, content: &str) -> u64 {
         self.rows.borrow().get(&(table.to_string(), content.to_string())).copied().unwrap_or(0)
     }
+
+    /// Lands the late statements due by now (every call does this first).
+    pub fn flush_late(&self) {
+        let now = self.now();
+        let due: Vec<(u64, String, Vec<Obj>)> = {
+            let mut l = self.late.borrow_mut();
+            let (due, keep): (Vec<_>, Vec<_>) = l.drain(..).partition(|(at, _, _)| *at <= now);
+            *l = keep;
+            due
+        };
+        for (_, table, objs) in due {
+            self.landed_late.set(self.landed_late.get() + 1);
+            for o in &objs {
+                self.add(&table, o, o.rows);
+                self.applied.borrow_mut().push((table.clone(), o.content.clone()));
+            }
+        }
+    }
+
+    fn recv_of(&self, o: &Obj) -> Vec<u64> {
+        self.true_recv.borrow().get(&o.key).cloned().unwrap_or_else(|| vec![o.received_ns])
+    }
+
+    fn add(&self, table: &str, o: &Obj, rows: u64) {
+        let recv = self.recv_of(o);
+        *self.rows.borrow_mut().entry((table.to_string(), o.content.clone())).or_default() += rows;
+        for i in 0..rows {
+            let d = recv[(i as usize) % recv.len()] / DAY_NS;
+            *self.by_day.borrow_mut().entry((table.to_string(), o.content.clone(), d)).or_default() += 1;
+        }
+    }
 }
 
 #[async_trait(?Send)]
@@ -418,45 +563,79 @@ impl Central for MemCentral {
         Ok(())
     }
 
-    async fn counts(&self, k: &LaneKind, contents: &[&str]) -> Result<HashMap<String, u64>, String> {
+    fn ranged(&self, k: &LaneKind) -> bool {
+        !self.unranged_tables.borrow().contains(&k.table)
+    }
+
+    async fn counts(&self, k: &LaneKind, contents: &[&str], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String> {
+        self.flush_late();
+        let range = range.filter(|_| self.ranged(k));
+        match range {
+            Some(_) => self.range_checks.set(self.range_checks.get() + 1),
+            None => self.full_checks.set(self.full_checks.get() + 1),
+        }
+        let by_day = self.by_day.borrow();
         Ok(contents
             .iter()
             .filter_map(|c| {
-                let n = self.count(&k.table, c);
+                let n = match range {
+                    None => self.count(&k.table, c),
+                    Some(r) => by_day
+                        .range((k.table.clone(), c.to_string(), r.lo_ns / DAY_NS)..=(k.table.clone(), c.to_string(), r.hi_ns / DAY_NS))
+                        .map(|(_, n)| *n)
+                        .sum(),
+                };
                 (n > 0).then(|| (c.to_string(), n))
             })
             .collect())
     }
 
-    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), String> {
+    async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str, guard: bool) -> Result<(), InsertErr> {
+        self.flush_late();
         self.n.set(self.n.get() + 1);
         let n = self.n.get();
+        if self.late_every.get() > 0 && n % self.late_every.get() == 0 {
+            // No answer. It arrives late: if by its fence, it runs, and
+            // lands as late as it can: its whole budget plus the slack after.
+            let arrive = self.now() + self.late_by_ms.get();
+            if arrive <= fence.wall_ms {
+                let at = arrive + fence.budget_ms + self.slack_ms.get();
+                self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
+            }
+            return Err(InsertErr { msg: "injected: no answer (the statement is late)".into(), settled: false, range: false });
+        }
         if self.now() > fence.wall_ms {
             self.fenced.set(self.fenced.get() + 1);
             return Ok(()); // the WHERE selects nothing
         }
+        // The range assertion, as squashed: one bad object fails the statement before anything is written.
+        if guard && self.ranged(k) && objs.iter().any(|o| o.received_ns > 0 && self.recv_of(o).iter().any(|r| *r != o.received_ns)) {
+            return Err(InsertErr { msg: format!("clickhouse 500: {RANGE_GUARD}"), settled: true, range: true });
+        }
         let partial = self.partial_every.get() > 0 && n % self.partial_every.get() == 0;
         for (i, o) in objs.iter().enumerate() {
             if partial && i > 0 {
-                return Err("injected: the statement died after its first part".into());
+                return Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, range: false });
             }
-            *self.rows.borrow_mut().entry((k.table.clone(), o.content.clone())).or_default() += o.rows;
+            self.add(&k.table, o, o.rows);
             self.applied.borrow_mut().push((k.table.clone(), o.content.clone()));
         }
         if self.lost_answer_every.get() > 0 && n % self.lost_answer_every.get() == 0 {
-            return Err("injected: the answer was lost".into());
+            return Err(InsertErr { msg: "injected: the answer was lost".into(), settled: false, range: false });
         }
         Ok(())
     }
 
-    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), String> {
+    async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), InsertErr> {
+        self.flush_late();
         if self.now() > fence.wall_ms {
             self.fenced.set(self.fenced.get() + 1);
             return Ok(());
         }
-        let mut r = self.rows.borrow_mut();
-        let e = r.entry((k.table.clone(), obj.content.clone())).or_default();
-        *e = (*e).max(obj.rows);
+        let have = self.count(&k.table, &obj.content);
+        if have < obj.rows {
+            self.add(&k.table, obj, obj.rows - have);
+        }
         Ok(())
     }
 }
@@ -467,7 +646,46 @@ mod tests {
     use crate::consumer::bucket::MemBucket;
 
     fn obj(k: &str, c: &str) -> Obj {
-        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0 }
+        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0 }
+    }
+
+    /// Whether every single-quoted literal closes (ClickHouse: `\\` and `\'` escape).
+    fn quotes_balance(sql: &str) -> bool {
+        let (mut open, mut esc) = (false, false);
+        for ch in sql.chars() {
+            match (open, esc, ch) {
+                (true, true, _) => esc = false,
+                (true, false, '\\') => esc = true,
+                (_, _, '\'') => open = !open,
+                _ => {}
+            }
+        }
+        !open
+    }
+
+    /// The generated statements parse on a real server (skipped when none is up).
+    #[tokio::test(flavor = "current_thread")]
+    async fn statements_parse_on_clickhouse() {
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let ch = otap_s3pq::central::ClickHouse::new(&url);
+        if ch.query("SELECT 1", &[]).await.is_err() {
+            eprintln!("no ClickHouse at {url}: skipped");
+            return;
+        }
+        let b = Rc::new(MemBucket::default());
+        let c = ClickHouseCentral::new(&url, "db", b, "k", "s", 1000);
+        let tr = LaneKind::for_signal("traces").unwrap();
+        let mut a = obj("r/p/traces/E/1.parquet", "H'1");
+        let mut z = obj("r/p/traces/E/2.parquet", "H2");
+        a.received_ns = 11;
+        z.received_ns = 22;
+        let f = Fence { wall_ms: 1234, budget_ms: 3000 };
+        let r = CheckRange { lo_ns: 1, hi_ns: 2 };
+        let count = format!("SELECT content_key, count() FROM db.t WHERE content_key IN ('a'){} GROUP BY content_key", ClickHouseCentral::<MemBucket>::range_sql(&r));
+        for sql in [c.insert_sql(&tr, &[&a, &z], f, true), c.insert_sql(&tr, &[&a], f, true), c.insert_sql(&tr, &[&a, &z], f, false), count] {
+            let r = ch.query(&format!("EXPLAIN AST {sql}"), &[]).await;
+            assert!(r.is_ok(), "{sql}\n{r:?}");
+        }
     }
 
     #[test]
@@ -477,16 +695,32 @@ mod tests {
         let tr = LaneKind::for_signal("traces").unwrap();
         let (a, z) = (obj("r/p/traces/E/1.parquet", "H1"), obj("r/p/traces/E/2.parquet", "H2"));
         let f = Fence { wall_ms: 1234, budget_ms: 3000 };
-        let sql = c.insert_sql(&tr, &[&a, &z], f);
+        let sql = c.insert_sql(&tr, &[&a, &z], f, false);
         assert!(sql.starts_with("INSERT INTO db.otel_traces ("), "{sql}");
         assert!(sql.contains("transform(_path, ['mem/r/p/traces/E/1.parquet', 'mem/r/p/traces/E/2.parquet'], ['H1', 'H2'], '')"), "{sql}");
         assert!(sql.contains("s3('mem://{r/p/traces/E/1.parquet,r/p/traces/E/2.parquet}'"), "{sql}");
         assert!(sql.ends_with("WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64(1234))"), "{sql}");
-        let one = c.insert_sql(&tr, &[&a], f);
+        let one = c.insert_sql(&tr, &[&a], f, false);
         assert!(one.contains(", 'H1' FROM s3('mem://r/p/traces/E/1.parquet'"), "{one}");
+        // the range assertion (only for objects that carry a received time)
+        assert_eq!(c.insert_sql(&tr, &[&a], f, true), one, "no received time: no assertion");
+        let (mut a2, mut z2) = (a.clone(), z.clone());
+        a2.received_ns = 11;
+        z2.received_ns = 22;
+        let g = c.insert_sql(&tr, &[&a2, &z2], f, true);
+        assert!(g.contains("AND NOT throwIf(toUnixTimestamp64Nano(received_at) != transform(_path, ['mem/r/p/traces/E/1.parquet', 'mem/r/p/traces/E/2.parquet'], [toInt64(11), toInt64(22)], toInt64(-1)), 'OTAPRS_RANGE_GUARD: a row"), "{g}");
+        // Every literal is quoted by `sq`: the statements' quotes balance (a
+        // message with an apostrophe once broke every guarded insert).
+        for q in [&g, &sql, &one, &c.insert_sql(&tr, &[&a2], f, true)] {
+            assert!(quotes_balance(q), "unbalanced quotes: {q}");
+        }
+        let r = ClickHouseCentral::<MemBucket>::range_sql(&CheckRange { lo_ns: 1, hi_ns: 2 });
+        assert_eq!(r, " AND _partition_value.1 BETWEEN toDate(fromUnixTimestamp64Nano(toInt64(1))) AND toDate(fromUnixTimestamp64Nano(toInt64(2)))");
+        assert!(range_partition_key("toDate(received_at)") && range_partition_key(" toDate( received_at ) "));
+        assert!(!range_partition_key("toDate(Timestamp)") && !range_partition_key("toYYYYMM(received_at)") && !range_partition_key(""));
         let se = LaneKind::for_signal("metrics_series").unwrap();
         assert!(!se.counted);
-        let s = c.insert_sql(&se, &[&a], f);
+        let s = c.insert_sql(&se, &[&a], f, true);
         assert!(s.contains("mapFromArrays(") && !s.contains("content_key"), "{s}");
         assert!(se.create_table("db.s").contains("AggregatingMergeTree"));
         for sig in ["metrics_number_points", "metrics_gauge_points", "metrics_sum_points", "metrics_histogram_points",

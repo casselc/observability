@@ -18,6 +18,9 @@
 //!   projection check, row repair; plus an in-memory central for tests.
 //! - `worker`: the loop: discover lanes, hold leases, scan, ingest, verify,
 //!   advance checkpoints, close dead epochs with tombstones.
+//! - `discovery`: fleet-scale discovery, sans-IO: the per-lane idle LIST
+//!   backoff, and the `Hints` seam for event-driven discovery (S3 event
+//!   notifications), with LIST kept as the reconciliation.
 //! - `gc`:     the separate GC step: delete slots below a horizon that trails
 //!   the checkpoints by a lease length plus a request-lifetime delay, and
 //!   retire closed epochs after the zombie bound (which lets the workers
@@ -30,6 +33,7 @@
 
 pub mod bucket;
 pub mod coord;
+pub mod discovery;
 pub mod gc;
 pub mod plan;
 pub mod sql;

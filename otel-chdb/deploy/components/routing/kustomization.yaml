@@ -41,3 +41,12 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 8
+      # The ring Service governs the pods' DNS subdomain, so its
+      # EndpointSlices carry pod hostnames (otap-publisher-N) and the
+      # gateway's ring is keyed on them rather than on pod IPs.
+      # serviceName is immutable: switching routing on for an existing
+      # StatefulSet means deleting it with --cascade=orphan and re-applying
+      # (the PVCs, and so the buffers and producer ids, are kept).
+      - op: replace
+        path: /spec/serviceName
+        value: otap-publisher-ring

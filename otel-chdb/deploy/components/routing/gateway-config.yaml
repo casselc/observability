@@ -55,9 +55,16 @@ exporters:
         sending_queue:
           enabled: false
     resolver:
+      # The ring is a consistent-hash ring (CRC32, 200 virtual nodes per
+      # endpoint), keyed on the endpoint string. Pod IPs change on every
+      # restart, which would move that publisher's services; stable
+      # StatefulSet hostnames keep the ring fixed across restarts, so only
+      # a change of N moves services. This needs the ring Service to be the
+      # StatefulSet's serviceName (patched in kustomization.yaml).
       k8s:
         service: otap-publisher-ring.otel-edge
         ports: [4317]
+        return_hostnames: true
 service:
   extensions: [health_check]
   telemetry:

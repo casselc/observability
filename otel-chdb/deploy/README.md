@@ -286,6 +286,61 @@ Gateway settings and why:
   (proposed as U20). It is what makes the unbatched variant exact; with
   batching publishers it changes nothing, and costs nothing.
 
+### The hash ring
+
+**What the exporter does** [D: `loadbalancingexporter@v0.161.0/consistent_hashing.go`]:
+- It uses Karger-style consistent hashing with virtual nodes, as Dynamo
+  and Cassandra do: 200 points per endpoint on a ring of 131,071 positions,
+  placed by CRC32 of the endpoint string and the point's index.
+- A routing key (here `service.name`) goes to the next point clockwise.
+- The ring is a pure function of the endpoint set. Every gateway replica
+  that sees the same publishers routes a service to the same publisher,
+  with no coordination between them.
+- Adding or removing one publisher moves only ~1/N of the services, which
+  the scale-up row above measured.
+
+**Keyed on pod hostnames, not IPs.** The resolver sets
+`return_hostnames: true`, and the component makes the ring Service the
+StatefulSet's `serviceName`, so the ring's endpoints are
+`otap-publisher-N.otap-publisher-ring…`.
+- Pod IPs change on every restart. Keyed on IPs, each publisher restart
+  would move that publisher's services, even with not-ready addresses kept
+  in the ring.
+- With hostnames, only a change of N moves anything.
+- This was fixed after the measurements above. Those used a static
+  resolver, whose endpoints never changed.
+
+**The ring is not the source of the skew** [E]:
+- With 200 virtual nodes, a publisher's share of the ring deviates from
+  1/N by about 1/√200 ≈ 7%.
+- The measured 2.3–2.9× is key granularity: service sizes are heavy-tailed
+  (Zipf), and one service is never split. No placement function spreads a
+  service larger than 1/N of the traffic.
+
+**The alternatives:**
+
+| Scheme | Balance of the key space | Moved on a membership change | Fit here |
+|---|---|---|---|
+| Ring with virtual nodes (current) | ±~7% at 200 vnodes | ~1/N (minimal, in expectation) | fine at N = 8–16 |
+| Rendezvous / HRW (Thaler & Ravishankar 1998) | exact in expectation, no vnodes | exactly the departing node's keys | a little cleaner; O(N) per lookup is free at this N; needs an upstream patch |
+| Jump consistent hash (Lamping & Veach 2014) | near-perfect | minimal, but buckets are numbered 0…N−1 and only the last can go | matches StatefulSet ordinals and scaling from the end; needs a patch and a resolver that yields ordinals |
+| Maglev (Eisenbud et al. 2016) | near-perfect via a lookup table | slightly more than minimal | built for packet load balancers; no gain over HRW at this N |
+| Bounded-load consistent hashing (Mirrokni, Thorup & Zadimoghaddam 2018; in HAProxy and Envoy) | caps each node at (1+ε) × mean by spilling to the next node | minimal, plus spill churn as load moves | attacks the real problem (skew), but spilling breaks affinity for exactly the hot services, and each gateway replica only sees its own load |
+
+**Recommendation.** Keep the ring: switching the placement function
+doesn't touch the skew.
+
+If the skew matters once real service sizes are known (the lake option,
+D17), the fix is to **split hot services**:
+- Route by `service` for ordinary services.
+- For services above ~1/N of the traffic, route by `(service, hash(trace_id) mod k)`.
+- Traces stay whole, and a hot service lands in k publishers' lanes, so a
+  query for it reads k lanes instead of 1.
+
+This could be an OTTL transform that adds a routing attribute for a listed
+set of hot services, with `routing_key: attributes`. It is not built, and
+is to be sized against real rates.
+
 **Measured** (N = 8, 120 services with Zipf 1.1 shares, 32 distinct
 10k-row requests per signal, 120 services in each):
 

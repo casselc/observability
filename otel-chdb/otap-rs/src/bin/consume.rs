@@ -7,7 +7,7 @@
 //!           [--depth 2] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
 //!           [--ttl 45s --margin 10s --budget 10s --keeper-slack 10s [--allow-short-margin]]
 //!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
-//!           [--idle-backoff 1s..30s | off] [--linger 0ms]
+//!           [--idle-backoff 1s..30s | off] [--idle-after 10s] [--linger 0ms]
 //!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
 //!           [--check-horizon 1d | all] [--no-check-range]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
@@ -242,6 +242,7 @@ async fn main() {
             Backoff { min_ms: dur_ms(lo), max_ms: dur_ms(hi), ..Backoff::default() }
         }
     };
+    cfg.backoff.after_ms = arg(&args, "--idle-after").map_or(cfg.backoff.after_ms, |s| dur_ms(&s));
     cfg.linger_ms = opt_ms(&args, "--linger", "0ms");
     cfg.balance.mode = match arg(&args, "--balance").as_deref() {
         None | Some("load") => BalanceMode::Load,

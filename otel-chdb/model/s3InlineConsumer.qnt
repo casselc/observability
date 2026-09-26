@@ -25,7 +25,10 @@
  *    closes it.
  *  - GC: deletes ingested data slots below the checkpoint once no request
  *    for them can still be in flight (the request-lifetime delay); never the
- *    tombstone, which is what halts a zombie writer.
+ *    tombstone, which is what halts a zombie writer; and (2026-09-26) never
+ *    the slot just below the checkpoint while the epoch isn't retired: its
+ *    writer may not have resolved it (a late-landing PUT), and would put its
+ *    next batch there, create-only, if the slot had been deleted.
  *  - The series lane of metrics layout B, as the edge runs it: a series is
  *    announced (not sent again in this epoch) only once the series object
  *    that carried it has committed.
@@ -63,6 +66,9 @@
  *    worker took the lane and inserted the batch.
  *  - HORIZON < MAX_DAY: the check misses the original of a copy received on
  *    a later day, and ingests the copy too.
+ *  - GC_KEEP = false: GC also deletes the slot below the checkpoint; a
+ *    writer still unresolved there re-creates it with its next batch, below
+ *    the checkpoint: committed, acked, never ingested (neverSkipsCommitted).
  *  - WALL_RANGE: the check reads today's partition by the worker's clock:
  *    a batch received on an earlier day, whose first statement landed, is
  *    checked again after midnight and inserted twice.
@@ -83,6 +89,7 @@ module s3InlineConsumer {
   const HORIZON: int           // the check reads the objects' own day +- HORIZON
   const WALL_RANGE: bool       // mutation: the check reads today's day only
   const MAX_DAY: int           // the environment: the calendar runs days 0..MAX_DAY
+  const GC_KEEP: bool          // GC keeps the slot below the position until retirement (the design)
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -402,7 +409,7 @@ module s3InlineConsumer {
     all {
       n == ckpt.next.get(e), closed == ckpt.closed.get(e),
       doomed == L::slots.filter(s =>
-        (s < n and L::at(e, s).kind == L::Data) or (GC_TOMBS and closed and s == n and L::at(e, s).kind == L::Tomb)),
+        (s < n - (if (GC_KEEP) 1 else 0) and L::at(e, s).kind == L::Data) or (GC_TOMBS and closed and s == n and L::at(e, s).kind == L::Tomb)),
       doomed != Set(),
       L::inflight.forall(q => not(q.epoch == e and q.slot < n)),
       L::log' = L::log.set(e, L::log.get(e).keys().mapBy(s => if (doomed.contains(s)) L::FREE else L::log.get(e).get(s))),
@@ -496,7 +503,7 @@ module s3InlineConsumer {
         val n = ckpt.next.get(e)
         val c = ckpt.closed.get(e)
         gc(e, n, c, L::slots.filter(s =>
-          (s < n and L::at(e, s).kind == L::Data) or (GC_TOMBS and c and s == n and L::at(e, s).kind == L::Tomb)))
+          (s < n - (if (GC_KEEP) 1 else 0) and L::at(e, s).kind == L::Data) or (GC_TOMBS and c and s == n and L::at(e, s).kind == L::Tomb)))
       },
       sPush(r), sResend(r), sAnnounce(r), sRestart,
       all { sInflight != Set(), nondet q = sInflight.oneOf() any { sLand(q), sLose(q) } },
@@ -604,82 +611,102 @@ module s3InlineConsumer {
       .then(newDay).then((TTL + MARGIN).reps(_ => tick)).then(wAcquire(2)).then(wCheck(2, 1, 1)).then(wSend(2))
   run wallRangeDesignTest = wallPrefix.expect(and { stmts == Set(), atMostOnce })
   run wallRangeBreaksTest = wallPrefix.then(cLand(2)).expect(not(atMostOnce))
+
+  // GC and a writer that never learnt its PUT landed: it gives up on slot 0
+  // (payload 2, answer lost) and switches to payload 1 for the same slot;
+  // the late PUT of payload 2 lands and is ingested (checkpoint at 1).
+  run gcPrefix =
+    init.then(lStartPush(1, 2)).then(lSend(1)).then(lTimeout(1)).then(lSwitchPayload(1, 1))
+      .then(all { L::inflight != Set(), nondet q = L::inflight.oneOf() lApply(q) })
+      .then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wAdvance(1))
+  // The design keeps slot 0 (below the checkpoint): nothing to delete yet.
+  run gcReopensDesignTest =
+    gcPrefix.expect(and { ckpt.next.get(1) == 1, L::at(1, 0).kind == L::Data,
+      L::slots.forall(s => (s < ckpt.next.get(1) - (if (GC_KEEP) 1 else 0)) implies L::at(1, s).kind != L::Data) })
+  // Deleted, slot 0 takes the writer's next batch, create-only, below the checkpoint.
+  run gcReopensBreaksTest =
+    gcPrefix.then(gc(1, 1, false, Set(0))).then(lSend(1))
+      .then(all { L::inflight != Set(), nondet q = L::inflight.oneOf() lApply(q) })
+      .expect(not(neverSkipsCommitted))
 }
 
 // The design, in the full hostile environment.
 module s3InlineConsumerDesign {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = true, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1).*
+    MAX_DAY = 1, GC_KEEP = true).*
 }
 // The design in the mutants' narrower environment (must pass too).
 module designQuiet {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1).*
+    MAX_DAY = 1, GC_KEEP = true).*
 }
 // ... and with the mutants' short lease.
 module designShortLease {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1).*
+    MAX_DAY = 1, GC_KEEP = true).*
 }
-// ... and with writer faults (copies of a request in a later epoch, on a later day) and no series lane.
-// (TTL 6: at TTL 3 with writer faults, the unchanged model already breaks
-// neverSkipsCommitted: GC deletes a slot below the checkpoint while its
-// writer hasn't resolved it, and the writer puts another batch there. That
-// is the GC delay's job in the code (`--delay` must cover a writer's
-// resolution), which the model's GC guard, "no request in flight", doesn't.)
+// ... and with writer faults (copies of a request in a later epoch, on a
+// later day), the short lease, and no series lane. (Before GC_KEEP this
+// instance broke neverSkipsCommitted: see the gcReopens mutant.)
 module designCopies {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
-    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1).*
+    WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1, GC_KEEP = true).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = false, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = true, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = true,
     WRITER_FAULTS = false, SERIES = true, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: a worker releases its lane while its statement may still land.
 module releaseInFlight {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = false, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: a commit outlives the margin (SLACK 2 > MARGIN 1).
 module keeperOverrun {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 2, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0).*
+    MAX_DAY = 0, GC_KEEP = true).*
 }
 // Mutation: the check reads only the objects' own day (no copy horizon).
 module noHorizon {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
-    MAX_DAY = 1).*
+    MAX_DAY = 1, GC_KEEP = true).*
 }
 // Mutation: the check reads today's partition by the worker's clock.
 module wallRange {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = true,
-    MAX_DAY = 1).*
+    MAX_DAY = 1, GC_KEEP = true).*
+}
+// Mutation: GC deletes the slot below the checkpoint (as before 2026-09-26).
+module gcReopens {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0, GC_KEEP = false).*
 }

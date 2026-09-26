@@ -40,7 +40,7 @@ fn cfg(name: &str) -> Config {
 /// the check's partition range with a one-day horizon.
 fn scale_cfg(name: &str) -> Config {
     let mut c = cfg(name);
-    c.backoff = Backoff { min_ms: 500, max_ms: 8_000, jitter: 0.2 };
+    c.backoff = Backoff { after_ms: 1_000, min_ms: 500, max_ms: 8_000, jitter: 0.2 };
     c.linger_ms = 300;
     c.balance.mode = BalanceMode::Load;
     c.balance.min_hold_ms = 2_000;
@@ -633,7 +633,7 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
         e.commit(&b, &format!("{}-0", e.producer), 1).await;
     }
     let mut cf = cfg("w1");
-    cf.backoff = Backoff { min_ms: 1_000, max_ms: 16_000, jitter: 0.2 };
+    cf.backoff = Backoff { after_ms: 2_000, min_ms: 1_000, max_ms: 16_000, jitter: 0.2 };
     cf.poll_ms = 200;
     cf.full_list_ms = 60_000;
     let hints = Rc::new(MemHints::default());
@@ -651,8 +651,9 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
     let busy_lists = per("busy");
     let idle_lists: u64 = (0..9).map(|i| per(&format!("idle{i}"))).sum::<u64>() / 9;
     assert!(busy_lists >= 1400, "the busy lane is listed every poll: {busy_lists}");
-    // 300 s at a 16 s cap: about 25 LISTs per idle lane (the doubling first), not 1,500.
-    assert!(idle_lists <= 35, "idle lanes back off: {idle_lists} LISTs each");
+    // 300 s at a 16 s cap: about 35 LISTs per idle lane (2 s of grace at
+    // every poll, the doubling, then the cap), not 1,500.
+    assert!(idle_lists <= 45, "idle lanes back off: {idle_lists} LISTs each");
     for i in 1..=n {
         assert_eq!(c.count("otel_traces", &format!("b{i}")), 1);
     }

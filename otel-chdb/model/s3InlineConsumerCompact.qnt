@@ -30,8 +30,9 @@
  *
  * Like s3InlineConsumer (2026-09-26, fleet scale): a holder may release
  * its lane once none of its statements can still land (`wRelease`), and a
- * statement's commit lands by fence + BUDGET + SLACK. (The partitions and
- * the check's range are s3InlineConsumer's only.)
+ * statement's commit lands by fence + BUDGET + SLACK, and GC keeps the slot
+ * below the checkpoint until the epoch retires (s3InlineConsumer's GC_KEEP).
+ * (The partitions and the check's range are s3InlineConsumer's only.)
  *
  * The changed guards: a worker never checks, tombstones or closes an epoch
  * at or below its view of the floor; GC never touches one at or below the
@@ -360,7 +361,7 @@ module s3InlineConsumerCompact {
       e > floor,
       n == ckpt.next.get(e), closed == ckpt.closed.get(e),
       doomed == L::slots.filter(s =>
-        (s < n and L::at(e, s).kind == L::Data) or (GC_TOMBS and closed and s == n and L::at(e, s).kind == L::Tomb)),
+        (s < n - 1 and L::at(e, s).kind == L::Data) or (GC_TOMBS and closed and s == n and L::at(e, s).kind == L::Tomb)),
       doomed != Set(),
       L::inflight.forall(q => not(q.epoch == e and q.slot < n)),
       L::log' = L::log.set(e, L::log.get(e).keys().mapBy(s => if (doomed.contains(s)) L::FREE else L::log.get(e).get(s))),
@@ -498,7 +499,7 @@ module s3InlineConsumerCompact {
         val n = ckpt.next.get(e)
         val c = ckpt.closed.get(e)
         gc(e, n, c, L::slots.filter(s =>
-          (s < n and L::at(e, s).kind == L::Data) or (GC_TOMBS and c and s == n and L::at(e, s).kind == L::Tomb)))
+          (s < n - 1 and L::at(e, s).kind == L::Data) or (GC_TOMBS and c and s == n and L::at(e, s).kind == L::Tomb)))
       },
       gcRetire(e),
       wCompact(w, floorAfter(floor, dropsOf(floor, L::lease, ckpt.closed, retired))),

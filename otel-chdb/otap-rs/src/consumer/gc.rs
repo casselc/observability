@@ -95,12 +95,24 @@ pub fn horizon(marks: &[Mark], now: u64, age_ms: u64) -> Option<&Mark> {
 
 /// Which keys of an epoch's LIST to delete under the horizon position `pos`
 /// (retire: the whole closed epoch, tombstone included).
+///
+/// The slot just below the position (`next - 1`) is kept until the epoch is
+/// retired. Its writer may never have learnt that it landed: a PUT whose
+/// answer was lost and which landed late leaves the lane `Unresolved` at
+/// that slot, and the lane's next batch goes to the same slot, create-only
+/// (proto.rs `Lane::start`). If GC had deleted it, that PUT would succeed
+/// and commit a new batch below the checkpoint, where nothing reads it: an
+/// acked batch lost. Kept, the PUT gets 412, the HEAD shows another batch,
+/// and the writer moves on to `next` (../model/s3InlineConsumer.qnt found
+/// this: `neverSkipsCommitted` with writer faults at TTL 3). No slot below
+/// `next - 1` can be a writer's current slot: a writer resolves a slot
+/// before it writes the next one.
 pub fn doomed(prefix: &str, keys: &[String], pos: &EpochPos, retire: bool) -> (Vec<String>, usize) {
     let mut out = Vec::new();
     let mut tombs = 0;
     for k in keys {
         if let Some((_, s)) = proto::parse_slot_key(prefix, k) {
-            if s < pos.next {
+            if s + 1 < pos.next || (retire && s < pos.next) {
                 out.push(k.clone());
             } else if retire && pos.closed && s == pos.next {
                 out.push(k.clone());
@@ -235,7 +247,9 @@ mod tests {
         assert!(horizon(&marks, 150, 100).is_none());
         let keys: Vec<String> = (0..6).map(|s| proto::slot_key("r/p/traces", "E1", s)).collect();
         let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true }, false);
-        assert_eq!((d.len(), t), (3, 0), "the tombstone at 3 stays");
+        assert_eq!((d.len(), t), (2, 0), "the tombstone at 3 stays, and the slot below it until retirement");
+        let (d, _) = doomed("r/p/traces", &keys, &EpochPos { next: 1, closed: false }, false);
+        assert!(d.is_empty(), "an open epoch's newest ingested slot is kept");
         let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true }, true);
         assert_eq!((d.len(), t), (4, 1));
     }
@@ -257,13 +271,13 @@ mod tests {
         ck.advance("E1", 6);
         b.insert("c/ckpt/p/traces.json", Bytes::from(serde_json::to_vec(&ck).unwrap()), BTreeMap::new());
         let r = gc_step(&b, &cfg, 2000).await.unwrap();
-        assert_eq!(r.deleted_data, 4);
-        assert_eq!(b.keys().iter().filter(|k| k.starts_with(prefix)).count(), 2);
+        assert_eq!(r.deleted_data, 3, "slots 0-2: slot 3, below the position, stays");
+        assert_eq!(b.keys().iter().filter(|k| k.starts_with(prefix)).count(), 3);
         // idempotent, and nothing re-listed for an unchanged position
         let r = gc_step(&b, &cfg, 2500).await.unwrap();
         assert_eq!(r.deleted_data, 0);
         let r = gc_step(&b, &cfg, 3500).await.unwrap();
-        assert_eq!(r.deleted_data, 2, "the second mark (next = 6) is old enough now");
+        assert_eq!(r.deleted_data, 2, "the second mark (next = 6) is old enough now: slots 3 and 4");
         let doc: GcDoc = serde_json::from_slice(&b.get("c/gc.json").await.unwrap().unwrap().0).unwrap();
         assert!(doc.marks.len() >= 2 && doc.version == 4);
     }
@@ -329,9 +343,9 @@ mod tests {
         let cfg = GcConfig { root: "r".into(), ctl: "c".into(), delay_ms: 100, zombie_ms: 1000, dry_run: false };
         let _ = gc_step(&b, &cfg, 0).await.unwrap();
         let r = gc_step(&b, &cfg, 200).await.unwrap();
-        assert_eq!((r.deleted_data, r.deleted_tombstones), (3, 0), "the tombstone stays while a zombie may live");
+        assert_eq!((r.deleted_data, r.deleted_tombstones), (2, 0), "the tombstone stays while a zombie may live, and the slot below it");
         let r = gc_step(&b, &cfg, 1200).await.unwrap();
-        assert_eq!((r.deleted_tombstones, r.epochs_retired), (1, 1));
+        assert_eq!((r.deleted_data, r.deleted_tombstones, r.epochs_retired), (1, 1, 1));
         assert!(b.keys().iter().all(|k| !k.starts_with(prefix)));
     }
 }

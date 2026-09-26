@@ -270,6 +270,8 @@ struct LaneState {
     /// when the lane is LISTed next (monotonic ms).
     idle_ms: u64,
     next_list_at: u64,
+    /// When a LIST of it last found work (monotonic ms).
+    last_busy: u64,
     /// HEADs of slots above the checkpoint (immutable: create-only), with
     /// when each was first HEADed.
     heads: HashMap<(String, u64), (Found, u64)>,
@@ -294,6 +296,7 @@ impl LaneState {
             last_seen: HashMap::new(),
             idle_ms: 0,
             next_list_at: now,
+            last_busy: now,
             heads: HashMap::new(),
             unsettled_until: None,
             taken_at: now,
@@ -449,10 +452,13 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     let busy = objs.len() > n_objs || work.len() > n_work || new_epoch;
                     let (b, r) = (self.cfg.backoff, self.jitter.next());
                     if let Some(ls) = self.held.get_mut(id) {
+                        if busy {
+                            ls.last_busy = now;
+                        }
                         if !b.enabled() {
                             ls.idle_ms = 0;
                             ls.next_list_at = step_start;
-                        } else if busy {
+                        } else if busy || now < ls.last_busy + b.after_ms {
                             ls.idle_ms = 0;
                             ls.next_list_at = step_start + self.cfg.poll_ms - self.cfg.poll_ms / 10;
                         } else {
@@ -489,6 +495,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 if ls.next_list_at > now {
                     ls.next_list_at = now;
                     ls.idle_ms = 0;
+                    ls.last_busy = now;
                     self.stats.hint_wakeups += 1;
                 }
             } else if !self.lanes.contains_key(&id) {

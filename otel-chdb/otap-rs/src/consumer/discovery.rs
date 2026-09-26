@@ -1,10 +1,12 @@
 //! Discovery cost at fleet scale, sans-IO: when a held lane is LISTed, and
 //! the seam for event-driven hints.
 //!
-//! **Idle-lane backoff.** A lane whose LIST found nothing to do is LISTed
-//! again after a wait that doubles from `min_ms` up to `max_ms` (jittered,
-//! so a fleet of idle lanes doesn't LIST in step), and drops back to every
-//! poll as soon as a LIST finds work. The periodic full listing from the
+//! **Idle-lane backoff.** A lane whose LISTs have found nothing to do for
+//! `after_ms` is LISTed again after a wait that doubles from `min_ms` up to
+//! `max_ms` (jittered, so a fleet of idle lanes doesn't LIST in step), and
+//! drops back to every poll as soon as a LIST finds work. (The grace keeps a
+//! lane with an object every few seconds on every poll: backing it off
+//! would cost it latency and statements their batching.) The periodic full listing from the
 //! floor (`--full-list`) happens at the lane's next LIST once due, so an
 //! idle lane costs one LIST per backoff period, whatever the poll.
 //!
@@ -29,6 +31,8 @@ use std::cell::RefCell;
 /// Per-lane LIST backoff after LISTs that found nothing to do.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Backoff {
+    /// How long a lane must have been idle before it backs off.
+    pub after_ms: u64,
     /// The first wait after an idle LIST (0 with `max_ms` 0: off, LIST every poll).
     pub min_ms: u64,
     /// The longest wait: an idle lane is LISTed at least this often (the
@@ -40,13 +44,13 @@ pub struct Backoff {
 
 impl Default for Backoff {
     fn default() -> Self {
-        Backoff { min_ms: 1_000, max_ms: 30_000, jitter: 0.2 }
+        Backoff { after_ms: 10_000, min_ms: 1_000, max_ms: 30_000, jitter: 0.2 }
     }
 }
 
 impl Backoff {
     pub fn off() -> Self {
-        Backoff { min_ms: 0, max_ms: 0, jitter: 0.0 }
+        Backoff { after_ms: 0, min_ms: 0, max_ms: 0, jitter: 0.0 }
     }
 
     pub fn enabled(&self) -> bool {
@@ -186,7 +190,7 @@ mod tests {
 
     #[test]
     fn backoff_doubles_to_the_cap_and_jitters() {
-        let b = Backoff { min_ms: 1000, max_ms: 30_000, jitter: 0.2 };
+        let b = Backoff { after_ms: 0, min_ms: 1000, max_ms: 30_000, jitter: 0.2 };
         let mut w = 0;
         let mut seen = Vec::new();
         for _ in 0..8 {

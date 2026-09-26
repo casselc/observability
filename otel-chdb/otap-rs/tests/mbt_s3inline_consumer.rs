@@ -15,7 +15,7 @@
 //! | `cApply`, `cDrop` | central: rows land only by the fence (the server-side `WHERE now64() <= fence`) |
 //! | `wAdvance` | the verify (`plan::verdict`), `plan::advance_to`, the checkpoint CAS by ETag |
 //! | `wTomb`, `wSeeTomb` | a create-only tombstone in the bucket, `CkptDoc::close`, `plan::found` |
-//! | `gc` | `gc::doomed` must pick exactly the model's slots |
+//! | `gc` | `gc::doomed` must pick exactly the model's slots (the one below the position stays) |
 //! | `wCrash` | the process's state (held lease, observer) is gone |
 //! | `wRelease` | `coord::may_act` must allow it (no statement of the worker can still land: `Held::settled_by`); `coord::release` |
 //! | `newDay`, the partitions | the objects' received time is their epoch's day; the check and the verify read the partitions `plan::check_range` / `plan::own_range` give (the verify's recount over the horizon included) |
@@ -764,7 +764,8 @@ impl Driver for ConsumerDriver {
                 // The model's doomed set, recomputed from the model's rule to
                 // compare with the implementation's `gc::doomed`.
                 let n = self.ckpt.next(&ename(e)) as i64;
-                let doomed = (0..SLOTS).filter(|s| *s < n && matches!(self.slot(e, *s), Some(Found::Data { .. }))).collect();
+                // (GC_KEEP: the slot just below the position stays until retirement.)
+                let doomed = (0..SLOTS).filter(|s| *s + 1 < n && matches!(self.slot(e, *s), Some(Found::Data { .. }))).collect();
                 self.gc(e, doomed)
             },
             gcRetire(e: i64) => self.gc_retire(e),

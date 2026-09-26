@@ -15,7 +15,7 @@
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 75s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
-//!           [--audit-every 1h --ch URL --db DB <audit flags>] [--metrics-addr HOST:PORT]
+//!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
 //!           audit flags: [--check-horizon 3d | all] [--audit-lookback 2d] [--audit-sample-hex 0]
 //!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2]
@@ -193,6 +193,21 @@ async fn main() {
             return;
         }
     }
+    // For scripts: the horizon audit's statements (`consumer_check_range.sh`
+    // measures exactly these): the candidates of table FQ from --since-ns,
+    // or with --keys k1,k2 --days d1,d2 the two confirmation queries.
+    if let Some(fq) = arg(&args, "--print-audit-sql") {
+        let sample = arg(&args, "--audit-sample-hex").map_or(0, |s| s.parse().expect("--audit-sample-hex"));
+        match arg(&args, "--keys") {
+            None => println!("{}", audit::candidates_sql(&fq, arg(&args, "--since-ns").expect("--since-ns").parse().expect("ns"), sample, 1000)),
+            Some(k) => {
+                let keys: Vec<String> = k.split(',').map(str::to_string).collect();
+                let days = arg(&args, "--days").expect("--days").split(',').map(|d| d.parse().expect("day")).collect();
+                println!("{}\n{}", audit::dups_sql(&fq, &keys, &days), audit::groups_sql(&fq, &keys, &days));
+            }
+        }
+        return;
+    }
     let legacy_signal = arg(&args, "--signal");
     let (key, secret) = (arg(&args, "--key").unwrap_or("otel".into()), arg(&args, "--secret").unwrap_or("otelsecret".into()));
     let s3cfg = S3Config {
@@ -214,10 +229,8 @@ async fn main() {
     if let Some(a) = &metrics_addr {
         match metrics::serve(a, prom.clone()).await {
             Ok(at) => eprintln!("consume: metrics on http://{at}/metrics"),
-            Err(e) => {
-                eprintln!("consume: --metrics-addr {a}: {e}");
-                std::process::exit(2);
-            }
+            // Metrics are not worth stopping ingest (or GC) for.
+            Err(e) => eprintln!("consume: --metrics-addr {a}: {e}; running without metrics"),
         }
     }
     let horizon_ms = match arg(&args, "--check-horizon").as_deref() {
@@ -289,7 +302,13 @@ async fn main() {
                 }
             }
         };
-        let audit_every = if sub == Some("horizon-audit") { Some(every.unwrap_or(0)) } else { arg(&args, "--audit-every").map(|s| dur_ms(&s)) };
+        // `gc` with `--db` audits every `--audit-every` (24 h; `off`: never).
+        let audit_every = match (sub, arg(&args, "--audit-every").as_deref()) {
+            (Some("horizon-audit"), _) => Some(every.unwrap_or(0)),
+            (_, Some("off")) => None,
+            (_, a) if arg(&args, "--db").is_some() => Some(dur_ms(a.unwrap_or("24h"))),
+            _ => None,
+        };
         let audit_loop = async {
             let Some(audit_every) = audit_every else { return };
             let db = arg(&args, "--db").expect("the horizon audit needs --db (and --ch)");

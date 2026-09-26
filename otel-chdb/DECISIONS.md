@@ -41,13 +41,13 @@ disagreed with each other, and how each was resolved.
 
 | # | Decision | Status |
 |---|---|---|
-| [D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb) | Edge publisher: Rust otap-dataflow exporter where it can run, Go `parquetgo` for Go collectors, not chDB | accepted; **Go path kept** (2026-09-26), its gaps are follow-up work |
+| [D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb) | Edge publisher: Rust otap-dataflow exporter where it can run, Go `s3pq` (parquetgo) for Go collectors, not chDB | accepted; **Go path kept** (2026-09-26); its gaps closed the same day (s3pq: manifest-less for every signal, layout B, row-identical with Rust through the consumer) |
 | [D2](#d2-transfer-format-parquet-read-with-s3-not-native-parts) | Transfer format: Parquet read with `s3()`, not native parts on `s3_plain_rewritable` | accepted |
 | [D3](#d3-commit-protocol-manifest-less-create-only-slots) | Commit protocol: manifest-less create-only slots | accepted; manifests and the S3-native log superseded |
-| [D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred) | awss3exporter: stock rejected, patched version prototyped, own exporter preferred | stock rejected; Go choice open |
+| [D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred) | awss3exporter: stock rejected, patched version prototyped, own exporter built | stock rejected; **own exporter `s3pq` built and deployed (2026-09-26)**; awss3inline superseded |
 | [D5](#d5-otap-variants-otap-only-as-an-input-transport) | OTAP: only as an input transport; never stored | accepted |
 | [D6](#d6-no-edge-to-central-fast-path) | No edge-to-central fast path | accepted |
-| [D7](#d7-metrics-series-table-layout-b-not-the-clickstack-tables) | Metrics: series-table layout B; wire-size ordinal rejected | accepted |
+| [D7](#d7-metrics-series-table-layout-b-not-the-clickstack-tables) | Metrics: series-table layout B; wire-size ordinal rejected | accepted; built in both edges (Go: 2026-09-26) |
 | [D8](#d8-consumer-leases-and-checkpoints-on-s3) | Consumer: leases and checkpoints on S3 | accepted; idle-lane LIST backoff, load-based balancing (2026-09-26); event notifications designed, not built |
 | [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted; margin ≥ 10 s enforced, unanswered statements waited out (2026-09-26) |
 | [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted; linger built, off by default (2026-09-26) |
@@ -150,9 +150,10 @@ Assumptions every model makes, and which the code must therefore guarantee:
 ### D1. Edge publisher: Rust otap-dataflow exporter, Go parquetgo, not chDB
 
 **Status:** accepted: chDB rejected for publishing; Rust where the Rust engine
-can run; Go `parquetgo` where the edge must stay a Go collector. **The Go path
-is kept for now** (decided 2026-09-26 by the project owner: not frozen, not
-deprecated; see below).
+can run; Go where the edge must stay a Go collector. **The Go path is kept**
+(decided 2026-09-26 by the project owner), and since the same day the Go edge
+is the `s3pq` exporter (`parquetgo/s3pqexporter` on `parquetgo/edge`), which
+publishes what the Rust edge publishes.
 
 **Decision.** Publish ClickStack-shaped Parquet from a native writer at the
 edge. The Rust exporter (`otap-rs`, `urn:otel:exporter:s3pq`) walks the OTLP
@@ -184,56 +185,72 @@ variants ([D5](#d5-otap-variants-otap-only-as-an-input-transport)).
   Rust objects read half the bytes.
 - **The Rust gain comes from reading OTLP bytes directly, not from OTAP.**
   Going through OTAP record batches first costs 71 / 47 ms.
+- **Go `s3pq` (2026-09-26), loaded box:** 43 / 29 ms per 10k spans / logs
+  (same run: manifest publisher 40 / 28); 39 ms per 10k metric points in
+  layout B against 64 ms for the ClickStack tables with manifests; one
+  create-only PUT per object (metrics: 4 PUTs against 10); objects 26–28%
+  larger than Rust's, same rows (`parquetgo/compare/results/edge-bench.md`).
+- **Go `s3pq` = Rust through the consumer** (`conformance/`, 2026-09-26):
+  layout B 228 checks, ClickStack tables 187, 0 failures, on testgen, nasty,
+  duplicate-key and a new hostile set (unicode, 1 MiB values, 1,000-entry
+  maps, out-of-range enums, extreme histograms, exemplars); same content
+  keys, metadata, footers and schema. One known difference, from the Rust
+  side: span kinds outside the enum (Rust `Unspecified` via otap-dataflow's
+  view; Go and contrib `''`).
 
 **Consequences.**
 
 - There are two edge implementations that must stay row-identical. Keep the
-  server-side conformance tests (`parquetgo/compare`,
-  `otap-rs/scripts/correctness.py`) in CI. The arrow-go page split
-  ([UPSTREAM_ISSUES.md](UPSTREAM_ISSUES.md) U5) shows that
-  writer/reader drift is a real risk.
+  server-side conformance tests in CI: `conformance/run.sh` (both edges
+  through the Rust consumer, both layouts), `conformance/go_faults.sh`,
+  `parquetgo/modelcheck` (Go runs against `s3Inline.qnt` /
+  `s3InlineMetrics.qnt`), `otap-rs/scripts/correctness.py`. The arrow-go page
+  split ([UPSTREAM_ISSUES.md](UPSTREAM_ISSUES.md) U5) and parquet-go's
+  untruncated statistics (a 1 MiB value put 2 MiB into the footer, fixed by
+  cutting them to 64 bytes) show that writer drift is a real risk.
 - The Rust build pins upstream otel-arrow at `5db8358` plus two local patches.
   It needs Rust 1.98.1 (577 MB of toolchain), 395 crates, and an 11-minute
   clean release build ([`otap-rs/README.md`](otap-rs/README.md) §Build).
 - The saving is not where the money is. 28 ms saved per traces batch is about
   1.4 cores fleet-wide at 500 producers [E]. Central dominates cost.
 
-**Is the Go path frozen? Decided 2026-09-26: no. The Go path is kept.** The
-project owner decided to keep Go `parquetgo` as a supported edge for
-collectors that must stay Go, neither frozen nor deprecated. That commits the
-project to:
+**Is the Go path frozen? Decided 2026-09-26: no. The Go path is kept, and
+its gaps are closed** (same day). The project owner decided to keep Go as a
+supported edge for collectors that must stay Go. The Go edge is now the
+`s3pq` exporter (built into `otelcol-s3pq`, `awss3/collector/builder-config.yaml`;
+deployed by `deploy/base/go`):
 
-- keeping the Go edge row-identical to the Rust one, with the server-side
-  conformance tests (`parquetgo/compare`, `otap-rs/scripts/correctness.py`)
-  in CI (see Consequences);
-- keeping the Go collector config on the D4 settings (persistent queue,
-  `max_elapsed_time: 0`, batching before the queue);
-- treating the Go gaps below as known follow-up work, **not done now**.
-
-The Go gaps, as they stand:
-
-- `parquetgo` was last changed in `84afd7e`. It still commits with manifests.
-- The manifest-less commit exists in Go only as the `awss3inline` prototype,
-  for traces and logs ([D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred)).
-  Metrics lanes are "not wired" ([`parquetgo/README.md`](parquetgo/README.md) §Gaps).
-- Layout B exists in Go only as the `metrics-layout/seriesenc` prototype.
-- The production consumer, the durable buffer, sorting, the wire encodings and
-  checkpoint compaction were all built in Rust only (`4cd7692` → `7125a72`).
-
-So a Go edge today cannot produce what the consumer and the default metrics
-layout expect. Until the follow-up lands, a Go edge can commit manifest-less
-only through the `awss3inline` prototype, for traces and logs. The follow-up
-is: manifest-less commits for every signal in Go, with per-type metrics lanes
-behind a request-level ack (through the patched awss3exporter or through
-`parquetgo` plus the appender, which is D4's open choice); and a Go layout-B
-lane built from `seriesenc`, with the wire encodings. The consumer is
-Rust-only and serves both edges. A Go edge's durable buffer is the
-collector's persistent queue ([D19](#d19-durable-buffer-at-the-edge)), and
-sorting is off everywhere ([D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8)).
+- **Manifest-less for every signal:** `parquetgo/commit` ports the Rust lane
+  (`PUT If-None-Match: *` at `{root}/{producer}/{namespace}/{epoch}/{seq:020d}.parquet`,
+  HEAD on a 412 or no answer, epochs named at the first write, tombstone
+  halts) with the Rust keys, epoch names, `x-amz-meta-oscope-*` metadata and
+  BLAKE3 content keys; a metrics request is acked only when every object has
+  committed.
+- **Layout B:** `parquetgo/series.go` promotes `metrics-layout/seriesenc`
+  (identical to it in prototype mode) with the Rust defaults (merged number
+  points, exemplar attributes, BYTE_STREAM_SPLIT, no statistics); series
+  announced only after the series object commits.
+- **Checked:** row-identical with Rust through the consumer
+  (`conformance/`); the Rust fault scenarios pass through the Go edge
+  (`conformance/go_faults.sh`); real Go runs conform to `s3Inline.qnt` (30
+  runs, 1,558 steps, lane state checked per step) and `s3InlineMetrics.qnt`
+  (30 runs, 748 steps), and the mutants RetryNewKey, NoHalt and AckOnAny are
+  rejected (`parquetgo/modelcheck`); the deployed config survives a SIGKILL
+  with every request once (`deploy/results/go-edge-s3pq.txt`).
+- **What stays different:** Go objects are 26–28% larger (parquet-go's zstd
+  and V2 pages); the ClickStack layout walks the request once per type
+  (87 ms per 10k points, slower than the old 64 ms; layout B is the
+  default); a request not in Go's canonical protobuf encoding gets a
+  different content key than in Rust. The consumer is Rust-only and serves
+  both edges. A Go edge's durable buffer is the collector's persistent queue
+  ([D19](#d19-durable-buffer-at-the-edge)), and sorting is off everywhere
+  ([D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8)).
 
 **Open risks.** otap-dataflow is pre-1.0. Its OTAP receiver closes the whole
 stream on one undecodable batch (U10). Edges that must be `otelcol-contrib`
-builds can't use Rust.
+builds can't use Rust. The Go edge links parquet-go v0.32.0, whose writer
+`Reset` needs a workaround (`TestReusedWriterIdentical`) and which writes a
+column and offset index where the Rust layout-B objects have none.
 
 ---
 
@@ -345,11 +362,13 @@ and its description goes in `x-amz-meta-oscope-*` and the Parquet footer.
 ### D4. awss3exporter: stock rejected, patched prototyped, own exporter preferred
 
 **Status:** stock awss3exporter **rejected**; the "commit protocol as a
-marshaler" idea **rejected**; patched `awss3inline` is a **working prototype**.
-For Go edges the choice between carrying that patch and owning an exporter
-(`parquetgo` plus the appender) is **open**, with the README leaning to owning
-one ([`awss3/README.md`](awss3/README.md) §Recommendation). For Rust, our own
-exporter is built.
+marshaler" idea **rejected**; patched `awss3inline` was the working
+prototype and is **superseded** (2026-09-26) by our own Go exporter, `s3pq`
+(`parquetgo/s3pqexporter`), the README's recommendation
+([`awss3/README.md`](awss3/README.md) §Recommendation). A marshaler returns
+one byte slice per request, while a metrics request is up to five objects in
+five lanes with one acknowledgement, plus a series object whose announcement
+waits for its commit. For Rust, our own exporter is built.
 
 **Evidence** ([`awss3/README.md`](awss3/README.md), v0.161.0 source [S] and demos [M], `bd1ae88`):
 
@@ -378,6 +397,8 @@ manifest fields in the footer, and stock awss3exporter can use it. The
   1. Content-Type and metadata from encoding extensions;
   2. `if_none_match` plus a content-derived key;
   3. `key_mode: sequence` (U15).
+- `s3pq` enforces the Go config rules in its validation: it refuses
+  `retry_on_failure.max_elapsed_time` ≠ 0 and any `sending_queue.batch`.
 
 **Open risks.** None in config: `otelcol/config.edge.yaml` now batches
 before the queue with the `batch` processor and sets `max_elapsed_time: 0`
@@ -514,6 +535,10 @@ views return exactly contrib's `otel_metrics_*` rows.
 - **Correctness:** Rust = Go prototype, id for id, on 1.32 M fleet rows.
   Views = contrib rows on testgen, hostile and duplicate-key data (230 PASS).
   The consumer soak had 0 points without a series row.
+  Go (2026-09-26): the promoted encoder (`parquetgo/series.go`) writes the
+  prototype's objects value for value in prototype mode, and the Rust edge's
+  rows, id for id, with its defaults, through the consumer (`conformance/`,
+  `otel_metrics_series` 11,539 rows and every points table equal).
 
 **Consequences.**
 
@@ -1336,6 +1361,7 @@ how likely it is.
 | 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |
+| 12b | **Two edges drift** | Rust and Go must write the same rows; the Go and Rust Parquet writers and otap-dataflow's views differ in edge cases (found so far: span kinds outside the enum; parquet-go's untruncated statistics). | Run `conformance/run.sh` (both layouts), `conformance/go_faults.sh` and `parquetgo/modelcheck` in CI on every writer, otap-dataflow or collector version bump. |
 | 13 | **Rust upstream maturity** | otap-dataflow is pre-1.0, pinned at `5db8358` plus 2 patches. The OTAP receiver closes a whole stream on a poison batch. The build needs a pinned 577 MB toolchain. | Upstream the patches (U2, U11); track releases. |
 | 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests. A filesystem full before the cap stalls the publisher until the volume grows (measured; nothing lost). | Keep the cap below the volume and alert on it (`deploy/`); a power-cut test. |
 | 15 | **Series id collisions** | 64-bit: about 3% chance of any collision among 10⁹ series ever seen [E]. A collision merges two series' attributes. | Accept, or move to 128 bits: +0.03 B/point stored, +8 B/point of Parquet [E]. |
@@ -1378,7 +1404,7 @@ messages and recorded results still name the original oscope commits.
 | 21 | lake/DESIGN.md: 115 vCPU, 5.9 vCPU edge, 4.5 µs/span, 530 TB one-copy baseline | fixed: dated notes, 91 vCPU, 5.3, 4.0, compare with 992 TB (`lake/DESIGN.md`) |
 | 22 | bench/sorting/README.md: sorting code "(uncommitted)" | fixed (`bench/sorting/README.md`) |
 | 23 | awss3/README.md: `aws_signing_helper serve` "[E]" | fixed: measured against an IMDS stand-in (`awss3/README.md`) |
-| 24 | parquetgo/README.md, METRICS_SCHEMA.md: metrics commit object then manifest; inline lanes "not wired" | true of `parquetgo`, and now a recorded gap: D1 keeps the Go path, with this as follow-up work (note in `parquetgo/README.md`; METRICS_SCHEMA.md already describes both designs, unchanged) |
+| 24 | parquetgo/README.md, METRICS_SCHEMA.md: metrics commit object then manifest; inline lanes "not wired" | resolved 2026-09-26: the Go edge no longer commits with manifests; `parquetgo/edge` (the `s3pq` exporter) commits every signal manifest-less with a request-level acknowledgement (`parquetgo/README.md`; METRICS_SCHEMA.md revision 4); `publish.go` keeps manifests for the benchmarks and the chDB comparison only |
 | 25 | PBT.md: "New, outside what the model can express:" before "Findings 1–3 are fixed" | fixed: heading moved to the list it introduces (`PBT.md`) |
 | 26 | commit `1a88da1` titled "replicated central with zero-copy replication on S3" | cannot change history; documented (`central-replicated/README.md` note under the title; D13 status) |
 

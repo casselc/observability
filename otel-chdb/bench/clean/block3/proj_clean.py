@@ -11,6 +11,12 @@ part, b its own slope of rewrites per row against ln N (fit.py: the earlier
 fit.py's direct fit M = am + bm · ln N is shown beside it ("direct"); the
 two bracket the value.
 
+Runs that the disk budget stopped below MIN_OWN parts (random-id traces at 39
+B/row: ~160 parts; the top-level merge's output needs as much free space as
+the data) take the slope of the named run that went further (proj.py did the
+same with its 10k runs); their own short-range slope is the other end of the
+range.
+
   proj_clean.py [--json]      (after analyze.py and fit.py on results/*)
 """
 import json, math, os, sys
@@ -18,6 +24,9 @@ import json, math, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "results")
 
+MIN_OWN = 500
+# slope donor for a run stopped below MIN_OWN parts
+DONOR = {"traces-100k": "traces-100k-tg", "logs-100k": "traces-100k-tg", "clickstack-sum-100k": "clickstack-histogram-100k"}
 # (label, table, clean run, earlier 100k-row projection at N=1e4 [µs/row] and ×insert from merges/results/projection.md)
 ROWS = [
     ("traces, random ids", "traces", "traces-100k", 11.7, 2.2),
@@ -59,12 +68,22 @@ def project():
         r = {"label": label, "table": tbl, "run": run, "rows": t["rows_per_statement"], "N_end": n_end, "insert_us": ins,
              "merge_us_end": m_end, "rewrites_end": t["rows_rewritten_per_inserted_row"], "stored_B": t["stored_bytes_per_row"],
              "earlier_e4": e4, "earlier_x_e4": ex4, "proj": {}, "direct": {}}
-        if fit:
-            b, c = fit["b_per_ln"], upper_cost(t)
-            r["b_per_decade"], r["c_upper"] = b * math.log(10), c
+        c = upper_cost(t)
+        donor = None
+        if n_end < MIN_OWN and run in DONOR:
+            dp = os.path.join(RES, DONOR[run], "summary.json")
+            if os.path.exists(dp):
+                donor = next((v["fit"] for v in json.load(open(dp))["tables"].values() if v.get("fit")), None)
+        slopes = ([(donor["b_per_ln"], f"slope of {DONOR[run]}")] if donor else []) + ([(fit["b_per_ln"], "own")] if fit else [])
+        if slopes:
+            b = slopes[0][0]
+            r["b_per_decade"], r["c_upper"], r["slope_from"] = b * math.log(10), c, slopes[0][1]
             for N in (1e3, 1e4, 1e5):
-                r["proj"][int(N)] = m_end + b * max(0.0, math.log(N / n_end)) * c
-                r["direct"][int(N)] = fit["cpu_a_us"] + fit["cpu_b_us_per_ln"] * math.log(N)
+                step = lambda bb: m_end + bb * max(0.0, math.log(N / n_end)) * c
+                r["proj"][int(N)] = step(b)
+                # the other estimate: the run's own slope (donor rows), or fit.py's direct fit M = am + bm ln N
+                r["direct"][int(N)] = (step(slopes[1][0]) if donor and len(slopes) > 1 else
+                                       fit["cpu_a_us"] + fit["cpu_b_us_per_ln"] * math.log(N) if fit and not donor else step(b))
         out.append(r)
     return out
 
@@ -102,8 +121,8 @@ def main():
     rs = project()
     if "--json" in sys.argv:
         json.dump({"rows": rs, "constants": constants(rs)}, open(os.path.join(HERE, "proj_clean.json"), "w"), indent=1)
-    print("| table | rows/stmt | parts reached | insert µs/row | merge µs/ins. row at end | rewrites/row at end | slope, rewrites per decade "
-          "| µs per rewritten row, upper levels | merge µs/row at N=1e3 | **N=1e4** [step; direct] | N=1e5 | ×insert at 1e4 "
+    print("| table | rows/stmt | parts reached | insert µs/row | merge µs/ins. row at end | rewrites/row at end | slope, rewrites per decade (from) "
+          "| µs per rewritten row, upper levels | merge µs/row at N=1e3 | **N=1e4** [other estimate] | N=1e5 | ×insert at 1e4 "
           "| earlier (loaded box) µs/row at 1e4, ×insert | Δ at 1e4 |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in rs:
@@ -112,14 +131,14 @@ def main():
             e = f"{r['earlier_e4']} ({r['earlier_x_e4']}×)" if r["earlier_e4"] else "– (not projected)"
             dl = f"{(p[10000] - r['earlier_e4']) / r['earlier_e4'] * 100:+.0f}%" if r["earlier_e4"] else ""
             print(f"| {r['label']} | {r['rows']:,} | {r['N_end']:,} | {r['insert_us']:.2f} | {r['merge_us_end']:.2f} | {r['rewrites_end']:.2f} "
-                  f"| {r['b_per_decade']:.2f} | {r['c_upper']:.2f} | {p[1000]:.1f} | **{p[10000]:.1f}** [{d[10000]:.1f}] | {p[100000]:.1f} "
+                  f"| {r['b_per_decade']:.2f} ({r['slope_from']}) | {r['c_upper']:.2f} | {p[1000]:.1f} | **{p[10000]:.1f}** [{d[10000]:.1f}] | {p[100000]:.1f} "
                   f"| {p[10000] / r['insert_us']:.1f}× | {e} | {dl} |")
         else:
             print(f"| {r['label']} | {r['rows']:,} | {r['N_end']:,} | {r['insert_us']:.2f} | {r['merge_us_end']:.2f} | {r['rewrites_end']:.2f} "
                   f"| – | – | – | – | – | – | – | |")
     c = constants(rs)
     if c:
-        print("\n| calculator constant | earlier | clean, N=1e4 [range: step … direct fit] | Δ |\n|---|---|---|---|")
+        print("\n| calculator constant | earlier | clean, N=1e4 [range: the two estimates] | Δ |\n|---|---|---|---|")
         for k, (v, lo, hi) in c.items():
             print(f"| {k} | {EARLIER[k]} | {v:.1f} [{lo:.1f}–{hi:.1f}] | {(v - EARLIER[k]) / EARLIER[k] * 100:+.0f}% |")
 

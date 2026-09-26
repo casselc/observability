@@ -9,8 +9,8 @@ After a container restart: `cd spike/otel-chdb/bench/clean && setsid nohup bash 
 |---|---|---|---|
 | 1 edge encode CPU (block1/) | done | see block1/results.md | – |
 | central insert CPU (block2/) | done | 20 | – |
-| merges (block3/) | todo | 0 | traces-100k-tg, traces-100k, logs-100k, number-100k, histogram-100k, exphist-100k … |
-| stored bytes (block4/) | done | 15 | – |
+| merges (block3/) | partial | 1 | traces-100k, logs-100k, number-100k, histogram-100k, exphist-100k, summary-100k … |
+| stored bytes (block4/) | partial | 15 | B-gauge no replay, B-sum no replay, B-histogram no replay, B-exponential_histogram no replay, B-summary no replay, A-sum no replay … |
 | consumer end to end (block5/) | todo | 0 | a 200ms r1, a 1s r1, a 200ms r2, a 1s r2, a 200ms r3, a 1s r3 … |
 
 Order: block 2 → block 3 prep → block 4 → block 3 runs → block 5 → analysis, README, cleanup (S3 otel/clean/, private CH wipe).

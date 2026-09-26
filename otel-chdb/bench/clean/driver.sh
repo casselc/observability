@@ -26,6 +26,7 @@ blocks_2_4_services() {
   priv_up 1-3 || { log "private ClickHouse not up"; exit 1; }
   log "services: weed (CPU 0), private CH $(curl -s http://127.0.0.1:18623/ --data-binary 'SELECT version()') (CPUs 1-3), shared CH down"
 }
+echo $$ > $here/driver.pid
 progress
 log "driver start; uptime: $(uptime)"
 

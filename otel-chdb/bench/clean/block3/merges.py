@@ -3,7 +3,8 @@
 ingest. (bench/clean copy of ../../merges/merges.py. Changes: the pool is
 under clean/merges/pool; the private server is $S/clean/chpriv; results go to
 ./results; A_sum at --rows 100k takes 2 objects per statement (104k rows)
-instead of 1 (52k); the final parts query adds data_compressed_bytes; the
+instead of 1 (52k); the final parts query adds data_compressed_bytes;
+old_parts_lifetime 5 s with a 1-2 s cleanup (disk only; traces-100k-tg ran at 30 s); the
 sampler records the /proc/stat cpu line, so steal is known per run.)
 
 Each table gets INSERT … SELECT FROM s3() statements at a fixed rate, shaped as
@@ -154,7 +155,9 @@ def ddl(name, a):
             s = s.replace("PARTITION BY toDate(received_at)", f"PARTITION BY {part}")
         if a.ttl and name != "series":
             s = s.replace("\nSETTINGS", f"\n{a.ttl}\nSETTINGS", 1)
-    extra = ", old_parts_lifetime = 30"  # disk only: merged-away parts go after 30 s, not 8 min
+    # disk only: merged-away parts go after 5 s (not 8 min), and the cleanup runs every ~1-2 s (not 30-40 s).
+    # At 30 s, random-id traces kept 1.5 GB of outdated parts and hit the free-disk floor at 161 parts.
+    extra = ", old_parts_lifetime = 5, cleanup_delay_period = 1, cleanup_delay_period_random_add = 1"
     for kv in a.setting:
         extra += ", " + kv
     if "{settings}" in s:

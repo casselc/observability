@@ -464,9 +464,7 @@ the environment):
 # EKS, IRSA or Pod Identity: no keys; the pod's env carries the credentials
 s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1" }
 # Nutanix Objects, private CA
-s3: { url: "https://objects.nutanix.example/otel/edge", region: "us-east-1",
-      access_key_id: "${env:NUTANIX_ACCESS_KEY}", secret_access_key: "${env:NUTANIX_SECRET_KEY}",
-      ca_bundle: "/etc/ssl/nutanix/ca.pem" }
+s3: { url: "https://objects.nutanix.example/otel/edge", region: "us-east-1" }  # keys: AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY from a Secret; CA: AWS_CA_BUNDLE
 # IAM Roles Anywhere, from outside AWS
 s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1",
       credential_process: "aws_signing_helper credential-process --certificate /etc/ra/cert.pem --private-key /etc/ra/key.pem --trust-anchor-arn arn:… --profile-arn arn:… --role-arn arn:…" }
@@ -476,6 +474,9 @@ s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1",
 s3: { url: "s3://otel-telemetry/edge", region: "eu-west-1", profile: "edge",
       role_arn: "arn:aws:iam::111122223333:role/otel-writer", external_id: "…" }
 ```
+
+The shipped configs carry no credential fields (a key field shadows the
+whole chain); [`../deploy/`](../deploy/README.md) has manifests per mode.
 
 The exporter needs `s3:PutObject` and `s3:GetObject` on the prefix, and
 `s3:ListBucket` so that a HEAD of a missing key answers 404, not 403
@@ -1164,10 +1165,11 @@ moves that custody to the edge's disk.
   should ride out (`retention_size_cap`, default here 1 GiB).
 - Visibility gets up to `max_segment_open_duration` + `poll_interval`
   (1.1 s by default) later; lower values cost more I/O.
-- Not measured: a real power cut (the fsync window is from the source),
-  disk-full behaviour (`backpressure` vs `drop_oldest`), and metrics through
-  the buffer (the payload is opaque OTLP bytes, so no difference is
-  expected).
+- Measured since (`../deploy/results/`): disk full (`backpressure` loses
+  nothing; `drop_oldest` lost 47 of 64 acked requests; a full filesystem
+  blocks the restart until it grows) and metrics through the buffer (layout
+  B, 51 checks pass). Not measured: a real power cut. The deployed publisher
+  is `configs/edge-publisher.yaml` (this plus a batch step before the WAL).
 
 ## Inputs: OTAP end to end, OTLP/gRPC [M]
 
@@ -2225,7 +2227,7 @@ every closed epoch; its own open items are in
     fast paths still refuse views (the spike's findings stand).
 - **Durable buffer:** a host crash can lose the last ≤25 ms of acknowledged
   requests (WAL fsync interval, not configurable through the processor);
-  disk-full behaviour and a real power cut weren't tested; +35% edge CPU and
+  a real power cut wasn't tested (disk full: `../deploy/results/durable-diskfull.txt`); +35% edge CPU and
   2× the request bytes written locally.
 - **OTAP input:** invalid UTF-8 in any string closes the whole stream (a
   poison batch for a resending client); map entry and row order are the
@@ -2243,6 +2245,7 @@ every closed epoch; its own open items are in
 ## Reproduce
 
 ```sh
+export AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret   # the configs carry no keys
 S=/path/to/scratch RUN=c$(date +%s)
 scripts/fetch-upstream.sh $S/otel-arrow            # pinned upstream + patches -> .upstream
 export CARGO_TARGET_DIR=$S/target CARGO_BUILD_JOBS=3
@@ -2344,6 +2347,7 @@ ClickHouse database is private and dropped afterwards.
 | `tests/creds.rs`, `tests/determinism.rs`, `tests/otap_view.rs` | credential modes (19, plus the signer against SeaweedFS), deterministic encoding, the upstream view bug |
 | `tests/series.rs` | layout B against the Go prototype (schema, rows, ids, through the cache); the cache rules; the wire encodings (`wire_encodings`), and, ignored, `dump_series` and `wire_cost` for `scripts/series_wire.py` |
 | `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
+| `configs/edge-publisher.yaml` | the deployed publisher: durable buffer plus a batch step before it |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
 | `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
 | `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`), `consumer_scale.sh` (LISTs per lane, linger), `consumer_check_range.sh` (the check on an S3 tier), `consumer_model.sh` (the consumer models' checks) |

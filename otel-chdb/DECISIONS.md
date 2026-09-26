@@ -56,10 +56,10 @@ disagreed with each other, and how each was resolved.
 | [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted |
 | [D14](#d14-storage-tiers) | Storage tiers: hot 1–7 days, then cold | accepted; cold medium open |
 | [D15](#d15-metrics-downsampling) | Metrics downsampling: 5-minute rollups | proposed; not built |
-| [D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8) | Edge sorting off; service-affine routing at N ≥ 8 | accepted (routing not deployed) |
+| [D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8) | Edge sorting off; service-affine routing at N ≥ 8 | accepted; routing built as `deploy/components/routing`, measured locally, not deployed |
 | [D17](#d17-lake--hybrid-cold-tier) | Lake / hybrid cold tier | exploratory |
 | [D18](#d18-s3-client-and-credentials) | S3 client and credentials | accepted |
-| [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | Go accepted; Rust default open |
+| [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`) |
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 
 ---
@@ -1009,9 +1009,9 @@ dashboards are acceptable at 5-minute resolution is undecided.
 ### D16. Edge sorting off; service-affine routing at N ≥ 8
 
 **Status:** accepted (`7125a72`). Sorting code is in `otap-rs`, off by default
-(`parquet.sort: {by: none}`). Routing is a recommendation for the gateway's
-loadbalancing exporter. It was measured on generated routed objects, **not
-deployed**.
+(`parquet.sort: {by: none}`). Routing is built as `deploy/components/routing` (loadbalancing gateway,
+`routing_key: service`, 8 publishers) and measured locally
+(`deploy/results/route-*.txt`); not deployed on a cluster.
 
 **Evidence** ([`bench/sorting/README.md`](bench/sorting/README.md), idle box, 5 reps):
 
@@ -1029,6 +1029,14 @@ deployed**.
   cluster at N = 8 (2.9× the mean) and 26% at N = 16 (4.1×).
 - The fixed central cost grows with N either way: 1.2 → 9.6 vCPU at one object
   per statement, and 0.17 → 1.34 vCPU at 32.
+- **With the real exporter** (v0.161.0, N = 8, 120 services): every service
+  on exactly one publisher; busiest publisher 29% of traces (2.3×) and
+  36.8% of logs (2.9×) [M: `deploy/results/`].
+- **The skew is key granularity, not the ring.** The exporter's
+  consistent-hash ring (CRC32, 200 virtual nodes per endpoint) is within
+  ~7% of even [E]; a service is never split. The fix, if needed, is splitting
+  hot services by trace id, not another placement function
+  ([`deploy/README.md`](deploy/README.md) §The hash ring).
 
 **Consequences.**
 
@@ -1036,6 +1044,22 @@ deployed**.
   ([D17](#d17-lake--hybrid-cold-tier)). With central ingest alone, raw objects
   are deleted after ingest.
 - Keep 32 objects per statement, and don't raise N without them.
+- **Where the batching happens decides the object count and the
+  duplicates.** Behind the gateway each agent request becomes up to N
+  pieces. Publishers that batch them (`configs/edge-publisher.yaml`) give
+  this section's object counts, but a gateway that dies with requests in
+  flight makes the agents resend them, the publishers re-batch them, and
+  central keeps both copies (two SIGKILLs: ~20% of that test's rows);
+  graceful restarts duplicate nothing. Unbatched publishers are exact but
+  write ~100× the objects at real agent batch sizes [E]. Exactness with
+  batching needs piece-level identity at the publisher (not built).
+- The loadbalancing exporter merges a publisher's pieces of a logs/metrics
+  request in map order (U20); `deploy/collector/patches/0001` sorts them.
+  Metrics without `service.name` are dropped under `routing_key: service`,
+  so metrics bypass the gateway. Every ring change moves ~1/N of the
+  services and duplicates in-flight requests; the ring Service publishes
+  not-ready addresses, and the ring is keyed on StatefulSet pod hostnames so
+  a publisher restart is not a ring change.
 
 **Step 0 of the same work** (`0a04d57`): the 18–33% edge slowdown reported by
 bench/clean block 1 was **a harness artefact, not a regression**.
@@ -1145,9 +1169,10 @@ so the token header was never exercised against a store.
 - **Go:** accepted. The collector's `sending_queue` on `file_storage` plus
   `retry_on_failure.max_elapsed_time: 0` gives at-least-once delivery across
   restarts ([`awss3/README.md`](awss3/README.md) §2).
-- **Rust:** ack-after-commit is the baseline. Upstream's durable buffer
-  (Quiver) is **built and tested but opt-in** (`configs/edge-durable.yaml`).
-  Which is the default is **open**.
+- **Rust:** Quiver **on** in the deployed publisher
+  (`configs/edge-publisher.yaml`, `deploy/base/rust`: 40 GiB cap on 50 Gi,
+  `size_cap_policy: backpressure`); `configs/edge.yaml` stays the
+  ack-after-commit baseline.
 
 **Evidence** ([`otap-rs/README.md`](otap-rs/README.md) §Edge durability, `4cd7692`):
 
@@ -1163,7 +1188,14 @@ so the token header was never exercised against a store.
 (503) and custody stays with them. With it, custody moves to the edge's disk:
 size `retention_size_cap` for the outage to ride out, at about 630 B per span.
 
-**Open risks.** Disk-full behaviour and a real power cut are untested.
+**Disk full, measured** (`deploy/results/durable-diskfull.txt`):
+`backpressure` answers 503 at the cap and every acked request is committed
+later; `drop_oldest` acked and lost 47 of 64; a filesystem full before the
+cap blocks the restart (WAL replay, U21) until the volume grows, then
+nothing is lost; minimum cap 192 MiB/core.
+
+**Open risks.** A real power cut; a full volume is a crash loop, so the cap
+stays well below it.
 
 ---
 
@@ -1278,11 +1310,11 @@ how likely it is.
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
 | 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check now reads the batch's own days ± 1 day: 56 GETs and 13 ms CPU cold against 2,320 and 546 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than the horizon after its original is ingested twice, unreported. | Measure the resend delay of real senders and durable buffers; or an occasional full-range check of a sample of keys to detect it. |
 | 9 | **Replicated insert cost** | 58.6–66.7 µs/row measured on replicas (loaded box, 7.9 objects per statement), against about 12 on one node. If even part of that is real, the calculator is low. | Re-measure replicated inserts on an idle box at 32 objects per statement. |
-| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26.) |
-| 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. |
+| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
+| 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |
 | 13 | **Rust upstream maturity** | otap-dataflow is pre-1.0, pinned at `5db8358` plus 2 patches. The OTAP receiver closes a whole stream on a poison batch. The build needs a pinned 577 MB toolchain. | Upstream the patches (U2, U11); track releases. |
-| 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests. Disk-full behaviour is untested. | Decide the Rust default ([D19](#d19-durable-buffer-at-the-edge)); test `backpressure` and `drop_oldest`. |
+| 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests. A filesystem full before the cap stalls the publisher until the volume grows (measured; nothing lost). | Keep the cap below the volume and alert on it (`deploy/`); a power-cut test. |
 | 15 | **Series id collisions** | 64-bit: about 3% chance of any collision among 10⁹ series ever seen [E]. A collision merges two series' attributes. | Accept, or move to 128 bits: +0.03 B/point stored, +8 B/point of Parquet [E]. |
 
 ---
@@ -1355,3 +1387,5 @@ Short drafts, with repro, expected and actual behaviour, and versions, are in
 | U17 | SeaweedFS 4.47 | `If-Match` on a missing key → 412 (AWS: 404); `StartAfter` naming a "directory" returns nothing | low | slot-0 key `{epoch}/0` |
 | U18 | Quint Rust evaluator v0.6.0 | about 40% of `--mbt` traces label state 0 `step`, not `init` | low | driver maps `step` → `init` |
 | U19 | ClickHouse 26.10.1 | `ParquetMetadata` omits footer key-value metadata | low | HEAD for `x-amz-meta-*` |
+| U20 | contrib loadbalancingexporter v0.161.0 | logs/metrics pieces merged per backend in map order, so a retry isn't byte-identical; metrics without `service.name` logged and dropped | medium | `deploy/collector/patches/0001`; metrics bypass the gateway |
+| U21 | otap-dataflow Quiver `5db8358` | with its filesystem full, a restart fails WAL replay (ENOSPC writing a segment) and the pipeline exits after 5 attempts | medium | cap well below the volume |

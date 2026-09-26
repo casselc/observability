@@ -656,6 +656,12 @@ module designCopies {
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
     MAX_DAY = 1, GC_KEEP = true).*
 }
+// The same at the MBT's lease (TTL 6: tests/mbt_s3inline_consumer.rs has one timing).
+module designDays {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 1, GC_KEEP = true).*
+}
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,

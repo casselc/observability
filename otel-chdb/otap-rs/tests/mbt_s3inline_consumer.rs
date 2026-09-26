@@ -166,30 +166,30 @@ struct Raw {
     l_inflight: BTreeSet<Req>,
     #[serde(rename = "s3InlineConsumer::L::responses", alias = "s3InlineConsumerCompact::L::responses")]
     l_responses: BTreeSet<Resp>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time", alias = "designCopies::s3InlineConsumer::time",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time", alias = "designDays::s3InlineConsumer::time",
         alias = "compactDesign::s3InlineConsumerCompact::time", alias = "compactQuiet::s3InlineConsumerCompact::time")]
     time: i64,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease", alias = "designCopies::s3InlineConsumer::lease",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease", alias = "designDays::s3InlineConsumer::lease",
         alias = "compactDesign::s3InlineConsumerCompact::lease", alias = "compactQuiet::s3InlineConsumerCompact::lease")]
     lease: LeaseM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers", alias = "designCopies::s3InlineConsumer::workers",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers", alias = "designDays::s3InlineConsumer::workers",
         alias = "compactDesign::s3InlineConsumerCompact::workers", alias = "compactQuiet::s3InlineConsumerCompact::workers")]
     workers: BTreeMap<i64, WorkerM>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt", alias = "designCopies::s3InlineConsumer::ckpt",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt", alias = "designDays::s3InlineConsumer::ckpt",
         alias = "compactDesign::s3InlineConsumerCompact::ckpt", alias = "compactQuiet::s3InlineConsumerCompact::ckpt")]
     ckpt: CkptM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central", alias = "designCopies::s3InlineConsumer::central",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central", alias = "designDays::s3InlineConsumer::central",
         alias = "compactDesign::s3InlineConsumerCompact::central", alias = "compactQuiet::s3InlineConsumerCompact::central")]
     central: BTreeMap<i64, i64>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts", alias = "designCopies::s3InlineConsumer::stmts",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts", alias = "designDays::s3InlineConsumer::stmts",
         alias = "compactDesign::s3InlineConsumerCompact::stmts", alias = "compactQuiet::s3InlineConsumerCompact::stmts")]
     stmts: BTreeSet<StmtM>,
     // s3InlineConsumer only (absent: no partitions in the instance)
     #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::crows", alias = "designQuiet::s3InlineConsumer::crows",
-        alias = "designCopies::s3InlineConsumer::crows")]
+        alias = "designDays::s3InlineConsumer::crows")]
     crows: Option<BTreeMap<i64, BTreeMap<i64, i64>>>,
     #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::day", alias = "designQuiet::s3InlineConsumer::day",
-        alias = "designCopies::s3InlineConsumer::day")]
+        alias = "designDays::s3InlineConsumer::day")]
     day: i64,
     // s3InlineConsumerCompact only (absent: no compaction in the instance)
     #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::floor", alias = "compactQuiet::s3InlineConsumerCompact::floor")]
@@ -879,7 +879,8 @@ fn s3inline_consumer_quiet_simulation() -> impl Driver {
 
 /// Writer faults without the series lane: copies of a request in a later
 /// epoch, received on a later day, against the check's partition range.
-#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designCopies", max_samples = 500, max_steps = 80)]
+/// (`designDays`: `designCopies` at this driver's TTL of 6.)
+#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designDays", max_samples = 500, max_steps = 80)]
 fn s3inline_consumer_copies_simulation() -> impl Driver {
     ConsumerDriver::default()
 }

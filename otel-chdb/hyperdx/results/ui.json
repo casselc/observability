@@ -1,0 +1,612 @@
+{
+ "picker-b": {
+  "page_ms": 12947,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": [],
+  "options": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "container.cpu.utilization (Gauge)",
+   "container.memory.working_set (Gauge)",
+   "system.cpu.utilization (Gauge)",
+   "app.orders.placed (Sum)",
+   "db.client.connections.usage (Sum)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)",
+   "rpc.server.duration (Exp. histogram)"
+  ],
+  "searchOptions": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)"
+  ]
+ },
+ "m-gauge-avg-b": {
+  "page_ms": 3349,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-gauge-groupby-attr-b": {
+  "page_ms": 3361,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-gauge-groupby-res-b": {
+  "page_ms": 3614,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-gauge-where-res-b": {
+  "page_ms": 3305,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-gauge-where-res-sql-b": {
+  "page_ms": 3227,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-sum-cumulative-b": {
+  "page_ms": 3464,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-sum-cumulative-increase-b": {
+  "page_ms": 3434,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-sum-delta-b": {
+  "page_ms": 3399,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-sum-updown-b": {
+  "page_ms": 3398,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-hist-p95-b": {
+  "page_ms": 3386,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-hist-count-b": {
+  "page_ms": 3307,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-hist-heatmap-b": {
+  "page_ms": 3217,
+  "console_errors": [
+   "Error: no query support for metric type=undefined"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=undefined Generated SQL Chart Explorer - HyperDX"
+  ]
+ },
+ "m-exphist-p50-b": {
+  "page_ms": 3533,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "m-summary-b": {
+  "page_ms": 3374,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree",
+   "Error: no query support for metric type=summary"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=summary Generated SQL Browse metrics Chart Explorer - HyperDX"
+  ]
+ },
+ "picker-stock": {
+  "page_ms": 12958,
+  "console_errors": [],
+  "errors_shown": [],
+  "options": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "container.cpu.utilization (Gauge)",
+   "container.memory.working_set (Gauge)",
+   "system.cpu.utilization (Gauge)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)",
+   "rpc.server.duration (Exp. histogram)"
+  ],
+  "searchOptions": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)"
+  ]
+ },
+ "m-gauge-avg-stock": {
+  "page_ms": 3495,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-gauge-groupby-attr-stock": {
+  "page_ms": 3470,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-gauge-groupby-res-stock": {
+  "page_ms": 3540,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-gauge-where-res-stock": {
+  "page_ms": 3483,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-gauge-where-res-sql-stock": {
+  "page_ms": 3441,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-sum-cumulative-stock": {
+  "page_ms": 3506,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-sum-cumulative-increase-stock": {
+  "page_ms": 3448,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-sum-delta-stock": {
+  "page_ms": 3416,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-sum-updown-stock": {
+  "page_ms": 3476,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-hist-p95-stock": {
+  "page_ms": 3369,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-hist-count-stock": {
+  "page_ms": 3348,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-hist-heatmap-stock": {
+  "page_ms": 3197,
+  "console_errors": [
+   "Error: no query support for metric type=undefined"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=undefined Generated SQL Chart Explorer - HyperDX"
+  ]
+ },
+ "m-exphist-p50-stock": {
+  "page_ms": 3391,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "m-summary-stock": {
+  "page_ms": 3308,
+  "console_errors": [
+   "Error: no query support for metric type=summary"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=summary Generated SQL Browse metrics Chart Explorer - HyperDX"
+  ]
+ },
+ "logs-all": {
+  "page_ms": 3769,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "logs-fulltext": {
+  "page_ms": 3747,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "logs-attr": {
+  "page_ms": 3878,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "logs-res-attr": {
+  "page_ms": 3481,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "logs-sql": {
+  "page_ms": 5165,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "traces-all": {
+  "page_ms": 5711,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "traces-errors": {
+  "page_ms": 5351,
+  "console_errors": [],
+  "errors_shown": [
+   "Error 184 POST /charge Sep 26 10:26:32",
+   "Error 36 POST /charge Sep 26 10:22:01",
+   "Error 106 POST /charge Sep 26 10:19:58",
+   "Error 92 POST /charge Sep 26 10:13:40",
+   "Error 149 POST /charge Sep 26 10:11:08"
+  ]
+ },
+ "traces-res-attr": {
+  "page_ms": 4116,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "trace-waterfall": {
+  "page_ms": 6373,
+  "console_errors": [],
+  "errors_shown": [
+   "Error 128 POST /charge Sep 26 9:56:07",
+   "Error 265 GET /api/checkout End of Results Trace Trace Source 0\u00b5s 20ms 40ms 60ms 80ms 100ms 120ms 140ms 160ms 180ms 200ms 220ms 240ms 260ms 280ms 10 spans, 3 logs, 5 errors Show: Spans Logs Span events Cor"
+  ]
+ },
+ "service-map": {
+  "page_ms": 3730,
+  "console_errors": [],
+  "errors_shown": [
+   "Error rate Throughput Error rate none 1% \u22655% Hollow = no data Node size = throughput"
+  ]
+ },
+ "services": {
+  "page_ms": 4175,
+  "console_errors": [],
+  "errors_shown": [
+   "Errors Request Error Rate Overall By Endpoint error_rate Sep 26 7:55:00 PM 9:10:00 PM 10:55:00 PM 0% 2% 3% 5% 6% Request Throughput Requests Sep 26 7:55:00 PM 9:10:00 PM 10:55:00 PM 0 60 120 180 240 Top 20",
+   "Errors Endpoint Req/Min P95 Median Total Errors/Min POST /reserve 11 377"
+  ]
+ },
+ "kubernetes": {
+  "page_ms": 4764,
+  "console_errors": [],
+  "errors_shown": [
+   "No results found"
+  ]
+ },
+ "dashboard-b": {
+  "page_ms": 7628,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "dashboard-stock": {
+  "page_ms": 5211,
+  "console_errors": [],
+  "errors_shown": [
+   "No data found within time range",
+   "No data found within time range"
+  ]
+ },
+ "alerts": {
+  "page_ms": 3303,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-picker-b": {
+  "page_ms": 13094,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": [],
+  "options": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "app.custom.metric.000 (Gauge)",
+   "app.custom.metric.001 (Gauge)",
+   "app.custom.metric.002 (Gauge)",
+   "app.custom.metric.003 (Gauge)",
+   "app.custom.metric.004 (Gauge)",
+   "app.custom.metric.005 (Gauge)",
+   "app.custom.metric.006 (Gauge)",
+   "app.custom.metric.007 (Gauge)",
+   "app.custom.metric.008 (Gauge)",
+   "app.custom.metric.009 (Gauge)",
+   "app.custom.metric.010 (Gauge)",
+   "app.custom.metric.011 (Gauge)",
+   "app.custom.metric.012 (Gauge)",
+   "app.custom.metric.013 (Gauge)",
+   "app.custom.metric.014 (Gauge)",
+   "app.custom.metric.015 (Gauge)",
+   "app.custom.metric.016 (Gauge)",
+   "app.custom.metric.017 (Gauge)",
+   "app.custom.metric.018 (Gauge)",
+   "app.custom.metric.019 (Gauge)",
+   "app.custom.metric.020 (Gauge)",
+   "app.custom.metric.021 (Gauge)",
+   "app.custom.metric.022 (Gauge)",
+   "app.custom.metric.023 (Gauge)",
+   "app.custom.metric.024 (Gauge)",
+   "app.custom.metric.025 (Gauge)",
+   "app.custom.metric.026 (Gauge)",
+   "app.custom.metric.027 (Gauge)",
+   "app.custom.metric.028 (Gauge)",
+   "app.custom.metric.029 (Gauge)",
+   "container.cpu.utilization (Gauge)",
+   "container.memory.working_set (Gauge)",
+   "system.cpu.utilization (Gauge)",
+   "app.orders.placed (Sum)",
+   "db.client.connections.usage (Sum)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)",
+   "rpc.server.duration (Exp. histogram)"
+  ],
+  "searchOptions": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)"
+  ]
+ },
+ "big-m-gauge-avg-b": {
+  "page_ms": 3878,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-gauge-groupby-attr-b": {
+  "page_ms": 4520,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-gauge-groupby-res-b": {
+  "page_ms": 3952,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-res-b": {
+  "page_ms": 3779,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-res-sql-b": {
+  "page_ms": 3881,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-sum-cumulative-b": {
+  "page_ms": 5273,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-sum-cumulative-increase-b": {
+  "page_ms": 5515,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-sum-delta-b": {
+  "page_ms": 3703,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-sum-updown-b": {
+  "page_ms": 3763,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-hist-p95-b": {
+  "page_ms": 4100,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-hist-count-b": {
+  "page_ms": 4060,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-cluster-b": {
+  "page_ms": 3917,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-exphist-p50-b": {
+  "page_ms": 3758,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree"
+  ],
+  "errors_shown": []
+ },
+ "big-m-summary-b": {
+  "page_ms": 3445,
+  "console_errors": [
+   "Error: Cannot read the primary index: engine View is not a MergeTree",
+   "Error: no query support for metric type=summary"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=summary Generated SQL Browse metrics Chart Explorer - HyperDX"
+  ]
+ },
+ "big-picker-stock": {
+  "page_ms": 12765,
+  "console_errors": [],
+  "errors_shown": [],
+  "options": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "app.custom.metric.000 (Gauge)",
+   "app.custom.metric.001 (Gauge)",
+   "app.custom.metric.002 (Gauge)",
+   "app.custom.metric.003 (Gauge)",
+   "app.custom.metric.004 (Gauge)",
+   "app.custom.metric.005 (Gauge)",
+   "app.custom.metric.006 (Gauge)",
+   "app.custom.metric.007 (Gauge)",
+   "app.custom.metric.008 (Gauge)",
+   "app.custom.metric.009 (Gauge)",
+   "app.custom.metric.010 (Gauge)",
+   "app.custom.metric.011 (Gauge)",
+   "app.custom.metric.012 (Gauge)",
+   "app.custom.metric.013 (Gauge)",
+   "app.custom.metric.014 (Gauge)",
+   "app.custom.metric.015 (Gauge)",
+   "app.custom.metric.016 (Gauge)",
+   "app.custom.metric.017 (Gauge)",
+   "app.custom.metric.018 (Gauge)",
+   "app.custom.metric.019 (Gauge)",
+   "app.custom.metric.020 (Gauge)",
+   "app.custom.metric.021 (Gauge)",
+   "app.custom.metric.022 (Gauge)",
+   "app.custom.metric.023 (Gauge)",
+   "app.custom.metric.024 (Gauge)",
+   "app.custom.metric.025 (Gauge)",
+   "app.custom.metric.026 (Gauge)",
+   "app.custom.metric.027 (Gauge)",
+   "app.custom.metric.028 (Gauge)",
+   "app.custom.metric.029 (Gauge)",
+   "container.cpu.utilization (Gauge)",
+   "container.memory.working_set (Gauge)",
+   "system.cpu.utilization (Gauge)",
+   "app.orders.placed (Sum)",
+   "db.client.connections.usage (Sum)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)",
+   "rpc.server.duration (Exp. histogram)"
+  ],
+  "searchOptions": [
+   "Metrics (layout B views)",
+   "Metrics (stock)",
+   "http.server.request.count (Sum)",
+   "http.server.request.duration (Histogram)"
+  ]
+ },
+ "big-m-gauge-avg-stock": {
+  "page_ms": 3878,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-gauge-groupby-attr-stock": {
+  "page_ms": 3966,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-gauge-groupby-res-stock": {
+  "page_ms": 3599,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-res-stock": {
+  "page_ms": 3496,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-res-sql-stock": {
+  "page_ms": 3664,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-sum-cumulative-stock": {
+  "page_ms": 3874,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-sum-cumulative-increase-stock": {
+  "page_ms": 4069,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-sum-delta-stock": {
+  "page_ms": 3468,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-sum-updown-stock": {
+  "page_ms": 3430,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-hist-p95-stock": {
+  "page_ms": 3875,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-hist-count-stock": {
+  "page_ms": 3642,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-gauge-where-cluster-stock": {
+  "page_ms": 3621,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-exphist-p50-stock": {
+  "page_ms": 3447,
+  "console_errors": [],
+  "errors_shown": []
+ },
+ "big-m-summary-stock": {
+  "page_ms": 3319,
+  "console_errors": [
+   "Error: no query support for metric type=summary"
+  ],
+  "errors_shown": [
+   "Error loading chart, please check your query or try again later",
+   "Error Message: no query support for metric type=summary Generated SQL Browse metrics Chart Explorer - HyperDX"
+  ]
+ }
+}

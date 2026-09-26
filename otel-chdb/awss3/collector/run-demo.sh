@@ -6,7 +6,7 @@
 # on the same queue directory. Then the objects are counted, and the inline
 # prefix is consumed into a ClickHouse table with inlineconsume.
 #
-#   B=<dir with otelcol-awss3, faultproxy, inlineconsume> collector/run-demo.sh
+#   B=<dir with otelcol-s3pq, faultproxy, inlineconsume> collector/run-demo.sh
 set -euo pipefail
 B=${B:?build dir}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -24,7 +24,7 @@ PROXY=$!
 trap 'kill $PROXY 2>/dev/null || true' EXIT
 
 start() {
-  "$B/otelcol-awss3" --config "$HERE/config.yaml" >> "$DATA/collector.log" 2>&1 &
+  "$B/otelcol-s3pq" --config "$HERE/config.yaml" >> "$DATA/collector.log" 2>&1 &
   COL=$!
   for _ in $(seq 50); do curl -s -o /dev/null http://127.0.0.1:14318/ && return; sleep 0.2; done
   echo "collector did not start"; exit 1

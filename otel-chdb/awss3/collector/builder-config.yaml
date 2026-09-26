@@ -1,11 +1,17 @@
-# A collector with the stock contrib awss3exporter, the patched one
-# (awss3inline, key_mode: sequence) and the Parquet encoding extension.
+# The Go edge publisher build (DECISIONS.md D1): the `s3pq` exporter
+# (../../parquetgo/s3pqexporter: manifest-less create-only slots for traces,
+# logs and metrics layout B, the Rust edge's objects), which
+# ../../deploy/base/go runs. The superseded prototypes stay linked for the
+# comparison demo (run-demo.sh): the stock contrib awss3exporter and the
+# patched awss3inline (key_mode: sequence) with the parquet_encoding extension.
 #   B=<build dir>; sed "s#@AWSS3@#$(cd .. && pwd)#; s#@OUT@#$B#" builder-config.yaml > $B/builder.yaml
-#   go run go.opentelemetry.io/collector/cmd/builder@v0.161.0 --config $B/builder.yaml
+#   CGO_ENABLED=0 go run go.opentelemetry.io/collector/cmd/builder@v0.161.0 --config $B/builder.yaml
 dist:
-  name: otelcol-awss3
-  description: OTLP to S3 as Parquet, stock awss3 and the manifest-less awss3inline
+  name: otelcol-s3pq
+  description: OTLP to S3 as ClickStack Parquet, manifest-less (s3pq); the awss3 prototypes for comparison
   output_path: @OUT@
+  # parquetgo's arrow-go engine is not used by s3pq (parquet-go only): ~27 MB less.
+  build_tags: noarrow
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
@@ -15,6 +21,7 @@ processors:
   # own queue: DECISIONS.md risk #10).
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
 exporters:
+  - gomod: github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter v0.0.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awss3exporter v0.161.0
   - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
     import: github.com/casselc/observability/otel-chdb/awss3/awss3inline
@@ -27,3 +34,4 @@ extensions:
 replaces:
   - github.com/casselc/observability/otel-chdb/awss3 => @AWSS3@
   - github.com/casselc/observability/otel-chdb/parquetgo => @AWSS3@/../parquetgo
+  - github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter => @AWSS3@/../parquetgo/s3pqexporter

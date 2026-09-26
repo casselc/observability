@@ -19,7 +19,7 @@ Before filing any of these:
 
 - **Project / version:** `github.com/parquet-go/parquet-go` v0.32.0.
 - **Source here:** [`parquetgo/README.md`](parquetgo/README.md) §"parquet-go's
-  `Writer.Reset` erased the column paths" (`fa3af89`); workaround
+  `Writer.Reset` erased the column paths" (`84afd7e`); workaround
   `parquetgo/pgo.go` `restoreColumnPaths`; test `TestReusedWriterIdentical`.
 
 **Title:** `Writer.Reset` clears `ColumnMetaData.PathInSchema` of the next file,
@@ -58,7 +58,7 @@ instead of aliasing it.
   `main` at `5db8358` (2026-09-24).
 - **Source here:** [`otap-rs/README.md`](otap-rs/README.md) §Upstream;
   `otap-rs/patches/0002-otap-views-u32-parent-id-dictionary16.patch`; test
-  `otap-rs/tests/otap_view.rs` (`fb9527c`).
+  `otap-rs/tests/otap_view.rs` (`060e963`).
 
 **Title:** `build_attribute_index_u32` rejects `Dictionary(UInt16, UInt32)`
 parent ids, so `OtapTracesView` drops all event and link attributes
@@ -93,7 +93,7 @@ does. Patch 0002 is ready to submit.
   `receiver/otelarrowreceiver` v0.161.0.
 - **Source here:** [`otap/README.md`](otap/README.md) §"Correctness findings
   worth reporting upstream", item 1; `otap/correctness_test.go`
-  (`ErrLibraryDroppedBatch`) (`a14c6f8`).
+  (`ErrLibraryDroppedBatch`) (`2ab9d09`).
 
 **Title:** `Consumer.TracesFrom` / `LogsFrom` ignore the error from
 `RelatedDataFrom`: a batch with invalid UTF-8 in a map or slice attribute
@@ -129,7 +129,7 @@ itself accepts it.
   code is unchanged on `master` at `635f69a` (2026-09-25).
 - **Source here:** [`model/S3NATIVE.md`](model/S3NATIVE.md) §2;
   `s3cas/probe_test.go` `TestMultipartCreateRace`, `TestMultipartCASRace`
-  (`922ea7d`).
+  (`30210a5`).
 
 **Title:** `CompleteMultipartUpload` with `If-None-Match: *` or `If-Match`
 checks the condition outside the object lock, so several concurrent completions
@@ -168,7 +168,7 @@ request carries conditional headers.
 - **Project / version:** `github.com/apache/arrow-go/v18` v18.7.0, `pqarrow`.
 - **Source here:** [`parquetgo/README.md`](parquetgo/README.md) §"arrow-go can
   write Parquet that ClickHouse rejects"; `parquetgo/compare/pagesplit_test.go`,
-  `compare/cmd/pqpages` (`d55c1a7`).
+  `compare/cmd/pqpages` (`de81419`).
 
 **Title:** with V1 data pages, a page of a repeated column can start at
 repetition level 1 even though the file carries an offset index
@@ -200,7 +200,7 @@ lengths`.
 
 - **Project / version:** `otel-arrow/go` v0.57.0.
 - **Source here:** [`otap/README.md`](otap/README.md) §d and findings item 4
-  (`a14c6f8`).
+  (`2ab9d09`).
 
 **Title:** the producer declares span-event `name` non-nullable but writes
 nulls for empty names
@@ -220,7 +220,7 @@ non-nullable but its FieldNode reports 505 nulls`.
 
 - **Project / version:** `otel-arrow/go` v0.57.0, `pkg/otel/common/otlp/attributes.go`.
 - **Source here:** [`otap/README.md`](otap/README.md) findings item 3;
-  `otap/emptyattr_test.go` (`a14c6f8`).
+  `otap/emptyattr_test.go` (`2ab9d09`).
 
 **Title:** the producer drops attribute keys whose value is
 `pcommon.ValueTypeEmpty`; the round trip loses the key
@@ -239,7 +239,7 @@ exporter stores it as `''`.
 
 - **Project / version:** `otel-arrow/go` v0.57.0, `pkg/otel/common/cbor.go`.
 - **Source here:** [`otap/README.md`](otap/README.md) findings item 2;
-  order-preserving decoder `otap/cbor.go` (`a14c6f8`).
+  order-preserving decoder `otap/cbor.go` (`2ab9d09`).
 
 **Title:** CBOR-encoded map attributes decode through a Go map, so key order
 is nondeterministic
@@ -259,7 +259,7 @@ decoded pdata does see the difference.
 - **Project / version:** `rust/otap-dataflow`, `main` `5db8358`,
   `crates/core-nodes/src/exporters/parquet_exporter/{idgen,writer}.rs`.
 - **Source here:** [`otap/README.md`](otap/README.md) §"What OTAP is, and what
-  exists", "Possible bug" (`a14c6f8`). **Found by reading the source; not
+  exists", "Possible bug" (`2ab9d09`). **Found by reading the source; not
   executed.** Reproduce before filing.
 
 **Title:** `PartitionSequenceIdGenerator` offsets top-level `id` and
@@ -292,7 +292,7 @@ shifted and the struct field isn't. Upstream's query example joins only
 
 - **Project / version:** `rust/otap-dataflow` `main` `5db8358`, OTAP receiver.
 - **Source here:** [`otap-rs/README.md`](otap-rs/README.md) §Upstream and
-  §Inputs (`8cf80ad`).
+  §Inputs (`4cd7692`).
 
 **Title:** a batch with invalid UTF-8 in an Arrow `Utf8` column closes the
 gRPC stream instead of NACKing that batch
@@ -320,7 +320,7 @@ debug assertion in the views.
 
 - **Project / version:** `rust/otap-dataflow` `main` `5db8358`, crate `pdata`.
 - **Source here:** `otap-rs/patches/0001-pdata-depend-on-datafusion-leaf-crates.patch`
-  (`fb9527c`).
+  (`060e963`).
 
 **Title (enhancement):** depend on `datafusion-common` and
 `datafusion-expr-common` instead of `datafusion`
@@ -337,7 +337,7 @@ is ready.
 - **Project / version:** ClickHouse 26.10.1.618 (the `master` build).
 - **Source here:** [`parquetgo/README.md`](parquetgo/README.md) §Metrics,
   Correctness, "Central ingest under the FASTPATH single-block settings"
-  (`fa3af89`).
+  (`84afd7e`).
 
 **Title:** `INSERT … SELECT FROM s3(<one Parquet object>)` with the
 single-block settings sometimes produces 2 blocks, at a row that varies between
@@ -384,7 +384,7 @@ objects. That may be by design, but it deserves documentation.
 - **Project / version:** ClickHouse 26.10.1; chDB 26.7.3 (libchdb);
   `src/IO/S3/Credentials.cpp`.
 - **Source here:** [`parquetgo/README.md`](parquetgo/README.md) §"Credentials
-  and deployment targets" (`bfe5d85`).
+  and deployment targets" (`1a927f6`).
 
 **Title (feature / docs):** support `credential_process`, honour
 `AWS_ENDPOINT_URL_STS` for web identity, and document `AWS_CA_BUNDLE` as
@@ -416,7 +416,7 @@ limitations.
   `src/client/mod.rs`).
 - **Source here:** [`otap-rs/README.md`](otap-rs/README.md) §Upstream and
   §Credentials; workarounds in `otap-rs/src/creds.rs`, `src/store.rs`
-  (`fb9527c`, `8cf80ad`).
+  (`060e963`, `4cd7692`).
 
 **Title (several small issues):**
 
@@ -443,7 +443,7 @@ limitations.
   v0.161.0.
 - **Source here:** [`awss3/README.md`](awss3/README.md) (source reading and
   `retrytest/`, `collector/` demos); the patch `awss3/awss3inline.patch`
-  (`ebf5376`).
+  (`bd1ae88`).
 
 **Title (feature):** idempotent object keys and conditional writes; let
 encoding extensions set Content-Type and user metadata
@@ -487,7 +487,7 @@ differently after a restart.
 - **Project / version:** `chdb-io/chdb-go` at `9f8e35a` (v2.2.0 era), with
   libchdb 26.7.3.
 - **Source here:** [`README.md`](README.md) §"The fork";
-  `patches/0001-chdb-go-binary-safe-streaming-insert.patch` (`d9a5e3c`).
+  `patches/0001-chdb-go-binary-safe-streaming-insert.patch` (`882f4ca`).
 
 **Title (1):** `Session.Query` passes SQL as a NUL-terminated C string, so
 RowBinary, Native, Parquet and Arrow inserts are impossible
@@ -553,7 +553,7 @@ These are probably by design; document them rather than file bugs.
 - **Project / version:** `informalsystems/quint` evaluator v0.6.0 (commit
   `513910b`, built from source), with quint 0.32.0.
 - **Source here:** [`otap-rs/README.md`](otap-rs/README.md) §Upstream and
-  §"The Quint Rust evaluator" (`fb9527c`).
+  §"The Quint Rust evaluator" (`060e963`).
 
 **Title:** about 40% of `quint run --mbt` traces record `mbt::actionTaken =
 "step"` for state 0 instead of `"init"`
@@ -581,7 +581,7 @@ These are probably by design; document them rather than file bugs.
 
 - **Project / version:** ClickHouse 26.10.1.
 - **Source here:** [`awss3/README.md`](awss3/README.md) §"Test results",
-  `probe/` (`ebf5376`).
+  `probe/` (`bd1ae88`).
 
 **Title (feature):** expose the Parquet footer's `key_value_metadata` in
 `FORMAT ParquetMetadata`

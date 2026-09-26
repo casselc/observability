@@ -6,8 +6,8 @@ once. Where a README and this file disagree, the README is the evidence and
 this file is the summary. Section 5 lists the places where the READMEs
 disagreed with each other, and how each was resolved.
 
-- **Branch:** `claude/brave-pascal-0fecgh`, head `67df2a6` (2026-09-26).
-- **Scope:** the spike commits from `d128ba4` (chdb-go vendored) to `67df2a6`
+- **Branch:** `claude/brave-pascal-0fecgh`, head `7125a72` (2026-09-26).
+- **Scope:** the spike commits from `8156caa` (chdb-go vendored) to `7125a72`
   (edge sorting). Earlier commits on the branch belong to oscope itself.
 - **Labels,** as in the READMEs: **[M]** measured in the spike, **[E]**
   estimate, **[D]** from docs or source, **[Q]** Quint model. Nearly every [M]
@@ -111,14 +111,14 @@ quint-connect or quintgo test replays model traces through the implementation.
 
 | Model | Invariants the design must keep | Checked | Checked in code |
 |---|---|---|---|
-| `model/edgePublish.qnt` (manifests; now superseded) | `commitImpliesData`, `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `payloadIngestedAtMostOnce`, `sealMatchesManifests` | 5,000 × 40-step simulation; Apalache ≤ 8–10 steps ([`model/README.md`](model/README.md), `d40d450`) | quintgo conformance and model-seeded PBT ([`PBT.md`](PBT.md), `f3f9ecc`) |
-| `model/partLifetime.qnt` (native parts; now moot) | `noReadOfDeleted`, `noLeakAfterExit`, `noDoubleCount`; the rule **`old_parts_lifetime` > max query + refresh interval** | Apalache ≤ 10–12 steps | server test `TestOldPartsLifetimeProtectsServerQueries` (`6ca63bf`) |
-| `model/s3Inline.qnt` (**the commit protocol in use**) | `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload`, `onlyCommittedIngested`, `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | 3,000 × 80 steps, two seeds; Apalache ≤ 6 steps (8 partial); 6 mutations caught ([`awss3/README.md`](awss3/README.md), `e0de13e`) | `tests/mbt_s3inline.rs`: 300 traces, 16,981 steps; 3 code mutants caught ([`otap-rs/README.md`](otap-rs/README.md), `fb9527c`) |
+| `model/edgePublish.qnt` (manifests; now superseded) | `commitImpliesData`, `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `payloadIngestedAtMostOnce`, `sealMatchesManifests` | 5,000 × 40-step simulation; Apalache ≤ 8–10 steps ([`model/README.md`](model/README.md), `1307816`) | quintgo conformance and model-seeded PBT ([`PBT.md`](PBT.md), `38c641e`) |
+| `model/partLifetime.qnt` (native parts; now moot) | `noReadOfDeleted`, `noLeakAfterExit`, `noDoubleCount`; the rule **`old_parts_lifetime` > max query + refresh interval** | Apalache ≤ 10–12 steps | server test `TestOldPartsLifetimeProtectsServerQueries` (`2f1f3c2`) |
+| `model/s3Inline.qnt` (**the commit protocol in use**) | `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload`, `onlyCommittedIngested`, `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | 3,000 × 80 steps, two seeds; Apalache ≤ 6 steps (8 partial); 6 mutations caught ([`awss3/README.md`](awss3/README.md), `0855334`) | `tests/mbt_s3inline.rs`: 300 traces, 16,981 steps; 3 code mutants caught ([`otap-rs/README.md`](otap-rs/README.md), `060e963`) |
 | `model/s3InlineMetrics.qnt` | `reqAckedImpliesAllCommitted`, `noObjectLost` (a request is acked only when all its objects commit) | 3,000 × 60; mutant `ackOnAny` caught | `tests/mbt_s3inline_metrics.rs`: 300 traces, 23,968 steps |
-| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit` | 5,000 × 60; mutants `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly` | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`132ad94`) |
-| `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`d69b351`) |
-| `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `ebf5376`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
-| `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `922ea7d`) | `s3cas` protocol tests only |
+| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit` | 5,000 × 60; mutants `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly` | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`) |
+| `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
+| `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
+| `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
 
 Assumptions every model makes, and which the code must therefore guarantee:
 
@@ -159,8 +159,8 @@ variants ([D5](#d5-otap-variants-otap-only-as-an-input-transport)).
 
 | | chDB exporter | Go `parquetgo` | Rust `otap-s3pq` | Source |
 |---|---|---|---|---|
-| edge CPU, traces / logs (loaded box) | 105 / 79 ms | 74 / 52 ms | 45 / 33 ms | [`parquetgo/README.md`](parquetgo/README.md) (`d55c1a7`); [`otap-rs/README.md`](otap-rs/README.md) (`fb9527c`) |
-| edge CPU, traces / logs (idle box) | – | 68 / 48 ms | 40 / 29 ms | [`bench/clean/README.md`](bench/clean/README.md) block 1 (`8e998eb`) |
+| edge CPU, traces / logs (loaded box) | 105 / 79 ms | 74 / 52 ms | 45 / 33 ms | [`parquetgo/README.md`](parquetgo/README.md) (`de81419`); [`otap-rs/README.md`](otap-rs/README.md) (`060e963`) |
+| edge CPU, traces / logs (idle box) | – | 68 / 48 ms | 40 / 29 ms | [`bench/clean/README.md`](bench/clean/README.md) block 1 (`c9376ac`) |
 | peak RSS | 390 / 353 MB | 108 / 142 MB | 38 / 32 MB in process; 58 / 51 MB whole engine | same |
 | binary | 9.2 MB + 566 MB `libchdb.so` (glibc) | 15.7 MB static | 44.1 MB (glibc, thin LTO) | same |
 | object size, traces / logs | 308 / 181 KB (local) | 265 / 155 KB | 131 / 76 KB (bloom on TraceId only) | same |
@@ -203,13 +203,13 @@ project to:
 
 The Go gaps, as they stand:
 
-- `parquetgo` was last changed in `fa3af89`. It still commits with manifests.
+- `parquetgo` was last changed in `84afd7e`. It still commits with manifests.
 - The manifest-less commit exists in Go only as the `awss3inline` prototype,
   for traces and logs ([D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred)).
   Metrics lanes are "not wired" ([`parquetgo/README.md`](parquetgo/README.md) §Gaps).
 - Layout B exists in Go only as the `metrics-layout/seriesenc` prototype.
 - The production consumer, the durable buffer, sorting, the wire encodings and
-  checkpoint compaction were all built in Rust only (`8cf80ad` → `67df2a6`).
+  checkpoint compaction were all built in Rust only (`4cd7692` → `7125a72`).
 
 So a Go edge today cannot produce what the consumer and the default metrics
 layout expect. Until the follow-up lands, a Go edge can commit manifest-less
@@ -230,7 +230,7 @@ builds can't use Rust.
 
 ### D2. Transfer format: Parquet read with `s3()`, not native parts
 
-**Status:** accepted (`3d51ab9`).
+**Status:** accepted (`7a1ea50`).
 
 **Decision.** The edge ships one Parquet object per batch. Central ingests it
 with `INSERT … SELECT FROM s3()`. Native MergeTree parts on
@@ -238,9 +238,9 @@ with `INSERT … SELECT FROM s3()`. Native MergeTree parts on
 transfer path.
 
 **Alternatives.** chDB writing `s3_plain_rewritable` tables that central
-attaches and reads (built and tested: `bc8dfde`, `6ca63bf`); both at once.
+attaches and reads (built and tested: `452131c`, `2f1f3c2`); both at once.
 
-**Evidence** ([`bench/central/REPORT.md`](bench/central/REPORT.md), `3d51ab9`; [`README.md`](README.md) §Publishing):
+**Evidence** ([`bench/central/REPORT.md`](bench/central/REPORT.md), `7a1ea50`; [`README.md`](README.md) §Publishing):
 
 | | native parts | Parquet |
 |---|---|---|
@@ -268,8 +268,8 @@ attaches and reads (built and tested: `bc8dfde`, `6ca63bf`); both at once.
 
 ### D3. Commit protocol: manifest-less create-only slots
 
-**Status:** accepted (`ebf5376`, `fb9527c`). Per-batch manifests
-(`bc8dfde`) and the S3-native shared log with a fence entry (`922ea7d`) are
+**Status:** accepted (`bd1ae88`, `060e963`). Per-batch manifests
+(`452131c`) and the S3-native shared log with a fence entry (`30210a5`) are
 **superseded**. The S3-native log is kept on paper for native tables, which D2
 rejects.
 
@@ -291,17 +291,17 @@ and its description goes in `x-amz-meta-oscope-*` and the Parquet footer.
 
 | Alternative | Why not |
 |---|---|
-| Table → Parquet → manifest JSON per batch, `_sealed.json` per generation (`chdbexporter/publish.go`) | The model found F1 (an ambiguous manifest PUT plus the queue's retry ingests the request twice), F2 (orphan rows for live readers), F3 (the seal undercounts) and F4 (dedup-window eviction at the consumer) ([`model/README.md`](model/README.md), `d40d450`). Two PUTs per batch. |
-| Content-derived batch ids plus listing seals (the model's first fix) | Closes F1 within a generation only; cross-epoch copies and F4 still need the consumer (`600dbce`, `3952d5a`) |
+| Table → Parquet → manifest JSON per batch, `_sealed.json` per generation (`chdbexporter/publish.go`) | The model found F1 (an ambiguous manifest PUT plus the queue's retry ingests the request twice), F2 (orphan rows for live readers), F3 (the seal undercounts) and F4 (dedup-window eviction at the consumer) ([`model/README.md`](model/README.md), `1307816`). Two PUTs per batch. |
+| Content-derived batch ids plus listing seals (the model's first fix) | Closes F1 within a generation only; cross-epoch copies and F4 still need the consumer (`b3b76f1`, `a6d7daa`) |
 | S3-native: one shared log per producer, lease CAS, fence entry, replay on start | Closes F1–F3 and PBT 1–3 [Q], but costs a data PUT plus a log PUT, a startup replay, and leaves orphans to sweep. It is the only option for native tables. |
 | Keeper/etcd `Coordinator` for the control plane | Fallback if a store lacks atomic conditional writes ([`model/S3NATIVE.md`](model/S3NATIVE.md) §9) |
 
 **Evidence.**
 
-- **Store probes** ([`model/S3NATIVE.md`](model/S3NATIVE.md) §2, `s3cas/`, `922ea7d`): 16 goroutines × 20 rounds of `If-None-Match` on one key gave exactly 1 winner every round. 20 of 20 cancelled PUTs had landed and resolved by read-back. Conditional **multipart** completion was **not** atomic: 4–8 winners out of 8 (U4).
-- **Model:** 9 invariants hold. The mutations `plainPut`, `nonAtomicCond`, `retryNewKey`, `noHalt`, `skipGaps` and `noCheckCentral` each break something ([`awss3/README.md`](awss3/README.md), `e0de13e`).
+- **Store probes** ([`model/S3NATIVE.md`](model/S3NATIVE.md) §2, `s3cas/`, `30210a5`): 16 goroutines × 20 rounds of `If-None-Match` on one key gave exactly 1 winner every round. 20 of 20 cancelled PUTs had landed and resolved by read-back. Conditional **multipart** completion was **not** atomic: 4–8 winners out of 8 (U4).
+- **Model:** 9 invariants hold. The mutations `plainPut`, `nonAtomicCond`, `retryNewKey`, `noHalt`, `skipGaps` and `noCheckCentral` each break something ([`awss3/README.md`](awss3/README.md), `0855334`).
 - **Collector demo, SIGKILL plus a fault proxy:** stock awss3exporter stored 29 objects, 1,450 rows for 1,000 spans. The inline design stored 21 objects in 3 epochs, and central got exactly 1,000 ([`awss3/README.md`](awss3/README.md) §Test results).
-- **Rust faults** (ambiguous, slow and dropped PUTs, crash, zombie): 60,000 rows and 6 contents in central in every scenario ([`otap-rs/README.md`](otap-rs/README.md) §Fault tests, `fb9527c`).
+- **Rust faults** (ambiguous, slow and dropped PUTs, crash, zombie): 60,000 rows and 6 contents in central in every scenario ([`otap-rs/README.md`](otap-rs/README.md) §Fault tests, `060e963`).
 
 **Consequences.**
 
@@ -342,7 +342,7 @@ For Go edges the choice between carrying that patch and owning an exporter
 one ([`awss3/README.md`](awss3/README.md) §Recommendation). For Rust, our own
 exporter is built.
 
-**Evidence** ([`awss3/README.md`](awss3/README.md), v0.161.0 source [S] and demos [M], `ebf5376`):
+**Evidence** ([`awss3/README.md`](awss3/README.md), v0.161.0 source [S] and demos [M], `bd1ae88`):
 
 | Property of stock awss3exporter | Effect |
 |---|---|
@@ -379,7 +379,7 @@ item 16).
 
 ### D5. OTAP variants: OTAP only as an input transport
 
-**Status:** accepted (`a14c6f8`, `8cf80ad`).
+**Status:** accepted (`2ab9d09`, `4cd7692`).
 
 **Decision.** Store only flat ClickStack Parquet. OTAP is accepted as an input
 protocol at a Rust edge. Its tables are never stored for central to join.
@@ -419,7 +419,7 @@ OTAP through the library unguarded.
 
 ### D6. No edge-to-central fast path
 
-**Status:** accepted (`ebf5376`; confirmed by `fb9527c` and `132ad94`).
+**Status:** accepted (`bd1ae88`; confirmed by `060e963` and `1b5ce6c`).
 
 **Decision.** Edges talk only to S3. Visibility comes from a short consumer
 poll. Edges never insert into ClickHouse.
@@ -463,9 +463,9 @@ batches. Even then, an S3-event-driven importer comes first.
 
 ### D7. Metrics: series-table layout B, not the ClickStack tables
 
-**Status:** accepted as the default (`7651bec`, `8cf80ad`). The ClickStack
+**Status:** accepted as the default (`a8d94ea`, `4cd7692`). The ClickStack
 tables (A) remain selectable (`metrics_layout: clickstack_tables`).
-**Per-epoch series ordinal: rejected** (`d4bb951`). BYTE_STREAM_SPLIT, no
+**Per-epoch series ordinal: rejected** (`ad77824`). BYTE_STREAM_SPLIT, no
 statistics, and gauge+sum merged into one points table: accepted.
 
 **Decision.** The edge computes a 64-bit series id (xxh3 over a canonical
@@ -483,12 +483,12 @@ views return exactly contrib's `otel_metrics_*` rows.
 
 | | A: ClickStack tables | **B: series table** | Source |
 |---|---|---|---|
-| central insert µs/point (idle box) | 4.47 | **1.18** | [`bench/clean/README.md`](bench/clean/README.md) (`8e998eb`) |
-| central insert µs/point (loaded, same data) | 7.85 + 18 ms/object | 1.15 + 16 ms/object | [`metrics-layout/README.md`](metrics-layout/README.md) (`7651bec`) |
+| central insert µs/point (idle box) | 4.47 | **1.18** | [`bench/clean/README.md`](bench/clean/README.md) (`c9376ac`) |
+| central insert µs/point (loaded, same data) | 7.85 + 18 ms/object | 1.15 + 16 ms/object | [`metrics-layout/README.md`](metrics-layout/README.md) (`a8d94ea`) |
 | merge µs/point at 10⁴ parts (idle) | 19.4 | **4.1** | `bench/clean` block 3 |
 | stored B/point | 26.4 | **6.7** (+38.4 B per series row) | `bench/clean` block 4 |
-| Rust edge µs/point, fleet data | 5.04 | **1.76** | [`otap-rs/README.md`](otap-rs/README.md) (`8cf80ad`) |
-| Parquet B/point on the wire, Rust writer | 19.8 | **18.1** after the wire encodings (−8%) | `otap-rs` §Wire size (`d4bb951`) |
+| Rust edge µs/point, fleet data | 5.04 | **1.76** | [`otap-rs/README.md`](otap-rs/README.md) (`4cd7692`) |
+| Parquet B/point on the wire, Rust writer | 19.8 | **18.1** after the wire encodings (−8%) | `otap-rs` §Wire size (`ad77824`) |
 | objects per request | 5 | 4, plus a series object on 0.8% of requests | same |
 | mid scenario, central vCPU | 263 (5 shards × 2) | **91** (2 × 2) | calculator ([§3](#3-current-sizing-summary)) |
 
@@ -525,7 +525,7 @@ views return exactly contrib's `otel_metrics_*` rows.
 
 ### D8. Consumer: leases and checkpoints on S3
 
-**Status:** accepted (`132ad94`).
+**Status:** accepted (`1b5ce6c`).
 
 **Decision.** A lane is one producer's signal namespace. Workers share lanes
 through S3 objects written with conditional requests:
@@ -570,7 +570,7 @@ checkpoint CAS per lane that advanced.
 
 ### D9. Consumer: time bound on inserts plus a server-side deadline
 
-**Status:** accepted (`132ad94`).
+**Status:** accepted (`1b5ce6c`).
 
 **Decision.** A statement starts only if `now + budget ≤ safe_until` for every
 lane in it, and runs with `max_execution_time = budget`. The holder's window
@@ -606,7 +606,7 @@ duplicates. The code mutant `no_time_bound` is caught at trace 3, step 35.
 
 ### D10. Consumer: multi-object statements squashed to one block
 
-**Status:** accepted (`132ad94`). This supersedes FASTPATH's "one object per
+**Status:** accepted (`1b5ce6c`). This supersedes FASTPATH's "one object per
 insert, token as backstop" importer shape.
 
 **Decision.** Per table, across a worker's lanes, the consumer issues:
@@ -651,7 +651,7 @@ INSERT … SELECT …, transform(_path, …) FROM s3('…/{k1,…,k32}')
 
 ### D11. Consumer: count check and repair, not dedup tokens
 
-**Status:** accepted (`ebf5376` for the design, `132ad94` for the
+**Status:** accepted (`bd1ae88` for the design, `1b5ce6c` for the
 implementation).
 
 **Decision.**
@@ -713,7 +713,7 @@ The soak skipped 357 copies by the check, with `over_count` 0.
 
 ### D12. Consumer: GC and checkpoint compaction
 
-**Status:** accepted (GC `132ad94`; compaction `d69b351`).
+**Status:** accepted (GC `1b5ce6c`; compaction `9f2c75d`).
 
 **Decision.**
 
@@ -762,7 +762,7 @@ The soak skipped 357 copies by the check, with `over_count` 0.
 
 ### D13. Replicated central: plain ReplicatedMergeTree, no zero-copy
 
-**Status:** accepted (`666b8ec`). **Zero-copy is rejected.** That commit's
+**Status:** accepted (`1a88da1`). **Zero-copy is rejected.** That commit's
 title, "replicated central with zero-copy replication on S3", names the
 experiment, not the decision; the verdict in
 [`central-replicated/README.md`](central-replicated/README.md) (which now
@@ -829,7 +829,7 @@ default) or S3 with a copy per replica (the replicated recommendation).
 | Aspect | Choice | Evidence |
 |---|---|---|
 | hot | fast disk, 1–7 days (calculator default 1) | requirement |
-| move to cold | TTL MOVE, day-granular | about 1.3 ms CPU/MB to local disk, about 15 ms/MB to S3 [E by difference]: 0.01× and about 0.1× insert CPU ([`bench/merges/README.md`](bench/merges/README.md) §TTL costs, `b5d1a02`) |
+| move to cold | TTL MOVE, day-granular | about 1.3 ms CPU/MB to local disk, about 15 ms/MB to S3 [E by difference]: 0.01× and about 0.1× insert CPU ([`bench/merges/README.md`](bench/merges/README.md) §TTL costs, `a4cec67`) |
 | `move_factor` | **0** on tiered policies | the default 0.1 on a disk over 90% full moved **every new part** to the cold volume, and merges there cost +19% |
 | expiry | `ttl_only_drop_parts = 1`, day-granular | ≈ 0 merge CPU; a row-level TTL costs 0.24× insert |
 | partition key | `toDate(received_at)` | makes every batch one part and every insert atomic ([`model/FASTPATH.md`](model/FASTPATH.md) §6) |
@@ -892,7 +892,7 @@ dashboards are acceptable at 5-minute resolution is undecided.
 
 ### D16. Edge sorting off; service-affine routing at N ≥ 8
 
-**Status:** accepted (`67df2a6`). Sorting code is in `otap-rs`, off by default
+**Status:** accepted (`7125a72`). Sorting code is in `otap-rs`, off by default
 (`parquet.sort: {by: none}`). Routing is a recommendation for the gateway's
 loadbalancing exporter. It was measured on generated routed objects, **not
 deployed**.
@@ -921,7 +921,7 @@ deployed**.
   are deleted after ingest.
 - Keep 32 objects per statement, and don't raise N without them.
 
-**Step 0 of the same work** (`52dc893`): the 18–33% edge slowdown reported by
+**Step 0 of the same work** (`0a04d57`): the 18–33% edge slowdown reported by
 bench/clean block 1 was **a harness artefact, not a regression**.
 
 ---
@@ -929,7 +929,7 @@ bench/clean block 1 was **a harness artefact, not a regression**.
 ### D17. Lake / hybrid cold tier
 
 **Status:** **exploratory.** Research only; nothing built or measured
-([`lake/DESIGN.md`](lake/DESIGN.md), `f629972`, updated in `67df2a6`).
+([`lake/DESIGN.md`](lake/DESIGN.md), `1a72daf`, updated in `7125a72`).
 
 **Proposal.**
 
@@ -974,7 +974,7 @@ compactor cost. This was fixed in the calculator, v10
 
 ### D18. S3 client and credentials
 
-**Status:** accepted (`b66450c`, `bfe5d85`, `8cf80ad`).
+**Status:** accepted (`a34a48f`, `1a927f6`, `4cd7692`).
 
 **Decision.**
 
@@ -1033,7 +1033,7 @@ so the token header was never exercised against a store.
   (Quiver) is **built and tested but opt-in** (`configs/edge-durable.yaml`).
   Which is the default is **open**.
 
-**Evidence** ([`otap-rs/README.md`](otap-rs/README.md) §Edge durability, `8cf80ad`):
+**Evidence** ([`otap-rs/README.md`](otap-rs/README.md) §Edge durability, `4cd7692`):
 
 | | `edge.yaml` (ack after commit) | `edge-durable.yaml` (Quiver) |
 |---|---|---|
@@ -1053,14 +1053,14 @@ size `retention_size_cap` for the outage to ride out, at about 630 B per span.
 
 ### D20. PBT defect fixes in chdbexporter
 
-**Status:** findings 1–3 **fixed** in `chdbexporter/publish.go` (`0aee285`);
+**Status:** findings 1–3 **fixed** in `chdbexporter/publish.go` (`00be8f2`);
 findings 4–7 **open** ([`PBT.md`](PBT.md)). The chDB exporter is no longer
 the chosen publisher ([D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb)),
 so 4–7 matter only if chDB is kept for local-SQL edges.
 
 hegel-go v0.9.8 state-machine tests drive the real publisher over a
 fault-injecting fake session, in `go.pbt.mod` so the purego alpha stays out of
-production builds (`f3f9ecc`). They rediscovered the model's F1–F3 in real
+production builds (`38c641e`). They rediscovered the model's F1–F3 in real
 code, and found:
 
 | # | Defect | Status |
@@ -1174,13 +1174,13 @@ how likely it is.
 ## 5. Contradictions and stale statements
 
 These were the places where the READMEs were stale or contradicted each other
-at `67df2a6`. **All were resolved on 2026-09-26** in the source files, by a
+at `7125a72`. **All were resolved on 2026-09-26** in the source files, by a
 corrected sentence or a short dated "superseded" note where the historical
 text still has value; recorded results and logs were not edited. Paths are
-relative to `otel-chdb/`. The commit hashes in this file are from the
-original oscope branch and do not resolve in this repository, whose move
-(`ce95da6`) rewrote them: for example `67df2a6` is `7125a72` here, `666b8ec`
-is `1a88da1`, and `ebf5376` is `bd1ae88`.
+relative to `otel-chdb/`. The move from oscope (`ce95da6`) rewrote every
+commit hash; the hashes in this file and in UPSTREAM_ISSUES.md have been
+mapped to this repository's history. Hashes in other READMEs, commit
+messages and recorded results still name the original oscope commits.
 
 | # | Was stale or conflicting | Status (files changed) |
 |---|---|---|
@@ -1200,7 +1200,7 @@ is `1a88da1`, and `ebf5376` is `bd1ae88`.
 | 14 | metrics-layout/README.md: gauge+sum merge, exemplar `FilteredAttributes` not built | fixed: built in Rust, on by default (`metrics-layout/README.md`) |
 | 15 | parquetgo/README.md, otap-rs/README.md: calculator's 2.5 µs / 10 B / 2 µs per point | fixed: notes give the current per-layout constants (`parquetgo/README.md`, `otap-rs/README.md`) |
 | 16 | otelcol/config.edge.yaml: `seal_optimize: true`, post-queue `sending_queue.batch`, default `max_elapsed_time` | fixed: `seal_optimize: false`, `batch` processor before the queue, `retry_on_failure.max_elapsed_time: 0`; `batchprocessor` added to the ocb build; passes `otelcol-chdb validate` (`otelcol/config.edge.yaml`, `otelcol/builder-config.yaml`, `README.md`) |
-| 17 | bench/clean/README.md: Rust metrics edge 18–33% slower, "merits a look" | fixed: harness artefact, calculator uses 1.82 / 5.05 (`bench/clean/README.md`); commit `8e998eb`'s message can't change |
+| 17 | bench/clean/README.md: Rust metrics edge 18–33% slower, "merits a look" | fixed: harness artefact, calculator uses 1.82 / 5.05 (`bench/clean/README.md`); commit `c9376ac`'s message can't change |
 | 18 | `central-sizing.html`: series edge constant "Go encoder; Rust not built" | fixed outside the repo: fixed in the calculator, v10 |
 | 19 | `central-sizing.html`: lake mode via "sidecar indexes and edge-built cubes" | fixed outside the repo: fixed in the calculator, v10 |
 | 20 | bench/merges/README.md: calculator models merges as 1.5× insert | fixed: dated note, per-row constants (`bench/merges/README.md`) |
@@ -1209,7 +1209,7 @@ is `1a88da1`, and `ebf5376` is `bd1ae88`.
 | 23 | awss3/README.md: `aws_signing_helper serve` "[E]" | fixed: measured against an IMDS stand-in (`awss3/README.md`) |
 | 24 | parquetgo/README.md, METRICS_SCHEMA.md: metrics commit object then manifest; inline lanes "not wired" | true of `parquetgo`, and now a recorded gap: D1 keeps the Go path, with this as follow-up work (note in `parquetgo/README.md`; METRICS_SCHEMA.md already describes both designs, unchanged) |
 | 25 | PBT.md: "New, outside what the model can express:" before "Findings 1–3 are fixed" | fixed: heading moved to the list it introduces (`PBT.md`) |
-| 26 | commit `666b8ec` titled "replicated central with zero-copy replication on S3" | cannot change history; documented (`central-replicated/README.md` note under the title; D13 status) |
+| 26 | commit `1a88da1` titled "replicated central with zero-copy replication on S3" | cannot change history; documented (`central-replicated/README.md` note under the title; D13 status) |
 
 ---
 

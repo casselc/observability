@@ -1,0 +1,171 @@
+# otap-s3pq publishers (otap-rs, urn:otel:exporter:s3pq) running
+# otap-rs/configs/edge-publisher.yaml (edge-durable.yaml plus a batch step
+# in front of the buffer). A StatefulSet because each publisher
+# owns state: its durable buffer (PVC) and a stable producer id
+# (CLUSTER-otap-publisher-N), which is its lane prefix in the bucket.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otap-publisher
+automountServiceAccountToken: false   # the EKS webhooks mount their own tokens
+---
+# The agents' target: headless, so each agent resolves every ready publisher
+# and balances per request (gRPC round_robin over dns:///), which a ClusterIP
+# Service would not do for long-lived gRPC connections.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otap-publisher
+  labels:
+    app.kubernetes.io/name: otap-publisher
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: otap-publisher
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      appProtocol: grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otap-publisher
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otap-publisher
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: otap-publisher
+  labels:
+    app.kubernetes.io/name: otap-publisher
+    app.kubernetes.io/component: publisher
+spec:
+  serviceName: otap-publisher
+  replicas: 3                        # DECISIONS.md §1.2: 3 per cluster
+  podManagementPolicy: Parallel
+  # A scaled-down publisher's PVC keeps its un-drained buffer; it is
+  # replayed when that ordinal comes back (README §Scaling).
+  persistentVolumeClaimRetentionPolicy:
+    whenScaled: Retain
+    whenDeleted: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otap-publisher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otap-publisher
+        app.kubernetes.io/component: publisher
+    spec:
+      serviceAccountName: otap-publisher
+      # Long enough for in-flight commits to resolve (put_timeout 10 s + a
+      # HEAD); what is still in the buffer is replayed on restart anyway.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: otap-publisher
+      containers:
+        - name: otap-s3pq
+          image: otap-s3pq:dev            # images/otap-s3pq.Dockerfile; set with `images:`
+          args: ["-c", "/etc/otap-s3pq/edge-publisher.yaml"]
+          envFrom:
+            - configMapRef:
+                name: edge-target
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PRODUCER
+              value: "$(CLUSTER)-$(POD_NAME)"
+            # {bucket root}/{producer}: the exporter appends {signal}/{epoch}/{seq}.
+            - name: S3_URL
+              value: "$(S3_BASE)/$(PRODUCER)"
+            - name: AWS_REGION
+              value: "$(S3_REGION)"
+            - name: OTLP_GRPC
+              value: "0.0.0.0:4317"
+            - name: OTLP_HTTP
+              value: "0.0.0.0:4318"
+            - name: ADMIN_HTTP
+              value: "0.0.0.0:8080"
+            - name: BUFFER_DIR
+              value: /var/lib/otap-s3pq/buffer
+            # Below the volume (50Gi): room for the WAL and the open segment.
+            # ~40 GiB is about 1.2 h of a mid-scenario publisher's traffic
+            # (3 per cluster; ~315 B of segment per span) with S3 down.
+            - name: BUFFER_CAP
+              value: "40 GiB"
+            - name: MEM_SOFT_LIMIT
+              value: 1GiB
+            - name: MEM_HARD_LIMIT
+              value: 1536MiB
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+            - name: admin
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /api/v1/readyz
+              port: admin
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/livez
+              port: admin
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "1"                    # the pipeline runs on one core
+              memory: 2Gi
+            limits:
+              memory: 2Gi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otap-s3pq
+            - name: buffer
+              mountPath: /var/lib/otap-s3pq
+      volumes:
+        - name: config
+          configMap:
+            name: otap-s3pq
+  volumeClaimTemplates:
+    - metadata:
+        name: buffer
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi

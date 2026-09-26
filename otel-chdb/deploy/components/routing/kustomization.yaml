@@ -1,0 +1,43 @@
+# Service-affine routing (DECISIONS.md D16), for the Rust edge: a gateway
+# tier (contrib load_balancing exporter, routing_key: service) between the
+# node agents and N >= 8 publishers, so each service's traces and logs land
+# in one publisher's lanes. Switch it on by adding this component to an
+# overlay (../../overlays/rust-eks-irsa-routing). It only pays off where raw
+# Parquet is queried (the lake option, D17); with central ingest alone the
+# objects are deleted after ingest and routing buys nothing but skew.
+# See ../../README.md §Routing for what breaks and what doesn't.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - gateway.yaml
+configMapGenerator:
+  - name: otel-gateway
+    files:
+      - gateway.yaml=gateway-config.yaml
+  # Agents: traces and logs to the gateway, metrics straight to the
+  # publishers (routing by service would drop metrics without service.name).
+  - name: otel-agent
+    behavior: replace
+    files:
+      - agent.yaml=agent-routing.yaml
+patches:
+  # 8 publishers (D16: routing pays off at N >= 8). They keep
+  # edge-publisher.yaml's batch step: without it every agent request becomes
+  # up to N objects of a few dozen rows at real agent batch sizes (~100x
+  # D16's object count, README §Routing). The cost of keeping it: a gateway
+  # that dies with requests in flight (SIGKILL, OOM, node loss) makes the
+  # agents resend them, the publishers re-batch the resent pieces, and central
+  # keeps both copies (results/route-gwkill-batched.txt); a graceful restart
+  # does not (results/route-gwterm-batched.txt). For exactness across gateway
+  # crashes at the price of the object count, run the publishers on
+  # edge-durable.yaml instead (results/route-gwkill-unbatched.txt):
+  #   - op: replace
+  #     path: /spec/template/spec/containers/0/args
+  #     value: ["-c", "/etc/otap-s3pq/edge-durable.yaml"]
+  - target:
+      kind: StatefulSet
+      name: otap-publisher
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 8

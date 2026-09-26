@@ -1,0 +1,70 @@
+# On-premises Kubernetes to real AWS S3 through IAM Roles Anywhere:
+# `aws_signing_helper serve` runs beside each publisher as a native sidecar
+# (an init container with restartPolicy: Always, Kubernetes >= 1.29) and
+# answers IMDSv2 on 127.0.0.1:9911 with the role's temporary credentials,
+# refreshed from the X.509 certificate. Both publishers reach it through
+# AWS_EC2_METADATA_SERVICE_ENDPOINT (otap-s3pq maps it onto object_store's
+# metadata endpoint: src/store.rs). `serve`, not `credential-process`,
+# because the same pattern then works for chDB/ClickHouse too (D18).
+#
+# The overlay provides: the Secret rolesanywhere-cert (tls.crt, tls.key: a
+# certificate issued by the trust anchor's CA, e.g. by cert-manager, which
+# also rotates it) and RA_TRUST_ANCHOR_ARN, RA_PROFILE_ARN, RA_ROLE_ARN in
+# edge-target.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - S3_ENDPOINT=
+      - S3_FORCE_PATH_STYLE=false
+      - AWS_EC2_METADATA_SERVICE_ENDPOINT=http://127.0.0.1:9911
+      # RA_TRUST_ANCHOR_ARN, RA_PROFILE_ARN, RA_ROLE_ARN: set in the overlay
+      # (a component's generator merges after the overlay's, so a value set
+      # here could not be overridden there).
+patches:
+  - target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/component=publisher
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers
+        value:
+          - name: signing-helper
+            image: aws-signing-helper:1.7.1   # images/aws-signing-helper.Dockerfile; set with `images:`
+            restartPolicy: Always
+            envFrom:
+              - configMapRef:
+                  name: edge-target
+            args:
+              - serve
+              - --certificate=/etc/rolesanywhere/tls.crt
+              - --private-key=/etc/rolesanywhere/tls.key
+              - --trust-anchor-arn=$(RA_TRUST_ANCHOR_ARN)
+              - --profile-arn=$(RA_PROFILE_ARN)
+              - --role-arn=$(RA_ROLE_ARN)
+              - --region=$(S3_REGION)
+              - --port=9911
+            startupProbe:
+              tcpSocket:
+                port: 9911
+              periodSeconds: 1
+              failureThreshold: 30
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+              limits: {memory: 64Mi}
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+            volumeMounts:
+              - {name: rolesanywhere-cert, mountPath: /etc/rolesanywhere, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: rolesanywhere-cert
+          secret:
+            secretName: rolesanywhere-cert
+            defaultMode: 0440   # group-readable: the pod runs with fsGroup 10001

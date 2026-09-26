@@ -1,0 +1,33 @@
+# rust edge on roles-anywhere: ../../README.md. Every value to set is marked CHANGE-ME.
+#   kustomize build --load-restrictor LoadRestrictionsNone . | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../../base/rust
+components:
+  - ../../components/roles-anywhere
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - CLUSTER=dc1-k8s-a
+      - S3_BUCKET=CHANGE-ME-telemetry
+      - S3_REGION=eu-west-1
+      - S3_BASE=s3://CHANGE-ME-telemetry/edge
+      - RA_TRUST_ANCHOR_ARN=arn:aws:rolesanywhere:eu-west-1:111122223333:trust-anchor/CHANGE-ME
+      - RA_PROFILE_ARN=arn:aws:rolesanywhere:eu-west-1:111122223333:profile/CHANGE-ME
+      - RA_ROLE_ARN=arn:aws:iam::111122223333:role/CHANGE-ME-otel-edge-publisher
+images:
+  - name: otap-s3pq
+    newName: REGISTRY/otap-s3pq
+    newTag: CHANGE-ME
+  - name: otelcol-deploy
+    newName: REGISTRY/otelcol-deploy
+    newTag: v0.161.0
+  - name: aws-signing-helper
+    newName: REGISTRY/aws-signing-helper
+    newTag: 1.7.1
+# The certificate: a Secret rolesanywhere-cert (tls.crt, tls.key) issued by
+# the trust anchor's CA, e.g. a cert-manager Certificate in otel-edge
+# (README §Roles Anywhere); not generated here.

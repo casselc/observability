@@ -1,0 +1,83 @@
+# Node agent -> Go publishers (traces and logs; see base/go/kustomization.yaml
+# for why metrics are not collected on a Go edge). The rules that matter
+# (DECISIONS.md D4, risks #10 and #11):
+# - batch to 10,000 items with the `batch` processor BEFORE the persistent
+#   queue, and never `sending_queue.batch`: a queue item is then one request
+#   whose bytes, and so whose content key, survive restarts and resends;
+# - the persistent queue on the node (file_storage) and
+#   retry_on_failure.max_elapsed_time: 0: nothing leaves the queue until a
+#   publisher acknowledged it (after its WAL write), however long S3 or the
+#   publishers are down;
+# - send_batch_max_size: 10000 also splits a larger incoming request,
+#   deterministically, so no object goes over 10k rows (U12: objects above
+#   ~100k rows split nondeterministically in ClickHouse).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage/queue:
+    directory: /var/lib/otel-agent/queue
+    create_directory: true
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: /var/lib/otel-agent/queue
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch:
+    send_batch_size: 10000
+    send_batch_max_size: 10000
+    timeout: 2s
+exporters:
+  otlp_grpc/publishers:
+    # Headless Service: the agent resolves every ready publisher and
+    # round-robins requests over them.
+    endpoint: dns:///otelcol-publisher.otel-edge.svc.cluster.local:4317
+    balancer_name: round_robin
+    tls:
+      insecure: true            # in-cluster; see README §Security for mTLS
+    compression: none
+    timeout: 60s                # a publisher acks after its queue write
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0       # never drop: retry until a publisher acks
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      num_consumers: 4
+      sizer: requests
+      # ~8 MB of bbolt per queued 10k-item request (measured: 261 MB for 32):
+      # ~2 GB of node disk, ~80 min of a mid-scenario node (~500 items/s).
+      queue_size: 250
+      # no `batch:` here (risk #10)
+service:
+  extensions: [health_check, file_storage/queue]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/publishers]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/publishers]

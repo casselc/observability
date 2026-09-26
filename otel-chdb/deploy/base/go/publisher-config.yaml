@@ -1,0 +1,83 @@
+# The Go publisher: OTLP in -> memory_limiter -> awss3inline, whose persistent
+# queue (file_storage on the pod's PVC) is the durable buffer (D19). As D4
+# requires: the queue on file_storage, retry_on_failure.max_elapsed_time: 0,
+# a timeout above the p99 PUT, and no batching after the queue. It does not
+# batch at all: the agents send 10k-item requests, and batching here would
+# merge different senders' requests, so a resent request would get a new
+# content key (risk #10). Credentials: the AWS SDK's default chain only
+# (there are no key fields); AWS_CA_BUNDLE for a private CA.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 128
+      http:
+        endpoint: 0.0.0.0:4318
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  file_storage/queue:
+    directory: ${env:QUEUE_DIR:-/var/lib/otelcol/queue}
+    create_directory: true
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: ${env:QUEUE_DIR:-/var/lib/otelcol/queue}
+  parquet_encoding:
+    producer_id: ${env:PRODUCER}
+    schema_version: 1
+    compression: zstd
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+exporters:
+  awss3inline:
+    s3uploader:
+      region: ${env:S3_REGION}
+      s3_bucket: ${env:S3_BUCKET}
+      # {edge}/{producer}/{signal}/{epoch}/{seq}.parquet: the layout the
+      # Rust consumer reads (--depth 2), the same as the Rust publishers'.
+      s3_prefix: edge/${env:PRODUCER}
+      endpoint: ${env:S3_ENDPOINT}        # empty on AWS
+      s3_force_path_style: ${env:S3_FORCE_PATH_STYLE:-false}
+      key_mode: sequence
+      lanes: 1
+      file_prefix: ${env:PRODUCER}        # the producer id in the slot metadata
+    encoding: parquet_encoding
+    encoding_file_extension: parquet
+    timeout: 30s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0                 # never drop from the queue
+    sending_queue:
+      enabled: true
+      storage: file_storage/queue
+      num_consumers: 2
+      sizer: requests
+      queue_size: 5000                    # x ~10k items; the PVC is the bound
+      # no `batch:` (risk #10)
+service:
+  extensions: [health_check, file_storage/queue, parquet_encoding]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [awss3inline]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [awss3inline]

@@ -1,0 +1,151 @@
+# The routing gateway: stateless (no queue), a few replicas, fed by the
+# agents through a headless Service (client-side round robin).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-gateway
+---
+# The k8s resolver watches EndpointSlices of the ring Service.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-gateway-resolver
+rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-gateway-resolver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: otel-gateway-resolver
+subjects:
+  - kind: ServiceAccount
+    name: otel-gateway
+---
+# The routing ring: every publisher pod that exists, ready or not. A
+# publisher that fails readiness for a moment (memory limiter at its hard
+# limit, a slow start) must not leave the ring, because every change of the
+# ring moves ~1/N of the services and re-splits in-flight requests
+# (results/route-reroute-patched.txt). The gateway's per-publisher retry
+# covers a publisher that is briefly unavailable.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otap-publisher-ring
+  labels:
+    app.kubernetes.io/name: otap-publisher
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: otap-publisher
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      appProtocol: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway
+  labels:
+    app.kubernetes.io/name: otel-gateway
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: otel-gateway
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      appProtocol: grpc
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-gateway
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-gateway
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-gateway
+  labels:
+    app.kubernetes.io/name: otel-gateway
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-gateway
+        app.kubernetes.io/component: gateway
+    spec:
+      serviceAccountName: otel-gateway
+      # > the fan-out timeout: on SIGTERM the gateway finishes what is in
+      # flight, so a rolling update resends nothing (results/route-gwterm-batched.txt).
+      terminationGracePeriodSeconds: 70
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: otel-gateway
+      containers:
+        - name: gateway
+          # collector/build.sh with PATCHED=1 (patches/0001): the stock
+          # exporter re-splits a resent logs request in a random order, so
+          # its pieces get new content keys (results/route-gwkill-stock.txt).
+          # It matters where the publishers do not re-batch (see the
+          # component's kustomization.yaml); it costs nothing otherwise.
+          image: otelcol-deploy-lbpatched:v0.161.0
+          args: ["--config=/etc/otel-gateway/gateway.yaml"]
+          env:
+            - name: GOMEMLIMIT
+              value: 900MiB
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: health
+              containerPort: 13133
+          readinessProbe:
+            httpGet: {path: /, port: health}
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {memory: 1Gi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel-gateway
+      volumes:
+        - name: config
+          configMap:
+            name: otel-gateway

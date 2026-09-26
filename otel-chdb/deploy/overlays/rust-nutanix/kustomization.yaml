@@ -1,0 +1,33 @@
+# rust edge on nutanix: ../../README.md. Every value to set is marked CHANGE-ME.
+#   kustomize build --load-restrictor LoadRestrictionsNone . | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../../base/rust
+components:
+  - ../../components/nutanix
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - CLUSTER=dc1-k8s-a
+      - S3_BUCKET=CHANGE-ME-telemetry
+      - S3_REGION=us-east-1                 # what Objects signs with; check yours
+      - S3_ENDPOINT=https://objects.CHANGE-ME.example
+      - S3_BASE=https://objects.CHANGE-ME.example/CHANGE-ME-telemetry/edge
+  # The private CA that signed the Objects endpoint's certificate (PEM; a
+  # bundle of several is fine). Replace nutanix-ca.pem with yours.
+  - name: nutanix-objects-ca
+    files:
+      - ca.pem=nutanix-ca.pem
+images:
+  - name: otap-s3pq
+    newName: REGISTRY/otap-s3pq
+    newTag: CHANGE-ME
+  - name: otelcol-deploy
+    newName: REGISTRY/otelcol-deploy
+    newTag: v0.161.0
+# The keys: a Secret created out of band (never in git):
+#   kubectl -n otel-edge create secret generic nutanix-objects-credentials \
+#     --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=...

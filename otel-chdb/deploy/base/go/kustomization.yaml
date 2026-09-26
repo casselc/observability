@@ -1,0 +1,19 @@
+# The Go edge (secondary, kept by DECISIONS.md D1): otelcol-awss3
+# (../../../awss3/collector/builder-config.yaml) running the awss3inline
+# exporter (key_mode: sequence: manifest-less create-only slots) with the
+# parquet_encoding extension. Traces and logs only: the Go path has no
+# manifest-less metrics lanes and no layout B yet (D1 "The Go gaps"), so the
+# agents here drop metrics rather than send them nowhere.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../common
+  - publisher.yaml
+configMapGenerator:
+  - name: otelcol-publisher
+    files:
+      - publisher.yaml=publisher-config.yaml
+  - name: otel-agent
+    files:
+      - agent.yaml=agent-go.yaml

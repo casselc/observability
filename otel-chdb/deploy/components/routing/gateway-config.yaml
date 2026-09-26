@@ -1,0 +1,80 @@
+# The routing gateway (DECISIONS.md D16): OTLP in, split by service.name,
+# one piece per publisher on a consistent-hash ring of the publisher pods.
+# Tested locally as ../../scripts/gateway-local.yaml (the same pipeline with
+# a static resolver): results/route-*.txt.
+#
+# Why each setting:
+# - no batch processor: the agents batched before their queue; batching here
+#   would change a resent request's bytes (risk #10);
+# - no queue at the load_balancing level: the agent's request is answered
+#   only when every piece is acked, so a gateway restart loses nothing and
+#   the agent resends (results/route-gwkill-*.txt);
+# - timeout 60 s at the load_balancing level: its default (5 s) cut the
+#   pieces' own retries short while a publisher restarted, which turned a
+#   publisher restart into an agent-level resend
+#   (results/route-pubkill-stock-lbtimeout5s.txt);
+# - per-piece retry for up to 45 s: resends the same bytes to the same
+#   publisher, which recognises its own content key;
+# - traces and logs only: metrics skip the gateway (routing by service drops
+#   any metric resource without service.name, and layout B gains nothing).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size_mib: 128
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+exporters:
+  load_balancing:
+    routing_key: service
+    # No queue and no retry at this level: a request is answered only after
+    # every per-publisher piece is acked, so the gateway holds nothing a
+    # restart can lose; the sender (the agent's persistent queue) keeps
+    # custody and resends. The timeout bounds the whole fan-out; the default
+    # (5 s) cut the pieces' own retries short when a publisher restarted
+    # (results/route-pubkill-stock-lbtimeout5s.txt).
+    timeout: 60s
+    protocol:
+      otlp:
+        timeout: 20s
+        tls:
+          insecure: true
+        # The piece's own retry: same bytes to the same publisher.
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 5s
+          max_elapsed_time: 45s
+        sending_queue:
+          enabled: false
+    resolver:
+      k8s:
+        service: otap-publisher-ring.otel-edge
+        ports: [4317]
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [load_balancing]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [load_balancing]

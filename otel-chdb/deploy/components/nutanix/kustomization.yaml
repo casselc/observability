@@ -1,0 +1,50 @@
+# Nutanix Objects: a custom https endpoint, path-style addressing, static
+# keys from a Secret, a private CA. Before trusting it, run the acceptance kit
+# (../../../acceptance/RUNBOOK.md §3.2): whether Objects decides
+# If-None-Match: * atomically is DECISIONS.md risk #1.
+#
+# The overlay provides:
+# - the Secret nutanix-objects-credentials with AWS_ACCESS_KEY_ID and
+#   AWS_SECRET_ACCESS_KEY (created out of band, never in git:
+#   kubectl -n otel-edge create secret generic nutanix-objects-credentials
+#     --from-literal=AWS_ACCESS_KEY_ID=... --from-literal=AWS_SECRET_ACCESS_KEY=...);
+# - the ConfigMap nutanix-objects-ca with the CA certificate(s) as ca.pem;
+# - S3_ENDPOINT / S3_BASE / S3_BUCKET / S3_REGION in edge-target (the
+#   component sets no value an overlay would want to change: a component's
+#   generator merges after the overlay's).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - S3_FORCE_PATH_STYLE=true            # Go; otap-s3pq is path-style for any custom endpoint
+      # Appended to the system roots by both clients (otap-s3pq: src/store.rs;
+      # Go: the SDK). ClickHouse ignores it (central uses SSL_CERT_FILE).
+      - AWS_CA_BUNDLE=/etc/ssl/nutanix/ca.pem
+      # The acceptance kit's `checksum` check flags S3-compatible stores that
+      # reject the SDKs' default CRC32 trailer (RUNBOOK §3.2). The Go SDK
+      # honours these; otap-s3pq (object_store) sends no checksum unless
+      # configured, so they are inert for it.
+      - AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+      - AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+      - AWS_EC2_METADATA_DISABLED=true
+patches:
+  - target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/component=publisher
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom/-
+        value:
+          secretRef:
+            name: nutanix-objects-credentials
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts/-
+        value: {name: nutanix-ca, mountPath: /etc/ssl/nutanix, readOnly: true}
+      - op: add
+        path: /spec/template/spec/volumes/-
+        value:
+          name: nutanix-ca
+          configMap:
+            name: nutanix-objects-ca

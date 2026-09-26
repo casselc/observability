@@ -1,0 +1,28 @@
+# rust edge on eks-pod-identity: ../../README.md. Every value to set is marked CHANGE-ME.
+#   kustomize build --load-restrictor LoadRestrictionsNone . | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../../base/rust
+components:
+  - ../../components/eks-pod-identity
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - CLUSTER=prod-eu-west-1-a
+      - S3_BUCKET=CHANGE-ME-telemetry
+      - S3_REGION=eu-west-1
+      - S3_BASE=s3://CHANGE-ME-telemetry/edge
+images:
+  - name: otap-s3pq
+    newName: REGISTRY/otap-s3pq
+    newTag: CHANGE-ME
+  - name: otelcol-deploy
+    newName: REGISTRY/otelcol-deploy
+    newTag: v0.161.0
+# Pod Identity is wired outside the manifests (README §EKS):
+#   aws eks create-pod-identity-association --cluster-name CLUSTER \
+#     --namespace otel-edge --service-account otap-publisher \
+#     --role-arn arn:aws:iam::111122223333:role/CHANGE-ME-otel-edge-publisher

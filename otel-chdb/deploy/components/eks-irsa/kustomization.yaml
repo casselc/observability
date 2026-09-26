@@ -1,0 +1,25 @@
+# EKS with IAM Roles for Service Accounts. The EKS pod identity webhook sees
+# the role annotation on the publisher's ServiceAccount and injects
+# AWS_ROLE_ARN, AWS_WEB_IDENTITY_TOKEN_FILE and the projected token; both
+# publishers take them from the default chain (otap-s3pq: object_store's
+# web-identity provider, STS over https; Go: the SDK's chain). No keys
+# anywhere. The overlay adds the role ARN (see ../../README.md §EKS).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - S3_ENDPOINT=
+      - S3_FORCE_PATH_STYLE=false
+      - AWS_STS_REGIONAL_ENDPOINTS=regional
+patches:
+  # Belt and braces: a pod that can reach the node's IMDS would silently fall
+  # back to the node role if the webhook did not fire. Fail instead.
+  - target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/component=publisher
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: AWS_EC2_METADATA_DISABLED, value: "true"}

@@ -1,0 +1,51 @@
+--- a/exporter/loadbalancingexporter/log_exporter.go
++++ b/exporter/loadbalancingexporter/log_exporter.go
+@@ -6,7 +6,9 @@
+ import (
+ 	"context"
+ 	"fmt"
++	"maps"
+ 	"math/rand/v2"
++	"slices"
+ 	"strings"
+ 	"sync"
+ 	"time"
+@@ -123,7 +125,12 @@
+ 	logsByExporter := make(map[*wrappedExporter]plog.Logs, len(batches))
+ 	exporterEndpoints := make(map[*wrappedExporter]string, len(batches))
+ 
+-	for routingID, lds := range batches {
++	// Deterministic order: a backend that owns several routing keys of one
++	// request gets them in the same order on every retry, so a resent
++	// request produces byte-identical pieces (content-addressed receivers
++	// dedup them). Ranging over the map directly randomises the order.
++	for _, routingID := range slices.Sorted(maps.Keys(batches)) {
++		lds := batches[routingID]
+ 		exp, endpoint, err := e.loadBalancer.exporterAndEndpoint([]byte(routingID))
+ 		if err != nil {
+ 			return err
+--- a/exporter/loadbalancingexporter/metrics_exporter.go
++++ b/exporter/loadbalancingexporter/metrics_exporter.go
+@@ -7,6 +7,8 @@
+ 	"context"
+ 	"errors"
+ 	"fmt"
++	"maps"
++	"slices"
+ 	"strings"
+ 	"sync"
+ 	"time"
+@@ -133,7 +135,12 @@
+ 	metricsByExporter := map[*wrappedExporter]*metrics.Merger{}
+ 	exporterEndpoints := map[*wrappedExporter]string{}
+ 
+-	for routingID, mds := range batches {
++	// Deterministic order: a backend that owns several routing keys of one
++	// request gets them in the same order on every retry, so a resent
++	// request produces byte-identical pieces (content-addressed receivers
++	// dedup them). Ranging over the map directly randomises the order.
++	for _, routingID := range slices.Sorted(maps.Keys(batches)) {
++		mds := batches[routingID]
+ 		exp, endpoint, err := e.loadBalancer.exporterAndEndpoint([]byte(routingID))
+ 		if err != nil {
+ 			return err

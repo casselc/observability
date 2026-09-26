@@ -1,0 +1,23 @@
+# EKS Pod Identity. Nothing on the ServiceAccount: an association
+# (aws eks create-pod-identity-association --namespace otel-edge
+#  --service-account otap-publisher --role-arn ...) makes the EKS Pod
+# Identity Agent's webhook inject AWS_CONTAINER_CREDENTIALS_FULL_URI and
+# AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE; both publishers use them through
+# the default chain. The role's trust policy is
+# ../../../acceptance/iam/trust-pod-identity.example.json.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - S3_ENDPOINT=
+      - S3_FORCE_PATH_STYLE=false
+patches:
+  - target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/component=publisher
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: AWS_EC2_METADATA_DISABLED, value: "true"}

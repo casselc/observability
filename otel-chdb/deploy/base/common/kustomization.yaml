@@ -1,0 +1,26 @@
+# What every edge deployment shares: the namespace, the node agents
+# (DaemonSet) that receive the node's OTLP, batch it and forward it, and the
+# network policies. base/rust and base/go add the publishers and the agent's
+# configuration (ConfigMap otel-agent), which differs per edge.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: otel-edge
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - agent.yaml
+  - networkpolicy.yaml
+configMapGenerator:
+  # Per-target settings, read by every publisher with envFrom. The target
+  # components (../../components/*) and the overlays merge their values in.
+  - name: edge-target
+    literals:
+      - CLUSTER=CHANGE-ME-cluster            # producer ids are CLUSTER-POD_NAME: unique per fleet
+      - S3_BUCKET=CHANGE-ME-bucket
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT=                         # empty: AWS S3; https://host for a custom endpoint
+      - S3_BASE=s3://CHANGE-ME-bucket/edge   # otap-s3pq's URL root (the producer is appended)
+      - S3_FORCE_PATH_STYLE=false

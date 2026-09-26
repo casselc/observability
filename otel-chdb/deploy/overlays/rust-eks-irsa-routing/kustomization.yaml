@@ -1,0 +1,14 @@
+# The Rust edge on EKS with IRSA, plus service-affine routing (D16): the same
+# as ../rust-eks-irsa with components/routing on top (a gateway tier, 8
+# publishers, agents sending traces and logs through the gateway).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../rust-eks-irsa
+components:
+  - ../../components/routing
+images:
+  - name: otelcol-deploy-lbpatched
+    newName: REGISTRY/otelcol-deploy-lbpatched
+    newTag: v0.161.0

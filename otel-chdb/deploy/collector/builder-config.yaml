@@ -1,0 +1,25 @@
+# The node agent and the routing gateway: one small Go collector build (ocb
+# v0.161.0, the version otelcol/ and awss3/collector pin). Neither publishes to
+# S3; both forward OTLP. The agent batches (before its persistent queue) and
+# the gateway routes by service with the contrib loadbalancing exporter.
+#
+#   B=/tmp/otelcol-deploy; mkdir -p $B
+#   sed "s#@OUT@#$B#" builder-config.yaml > $B/builder.yaml
+#   go run go.opentelemetry.io/collector/cmd/builder@v0.161.0 --config $B/builder.yaml
+dist:
+  name: otelcol-deploy
+  description: OTLP agent and service-affine routing gateway for the otel-chdb edge
+  output_path: @OUT@
+
+receivers:
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
+processors:
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.161.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
+exporters:
+  - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.161.0
+  - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.161.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/loadbalancingexporter v0.161.0
+extensions:
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.161.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.161.0

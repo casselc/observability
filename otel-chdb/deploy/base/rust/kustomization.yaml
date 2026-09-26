@@ -1,0 +1,20 @@
+# The Rust edge (primary, DECISIONS.md D1): N otap-s3pq publishers as a
+# StatefulSet, each with its durable buffer (Quiver) on its own PVC, fed by
+# the node agents. The publisher's configuration is the repository's
+# otap-rs/configs/edge-publisher.yaml itself, not a copy, so build with
+#   kustomize build --load-restrictor LoadRestrictionsNone overlays/<target>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../common
+  - publisher.yaml
+configMapGenerator:
+  - name: otap-s3pq
+    files:
+      - edge-publisher.yaml=../../../otap-rs/configs/edge-publisher.yaml
+      # the unbatched alternative for components/routing (see there)
+      - edge-durable.yaml=../../../otap-rs/configs/edge-durable.yaml
+  - name: otel-agent
+    files:
+      - agent.yaml=agent-rust.yaml

@@ -13,8 +13,21 @@
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
-//!           [--no-ddl] [--insert-setting k=v ...]
+//!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 75s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
+//!           [--audit-every 1h --ch URL --db DB <audit flags>] [--metrics-addr HOST:PORT]
+//!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
+//!           audit flags: [--check-horizon 3d | all] [--audit-lookback 2d] [--audit-sample-hex 0]
+//!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2]
+//!           [--audit-timeout 30m] [--audit-no-state]
+//!
+//! The horizon audit (`consumer/audit.rs`) reports copies of a request that
+//! were ingested twice because the copy was received more than the check's
+//! horizon after its original (a WARN line each, `consumer_late_copies_total`).
+//! It runs beside GC or alone, never in a worker; its failures are reported
+//! (`consumer_audit_runs_total{result="error"}`), never fatal. It remembers
+//! what it reported in `{ctl}/audit/{db}.json`. `--metrics-addr` serves
+//! Prometheus text on `/metrics` (off by default; e.g. `:9464`).
 //!
 //! The lease timing is validated at start: a margin below 10 s is refused
 //! (a replicated central's Keeper request can outlive max_execution_time by
@@ -39,13 +52,16 @@
 #[path = "../consumer/mod.rs"]
 mod consumer;
 
-use consumer::bucket::{Bucket, S3Bucket};
+use consumer::audit::{self, AuditConfig, AuditState};
+use consumer::bucket::{Bucket, Cond, Put, S3Bucket};
 use consumer::coord::{self, Timing};
 use consumer::gc::{GcConfig, gc_step};
 use consumer::sql::ClickHouseCentral;
 use consumer::discovery::Backoff;
 use consumer::worker::{BalanceMode, Config, RealClock, Worker};
 use otap_s3pq::store::S3Config;
+use consumer::metrics::{self, AuditMetrics};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -73,6 +89,36 @@ fn dur_ms(s: &str) -> u64 {
 
 fn opt_ms(args: &[String], name: &str, default: &str) -> u64 {
     dur_ms(&arg(args, name).unwrap_or_else(|| default.to_string()))
+}
+
+/// What the GC / audit process exports.
+#[derive(Default)]
+struct Metrics {
+    gc: Option<GcMetrics>,
+    audit_on: bool,
+    audit: AuditState,
+    audit_m: AuditMetrics,
+    horizon_ms: Option<u64>,
+}
+
+#[derive(Default)]
+struct GcMetrics {
+    ok: u64,
+    err: u64,
+    deleted: u64,
+    last_success_s: Option<f64>,
+}
+
+impl GcMetrics {
+    fn families(&self, p: &mut metrics::Prom) {
+        p.counter("consumer_gc_runs_total", "GC runs, by result.", &[("result", "ok")], self.ok as f64);
+        p.counter("consumer_gc_runs_total", "", &[("result", "error")], self.err as f64);
+        p.counter("consumer_gc_deleted_objects_total", "Objects GC deleted (data slots and retired epochs' objects).", &[], self.deleted as f64);
+        p.declare("consumer_gc_last_success_timestamp_seconds", metrics::Kind::Gauge, "Unix time of the last GC run with no error.");
+        if let Some(t) = self.last_success_s {
+            p.gauge("consumer_gc_last_success_timestamp_seconds", "", &[], t);
+        }
+    }
 }
 
 fn write_atomic(path: &str, s: &str) {
@@ -163,35 +209,170 @@ async fn main() {
     let bucket = Rc::new(bucket);
     let ctl = arg(&args, "--ctl").unwrap_or_else(|| coord::join(&root, "_consumer"));
 
-    if args.get(1).map(String::as_str) == Some("gc") {
-        let cfg = GcConfig {
-            root,
-            ctl,
-            delay_ms: opt_ms(&args, "--delay", "75s"),
-            zombie_ms: opt_ms(&args, "--zombie", "10m"),
-            dry_run: flag(&args, "--dry-run"),
-        };
-        let every = arg(&args, "--every").map(|s| dur_ms(&s));
-        let run_for = opt_ms(&args, "--run-for", "0s");
-        let t0 = consumer::mono_ms();
-        loop {
-            let before = bucket.counts().snap();
-            match gc_step(&*bucket, &cfg, consumer::wall_ms()).await {
-                Ok(r) => {
-                    let after = bucket.counts().snap();
-                    println!(
-                        "{}",
-                        serde_json::json!({"gc": r, "s3": {"list": after.list - before.list, "get": after.get - before.get,
-                            "delete": after.delete - before.delete, "put_cas": after.put_cas - before.put_cas + after.put_create - before.put_create}})
-                    )
-                }
-                Err(e) => eprintln!("gc: {e}"),
-            }
-            match every {
-                Some(d) if consumer::mono_ms() - t0 < run_for => tokio::time::sleep(Duration::from_millis(d)).await,
-                _ => break,
+    let metrics_addr = arg(&args, "--metrics-addr");
+    let prom = metrics::shared();
+    if let Some(a) = &metrics_addr {
+        match metrics::serve(a, prom.clone()).await {
+            Ok(at) => eprintln!("consume: metrics on http://{at}/metrics"),
+            Err(e) => {
+                eprintln!("consume: --metrics-addr {a}: {e}");
+                std::process::exit(2);
             }
         }
+    }
+    let horizon_ms = match arg(&args, "--check-horizon").as_deref() {
+        None => Some(consumer::worker::DEFAULT_HORIZON_MS),
+        Some("all") => None,
+        Some(h) => Some(dur_ms(h)),
+    };
+
+    let sub = args.get(1).map(String::as_str);
+    if sub == Some("gc") || sub == Some("horizon-audit") {
+        // GC (`gc`), and the horizon audit beside it (`gc --audit-every`) or
+        // alone (`horizon-audit`). One task: GC and the audit interleave at
+        // their awaits, and neither is on any worker's path.
+        let run_for = opt_ms(&args, "--run-for", "0s");
+        let every = arg(&args, "--every").map(|s| dur_ms(&s));
+        let t0 = consumer::mono_ms();
+        let state = Rc::new(RefCell::new(Metrics { horizon_ms, ..Default::default() }));
+        let render = |st: &Metrics| {
+            let mut p = metrics::Prom::default();
+            if let Some(g) = &st.gc {
+                g.families(&mut p);
+            }
+            if st.audit_on {
+                metrics::audit_families(&mut p, &st.audit, &st.audit_m, st.horizon_ms);
+            }
+            metrics::publish(&prom, p.render());
+        };
+        let gc_loop = async {
+            if sub != Some("gc") {
+                return;
+            }
+            let cfg = GcConfig {
+                root: root.clone(),
+                ctl: ctl.clone(),
+                delay_ms: opt_ms(&args, "--delay", "75s"),
+                zombie_ms: opt_ms(&args, "--zombie", "10m"),
+                dry_run: flag(&args, "--dry-run"),
+            };
+            loop {
+                let before = bucket.counts().snap();
+                let r = gc_step(&*bucket, &cfg, consumer::wall_ms()).await;
+                {
+                    let mut st = state.borrow_mut();
+                    let g = st.gc.get_or_insert_with(Default::default);
+                    match &r {
+                        Ok(r) => {
+                            g.ok += 1;
+                            g.deleted += (r.deleted_data + r.deleted_tombstones) as u64;
+                            g.last_success_s = Some(consumer::wall_ms() as f64 / 1e3);
+                        }
+                        Err(_) => g.err += 1,
+                    }
+                    render(&st);
+                }
+                match r {
+                    Ok(r) => {
+                        let after = bucket.counts().snap();
+                        println!(
+                            "{}",
+                            serde_json::json!({"gc": r, "s3": {"list": after.list - before.list, "get": after.get - before.get,
+                                "delete": after.delete - before.delete, "put_cas": after.put_cas - before.put_cas + after.put_create - before.put_create}})
+                        )
+                    }
+                    Err(e) => eprintln!("gc: {e}"),
+                }
+                match every {
+                    Some(d) if consumer::mono_ms() - t0 < run_for => tokio::time::sleep(Duration::from_millis(d)).await,
+                    _ => break,
+                }
+            }
+        };
+        let audit_every = if sub == Some("horizon-audit") { Some(every.unwrap_or(0)) } else { arg(&args, "--audit-every").map(|s| dur_ms(&s)) };
+        let audit_loop = async {
+            let Some(audit_every) = audit_every else { return };
+            let db = arg(&args, "--db").expect("the horizon audit needs --db (and --ch)");
+            let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
+            let mut ch = otap_s3pq::central::ClickHouse::new(ch_url.split(',').next().unwrap_or(&ch_url));
+            ch.http = reqwest::Client::builder()
+                .timeout(Duration::from_millis(opt_ms(&args, "--audit-timeout", "30m")))
+                .build()
+                .expect("http client");
+            let cfg = AuditConfig {
+                horizon_ms,
+                lookback_ms: opt_ms(&args, "--audit-lookback", "2d"),
+                sample_hex: arg(&args, "--audit-sample-hex").map_or(0, |s| s.parse().expect("--audit-sample-hex")),
+                max_candidates: arg(&args, "--audit-max-candidates").map_or(1000, |s| s.parse().expect("--audit-max-candidates")),
+                tables: arg(&args, "--audit-tables").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default(),
+                max_threads: arg(&args, "--audit-max-threads").map_or(2, |s| s.parse().expect("--audit-max-threads")),
+            };
+            // The copies already reported survive a restart: {ctl}/audit/{db}.json.
+            let state_key = coord::join(&ctl, &format!("audit/{db}.json"));
+            let persist = !flag(&args, "--audit-no-state");
+            {
+                let mut st = state.borrow_mut();
+                st.audit_on = true;
+                if persist {
+                    match bucket.get(&state_key).await {
+                        Ok(Some((b, _))) => match serde_json::from_slice(&b) {
+                            Ok(a) => st.audit = a,
+                            Err(e) => eprintln!("horizon-audit: {state_key}: {e} (starting afresh)"),
+                        },
+                        Ok(None) => {}
+                        Err(e) => eprintln!("horizon-audit: reading {state_key}: {e} (starting afresh)"),
+                    }
+                }
+                render(&st);
+            }
+            loop {
+                let mut a = state.borrow().audit.clone();
+                let rep = audit::run(&ch, &db, &cfg, &mut a, consumer::wall_ms() * 1_000_000).await;
+                for f in rep.late.iter().chain(rep.unexplained.iter()) {
+                    eprintln!("{}", f.log_line(cfg.horizon_ms));
+                }
+                for e in &rep.errors {
+                    eprintln!("horizon-audit: error: {e}");
+                }
+                if persist {
+                    let body = bytes::Bytes::from(serde_json::to_vec(&a).expect("state"));
+                    if let Put::Unknown(e) = bucket.put(&state_key, body, Cond::None, &Default::default()).await {
+                        eprintln!("horizon-audit: saving {state_key}: {e}");
+                    }
+                }
+                {
+                    let mut st = state.borrow_mut();
+                    st.audit = a;
+                    let m = &mut st.audit_m;
+                    m.last_duration_s = Some(rep.duration_ms as f64 / 1e3);
+                    m.last_candidates = rep.candidates as u64;
+                    m.tables = rep.tables as u64;
+                    if rep.errors.is_empty() {
+                        m.runs_ok += 1;
+                        m.last_success_s = Some(consumer::wall_ms() as f64 / 1e3);
+                    } else {
+                        m.runs_err += 1;
+                    }
+                    render(&st);
+                }
+                println!("{}", serde_json::json!({"horizon_audit": rep}));
+                // `gc`: as long as GC runs (`--every`, `--run-for`); `horizon-audit`:
+                // once, or every `--every` until `--run-for` (0: for ever).
+                let stop = |now: u64| match sub {
+                    Some("gc") => every.is_none() || now - t0 >= run_for,
+                    _ => every.is_none() || (run_for > 0 && now - t0 >= run_for),
+                };
+                if stop(consumer::mono_ms()) {
+                    break;
+                }
+                let left = (t0 + run_for).saturating_sub(consumer::mono_ms());
+                tokio::time::sleep(Duration::from_millis(if run_for > 0 { audit_every.min(left) } else { audit_every })).await;
+                if stop(consumer::mono_ms()) {
+                    break;
+                }
+            }
+        };
+        tokio::join!(gc_loop, audit_loop);
         return;
     }
 
@@ -258,11 +439,7 @@ async fn main() {
     cfg.balance.window_ms = opt_ms(&args, "--load-window", "60s");
     cfg.balance.min_hold_ms = opt_ms(&args, "--min-hold", "30s");
     cfg.balance.loads_every_ms = opt_ms(&args, "--loads-every", "10s");
-    cfg.horizon_ms = match arg(&args, "--check-horizon").as_deref() {
-        None => Some(consumer::worker::DEFAULT_HORIZON_MS),
-        Some("all") => None,
-        Some(h) => Some(dur_ms(h)),
-    };
+    cfg.horizon_ms = horizon_ms;
     cfg.full_list_ms = opt_ms(&args, "--full-list", "30s");
     cfg.quiet_ms = opt_ms(&args, "--quiet", "30s");
     cfg.limits.max_objects = arg(&args, "--max-batch").map_or(32, |s| s.parse().expect("--max-batch"));
@@ -326,7 +503,14 @@ async fn main() {
         let _ = m.insert("ch_switches".into(), central.switches.get().into());
         let _ = m.insert("ch_replica".into(), central.cur.get().into());
         let _ = m.insert("summary".into(), final_.into());
-        v.to_string()
+        v
+    };
+    let mut last_metrics = 0;
+    let horizon = w.cfg.horizon_ms;
+    let export = |v: &serde_json::Value| {
+        let mut p = metrics::Prom::default();
+        metrics::worker_families(&mut p, v, horizon);
+        metrics::publish(&prom, p.render());
     };
     loop {
         let t = consumer::mono_ms();
@@ -337,9 +521,13 @@ async fn main() {
         }
         if let Some(p) = &stats_path {
             if now >= last_stats + stats_every {
-                write_atomic(p, &dump(&w, false));
+                write_atomic(p, &dump(&w, false).to_string());
                 last_stats = now;
             }
+        }
+        if metrics_addr.is_some() && now >= last_metrics + 1000 {
+            export(&dump(&w, false));
+            last_metrics = now;
         }
         let done = (once && !progressed)
             || idle_exit.is_some_and(|d| now - last_progress >= d)
@@ -358,7 +546,11 @@ async fn main() {
         }
     }
     w.release_all().await;
-    let s = dump(&w, true);
+    let v = dump(&w, true);
+    if metrics_addr.is_some() {
+        export(&v);
+    }
+    let s = v.to_string();
     if let Some(p) = &stats_path {
         write_atomic(p, &s);
     }

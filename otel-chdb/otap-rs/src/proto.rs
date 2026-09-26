@@ -60,7 +60,7 @@ pub fn new_epoch() -> String {
 }
 
 /// Days since 1970-01-01 to (year, month, day), proleptic Gregorian.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719468;
     let era = z.div_euclid(146097);
     let doe = z.rem_euclid(146097);

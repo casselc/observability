@@ -25,16 +25,24 @@
 //!   the checkpoints by a lease length plus a request-lifetime delay, and
 //!   retire closed epochs after the zombie bound (which lets the workers
 //!   compact them out of their checkpoints).
+//! - `audit`:  the horizon audit: finds copies ingested twice because they
+//!   were received more than the check's copy horizon after their original
+//!   (content keys in two partitions beyond the check's reach), off the
+//!   ingest path (`consume gc --audit-every`, `consume horizon-audit`).
+//! - `metrics`: Prometheus text for the worker, GC and the audit, and a
+//!   minimal HTTP endpoint (`--metrics-addr`).
 //!
 //! The module is mounted by `src/bin/consume.rs` and by the tests with
 //! `#[path]`, so it depends on the library only through `otap_s3pq::…`.
 
 #![allow(dead_code)]
 
+pub mod audit;
 pub mod bucket;
 pub mod coord;
 pub mod discovery;
 pub mod gc;
+pub mod metrics;
 pub mod plan;
 pub mod sql;
 pub mod worker;

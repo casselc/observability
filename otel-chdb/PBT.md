@@ -142,6 +142,28 @@ Both directions work, through files only (no import of quintgo):
   `TestPBTSeededByModelTraces` replays a drawn prefix of a model trace, then
   continues with random commands from that state, all invariants on.
 
+## The manifest-less Go edge against s3Inline (2026-09-26)
+
+The same approach, PBT runs recorded and validated through quintgo, now also
+covers the shipped Go edge (`parquetgo/modelcheck`, its own module): real
+`parquetgo/edge` runs over a fault-injecting in-memory store, with restarts,
+zombie writers and a model consumer that closes superseded epochs with
+tombstones, are recorded as `s3Inline.qnt` steps and replayed by quintgo
+(`s3inline.binding.yaml`): every step a transition, the lane's phase and
+next slot equal the model writer's, the nine safety invariants in every
+state. A metrics request split over two lanes is replayed against
+`s3InlineMetrics.qnt` (through `s3InlineMetricsObs.qnt`, which forwards the
+model unchanged and adds value constructors). Results are in
+`parquetgo/README.md`, "The manifest-less Go edge". Two quintgo notes: the
+Rust evaluator (v0.6.0) overflows its stack on long `.then` chains (the
+TypeScript backend is used), and a module importing `s3InlineMetrics`
+cannot name `G::` / `S::` state, so the per-lane state check runs in the
+`s3Inline` binding only.
+
+```sh
+cd parquetgo/modelcheck && MODELCHECK_RUNS=30 go test -v ./...   # needs quint 0.32 on PATH
+```
+
 ## Limitations
 
 - The state machine runs against a fake of chDB and S3; the S3 repros above

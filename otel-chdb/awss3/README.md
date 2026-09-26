@@ -1,5 +1,21 @@
 # awss3: manifests, the contrib awss3exporter, and publishing without manifests
 
+> **Superseded for the shipped Go edge (2026-09-26).** The Go edge now runs
+> its own exporter, `s3pq` (`../parquetgo/s3pqexporter` on `../parquetgo/edge`
+> and `../parquetgo/commit`), which this directory's recommendation 2 pointed
+> to ("own one exporter, `parquetgo` plus the appender"). `awss3inline` and
+> `inline/` stay as the prototype and its demo, and are not deployed. Why
+> not extend `awss3inline`: its marshaler interface hands the exporter one
+> byte slice per request, but a metrics request is up to five objects in
+> five lanes (layout B), acknowledged only when all have committed, and a
+> series object whose announcement waits for its own commit; the fork would
+> have grown past the patch into a second exporter anyway, while carrying
+> awss3exporter's partitioning, marshalers and upload code it doesn't use.
+> `inline/log.go`'s `Log.Append` lives on as `commit.Lane`, ported back from
+> the Rust edge's state machine (epochs named at the first write, the
+> Rust keys, metadata and BLAKE3 content keys). `collector/builder-config.yaml`
+> now builds `otelcol-s3pq`, with these prototypes linked for the demo.
+
 This directory answers three questions about the edge publisher
 (`../chdbexporter/publish.go`, `../parquetgo/publish.go`) and the contrib
 [awss3exporter](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/exporter/awss3exporter).
@@ -547,6 +563,7 @@ again by the next incarnation. The consumer's content check skipped it.
        accepted.
    - Without upstream interest it is simpler to own one exporter,
      `parquetgo` plus the appender, than to carry a fork of awss3exporter.
+     (Done 2026-09-26: `../parquetgo/s3pqexporter`; see the note at the top.)
 3. **Collector config** for any of these:
    - `sending_queue` on `file_storage`;
    - `retry_on_failure.max_elapsed_time: 0`;

@@ -19,6 +19,67 @@ measurements used minio-go v7.0.91; the publisher was switched to the AWS SDK
 afterwards, to share one S3 client with the conditional-write protocol in
 `../s3cas` (see "S3 client" below).
 
+## The manifest-less Go edge: `s3pq` (2026-09-26)
+
+DECISIONS.md D1 keeps the Go edge. Its gaps (manifests; no metrics lanes;
+layout B only as a prototype) are closed here, by owning the exporter:
+
+| Path | What it is |
+| --- | --- |
+| `commit/` | The commit protocol: `Lane.Append` (PUT `If-None-Match: *` at `{prefix}/{namespace}/{epoch}/{seq:020d}.parquet`; on a 412 or no answer, HEAD the slot: ours, free (resend the same bytes), another batch (learn it, next slot), a tombstone (halt, new epoch)), `RequestVerdict` (ACK only when every object of a request committed), the S3 store, an in-memory store with faults. A port of the Rust edge's `proto.rs` / `runner.rs`: the same keys, epoch names (`YYYYMMDDTHHMMSS.mmmZ-xxxxxxxx`, named at a lane's first write), `x-amz-meta-oscope-*` metadata and BLAKE3 content keys. |
+| `series.go` | Layout B (D7): `SeriesEncoder`, `../metrics-layout/seriesenc` promoted, with the Rust edge's defaults (gauge and sum merged into `metrics_number_points` with `MetricType`, `Exemplars.FilteredAttributes`, BYTE_STREAM_SPLIT on floats and counts, DELTA `row_ordinal`, no statistics). The series id is the prototype's and the Rust edge's; a series counts as announced only when its series object has committed. |
+| `edge/` | The publisher: per request a content key, one object per namespace, each appended to lane `hash(content) mod lanes`, concurrently; the request succeeds only when all committed. Traces and logs on the parquet-go engine with the Rust writer's statistics (64-byte bounds, `stats.go`) and a bloom filter on TraceId only. |
+| `s3pqexporter/` | The collector exporter `s3pq` (own module): config as the Rust exporter's (`producer_id`, `lanes`, `metrics_layout`, `series`, `parquet`, `s3`), the persistent queue and retry of exporterhelper, D4 enforced in `Validate`. Built into `otelcol-s3pq` by `../awss3/collector/builder-config.yaml`; deployed by `../deploy/base/go`. |
+| `modelcheck/` | Real `edge` runs checked against `../model/s3Inline.qnt` and `s3InlineMetrics.qnt` with quintgo (own module). |
+
+Why this and not `awss3inline` extended: see the note at the top of
+`../awss3/README.md`. In short, a marshaler returns one byte slice per
+request, and a metrics request is up to five objects in five lanes with one
+acknowledgement, plus a series object whose announcement waits for its
+commit. `publish.go` (manifests) stays for the benchmarks and the chDB
+comparison; nothing deploys it.
+
+**Row identity with the Rust edge** [M] (`../conformance`): the same
+requests (testgen, the hostile sets, wire-built duplicate keys, and a new
+unicode / huge-value / enum / histogram / exemplar set) through both edges,
+then the Rust consumer: every table equal by count + hash and `EXCEPT ALL`
+both ways, the same content keys, metadata, footers and Parquet schema.
+Layout B 228 checks, ClickStack tables 187, 0 failures. One known
+difference, from the Rust side: span kinds outside the enum (Rust
+`Unspecified`, Go and contrib `''`).
+
+**Model** [M] (`modelcheck/`, quintgo, Quint 0.32, TypeScript backend):
+the lane's events, the store's decisions and a model consumer are recorded
+as `s3Inline` steps (`startPush`, `send`, `apply` / `lose`, `receive`,
+`timeout`, `resolve`, `switchPayload`, `newIncarnation`, `cTomb`, ...) and
+replayed: each step must be a transition, the lane's phase and next slot
+must equal the model writer's after it, and all nine safety invariants must
+hold. 30 seeded runs with ambiguous, dropped and late PUTs, HEADs without an
+answer, restarts, zombie writers and consumer tombstones (1,558 steps; 22
+resolved as own, 31 resends, 4 learned, 2 halts), and a scripted run that
+takes every path: all conform. The mutants `RetryNewKey` and `NoHalt` fail
+(a `send` the model can't take). The metrics request (two types, one
+acknowledgement) against `s3InlineMetrics`: 30 runs with restarts
+(748 steps, 59 restarts, 20 NACKed pushes, 18 of them with the other part committed) conform; the `AckOnAny` mutant fails at its 2xx.
+
+**Cost** [M, loaded box] (`compare/results/edge-bench.md`, per batch to
+SeaweedFS): traces 43 ms CPU against 40 for the manifest publisher, logs 29
+against 28, metrics (10,000 points, 2,000 of each type) **39 ms in layout B
+against 64** for the ClickStack tables with manifests (87 for the edge in the
+ClickStack layout, which walks the request once per type); **1 PUT per object
+instead of 2** (traces and logs 1 against 2; metrics 4 against 10). Go
+allocations per batch 1,333 / 28,672 / 5,913 objects. The extra CPU on
+traces and logs is the request's re-marshalling for its content key.
+
+**Remaining gaps:** the Go objects are 26–28% larger than the Rust ones
+(parquet-go's zstd and V2 pages; the rows are the same); layout A walks the
+request once per type; parquet-go writes an offset index and column index
+where the Rust edge's layout B writes none (the bounds are empty); a Go
+sender's request hashes alike in both edges, but a request whose wire bytes
+are not Go's canonical encoding gets another content key in Go (a retry
+into a different edge kind is ingested twice); no durable buffer beyond the
+collector's persistent queue (D19); sorting off (D16) is the only mode.
+
 ## What's here
 
 | Path | What it is |
@@ -610,11 +671,12 @@ Why this layout:
     (request hash, signal). A retried request then resolves the types that
     already committed as "ours" (step 1 of `Log.Append`) and appends only
     the missing ones [E: not wired, `../awss3` is outside this directory].
-  - (2026-09-26: still true of `parquetgo`. The Rust edge does commit each
-    type in its own inline lane with a request-level ack
-    ([`../otap-rs/README.md`](../otap-rs/README.md) §Metrics). The Go path is
-    kept (`../DECISIONS.md` D1), and wiring these lanes here is recorded
-    there as follow-up work.)
+  - (2026-09-26: wired, in `edge/` for the `s3pq` exporter: one lane per
+    namespace, the content key BLAKE3 over (namespace, request), a
+    request-level acknowledgement, as the Rust edge
+    ([`../otap-rs/README.md`](../otap-rs/README.md) §Metrics); see "The
+    manifest-less Go edge" above. `publish.go` still commits object then
+    manifest.)
 - **A retry is byte-identical.** The same pdata and the same envelope give
   the same bytes: fresh or reused encoder, serial or `Parallelism: 4`, and
   whether one type is encoded alone (`PGEncoder.MetricsOf`, the call an
@@ -871,16 +933,17 @@ for the ClickStack tables, 4.47 µs, 26.4 B, and 7.47 µs (Go) or 5.05 µs
   - Hashes, `EXCEPT`, `toString(map)` and `mapKeys` order don't.
   - Fixing it means sorting in `walk.go`/`pgo.go` and, to keep the chDB
     comparison, in the chDB exporter too. Not done here.
-- **Duplicate attribute keys** (possible only in wire-decoded pdata) keep
-  pdata order here. The exporter's unstable sort leaves them unspecified,
-  so such rows can differ.
+- **Duplicate attribute keys** (possible only in wire-decoded pdata): the
+  metrics maps now use the exporter's own unstable sort (2026-09-26,
+  METRICS_SCHEMA.md revision 4), so they match contrib and the Rust edge;
+  traces and logs keep pdata order, as the Rust edge does.
 - **A metric of type Empty rejects the whole request,** as the exporter
   does (`ErrMetricTypeUnset`). A collector wrapper should make that a
   permanent error.
 - **Manifest mode republishes every type on a retry** after a partial
-  failure. The consumer's content check removes the copies. The inline
-  per-type lanes are not wired (`../awss3` is outside this directory);
-  `MetricsOf` is the hook.
+  failure. The consumer's content check removes the copies. (2026-09-26:
+  the per-type inline lanes are wired, in `edge/`: a retry finds the
+  committed types in their lanes' known sets.)
 - **Big objects and single-block inserts:** see "Correctness" above.
 - **The `Reset` workaround** relies on parquet-go v0.32.0's unexported
   field name. `TestReusedWriterIdentical` fails loudly if a version bump

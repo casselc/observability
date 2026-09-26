@@ -19,6 +19,16 @@ a real clickhouseexporter v0.161.0 writing to ClickHouse 26.10.
 2. The DateTime wrap examples are corrected: `633_437_444_000` and
    `3_661_529_851_000`.
 3. `i32` carries the `INT(32, signed)` annotation.
+4. (2026-09-26) Map entries with **duplicate keys** (only wire-decoded pdata
+   has them) are in the order contrib leaves them: its clickhouse-go
+   `orderedmap.CollectN` sorts with Go's unstable `slices.SortFunc`, and
+   parquetgo now calls the same sort (it used a stable sort, and differed
+   from contrib and the Rust edge on maps of more than 12 entries). Maps
+   without duplicate keys are unchanged. The manifest-less Go edge
+   (`edge/`, the `s3pq` exporter) publishes this layout as
+   `metrics_layout: clickstack_tables`, in one lane per type with a
+   request-level acknowledgement; the default is layout B
+   (`series.go`, `../metrics-layout`).
 
 ## Objects
 

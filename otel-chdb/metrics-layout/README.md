@@ -477,7 +477,14 @@ the materialized view it would be. Results are in `results/rollup-*`:
 
 ## What B needs in the edge and the importer
 
-**Edge** (`seriesenc/` is the prototype):
+**Edge** (`seriesenc/` is the prototype; 2026-09-26: promoted to
+`../parquetgo/series.go` (`SeriesEncoder`), the Go edge's layout-B encoder,
+with the Rust edge's defaults: merged number points, exemplar attributes,
+BYTE_STREAM_SPLIT and no statistics. With `PrototypeSeriesOptions` it
+writes this prototype's objects column for column, value for value
+(`seriesenc/promoted_test.go`); with its defaults, the Rust edge's rows
+through the consumer (`../conformance`). The prototype stays as the
+specification and the comparison):
 
 1. **Series id and points.** Per point: sort the point attributes, hash them
    with the per-scope prefix (xxh3), look the id up in the cache, and append
@@ -612,7 +619,7 @@ the materialized view it would be. Results are in `results/rollup-*`:
 | path | what |
 | --- | --- |
 | `fleet/` | the dataset generator |
-| `seriesenc/` | B's edge encoder (series id, cache, points and series Parquet), with a determinism, cache and window test |
+| `seriesenc/` | B's edge encoder, the prototype (series id, cache, points and series Parquet), with a determinism, cache and window test; `promoted_test.go` checks the promoted `../parquetgo/series.go` against it |
 | `central/` | DDL, `s3()` structures, the importer's statements for A, B and Bc; ch-go native client with ProfileEvents; S3 |
 | `promconv/` | OTel to Prometheus samples, for C and D |
 | `promtsdb/` | D: the Prometheus TSDB bench, its own `go.mod` |

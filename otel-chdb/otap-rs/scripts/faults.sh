@@ -15,7 +15,11 @@ RUN=${RUN:-f$(date +%s)}
 CH=${CH:-http://127.0.0.1:18123}
 S3=${S3:-http://127.0.0.1:18333}
 PROXY=127.0.0.1:18335
-DB=otaprs_faults_$RUN
+# Where the run writes: bucket/prefix and database prefix (another run can use its own).
+BP=${BP:-otel/otap-rs}
+DB=${DBP:-otaprs_faults_}$RUN
+# configs/edge.yaml takes its S3 keys from the environment.
+export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-otel} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-otelsecret}
 here=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$OUT"
 ch() { curl -sS "$CH/" --data-binary "$1"; }
@@ -26,7 +30,7 @@ nreq=$(echo "$files" | tr ',' '\n' | wc -l)
 edge() { # name port env...
   local name=$1 port=$2; shift 2
   env OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port - 1)) PUT_TIMEOUT=${PUT_TIMEOUT:-1s} VERBOSE=true \
-    S3_URL=http://$PROXY/otel/otap-rs/faults/$RUN/$SCEN "$@" \
+    S3_URL=http://$PROXY/$BP/faults/$RUN/$SCEN "$@" \
     "$B/otap-s3pq" -c "$here/configs/edge.yaml" >> "$OUT/$SCEN.edge.log" 2>&1 &
   echo $!
 }
@@ -36,13 +40,13 @@ send() { # port [n [files]]
 }
 fl() { ls "$D"/traces-bench-v*.pb | sed -n "$1p" | paste -sd,; }
 consume() { # extra args
-  "$B/consume" --s3 $S3/otel/otap-rs/faults/$RUN/$SCEN --signal traces --ch $CH --table $DB.$SCEN \
+  "$B/consume" --s3 $S3/$BP/faults/$RUN/$SCEN --signal traces --ch $CH --table $DB.$SCEN \
     --state "$OUT/$SCEN.ckpt.json" "$@" >> "$OUT/$SCEN.consume.log" 2>&1
 }
 verdict() { # expected requests
   local objs rows want
-  objs=$(ch "SELECT count() FROM s3('$S3/otel/otap-rs/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size > 0")
-  tombs=$(ch "SELECT count() FROM s3('$S3/otel/otap-rs/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size = 0 SETTINGS s3_skip_empty_files = 0")
+  objs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size > 0")
+  tombs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size = 0 SETTINGS s3_skip_empty_files = 0")
   rows=$(ch "SELECT count(), uniqExact(content_key), uniqExact(producer_epoch) FROM $DB.$SCEN FORMAT TSV")
   want="$(( $1 * 10000 ))	$1"
   local ok=FAIL

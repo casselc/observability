@@ -24,7 +24,7 @@ RUN=${RUN:-ck$(date +%s)}
 CH=${CH:-http://127.0.0.1:18123}
 S3=${S3:-http://127.0.0.1:18333}
 BUCKET=${BUCKET:-otel}
-DB=otaprs_ckpt_$RUN
+DB=${DBP:-otaprs_ckpt_}$RUN
 RATE=${RATE:-3}
 CHAOS_MIN=${CHAOS_MIN:-8}
 CHAOS_MAX=${CHAOS_MAX:-20}
@@ -63,7 +63,7 @@ sender() {
 declare -A INC
 worker() {
   INC[$1]=$((${INC[$1]:-0} + 1))
-  "$B/consume" --s3 "$ROOT" --db "$DB" --worker "w$1" --poll 200ms --ttl 6s --margin 1s --budget 2s \
+  "$B/consume" --s3 "$ROOT" --db "$DB" --worker "w$1" --poll 200ms --ttl 6s --margin 1s --budget 2s --allow-short-margin ${WFLAGS:-} \
     --discover 1s --quiet 3s --full-list 10s --stats "$OUT/w$1-${INC[$1]}.stats.json" --stats-every 1s \
     >> "$OUT/w$1.log" 2>&1 &
   PID[w$1]=$!

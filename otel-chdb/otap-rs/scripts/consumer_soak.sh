@@ -28,14 +28,15 @@ DURATION=${DURATION:-1800}
 RUN=${RUN:-soak$(date +%s)}
 CH=${CH:-http://127.0.0.1:18123}
 S3=${S3:-http://127.0.0.1:18333}
-DB=otaprs_consumer_$RUN
+DB=${DBP:-otaprs_consumer_}$RUN
 RATE=${RATE:-3}          # traces and logs requests/s per edge (metrics: 1/s)
 CHAOS_MIN=${CHAOS_MIN:-8}
 CHAOS_MAX=${CHAOS_MAX:-20}
 here=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$OUT"
 echo "$RUN" > "$OUT/run.txt"
-PREFIX=otel/otap-rs-consumer/$RUN/edges
+BP=${BP:-otel/otap-rs-consumer}   # bucket/prefix
+PREFIX=$BP/$RUN/edges
 ROOT=$S3/$PREFIX
 log() { echo "$(date +%T.%3N) $*" | tee -a "$OUT/chaos.log"; }
 ch() { curl -sS "$CH/" --data-binary "$1"; }
@@ -44,7 +45,7 @@ ch() { curl -sS "$CH/" --data-binary "$1"; }
 MODES=("-mode answer-late -hold 3s -every 7" "-mode apply-late -hold 2500ms -every 5" "-mode drop -hold 200ms -every 6")
 declare -A PID
 proxy() { # i
-  "$B/faultproxy2" -listen 127.0.0.1:$((18340 + $1)) -target "$S3" -match "/otap-rs-consumer/$RUN/" ${MODES[$(($1 - 1))]} \
+  "$B/faultproxy2" -listen 127.0.0.1:$((18340 + $1)) -target "$S3" -match "/$RUN/" ${MODES[$(($1 - 1))]} \
     >> "$OUT/proxy-$1.log" 2>&1 &
   PID[proxy$1]=$!
 }
@@ -64,7 +65,7 @@ sender() { # i
 declare -A INC
 worker() { # i
   INC[$1]=$((${INC[$1]:-0} + 1))
-  "$B/consume" --s3 "$ROOT" --db "$DB" --worker "w$1" --poll 200ms --ttl 6s --margin 1s --budget 2s \
+  "$B/consume" --s3 "$ROOT" --db "$DB" --worker "w$1" --poll 200ms --ttl 6s --margin 1s --budget 2s --allow-short-margin ${WFLAGS:-} \
     --discover 1s --quiet 3s --full-list 10s --stats "$OUT/w$1-${INC[$1]}.stats.json" --stats-every 1s \
     >> "$OUT/w$1.log" 2>&1 &
   PID[w$1]=$!

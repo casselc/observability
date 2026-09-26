@@ -24,7 +24,7 @@ for poll in ${POLLS:-200ms 1s}; do
     S3_URL=$S3/$PREFIX/edge-1 "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" > "$tmp/edge.log" 2>&1 &
   E=$!
   sleep 2
-  "$B/consume" --s3 "$S3/$PREFIX" --db "$DB" --worker lat --poll "$poll" --ttl 30s --margin 2s --budget 10s \
+  "$B/consume" --s3 "$S3/$PREFIX" --db "$DB" --worker lat --poll "$poll" --ttl 30s --margin 2s --budget 10s --allow-short-margin ${WFLAGS:-} \
     --stats "$tmp/stats.json" --stats-every 1s > "$tmp/w.log" 2>&1 &
   W=$!
   sleep 3

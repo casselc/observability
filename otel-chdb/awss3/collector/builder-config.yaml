@@ -9,12 +9,18 @@ dist:
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
+processors:
+  # The deployed Go publisher (../../deploy/base/go) limits memory before
+  # its persistent queue; it does not batch (its senders do, before their
+  # own queue: DECISIONS.md risk #10).
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
 exporters:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awss3exporter v0.161.0
   - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
     import: github.com/casselc/observability/otel-chdb/awss3/awss3inline
 extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.161.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.161.0
   - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
     import: github.com/casselc/observability/otel-chdb/awss3/parquetencoding
 

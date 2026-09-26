@@ -1,12 +1,29 @@
 version: otel_dataflow/v1
 # The lean edge: OTLP receiver (gRPC + HTTP, responds only after the S3
 # commit resolves) -> exporter:s3pq (ClickStack Parquet, create-only slots).
-engine: { }
+# No durable buffer: custody stays with the sender until the commit, and an
+# S3 outage pushes back to it (retryable 503 / UNAVAILABLE). The sender must
+# therefore retry forever from a persistent queue. This is the configuration
+# the benchmarks and fault scripts measure; ../../deploy runs
+# edge-publisher.yaml.
+# Sorting off, layout B, no batching, no keys: as edge-durable.yaml.
+engine:
+  http_admin:
+    # /api/v1/livez, /api/v1/readyz, /metrics (and config/shutdown POSTs:
+    # keep it off shared networks).
+    bind_address: "${env:ADMIN_HTTP:-127.0.0.1:8080}"
 policies:
   resources:
     core_allocation:
       type: core_count
       count: 1
+    # See edge-durable.yaml: the process's RSS against explicit limits,
+    # retryable rejection above the hard limit.
+    memory_limiter:
+      mode: enforce
+      source: "${env:MEM_SOURCE:-rss}"
+      soft_limit: "${env:MEM_SOFT_LIMIT:-768MiB}"
+      hard_limit: "${env:MEM_HARD_LIMIT:-1GiB}"
 groups:
   default:
     pipelines:
@@ -33,15 +50,17 @@ groups:
               lanes: ${env:LANES:-1}
               otlp_path: "${env:OTLP_PATH:-direct}"
               format: "${env:FORMAT:-parquet}"
-              # series_table (layout B: points tables + otel_metrics_series,
-              # src/series.rs) or clickstack_tables (contrib's five tables).
+              # series_table (layout B, D7: points tables + otel_metrics_series,
+              # src/series.rs); clickstack_tables for the benchmarks only.
               metrics_layout: "${env:METRICS_LAYOUT:-series_table}"
               verbose: ${env:VERBOSE:-false}
+              parquet:
+                sort:
+                  by: none              # D16: sorting off
               s3:
+                # No keys here: the default chain (edge-durable.yaml's header).
                 url: "${env:S3_URL:-http://127.0.0.1:18333/otel/otap-rs/edge}"
                 region: "${env:S3_REGION:-us-east-1}"
-                access_key_id: "${env:S3_KEY:-otel}"
-                secret_access_key: "${env:S3_SECRET:-otelsecret}"
                 put_timeout: "${env:PUT_TIMEOUT:-10s}"
                 head_timeout: "2s"
         connections:

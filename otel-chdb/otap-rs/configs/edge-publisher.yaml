@@ -1,46 +1,29 @@
 version: otel_dataflow/v1
-# The durable edge: OTLP receiver -> processor:durable_buffer (upstream's
-# Quiver: WAL + segments) -> exporter:s3pq. One object per incoming request,
-# which scripts/durable.sh relies on. The deployed publisher
-# (../../deploy/base/rust) is edge-publisher.yaml: this plus a batch step
-# before the buffer.
+# The deployed publisher (../../deploy/base/rust): edge-durable.yaml with a
+# batch step in front of the durable buffer. Everything edge-durable.yaml's
+# header says holds here; this file adds only the batching.
 #
-# Delivery contract (DECISIONS.md D3, D19; README §Edge durability):
-# - the client's 2xx follows the WAL write, not the S3 commit. The buffer
-#   forwards finalized segments to the exporter, deletes a bundle only when
-#   the exporter ACKs it (after the create-only commit), and replays what is
-#   left after a restart. A replay is the same OTLP bytes, so the same
-#   content key: central drops a copy whose first commit had landed.
-# - retries never give up: a retryable NACK (S3 down, 403 on an expired
-#   credential, timeouts) is retried with backoff (1 s .. 30 s) with no
-#   deadline; `max_age` is deliberately unset (an age limit would delete
-#   unsent data).
-# - disk full: `size_cap_policy: backpressure`. At `retention_size_cap` the
-#   buffer refuses new data and the receiver answers 503 (retryable), so
-#   custody stays with the sender (the node agents' persistent queue); every
-#   acked request is committed later. `drop_oldest` keeps acking and deletes
-#   the oldest segments: 47 of 64 acked requests were lost in the test. Keep
-#   the cap well below the volume: if the filesystem fills first, ingest
-#   still fails retryably, but a restart cannot replay the WAL and the
-#   process exits until the volume is grown (nothing acked is lost, it is
-#   stuck). ../../deploy/results/durable-diskfull.txt has all three.
-#   Size the cap for the S3 outage the publisher must ride out: about 315 B
-#   of segment per span (half of the 630 B written: WAL + segment); the
-#   engine's minimum is 192 MiB per core (WAL 128 MiB + 2 segments), and the
-#   volume should be ~25% above the cap.
-# - no batching here, and never between the queue and the exporter: the
-#   content key hashes what the WAL holds, so a replay keeps its key
-#   (risk #10). Senders batch to at most 10,000 items before their own
-#   queue (risk #11: ../../deploy/base/rust/agent-rust.yaml);
-#   edge-publisher.yaml batches in front of the WAL, never behind it.
-# - no sorting (D16): `parquet.sort.by: none`.
-# - metrics: layout B (D7), one lane per points type plus the series lane.
-# - credentials: none in this file. object_store's default chain plus
-#   src/creds.rs: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (static keys, e.g.
-#   from a Secret), IRSA (AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE), EKS Pod
-#   Identity (AWS_CONTAINER_CREDENTIALS_FULL_URI + token file), AWS_PROFILE /
-#   credential_process, or IMDS (`aws_signing_helper serve`:
-#   AWS_EC2_METADATA_SERVICE_ENDPOINT). A private CA: AWS_CA_BUNDLE.
+# Why batch here: the calculator and the consumer assume ~10,000-row objects
+# (DECISIONS.md §1.2, D10), but what reaches a publisher is small. A node
+# agent flushes on its 2 s timeout long before 10k items (a mid-scenario
+# node makes ~150 spans/s), and the routing gateway (D16) cuts every request
+# into one piece per publisher. Without this step a publisher writes one
+# object per incoming request: ~300-row objects from agents, ~1,250-row
+# pieces behind the gateway at N = 8 (../../deploy/results/route-*.txt).
+#
+# Why here and nowhere later: this is BEFORE the queue (the WAL), which is
+# what D4 and risk #10 require. The batch's bytes are what the WAL keeps and
+# replays, so a replay hashes to the same content key. What it gives up: a
+# sender's resend of a request that already reached the WAL, but whose ack
+# was lost (publisher crash in that window, a sender timeout, a routing
+# gateway killed mid-request), lands in a different batch, so central keeps
+# both copies (../../deploy/README.md §Duplicates, measured).
+#
+# Sizing (OTLP bytes: the batch processor sizes OTLP by bytes only):
+# min_size 3 MiB is ~10k spans of testgen shape (320 B/span); max_size 8 MiB
+# also splits an oversized request, deterministically, so no object nears
+# the ~100k-row single-block limit (risk #11); max_batch_duration 1 s is
+# D16's T = 1 s.
 engine:
   http_admin:
     # /api/v1/livez, /api/v1/readyz, /metrics. The admin API also accepts
@@ -83,6 +66,15 @@ groups:
                   wait_for_result: true
                   timeout: "${env:OTLP_TIMEOUT:-30s}"
                   max_request_body_size: "${env:OTLP_MAX_BODY:-128MiB}"
+          batch:
+            type: processor:batch
+            config:
+              format: preserve                  # OTLP stays OTLP bytes (the direct walk)
+              max_batch_duration: "${env:BATCH_MAX_DURATION:-1s}"
+              otlp:
+                sizer: bytes
+                min_size: ${env:BATCH_MIN_BYTES:-3145728}
+                max_size: ${env:BATCH_MAX_BYTES:-8388608}
           buffer:
             type: processor:durable_buffer
             config:
@@ -116,6 +108,8 @@ groups:
                 head_timeout: "2s"
         connections:
           - from: otlp_in
+            to: batch
+          - from: batch
             to: buffer
           - from: buffer
             to: s3pq

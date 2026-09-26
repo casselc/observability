@@ -60,10 +60,19 @@ exporters:
       queue_size: 200000
 
 processors:
+  # First in every pipeline: refuse data (retryable) before the collector
+  # runs out of memory. The ocb build already carried the processor; no
+  # pipeline used it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  # 10,000 rows per object (DECISIONS.md §1.2, risk #11): the size the
+  # consumer's statement limits and every benchmark assume.
   batch:
     timeout: 5s
-    send_batch_size: 5000
-    send_batch_max_size: 20000
+    send_batch_size: 10000
+    send_batch_max_size: 10000
 
 service:
   extensions: [file_storage/queue]
@@ -73,9 +82,9 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [chdb]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, batch]
       exporters: [chdb]

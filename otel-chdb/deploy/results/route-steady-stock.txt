@@ -1,0 +1,33 @@
+# route_test steady-stock: scenario steady, N=8, gateway otelcol-deploy/otelcol-deploy
+send wall 0.0 s; sender attempts: traces "attempts":32, logs "attempts":32
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":512 "over_count":0 "rows_inserted":640000
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	33900	0.106	0.85	15	32	1059
+pub-1	13442	0.042	0.34	11	32	420
+pub-2	18332	0.057	0.46	12	32	573
+pub-3	31709	0.099	0.79	13	32	991
+pub-4	22229	0.069	0.56	16	32	695
+pub-5	92728	0.29	2.32	12	32	2898
+pub-6	66478	0.208	1.66	26	32	2077
+pub-7	41182	0.129	1.03	15	32	1287
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	71116	0.222	1.78	16	32	2222
+pub-1	14684	0.046	0.37	11	32	459
+pub-2	12063	0.038	0.3	14	32	377
+pub-3	14702	0.046	0.37	13	32	459
+pub-4	62158	0.194	1.55	19	32	1942
+pub-5	9788	0.031	0.24	12	32	306
+pub-6	17643	0.055	0.44	16	32	551
+pub-7	117846	0.368	2.95	19	32	3683
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000

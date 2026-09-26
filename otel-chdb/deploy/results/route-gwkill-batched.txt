@@ -1,0 +1,38 @@
+# route_test gwkill-b8: scenario gwkill, N=8, gateway otelcol-patched/otelcol-deploy
+send wall 45.5 s; sender attempts for 32 requests: traces 155, logs 193; senders per signal: 8
+event 1790449072.447396656 gateway SIGKILL
+event 1790449074.573073613 gateway up
+event 1790449078.580206051 gateway SIGKILL
+event 1790449080.703514202 gateway up
+objects in S3: 169; left after dropping byte-identical copies (the consumer's content check): 169
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	41163	0.105	0.84	15	18	2287
+pub-1	16803	0.043	0.34	11	19	884
+pub-2	24220	0.062	0.5	12	16	1514
+pub-3	43722	0.112	0.9	13	21	2082
+pub-4	30381	0.078	0.62	16	18	1688
+pub-5	92728	0.238	1.9	12	32	2898
+pub-6	87246	0.224	1.79	26	23	3793
+pub-7	54057	0.138	1.11	15	22	2457
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+390320	320000	70320	320000
+objects in S3: 172; left after dropping byte-identical copies (the consumer's content check): 172
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	86698	0.227	1.82	16	21	4128
+pub-1	20365	0.053	0.43	11	22	926
+pub-2	15756	0.041	0.33	14	21	750
+pub-3	18338	0.048	0.38	13	23	797
+pub-4	75760	0.198	1.59	19	18	4209
+pub-5	12850	0.034	0.27	12	21	612
+pub-6	23158	0.061	0.49	16	24	965
+pub-7	128802	0.337	2.7	19	22	5855
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+381727	320000	61727	320000

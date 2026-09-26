@@ -1,0 +1,6 @@
+agent SIGKILL after 8 s; queue dir 261 MB
+sender: "attempts":16 traces, "attempts":16 logs, 16 requests each (acked by the agent while the publisher was down)
+traces: rows, distinct rows, objects, max rows per object, extra copies of an object's content (expected 160000 rows, all distinct)
+160000	160000	16	10000	0
+logs: rows, distinct rows, objects, max rows per object, extra copies of an object's content (expected 160000 rows, all distinct)
+160000	160000	16	10000	0

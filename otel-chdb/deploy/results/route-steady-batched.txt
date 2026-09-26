@@ -1,0 +1,34 @@
+# route_test steady-b8: scenario steady, N=8, gateway otelcol-patched/otelcol-deploy
+send wall 29.1 s; sender attempts for 32 requests: traces 48, logs 59; senders per signal: 8
+objects in S3: 146; left after dropping byte-identical copies (the consumer's content check): 146
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	33900	0.106	0.85	15	16	2119
+pub-1	13442	0.042	0.34	11	13	1034
+pub-2	18332	0.057	0.46	12	16	1146
+pub-3	31709	0.099	0.79	13	16	1982
+pub-4	22229	0.069	0.56	16	16	1389
+pub-5	92728	0.29	2.32	12	32	2898
+pub-6	66478	0.208	1.66	26	20	3324
+pub-7	41182	0.129	1.03	15	17	2422
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000
+objects in S3: 127; left after dropping byte-identical copies (the consumer's content check): 127
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	71116	0.222	1.78	16	19	3743
+pub-1	14684	0.046	0.37	11	15	979
+pub-2	12063	0.038	0.3	14	14	862
+pub-3	14702	0.046	0.37	13	15	980
+pub-4	62158	0.194	1.55	19	14	4440
+pub-5	9788	0.031	0.24	12	15	653
+pub-6	17643	0.055	0.44	16	16	1103
+pub-7	117846	0.368	2.95	19	19	6202
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000

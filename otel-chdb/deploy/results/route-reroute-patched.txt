@@ -1,0 +1,37 @@
+# route_test reroute-patched: scenario reroute, N=8, gateway otelcol-patched/otelcol-deploy
+send wall 16.1 s; sender attempts: traces "attempts":36, logs "attempts":36
+event 1790447365.606808294 gateway SIGKILL
+event 1790447366.743911585 gateway up with 9 publishers
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":570 "over_count":0 "rows_inserted":649760
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	33352	0.103	0.93	15	32	1042
+pub-1	13442	0.042	0.37	11	32	420
+pub-2	18332	0.057	0.51	12	32	573
+pub-3	31709	0.098	0.88	13	32	991
+pub-4	20368	0.063	0.57	16	32	636
+pub-5	90177	0.279	2.51	12	32	2818
+pub-6	64346	0.199	1.79	26	33	1950
+pub-7	42060	0.13	1.17	15	33	1275
+pub-8	9562	0.03	0.27	15	28	342
+affinity: services, services on exactly one publisher, max publishers per service
+120	105	2
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+323348	320000	3348	320000
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	56493	0.173	1.56	16	33	1712
+pub-1	14684	0.045	0.4	11	32	459
+pub-2	12063	0.037	0.33	14	32	377
+pub-3	14702	0.045	0.41	13	32	459
+pub-4	28589	0.088	0.79	19	32	893
+pub-5	9788	0.03	0.27	12	32	306
+pub-6	16746	0.051	0.46	16	33	507
+pub-7	116752	0.358	3.22	19	33	3538
+pub-8	56595	0.173	1.56	8	25	2264
+affinity: services, services on exactly one publisher, max publishers per service
+120	112	2
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+326412	320000	6412	320000

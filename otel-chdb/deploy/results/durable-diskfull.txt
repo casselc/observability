@@ -1,0 +1,92 @@
+# Durable buffer full: backpressure vs drop_oldest vs a full filesystem
+# deploy/scripts/diskfull.sh, 2026-09-26, otap-s3pq release build (upstream
+# 5db8358), configs/edge-durable.yaml with the cap/policy below. S3 is a
+# closed port while two senders stream 32 distinct 10k-span (~6 MB) and 32
+# distinct 10k-log (~4.5 MB) requests for 60 s, resending on 503; SIGKILL;
+# restart on the same buffer with S3 up; 25 s drain. "Committed whole" maps
+# each object's rows back to the request that carried them.
+#
+# Findings:
+# - backpressure: at the cap the receiver answers 503 (retryable) "storage
+#   at capacity"; every acked request is committed after the restart. 0 lost.
+# - drop_oldest: every request is acked (the client is told OK), and the
+#   oldest segments are deleted to make room: 47 of 64 acked requests never
+#   reached S3. Silent loss; never use it.
+# - a full filesystem before the cap (the cap set above the volume): ingest
+#   fails retryably (503 "wal io error"), nothing acked is deleted, but the
+#   restart cannot replay the WAL (it needs room to write a segment), the
+#   engine fails 5 times and the process exits; in Kubernetes a crash loop.
+#   After the filesystem is grown (a PVC expansion) the next start commits
+#   every acked request. Stuck, not lost; the cure is a cap well below the
+#   volume, so the cap, not ENOSPC, is what pushes back.
+# - the engine refuses a cap under 192 MiB per core (WAL max 128 MiB + 2
+#   segments of 32 MiB); the soft cap is the cap minus one segment.
+
+## cap-backpressure: retention_size_cap 200MiB, size_cap_policy backpressure, buffer on the scratch disk
+buffer directory after the send phase: 171 MB
+sender errors (count, first 90 chars):
+    229 HTTP 503: Pipeline processing failed: durable buffer failed: storage at capacity: 0 by
+traces: acked before the SIGKILL 11 of 32; committed whole after the restart: [0,1,2,3,4,5,6,7,8,9,10]; rows in S3 110000
+  acked but not committed (lost): none ; committed but never acked: none
+logs: acked before the SIGKILL 12 of 32; committed whole after the restart: [0,1,2,3,4,5,6,7,8,9,10,11]; rows in S3 120000
+  acked but not committed (lost): none ; committed but never acked: none
+publisher log markers (count):
+    6 durable_buffer.ingest.backpressure
+    2 durable_buffer.engine.ready
+    2 durable_buffer.engine.init
+    1 durable_buffer.shutdown.start
+    1 durable_buffer.shutdown.flushing
+    1 durable_buffer.shutdown.complete
+
+## cap-drop_oldest: retention_size_cap 200MiB, size_cap_policy drop_oldest, buffer on the scratch disk
+buffer directory after the send phase: 89 MB
+sender errors (count, first 90 chars):
+    19 HTTP 503: Pipeline processing failed: durable buffer failed: storage at capacity: 0 by
+traces: acked before the SIGKILL 32 of 32; committed whole after the restart: [16,17,23,24,25,28,29,30,31]; rows in S3 90000
+  acked but not committed (lost): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 26, 27] ; committed but never acked: none
+logs: acked before the SIGKILL 32 of 32; committed whole after the restart: [18,19,20,21,28,29,30,31]; rows in S3 80000
+  acked but not committed (lost): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27] ; committed but never acked: none
+publisher log markers (count):
+    2 durable_buffer.engine.ready
+    2 durable_buffer.engine.init
+    1 durable_buffer.shutdown.start
+    1 durable_buffer.shutdown.flushing
+    1 durable_buffer.shutdown.complete
+    1 durable_buffer.ingest.backpressure
+
+## enospc, first start after the fill (from the same run): nothing committed while the filesystem stays full
+buffer directory after the send phase: 160 MB
+sender errors (count, first 90 chars):
+    224 HTTP 503: Pipeline processing failed: durable buffer failed: wal error: wal io error: 
+    1 HTTP 503: Pipeline processing failed: durable buffer failed: segment error: arrow IPC
+traces: acked before the SIGKILL 5 of 32; committed whole after the restart: []; rows in S3 0
+  acked but not committed (stuck on the full filesystem: see the next run): [0, 1, 2, 3, 4] ; committed but never acked: none
+logs: acked before the SIGKILL 16 of 32; committed whole after the restart: []; rows in S3 0
+  acked but not committed (stuck on the full filesystem: see the next run): [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] ; committed but never acked: none
+publisher log markers (count):
+    234 No space left on device
+    226 durable_buffer.ingest.failed
+    7 durable_buffer.engine.init
+    1 durable_buffer.flush.failed
+    1 durable_buffer.engine.ready
+
+
+## enospc again, with the filesystem grown before a third start (a separate run)
+buffer directory after the send phase: 160 MB
+counts below are after growing the filesystem to 512 MiB and a third start; before that: traces 0 rows, logs 0 rows
+sender errors (count, first 90 chars):
+    224 HTTP 503: Pipeline processing failed: durable buffer failed: wal error: wal io error: 
+traces: acked before the SIGKILL 8 of 32; committed whole after the restart: [0,1,2,3,4,5,6,7]; rows in S3 80000
+  acked but not committed (lost): none ; committed but never acked: none
+logs: acked before the SIGKILL 11 of 32; committed whole after the restart: [0,1,2,3,4,5,6,7,8,9,10]; rows in S3 110000
+  acked but not committed (lost): none ; committed but never acked: none
+publisher log markers (count):
+    232 No space left on device
+    224 durable_buffer.ingest.failed
+    8 durable_buffer.engine.init
+    2 durable_buffer.engine.ready
+    1 durable_buffer.shutdown.start
+    1 durable_buffer.shutdown.flushing
+    1 durable_buffer.shutdown.complete
+    1 durable_buffer.flush.failed
+

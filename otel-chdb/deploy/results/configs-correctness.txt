@@ -1,0 +1,243 @@
+# configs_e2e cfg1: otap-rs/configs/{edge,edge-durable,edge-otap}.yaml, credentials from AWS_* env only
+PASS edge traces testgen-3000 count+hash (structure): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge traces testgen-3000 count+hash (inferred): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge traces testgen-3000 inferred schema
+PASS edge traces testgen-3000 rows in rust not in ref: 0
+PASS edge traces testgen-3000 rows in ref not in rust: 0
+PASS edge traces testgen-3000 envelope: producer=corr-edge epoch=20260926T184829.638Z-2e0d1a64 batch_id=0 ordinals 0..2999 schema=1
+PASS edge traces testgen-3000 central insert: rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge traces nasty-700 count+hash (structure): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge traces nasty-700 count+hash (inferred): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge traces nasty-700 inferred schema
+PASS edge traces nasty-700 rows in rust not in ref: 0
+PASS edge traces nasty-700 rows in ref not in rust: 0
+PASS edge traces nasty-700 envelope: producer=corr-edge epoch=20260926T184829.638Z-2e0d1a64 batch_id=1 ordinals 0..699 schema=1
+PASS edge traces nasty-700 central insert: rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge logs testgen-3000 count+hash (structure): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge logs testgen-3000 count+hash (inferred): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge logs testgen-3000 inferred schema
+PASS edge logs testgen-3000 rows in rust not in ref: 0
+PASS edge logs testgen-3000 rows in ref not in rust: 0
+PASS edge logs testgen-3000 envelope: producer=corr-edge epoch=20260926T184829.995Z-76ff08a4 batch_id=0 ordinals 0..2999 schema=1
+PASS edge logs testgen-3000 central insert: rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge logs nasty-700 count+hash (structure): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge logs nasty-700 count+hash (inferred): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge logs nasty-700 inferred schema
+PASS edge logs nasty-700 rows in rust not in ref: 0
+PASS edge logs nasty-700 rows in ref not in rust: 0
+PASS edge logs nasty-700 envelope: producer=corr-edge epoch=20260926T184829.995Z-76ff08a4 batch_id=1 ordinals 0..699 schema=1
+PASS edge logs nasty-700 central insert: rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_durable traces testgen-3000 count+hash (structure): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_durable traces testgen-3000 count+hash (inferred): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_durable traces testgen-3000 inferred schema
+PASS edge_durable traces testgen-3000 rows in rust not in ref: 0
+PASS edge_durable traces testgen-3000 rows in ref not in rust: 0
+PASS edge_durable traces testgen-3000 envelope: producer=corr-edge_durable epoch=20260926T184838.307Z-393000e9 batch_id=0 ordinals 0..2999 schema=1
+PASS edge_durable traces testgen-3000 central insert: rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_durable traces nasty-700 count+hash (structure): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_durable traces nasty-700 count+hash (inferred): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_durable traces nasty-700 inferred schema
+PASS edge_durable traces nasty-700 rows in rust not in ref: 0
+PASS edge_durable traces nasty-700 rows in ref not in rust: 0
+PASS edge_durable traces nasty-700 envelope: producer=corr-edge_durable epoch=20260926T184838.307Z-393000e9 batch_id=1 ordinals 0..699 schema=1
+PASS edge_durable traces nasty-700 central insert: rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_durable logs testgen-3000 count+hash (structure): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_durable logs testgen-3000 count+hash (inferred): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_durable logs testgen-3000 inferred schema
+PASS edge_durable logs testgen-3000 rows in rust not in ref: 0
+PASS edge_durable logs testgen-3000 rows in ref not in rust: 0
+PASS edge_durable logs testgen-3000 envelope: producer=corr-edge_durable epoch=20260926T184839.987Z-9f3b6806 batch_id=0 ordinals 0..2999 schema=1
+PASS edge_durable logs testgen-3000 central insert: rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_durable logs nasty-700 count+hash (structure): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_durable logs nasty-700 count+hash (inferred): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_durable logs nasty-700 inferred schema
+PASS edge_durable logs nasty-700 rows in rust not in ref: 0
+PASS edge_durable logs nasty-700 rows in ref not in rust: 0
+PASS edge_durable logs nasty-700 envelope: producer=corr-edge_durable epoch=20260926T184839.987Z-9f3b6806 batch_id=1 ordinals 0..699 schema=1
+PASS edge_durable logs nasty-700 central insert: rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_otap traces testgen-3000 count+hash (structure): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_otap traces testgen-3000 count+hash (inferred): rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_otap traces testgen-3000 inferred schema
+PASS edge_otap traces testgen-3000 rows in rust not in ref: 0
+PASS edge_otap traces testgen-3000 rows in ref not in rust: 0
+PASS edge_otap traces testgen-3000 envelope: producer=corr-edge_otap epoch=20260926T184854.064Z-fe8bc995 batch_id=0 ordinals 0..2999 schema=1
+PASS edge_otap traces testgen-3000 central insert: rust 3000	2144364149278328350 ref 3000	2144364149278328350
+PASS edge_otap traces nasty-700 count+hash (structure): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_otap traces nasty-700 count+hash (inferred): rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_otap traces nasty-700 inferred schema
+PASS edge_otap traces nasty-700 rows in rust not in ref: 0
+PASS edge_otap traces nasty-700 rows in ref not in rust: 0
+PASS edge_otap traces nasty-700 envelope: producer=corr-edge_otap epoch=20260926T184854.064Z-fe8bc995 batch_id=1 ordinals 0..699 schema=1
+PASS edge_otap traces nasty-700 central insert: rust 700	3239286194597402821 ref 700	3239286194597402821
+PASS edge_otap logs testgen-3000 count+hash (structure): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_otap logs testgen-3000 count+hash (inferred): rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_otap logs testgen-3000 inferred schema
+PASS edge_otap logs testgen-3000 rows in rust not in ref: 0
+PASS edge_otap logs testgen-3000 rows in ref not in rust: 0
+PASS edge_otap logs testgen-3000 envelope: producer=corr-edge_otap epoch=20260926T184854.432Z-429ca6b6 batch_id=0 ordinals 0..2999 schema=1
+PASS edge_otap logs testgen-3000 central insert: rust 3000	5106966708203243416 ref 3000	5106966708203243416
+PASS edge_otap logs nasty-700 count+hash (structure): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_otap logs nasty-700 count+hash (inferred): rust 700	169455814989046443 ref 700	169455814989046443
+PASS edge_otap logs nasty-700 inferred schema
+PASS edge_otap logs nasty-700 rows in rust not in ref: 0
+PASS edge_otap logs nasty-700 rows in ref not in rust: 0
+PASS edge_otap logs nasty-700 envelope: producer=corr-edge_otap epoch=20260926T184854.432Z-429ca6b6 batch_id=1 ordinals 0..699 schema=1
+PASS edge_otap logs nasty-700 central insert: rust 700	169455814989046443 ref 700	169455814989046443
+0 failed
+$S/run/cfg1/mdata/metrics-testgen-3000.pb: 15000 points in 129.047573ms
+$S/run/cfg1/mdata/metrics-nasty-700.pb: 2100 points in 671.567273ms
+$S/run/cfg1/mdata/metrics-extra.pb: 15 points in 18.994374ms
+PASS series_edge testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge testgen-3000: every point has its series row: 0 orphan points
+PASS series_edge testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_edge testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_edge testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_edge testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_edge testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_edge testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge nasty-700: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge nasty-700: every point has its series row: 0 orphan points
+PASS series_edge nasty-700 metrics_gauge view vs contrib rows: count+hash: view 420	13316261040059825381 contrib 420	13316261040059825381
+PASS series_edge nasty-700 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge nasty-700 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge nasty-700 metrics_sum view vs contrib rows: count+hash: view 420	9884797616156633890 contrib 420	9884797616156633890
+PASS series_edge nasty-700 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge nasty-700 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge nasty-700 metrics_histogram view vs contrib rows: count+hash: view 420	1689150096732993663 contrib 420	1689150096732993663
+PASS series_edge nasty-700 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge nasty-700 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge nasty-700 metrics_exponential_histogram view vs contrib rows: count+hash: view 420	3515706051231806645 contrib 420	3515706051231806645
+PASS series_edge nasty-700 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge nasty-700 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge nasty-700 metrics_summary view vs contrib rows: count+hash: view 420	6839203533190612488 contrib 420	6839203533190612488
+PASS series_edge nasty-700 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge nasty-700 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge extra: every point has its series row: 0 orphan points
+PASS series_edge extra metrics_gauge view vs contrib rows: count+hash: view 3	4227292919050977347 contrib 3	4227292919050977347
+PASS series_edge extra metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge extra metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge extra metrics_sum view vs contrib rows: count+hash: view 3	1116779140941112430 contrib 3	1116779140941112430
+PASS series_edge extra metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge extra metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge extra metrics_histogram view vs contrib rows: count+hash: view 3	4944576690454371878 contrib 3	4944576690454371878
+PASS series_edge extra metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge extra metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	3275129509484290453 contrib 3	3275129509484290453
+PASS series_edge extra metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge extra metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge extra metrics_summary view vs contrib rows: count+hash: view 3	1322674901486391569 contrib 3	1322674901486391569
+PASS series_edge extra metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge extra metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_durable testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_durable testgen-3000: every point has its series row: 0 orphan points
+PASS series_edge_durable testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_edge_durable testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_durable testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_durable testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_edge_durable testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_durable testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_durable testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_edge_durable testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_edge_durable testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_edge_durable testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_durable testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_durable nasty-700: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_durable nasty-700: every point has its series row: 0 orphan points
+PASS series_edge_durable nasty-700 metrics_gauge view vs contrib rows: count+hash: view 420	13316261040059825381 contrib 420	13316261040059825381
+PASS series_edge_durable nasty-700 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_durable nasty-700 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_durable nasty-700 metrics_sum view vs contrib rows: count+hash: view 420	9884797616156633890 contrib 420	9884797616156633890
+PASS series_edge_durable nasty-700 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_durable nasty-700 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_durable nasty-700 metrics_histogram view vs contrib rows: count+hash: view 420	1689150096732993663 contrib 420	1689150096732993663
+PASS series_edge_durable nasty-700 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable nasty-700 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable nasty-700 metrics_exponential_histogram view vs contrib rows: count+hash: view 420	3515706051231806645 contrib 420	3515706051231806645
+PASS series_edge_durable nasty-700 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable nasty-700 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable nasty-700 metrics_summary view vs contrib rows: count+hash: view 420	6839203533190612488 contrib 420	6839203533190612488
+PASS series_edge_durable nasty-700 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_durable nasty-700 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_durable extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_durable extra: every point has its series row: 0 orphan points
+PASS series_edge_durable extra metrics_gauge view vs contrib rows: count+hash: view 3	4227292919050977347 contrib 3	4227292919050977347
+PASS series_edge_durable extra metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_durable extra metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_durable extra metrics_sum view vs contrib rows: count+hash: view 3	1116779140941112430 contrib 3	1116779140941112430
+PASS series_edge_durable extra metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_durable extra metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_durable extra metrics_histogram view vs contrib rows: count+hash: view 3	4944576690454371878 contrib 3	4944576690454371878
+PASS series_edge_durable extra metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable extra metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	3275129509484290453 contrib 3	3275129509484290453
+PASS series_edge_durable extra metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_durable extra metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_durable extra metrics_summary view vs contrib rows: count+hash: view 3	1322674901486391569 contrib 3	1322674901486391569
+PASS series_edge_durable extra metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_durable extra metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_otap testgen-3000: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_otap testgen-3000: every point has its series row: 0 orphan points
+PASS series_edge_otap testgen-3000 metrics_gauge view vs contrib rows: count+hash: view 3000	7404341857908088171 contrib 3000	7404341857908088171
+PASS series_edge_otap testgen-3000 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_otap testgen-3000 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_otap testgen-3000 metrics_sum view vs contrib rows: count+hash: view 3000	2992664141541355862 contrib 3000	2992664141541355862
+PASS series_edge_otap testgen-3000 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_otap testgen-3000 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_otap testgen-3000 metrics_histogram view vs contrib rows: count+hash: view 3000	11109788372110982133 contrib 3000	11109788372110982133
+PASS series_edge_otap testgen-3000 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap testgen-3000 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: count+hash: view 3000	6843129286277078796 contrib 3000	6843129286277078796
+PASS series_edge_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap testgen-3000 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap testgen-3000 metrics_summary view vs contrib rows: count+hash: view 3000	4911754348918829302 contrib 3000	4911754348918829302
+PASS series_edge_otap testgen-3000 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_otap testgen-3000 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_otap nasty-700: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_otap nasty-700: every point has its series row: 0 orphan points
+PASS series_edge_otap nasty-700 metrics_gauge view vs contrib rows: count+hash: view 420	13316261040059825381 contrib 420	13316261040059825381
+PASS series_edge_otap nasty-700 metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_otap nasty-700 metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_otap nasty-700 metrics_sum view vs contrib rows: count+hash: view 420	9884797616156633890 contrib 420	9884797616156633890
+PASS series_edge_otap nasty-700 metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_otap nasty-700 metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_otap nasty-700 metrics_histogram view vs contrib rows: count+hash: view 420	1689150096732993663 contrib 420	1689150096732993663
+PASS series_edge_otap nasty-700 metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap nasty-700 metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap nasty-700 metrics_exponential_histogram view vs contrib rows: count+hash: view 420	3515706051231806645 contrib 420	3515706051231806645
+PASS series_edge_otap nasty-700 metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap nasty-700 metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap nasty-700 metrics_summary view vs contrib rows: count+hash: view 420	6839203533190612488 contrib 420	6839203533190612488
+PASS series_edge_otap nasty-700 metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_otap nasty-700 metrics_summary view vs contrib rows: in contrib only: 0
+PASS series_edge_otap extra: objects per lane: {'metrics_number_points': 1, 'metrics_histogram_points': 1, 'metrics_exponential_histogram_points': 1, 'metrics_summary_points': 1, 'metrics_series': 1}
+PASS series_edge_otap extra: every point has its series row: 0 orphan points
+PASS series_edge_otap extra metrics_gauge view vs contrib rows: count+hash: view 3	4227292919050977347 contrib 3	4227292919050977347
+PASS series_edge_otap extra metrics_gauge view vs contrib rows: in view only: 0
+PASS series_edge_otap extra metrics_gauge view vs contrib rows: in contrib only: 0
+PASS series_edge_otap extra metrics_sum view vs contrib rows: count+hash: view 3	1116779140941112430 contrib 3	1116779140941112430
+PASS series_edge_otap extra metrics_sum view vs contrib rows: in view only: 0
+PASS series_edge_otap extra metrics_sum view vs contrib rows: in contrib only: 0
+PASS series_edge_otap extra metrics_histogram view vs contrib rows: count+hash: view 3	4944576690454371878 contrib 3	4944576690454371878
+PASS series_edge_otap extra metrics_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap extra metrics_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap extra metrics_exponential_histogram view vs contrib rows: count+hash: view 3	3275129509484290453 contrib 3	3275129509484290453
+PASS series_edge_otap extra metrics_exponential_histogram view vs contrib rows: in view only: 0
+PASS series_edge_otap extra metrics_exponential_histogram view vs contrib rows: in contrib only: 0
+PASS series_edge_otap extra metrics_summary view vs contrib rows: count+hash: view 3	1322674901486391569 contrib 3	1322674901486391569
+PASS series_edge_otap extra metrics_summary view vs contrib rows: in view only: 0
+PASS series_edge_otap extra metrics_summary view vs contrib rows: in contrib only: 0
+0 failed

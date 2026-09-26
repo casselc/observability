@@ -1,0 +1,56 @@
+# The routing gateway of ../components/routing, for a local run: the same
+# pipeline, a static resolver in place of the k8s one. N_PUBLISHERS picks how
+# many of the local publishers (publishers.sh ports) are in the ring.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:${env:GW_GRPC_PORT:-14417}
+      http:
+        endpoint: 127.0.0.1:${env:GW_HTTP_PORT:-14418}
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 1024
+    spike_limit_mib: 256
+exporters:
+  load_balancing:
+    routing_key: service
+    # No queue and no retry at this level: a request is answered only after
+    # every per-publisher piece is acked, so the gateway holds nothing a
+    # restart can lose; the sender (the agent's persistent queue) keeps
+    # custody and resends. The timeout bounds the whole fan-out; the default
+    # (5 s) cut the pieces' own retries short when a publisher restarted
+    # (results/route-pubkill-stock-lbtimeout5s.txt).
+    timeout: 60s
+    protocol:
+      otlp:
+        timeout: 20s
+        tls:
+          insecure: true
+        # The piece's own retry: same bytes to the same publisher.
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 5s
+          max_elapsed_time: 45s
+        sending_queue:
+          enabled: false
+    resolver:
+      static:
+        hostnames: ${env:GW_BACKENDS}   # a YAML list, e.g. "[127.0.0.1:15100, 127.0.0.1:15101]"
+service:
+  telemetry:
+    metrics:
+      level: none
+    logs:
+      level: ${env:GW_LOG_LEVEL:-info}
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [load_balancing]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [load_balancing]

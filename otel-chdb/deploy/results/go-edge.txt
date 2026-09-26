@@ -1,0 +1,10 @@
+# scripts/go_edge_test.sh RUN=go1: base/go/publisher-config.yaml on otelcol-awss3
+# (awss3/collector, ocb v0.161.0), SeaweedFS bucket deploy-edge, keys from the env.
+# 16 distinct 10k-span and 16 distinct 10k-log requests (mixgen, 120 services),
+# publisher SIGKILLed 4 s in and restarted on the same file_storage queue.
+sender attempts: traces 16, logs 16 (every request acked into the persistent queue before the kill)
+counted from the objects (the consumer of the time failed on a quoting bug, see ../README.md):
+traces: rows 160000, distinct 160000, objects 16, epochs 1, duplicate rows 0, byte-identical copies 0
+logs:   rows 160000, distinct 160000, objects 16, epochs 1, duplicate rows 0, byte-identical copies 0
+(one epoch: the first incarnation committed nothing before the kill; the restarted
+one replayed all 32 requests from the queue)

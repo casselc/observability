@@ -1,0 +1,40 @@
+# route_test gwterm-b8: scenario gwterm, N=8, gateway otelcol-patched/otelcol-deploy
+send wall 36.9 s; sender attempts for 32 requests: traces 357, logs 246; senders per signal: 8
+event 1790449173.601371676 gateway SIGTERM
+event 1790449180.038106514 gateway exited
+event 1790449181.162077549 gateway up
+event 1790449184.168860997 gateway SIGTERM
+event 1790449190.102539942 gateway exited
+event 1790449191.229100429 gateway up
+objects in S3: 145; left after dropping byte-identical copies (the consumer's content check): 145
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	33900	0.106	0.85	15	15	2260
+pub-1	13442	0.042	0.34	11	16	840
+pub-2	18332	0.057	0.46	12	14	1309
+pub-3	31709	0.099	0.79	13	15	2114
+pub-4	22229	0.069	0.56	16	16	1389
+pub-5	92728	0.29	2.32	12	32	2898
+pub-6	66478	0.208	1.66	26	17	3910
+pub-7	41182	0.129	1.03	15	20	2059
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000
+objects in S3: 140; left after dropping byte-identical copies (the consumer's content check): 140
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	71116	0.222	1.78	16	17	4183
+pub-1	14684	0.046	0.37	11	17	864
+pub-2	12063	0.038	0.3	14	18	670
+pub-3	14702	0.046	0.37	13	18	817
+pub-4	62158	0.194	1.55	19	18	3453
+pub-5	9788	0.031	0.24	12	16	612
+pub-6	17643	0.055	0.44	16	15	1176
+pub-7	117846	0.368	2.95	19	21	5612
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000

@@ -1,0 +1,31 @@
+Results of deploy/scripts/*, 2026-09-26, SeaweedFS 4.47 (bucket deploy-edge) and
+ClickHouse 26.10 on one shared 4-vCPU box. Row counts are exact; timings are not
+benchmarks.
+
+route-*.txt  scripts/route_test.sh: senders -> gateway (scripts/gateway-local.yaml)
+             -> N publishers; 32 distinct 10k-row requests per signal, 120 services
+             (Zipf 1.1) in each. "central: duplicate rows" counts what the consumer
+             (or CHECK=s3, which reproduces it) would leave duplicated.
+  file                              gateway   publisher config     senders  N  scenario
+  route-steady-stock                stock     edge-durable.yaml    1        8  steady
+  route-gwkill-stock                stock     edge-durable.yaml    1        8  2 x SIGKILL gateway
+  route-gwkill-patched              patched   edge-durable.yaml    1        8  2 x SIGKILL gateway
+  route-reroute-patched             patched   edge-durable.yaml    1        8  SIGKILL gateway, back with 9
+  route-pubkill-patched             patched   edge-durable.yaml    1        8  SIGKILL publisher 0 for 3 s
+  route-pubkill-stock-lbtimeout5s   stock     edge-durable.yaml    1        8  same, gateway without the 60 s
+                                                                                load_balancing timeout
+  route-pubkill-stock               stock     edge-durable.yaml    1        8  same, with it
+  route-steady-batched              patched   edge-publisher.yaml  8        8  steady
+  route-gwkill-batched              patched   edge-publisher.yaml  8        8  2 x SIGKILL gateway
+  route-gwterm-batched              patched   edge-publisher.yaml  8        8  2 x SIGTERM gateway
+  route-gwkill-unbatched            patched   edge-durable.yaml    8        8  2 x SIGKILL gateway
+  route-pubkill-batched-direct      patched   edge-publisher.yaml  8        1  SIGKILL the publisher (N = 1:
+                                                                                the agent -> publisher path)
+  The first seven were checked with the consumer (the release build of that morning),
+  the rest with CHECK=s3 (the working-tree consumer was broken at the time);
+  route_check.sh CHECK=s3 on gwkill-stock reproduced the consumer's numbers.
+durable-diskfull.txt   scripts/diskfull.sh (Quiver backpressure / drop_oldest / ENOSPC)
+agent-queue.txt        scripts/agent_test.sh (base/rust/agent-rust.yaml, publisher down)
+configs-correctness.txt scripts/configs_e2e.sh (correctness.py + metrics_correctness.py
+                       for edge.yaml, edge-durable.yaml, edge-otap.yaml)
+go-edge.txt            scripts/go_edge_test.sh (the Go publisher, SIGKILL mid-stream)

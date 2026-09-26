@@ -1,0 +1,22 @@
+# route_test pubkill-b8-n1: scenario pubkill, N=1, gateway otelcol-patched/otelcol-deploy
+send wall 22.4 s; sender attempts for 32 requests: traces 68, logs 79; senders per signal: 8
+event 1790449602.235717007 publisher 0 SIGKILL
+event 1790449605.262088210 publisher 0 up
+objects in S3: 64; left after dropping byte-identical copies (the consumer's content check): 64
+
+## traces
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	320000	1	1	120	64	5000
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000
+objects in S3: 36; left after dropping byte-identical copies (the consumer's content check): 32
+
+## logs
+per publisher: rows, share, rows/mean, services, objects, rows/object
+pub-0	320000	1	1	120	32	10000
+affinity: services, services on exactly one publisher, max publishers per service
+120	120	1
+central: rows, distinct rows, duplicate rows (rows - distinct), expected distinct rows (320000)
+320000	320000	0	320000

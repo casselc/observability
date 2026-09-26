@@ -19,7 +19,7 @@ import (
 
 	"go.opentelemetry.io/collector/config/configopaque"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // Object storage tests need an S3 endpoint with a bucket, e.g. SeaweedFS:

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // ITFMeta is what quintgo stores under "#meta"."quintgo" of a model-level

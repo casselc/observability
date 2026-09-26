@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
+	"github.com/casselc/observability/quintgo/binding"
+	"github.com/casselc/observability/quintgo/itf"
 )
 
 // ITFOptions says what to check a model-level ITF trace against. Every field

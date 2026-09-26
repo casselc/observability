@@ -22,8 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo/compare"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"google.golang.org/protobuf/encoding/protowire"

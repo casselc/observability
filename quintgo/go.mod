@@ -1,4 +1,4 @@
-module github.com/chucklehead-dev/oscope/spike/quintgo
+module github.com/casselc/observability/quintgo
 
 go 1.25.0
 

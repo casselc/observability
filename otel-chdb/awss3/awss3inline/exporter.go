@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package awss3exporter // import "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
+package awss3exporter // import "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
 
 import (
 	"context"
@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline/internal/upload"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
+	"github.com/casselc/observability/otel-chdb/awss3/awss3inline/internal/upload"
+	"github.com/casselc/observability/otel-chdb/awss3/inline"
 )
 
 type s3Exporter struct {

@@ -1,4 +1,4 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter
+module github.com/casselc/observability/otel-chdb/chdbexporter
 
 // Stock upstream chdb-go, no fork. Used with -tags stockchdb:
 //   go test -tags stockchdb -modfile=go.stock.mod ./...

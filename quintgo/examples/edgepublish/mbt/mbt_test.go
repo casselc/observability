@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/connect"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/examples/edgepublish/publisher"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+	"github.com/casselc/observability/quintgo/connect"
+	"github.com/casselc/observability/quintgo/examples/edgepublish/publisher"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/validate"
 )
 
 // QUINTGO_TRACES (default 5) traces of QUINTGO_STEPS (default 30) steps are

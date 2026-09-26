@@ -1,15 +1,15 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/bench/central/gen
+module github.com/casselc/observability/otel-chdb/bench/central/gen
 
 go 1.26.0
 
 replace (
 	github.com/chdb-io/chdb-go/v2 => ../../../chdb-go
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter => ../../../chdbexporter
+	github.com/casselc/observability/otel-chdb/chdbexporter => ../../../chdbexporter
 )
 
 require (
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/collector/component/componenttest v0.161.0
 	go.opentelemetry.io/collector/config/configopaque v1.67.0
 	go.opentelemetry.io/collector/config/configoptional v1.67.0

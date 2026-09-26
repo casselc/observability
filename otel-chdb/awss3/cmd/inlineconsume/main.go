@@ -25,7 +25,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
+	"github.com/casselc/observability/otel-chdb/awss3/inline"
 )
 
 var (

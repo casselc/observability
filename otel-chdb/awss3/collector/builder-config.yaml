@@ -11,13 +11,13 @@ receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
 exporters:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awss3exporter v0.161.0
-  - gomod: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 v0.0.0
-    import: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline
+  - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
+    import: github.com/casselc/observability/otel-chdb/awss3/awss3inline
 extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.161.0
-  - gomod: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 v0.0.0
-    import: github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/parquetencoding
+  - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
+    import: github.com/casselc/observability/otel-chdb/awss3/parquetencoding
 
 replaces:
-  - github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3 => @AWSS3@
-  - github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => @AWSS3@/../parquetgo
+  - github.com/casselc/observability/otel-chdb/awss3 => @AWSS3@
+  - github.com/casselc/observability/otel-chdb/parquetgo => @AWSS3@/../parquetgo

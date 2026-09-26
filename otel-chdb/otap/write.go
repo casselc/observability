@@ -11,7 +11,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 // WriteParquet writes rec as one Parquet file (one row group) with

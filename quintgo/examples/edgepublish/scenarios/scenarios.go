@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/examples/edgepublish/publisher"
+	"github.com/casselc/observability/quintgo/examples/edgepublish/publisher"
 )
 
 // clock is a manually advanced clock, so generation rotation is deterministic.

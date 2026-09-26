@@ -28,8 +28,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/fleet"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/promconv"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/fleet"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/promconv"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"

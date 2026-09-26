@@ -1,14 +1,14 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/bench/merges/mgen
+module github.com/casselc/observability/otel-chdb/bench/merges/mgen
 
 go 1.26.0
 
-replace github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => ../../../parquetgo
-replace github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout => ../../../metrics-layout
+replace github.com/casselc/observability/otel-chdb/parquetgo => ../../../parquetgo
+replace github.com/casselc/observability/otel-chdb/metrics-layout => ../../../metrics-layout
 
 require (
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/ClickHouse/ch-go v0.73.0
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/minio/minio-go/v7 v7.0.91
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.161.0
 	github.com/parquet-go/parquet-go v0.32.0
@@ -22,7 +22,7 @@ require (
 )
 
 require (
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect

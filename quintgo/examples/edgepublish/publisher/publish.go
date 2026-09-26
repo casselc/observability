@@ -1,5 +1,5 @@
 // Package publisher is a stand-in for the chdb exporter's publishing path
-// (spike/otel-chdb/chdbexporter/publish.go) with the same control flow:
+// (otel-chdb/chdbexporter/publish.go) with the same control flow:
 // acquire the current generation under a shared lock (rotating under the
 // exclusive lock when the clock has moved on), allocate a batch id, write
 // table rows, then a Parquet object, then the manifest that commits the batch,

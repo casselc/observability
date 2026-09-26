@@ -4,7 +4,7 @@ package main
 import (
 	"io"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 

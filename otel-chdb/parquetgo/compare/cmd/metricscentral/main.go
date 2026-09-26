@@ -37,8 +37,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo/compare"
 )
 
 var chURL = os.Getenv("CHDB_TEST_CLICKHOUSE")

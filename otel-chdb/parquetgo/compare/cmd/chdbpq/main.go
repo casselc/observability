@@ -10,8 +10,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/parquetgo/compare"
 )
 
 func main() {

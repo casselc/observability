@@ -7,7 +7,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // Generated is a Quint module that replays one observed trace.

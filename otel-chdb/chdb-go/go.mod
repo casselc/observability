@@ -7,6 +7,7 @@ require (
 	github.com/ebitengine/purego v0.8.2
 	github.com/huandu/go-sqlbuilder v1.27.3
 	github.com/parquet-go/parquet-go v0.23.0
+	golang.org/x/sys v0.22.0
 )
 
 require (
@@ -23,5 +24,4 @@ require (
 	github.com/pkg/term v1.2.0-beta.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/encoding v0.4.0 // indirect
-	golang.org/x/sys v0.22.0 // indirect
 )

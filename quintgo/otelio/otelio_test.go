@@ -7,7 +7,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/qobs"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )

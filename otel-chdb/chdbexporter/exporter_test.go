@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.uber.org/zap"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // chDB binds one data path per process, so every test in this binary shares

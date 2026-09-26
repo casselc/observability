@@ -1,7 +1,7 @@
 # Sourced by the scripts here.
 SP=/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad
 CHBIN=$SP/ch/clickhouse
-HERE=/home/user/oscope/spike/otel-chdb/central-replicated
+HERE=/home/user/observability/otel-chdb/central-replicated
 R1=http://127.0.0.1:28123
 R2=http://127.0.0.1:38123
 q1() { curl -sS "$R1/" --data-binary "$1"; }

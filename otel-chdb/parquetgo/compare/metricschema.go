@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 // The s3() structures of the metric objects (METRICS_SCHEMA.md), without

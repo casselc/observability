@@ -6,7 +6,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )

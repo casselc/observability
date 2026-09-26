@@ -1,11 +1,11 @@
 # yaml-language-server: $schema=https://datadoghq.dev/orchestrion/schema.json
 #
 # Generic quintgo aspects. A project opts in by importing
-# github.com/chucklehead-dev/oscope/spike/quintgo/qobs in its orchestrion.tool.go
+# github.com/casselc/observability/quintgo/qobs in its orchestrion.tool.go
 # and building with `orchestrion go build` / `orchestrion go test`. A plain
 # `go build` ignores the directives: the program is unchanged.
 meta:
-  name: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+  name: github.com/casselc/observability/quintgo/qobs
   description: Record Quint model steps (//quint:action) as OpenTelemetry span events.
 
 aspects:
@@ -26,7 +26,7 @@ aspects:
       - prepend-statements:
           imports:
             context: context
-            quintqobs: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+            quintqobs: github.com/casselc/observability/quintgo/qobs
           template: |-
             {{- $ctx := .Function.ArgumentOfType "context.Context" -}}
             {{- $err := .Function.ResultOfType "error" -}}
@@ -65,7 +65,7 @@ aspects:
     advice:
       - prepend-statements:
           imports:
-            quintqobs: github.com/chucklehead-dev/oscope/spike/quintgo/qobs
+            quintqobs: github.com/casselc/observability/quintgo/qobs
           template: |-
             {{- $ctx := .Function.ArgumentOfType "context.Context" -}}
             {{- if ne $ctx "" -}}

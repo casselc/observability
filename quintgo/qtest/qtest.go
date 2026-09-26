@@ -24,9 +24,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+	"github.com/casselc/observability/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/validate"
 )
 
 // Config of a recorded run.

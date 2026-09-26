@@ -1,4 +1,4 @@
-module oscope/spike/otel-chdb/s3cas
+module github.com/casselc/observability/otel-chdb/s3cas
 
 go 1.24.7
 

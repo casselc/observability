@@ -1,8 +1,8 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3
+module github.com/casselc/observability/otel-chdb/awss3
 
 go 1.26.0
 
-replace github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => ../parquetgo
+replace github.com/casselc/observability/otel-chdb/parquetgo => ../parquetgo
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1
 	github.com/aws/smithy-go v1.28.2
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/timefmt-go v0.1.8
 	github.com/klauspost/compress v1.20.0

@@ -12,7 +12,7 @@
 # (Merges are held off with max_bytes_to_merge_* = 1 until the merge phase.)
 # Prints per phase and replica the system.events deltas and bytes in the bucket.
 set -u
-. /home/user/oscope/spike/otel-chdb/central-replicated/scripts/common.sh
+. /home/user/observability/otel-chdb/central-replicated/scripts/common.sh
 . "$HERE/scripts/gen.sh"
 V=$1; N=${N:-10}; ROWS=${ROWS:-30000}
 case $V in zc) POL=tiered_zc; ZC=1; PFX=zc ;; own) POL=tiered_own; ZC=0; PFX='own-r1 own-r2' ;; esac

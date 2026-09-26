@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter"
+	"github.com/casselc/observability/otel-chdb/chdbexporter"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 	"go.opentelemetry.io/collector/config/configopaque"

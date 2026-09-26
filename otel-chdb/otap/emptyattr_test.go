@@ -3,7 +3,7 @@ package otap
 import (
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"github.com/open-telemetry/otel-arrow/go/pkg/otel/arrow_record"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"

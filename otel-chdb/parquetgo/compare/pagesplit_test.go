@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 // TestArrowPageSplitVariants: arrow-go (v18.7.0) with V1 data pages can end

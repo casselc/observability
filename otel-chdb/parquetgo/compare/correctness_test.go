@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )

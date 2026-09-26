@@ -3,7 +3,7 @@ package qobs
 import (
 	"context"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/qtrace"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -20,7 +20,7 @@ type OTelSink struct{ Tracer trace.Tracer }
 
 // NewOTelSink returns a sink on tp's "quintgo" tracer.
 func NewOTelSink(tp trace.TracerProvider) *OTelSink {
-	return &OTelSink{Tracer: tp.Tracer("github.com/chucklehead-dev/oscope/spike/quintgo/qobs")}
+	return &OTelSink{Tracer: tp.Tracer("github.com/casselc/observability/quintgo/qobs")}
 }
 
 func (o *OTelSink) Record(ctx context.Context, s *qtrace.Step) {

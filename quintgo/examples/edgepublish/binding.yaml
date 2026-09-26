@@ -1,6 +1,6 @@
 # quintgo binding: how steps observed from the edgepublish stand-in (or the
 # real chdbexporter, once annotated the same way) become calls of the actions
-# of spike/otel-chdb/model/edgePublish.qnt.
+# of otel-chdb/model/edgePublish.qnt.
 #
 # Only the WRITER half of the model is observed: pushStart, the three writes,
 # rotateGen, sealGen, and crash (inferred from a change of process). The

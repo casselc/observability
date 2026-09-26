@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // BenchmarkEncode measures the format alone: pdata to bytes, no chDB.

@@ -23,10 +23,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/load"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+	"github.com/casselc/observability/quintgo/binding"
+	"github.com/casselc/observability/quintgo/load"
+	"github.com/casselc/observability/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/validate"
 )
 
 func main() {

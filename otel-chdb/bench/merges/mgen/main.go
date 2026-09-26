@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/central"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/fleet"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/seriesenc"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/central"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/fleet"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/seriesenc"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 func main() {

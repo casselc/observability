@@ -10,7 +10,7 @@ receivers:
 processors:
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
 exporters:
-  - gomod: github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter v0.0.0
+  - gomod: github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0
     path: ../chdbexporter
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.161.0
 extensions:

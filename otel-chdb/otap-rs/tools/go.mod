@@ -1,18 +1,18 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/otap-rs/tools
+module github.com/casselc/observability/otel-chdb/otap-rs/tools
 
 go 1.26.0
 
 replace (
 	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter => ../../chdbexporter
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => ../../parquetgo
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare => ../../parquetgo/compare
+	github.com/casselc/observability/otel-chdb/chdbexporter => ../../chdbexporter
+	github.com/casselc/observability/otel-chdb/parquetgo => ../../parquetgo
+	github.com/casselc/observability/otel-chdb/parquetgo/compare => ../../parquetgo/compare
 )
 
 require (
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/parquetgo/compare v0.0.0-00010101000000-000000000000
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.161.0
 	github.com/open-telemetry/otel-arrow/go v0.57.0
 	go.opentelemetry.io/collector/component v1.67.0
@@ -67,7 +67,7 @@ require (
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000 // indirect
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/foxboron/go-tpm-keyfiles v0.0.0-20250903184740-5d135037bd4d // indirect
 	github.com/go-faster/city v1.0.1 // indirect
@@ -145,4 +145,4 @@ require (
 	google.golang.org/grpc v1.83.2
 )
 
-replace github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout => ../../metrics-layout
+replace github.com/casselc/observability/otel-chdb/metrics-layout => ../../metrics-layout

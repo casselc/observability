@@ -10,7 +10,7 @@ import (
 
 var (
 	Type      = component.MustNewType("awss3inline")
-	ScopeName = "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
+	ScopeName = "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
 )
 
 const (

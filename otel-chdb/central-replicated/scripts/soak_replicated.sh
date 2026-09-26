@@ -19,7 +19,7 @@
 #   OUT=results/soak DURATION=900 SYNC=1 scripts/soak_replicated.sh
 set -u
 . "$(dirname "$0")/common.sh"
-OTAP=/home/user/oscope/spike/otel-chdb/otap-rs
+OTAP=/home/user/observability/otel-chdb/otap-rs
 B=${B:-$SP/consumer/bin}                      # otap-s3pq, soaksend, faultproxy2
 CONSUME=${CONSUME:-$SP/otap-rs-target/release/consume}
 OUT=${OUT:-$HERE/results/soak}

@@ -32,8 +32,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/awss3/inline"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 var typ = component.MustNewType("parquet_encoding")

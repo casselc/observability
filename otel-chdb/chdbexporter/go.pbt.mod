@@ -1,4 +1,4 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter
+module github.com/casselc/observability/otel-chdb/chdbexporter
 
 // Property-based tests (hegel-go), kept out of go.mod: hegel-go pins purego to
 // an alpha that would otherwise flow into every build of the exporter,

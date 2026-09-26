@@ -10,7 +10,7 @@
 #
 #   . scripts/zc_experiments.sh   (a library of steps; the README lists the sequence run)
 set -u
-. /home/user/oscope/spike/otel-chdb/central-replicated/scripts/common.sh
+. /home/user/observability/otel-chdb/central-replicated/scripts/common.sh
 . "$HERE/scripts/gen.sh"
 OUT=${OUT:-$HERE/results/zc}
 mkdir -p "$OUT"

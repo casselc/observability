@@ -14,7 +14,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // Deterministic reproductions of what the publisher state machine found,

@@ -25,8 +25,8 @@ import (
 	"go.opentelemetry.io/collector/exporter/exporterhelper"
 	"go.opentelemetry.io/collector/exporter/exportertest"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 var chdbPath string

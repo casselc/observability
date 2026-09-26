@@ -35,8 +35,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
-	patched "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/parquetencoding"
+	patched "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
+	"github.com/casselc/observability/otel-chdb/awss3/parquetencoding"
 )
 
 var runID = time.Now().UTC().Format("20060102T150405")

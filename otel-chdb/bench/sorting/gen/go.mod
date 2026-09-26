@@ -1,4 +1,4 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/bench/sorting/gen
+module github.com/casselc/observability/otel-chdb/bench/sorting/gen
 
 go 1.26.0
 

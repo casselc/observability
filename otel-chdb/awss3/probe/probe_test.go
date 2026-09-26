@@ -30,8 +30,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/parquetencoding"
+	"github.com/casselc/observability/otel-chdb/awss3/inline"
+	"github.com/casselc/observability/otel-chdb/awss3/parquetencoding"
 )
 
 const bucket = "otel"

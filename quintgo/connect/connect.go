@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
+	"github.com/casselc/observability/quintgo/itf"
 )
 
 // Step is what a handler sees: the action, its nondeterministic picks, and

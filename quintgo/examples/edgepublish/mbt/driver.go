@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/connect"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/examples/edgepublish/publisher"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/connect"
+	"github.com/casselc/observability/quintgo/examples/edgepublish/publisher"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qobs"
 )
 
 const wait = 2 * time.Second // how long the implementation may take to reach its next write

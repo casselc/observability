@@ -1,10 +1,10 @@
-module github.com/chucklehead-dev/oscope/spike/quintgo/examples/edgepublish
+module github.com/casselc/observability/quintgo/examples/edgepublish
 
 go 1.25.0
 
 require (
 	github.com/DataDog/orchestrion v1.13.1
-	github.com/chucklehead-dev/oscope/spike/quintgo v0.0.0
+	github.com/casselc/observability/quintgo v0.0.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 )
@@ -122,4 +122,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/chucklehead-dev/oscope/spike/quintgo => ../..
+replace github.com/casselc/observability/quintgo => ../..

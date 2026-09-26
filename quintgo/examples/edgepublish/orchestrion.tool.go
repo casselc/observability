@@ -7,5 +7,5 @@ package tools
 
 import (
 	_ "github.com/DataDog/orchestrion"
-	_ "github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
+	_ "github.com/casselc/observability/quintgo/qobs"
 )

@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/binding"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // Options configures a validation run.

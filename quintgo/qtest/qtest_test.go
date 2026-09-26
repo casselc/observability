@@ -6,9 +6,9 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/validate"
 )
 
 const account = "../validate/testdata/account.yaml"

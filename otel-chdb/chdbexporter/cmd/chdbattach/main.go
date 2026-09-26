@@ -22,7 +22,7 @@ import (
 
 	"github.com/chdb-io/chdb-go/v2/chdb"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter"
+	"github.com/casselc/observability/otel-chdb/chdbexporter"
 )
 
 type manifest struct {

@@ -21,11 +21,11 @@ import (
 // writer half of edgePublish.qnt (pushStart, writeTable, writeParquet,
 // writeManifest with Ok / Fail / Ambiguous, rotateGen, sealGen, and crash,
 // which quintgo infers from a change of process). The steps use quintgo's
-// telemetry schema (spike/quintgo/qtrace: one "quint.step" span event per
+// telemetry schema (quintgo/qtrace: one "quint.step" span event per
 // step, attributes quint.action, quint.seq, quint.arg.*, quint.obs.*, ...)
 // and are written as OTLP/JSON, the format quintgo reads. That file is the
 // whole interface: this package does not import quintgo, and quintgo's
-// binding for the model (spike/quintgo/examples/edgepublish/binding.yaml)
+// binding for the model (quintgo/examples/edgepublish/binding.yaml)
 // maps the steps to Quint calls.
 //
 // Mapping choices, where the implementation and the model differ in grain:

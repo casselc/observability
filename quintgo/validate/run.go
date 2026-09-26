@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/binding"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/binding"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // Checker validates steps against one binding. Create it once (it typechecks

@@ -26,9 +26,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/central"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/fleet"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/seriesenc"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/central"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/fleet"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/seriesenc"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 )

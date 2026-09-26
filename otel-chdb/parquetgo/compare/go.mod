@@ -1,11 +1,11 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo/compare
+module github.com/casselc/observability/otel-chdb/parquetgo/compare
 
 go 1.26.0
 
 replace (
 	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter => ../../chdbexporter
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => ../
+	github.com/casselc/observability/otel-chdb/chdbexporter => ../../chdbexporter
+	github.com/casselc/observability/otel-chdb/parquetgo => ../
 )
 
 require (
@@ -14,7 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/smithy-go v1.28.1
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
 	github.com/minio/minio-go/v7 v7.0.91
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.161.0
 	github.com/parquet-go/parquet-go v0.32.0
@@ -83,7 +83,7 @@ require (
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000 // indirect
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

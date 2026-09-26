@@ -20,7 +20,7 @@ The research, the design choices and their limits are in
 [DESIGN.md](DESIGN.md). This file covers how to run it and how to use it.
 
 ```
-quintgo/                      generic core (module github.com/chucklehead-dev/oscope/spike/quintgo)
+quintgo/                      generic core (module github.com/casselc/observability/quintgo)
   qtrace/     telemetry schema, Step, Reconstruct (ordering, gaps, restarts); native step log ReadJSONL/WriteJSONL
   qobs/       runtime recorder: Record, Thread; sinks MemorySink, JSONLSink/FileSink, OTelSink, Tee; orchestrion.yml
   otelio/     OTLP/JSON file exporter + reader; SDK spans -> steps
@@ -50,7 +50,7 @@ to install.
 ## Reproduce
 
 ```sh
-cd spike/quintgo
+cd quintgo
 go test ./...                                   # core: ordering, OTLP round trip, validator on a toy model
 cd examples/edgepublish
 QUINTGO_BACKEND=typescript OUT=/tmp/quintgo-demo ./run-demo.sh      # 5 scenarios x 3 trace paths, ~4 min cold
@@ -138,8 +138,8 @@ trace with the model's state after each step.
 
 ```go
 import (
-    "github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-    "github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+    "github.com/casselc/observability/quintgo/qobs"
+    "github.com/casselc/observability/quintgo/validate"
 )
 
 // 1. Record: in memory (no OTel), or through OTel with qobs.NewOTelSink(tp).

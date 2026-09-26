@@ -1,14 +1,14 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/promtsdb
+module github.com/casselc/observability/otel-chdb/metrics-layout/promtsdb
 
 go 1.26.0
 
 replace (
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout => ../
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo => ../../parquetgo
+	github.com/casselc/observability/otel-chdb/metrics-layout => ../
+	github.com/casselc/observability/otel-chdb/parquetgo => ../../parquetgo
 )
 
 require (
-	github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/prometheus/prometheus v0.303.0
 	github.com/zeebo/xxh3 v1.1.0
 )

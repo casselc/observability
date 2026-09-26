@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // TestRawPayloadsReadable writes each OTAP payload's IPC bytes, exactly as

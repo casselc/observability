@@ -32,8 +32,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 func main() {

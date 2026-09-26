@@ -16,7 +16,7 @@ import (
 	"text/template"
 	"text/template/parse"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/qtrace"
 	"gopkg.in/yaml.v3"
 )
 

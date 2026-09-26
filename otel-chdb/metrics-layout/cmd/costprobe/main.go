@@ -14,7 +14,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/central"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/central"
 )
 
 func main() {

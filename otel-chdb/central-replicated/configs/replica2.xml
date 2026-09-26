@@ -11,7 +11,7 @@
   <tmp_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/tmp/</tmp_path>
   <user_files_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/user_files/</user_files_path>
   <format_schema_path>/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/crep/r2/data/format_schemas/</format_schema_path>
-  <user_directories><users_xml><path>/home/user/oscope/spike/otel-chdb/central-replicated/configs/users.xml</path></users_xml></user_directories>
+  <user_directories><users_xml><path>/home/user/observability/otel-chdb/central-replicated/configs/users.xml</path></users_xml></user_directories>
 
   <!-- Shared 4-vCPU / 15 GB box: about 3 GB per replica, small caches and pools. -->
   <max_server_memory_usage_to_ram_ratio>0.2</max_server_memory_usage_to_ram_ratio>

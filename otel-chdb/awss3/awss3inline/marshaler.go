@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package awss3exporter // import "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
+package awss3exporter // import "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
 
 import (
 	"errors"

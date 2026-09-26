@@ -57,8 +57,8 @@ diff -ruN a/awss3exporter/exporter.go b/awss3exporter/exporter.go
 @@ -17,6 +19,7 @@
  	"go.uber.org/zap"
  
- 	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline/internal/upload"
-+	"github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/inline"
+ 	"github.com/casselc/observability/otel-chdb/awss3/awss3inline/internal/upload"
++	"github.com/casselc/observability/otel-chdb/awss3/inline"
  )
  
  type s3Exporter struct {
@@ -175,7 +175,7 @@ diff -ruN a/awss3exporter/internal/metadata/generated_status.go b/awss3exporter/
  var (
 -	Type      = component.MustNewType("awss3")
 +	Type      = component.MustNewType("awss3inline")
- 	ScopeName = "github.com/chucklehead-dev/oscope/spike/otel-chdb/awss3/awss3inline"
+ 	ScopeName = "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
  )
  
 diff -ruN a/awss3exporter/s3_writer.go b/awss3exporter/s3_writer.go

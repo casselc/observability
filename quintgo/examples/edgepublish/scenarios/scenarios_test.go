@@ -6,11 +6,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/examples/edgepublish/mbt"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtest"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/validate"
+	"github.com/casselc/observability/quintgo/examples/edgepublish/mbt"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/qtest"
+	"github.com/casselc/observability/quintgo/validate"
 )
 
 // Each scenario, recorded directly (no OTel) and checked two ways: the

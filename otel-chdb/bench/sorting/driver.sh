@@ -1,6 +1,6 @@
 #!/bin/bash
 # Restart-safe orchestration of the sorting experiment. After a container
-# restart:  cd spike/otel-chdb/bench/sorting && setsid nohup bash driver.sh >> driver.log 2>&1 &
+# restart:  cd otel-chdb/bench/sorting && setsid nohup bash driver.sh >> driver.log 2>&1 &
 # Every step skips what it has already done; a step's marker in state/ means
 # it finished. Measured steps never overlap anything else this driver runs.
 set -u

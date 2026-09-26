@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 func encoders(opts parquetgo.Options) map[string]func() parquetgo.BatchEncoder {

@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/itf"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/otelio"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/itf"
+	"github.com/casselc/observability/quintgo/otelio"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // Format of a trace input.

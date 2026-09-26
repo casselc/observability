@@ -26,9 +26,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/central"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/fleet"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/promconv"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/central"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/fleet"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/promconv"
 	"github.com/minio/minio-go/v7"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"

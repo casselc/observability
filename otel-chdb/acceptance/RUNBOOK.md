@@ -60,7 +60,7 @@ REJECTED, 2 on a setup error, and 0 otherwise.
 **Build** (on any machine with Go 1.24+):
 
 ```sh
-cd spike/otel-chdb/acceptance && ./build.sh
+cd otel-chdb/acceptance && ./build.sh
 # bin/s3accept (this machine), bin/s3accept-linux-{amd64,arm64} (static), bin/credstubs
 ```
 

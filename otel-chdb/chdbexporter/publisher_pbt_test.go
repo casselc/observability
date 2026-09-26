@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 	"hegel.dev/go/hegel"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 )
 
 // A state-machine property test of the publishing protocol (publish.go),

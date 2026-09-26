@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // JSONLSink writes each step as one line of the native step log: a flat

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qobs"
-	"github.com/chucklehead-dev/oscope/spike/quintgo/qtrace"
+	"github.com/casselc/observability/quintgo/qobs"
+	"github.com/casselc/observability/quintgo/qtrace"
 )
 
 // Exercises the library entry points on a model unrelated to edgePublish:

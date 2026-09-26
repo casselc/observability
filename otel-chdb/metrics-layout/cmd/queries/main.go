@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/central"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/central"
 )
 
 type block struct{ q, layout, sql string }

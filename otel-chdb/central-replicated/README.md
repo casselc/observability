@@ -459,7 +459,7 @@ shows the difference for a given fleet.
 ```bash
 S=/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad
 $S/start-services.sh; $S/start-replicas.sh
-cd /home/user/oscope/spike/otel-chdb/central-replicated
+cd /home/user/observability/otel-chdb/central-replicated
 # consumer (with the replicated flags)
 (cd ../otap-rs && CARGO_TARGET_DIR=$S/otap-rs-target CARGO_BUILD_JOBS=2 cargo build --release --bin consume)
 OUT=$PWD/results/soak DURATION=900 scripts/soak_replicated.sh            # SYNC=1 (default)

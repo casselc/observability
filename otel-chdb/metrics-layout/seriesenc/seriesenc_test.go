@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/metrics-layout/fleet"
+	"github.com/casselc/observability/otel-chdb/metrics-layout/fleet"
 	"github.com/parquet-go/parquet-go"
 )
 

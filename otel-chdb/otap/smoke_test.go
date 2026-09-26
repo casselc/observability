@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/chdbexporter/testgen"
-	"github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	pb "github.com/open-telemetry/otel-arrow/go/api/experimental/arrow/v1"
 )
 

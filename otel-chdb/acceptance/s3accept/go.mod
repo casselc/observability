@@ -1,4 +1,4 @@
-module oscope/spike/otel-chdb/acceptance/s3accept
+module github.com/casselc/observability/otel-chdb/acceptance/s3accept
 
 go 1.24.7
 

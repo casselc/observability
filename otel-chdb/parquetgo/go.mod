@@ -1,4 +1,4 @@
-module github.com/chucklehead-dev/oscope/spike/otel-chdb/parquetgo
+module github.com/casselc/observability/otel-chdb/parquetgo
 
 go 1.26.0
 

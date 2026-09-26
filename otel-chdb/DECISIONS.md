@@ -48,11 +48,11 @@ disagreed with each other, and how each was resolved.
 | [D5](#d5-otap-variants-otap-only-as-an-input-transport) | OTAP: only as an input transport; never stored | accepted |
 | [D6](#d6-no-edge-to-central-fast-path) | No edge-to-central fast path | accepted |
 | [D7](#d7-metrics-series-table-layout-b-not-the-clickstack-tables) | Metrics: series-table layout B; wire-size ordinal rejected | accepted |
-| [D8](#d8-consumer-leases-and-checkpoints-on-s3) | Consumer: leases and checkpoints on S3 | accepted |
-| [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted |
-| [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted |
-| [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted |
-| [D12](#d12-consumer-gc-and-checkpoint-compaction) | Consumer: GC and checkpoint compaction | accepted |
+| [D8](#d8-consumer-leases-and-checkpoints-on-s3) | Consumer: leases and checkpoints on S3 | accepted; idle-lane LIST backoff, load-based balancing (2026-09-26); event notifications designed, not built |
+| [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted; margin ≥ 10 s enforced, unanswered statements waited out (2026-09-26) |
+| [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted; linger built, off by default (2026-09-26) |
+| [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted; the check reads the batch's partitions ± a copy horizon (2026-09-26) |
+| [D12](#d12-consumer-gc-and-checkpoint-compaction) | Consumer: GC and checkpoint compaction | accepted; GC keeps the slot below the position (2026-09-26) |
 | [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted |
 | [D14](#d14-storage-tiers) | Storage tiers: hot 1–7 days, then cold | accepted; cold medium open |
 | [D15](#d15-metrics-downsampling) | Metrics downsampling: 5-minute rollups | proposed; not built |
@@ -115,7 +115,7 @@ quint-connect or quintgo test replays model traces through the implementation.
 | `model/partLifetime.qnt` (native parts; now moot) | `noReadOfDeleted`, `noLeakAfterExit`, `noDoubleCount`; the rule **`old_parts_lifetime` > max query + refresh interval** | Apalache ≤ 10–12 steps | server test `TestOldPartsLifetimeProtectsServerQueries` (`2f1f3c2`) |
 | `model/s3Inline.qnt` (**the commit protocol in use**) | `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload`, `onlyCommittedIngested`, `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | 3,000 × 80 steps, two seeds; Apalache ≤ 6 steps (8 partial); 6 mutations caught ([`awss3/README.md`](awss3/README.md), `0855334`) | `tests/mbt_s3inline.rs`: 300 traces, 16,981 steps; 3 code mutants caught ([`otap-rs/README.md`](otap-rs/README.md), `060e963`) |
 | `model/s3InlineMetrics.qnt` | `reqAckedImpliesAllCommitted`, `noObjectLost` (a request is acked only when all its objects commit) | 3,000 × 60; mutant `ackOnAny` caught | `tests/mbt_s3inline_metrics.rs`: 300 traces, 23,968 steps |
-| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit` | 5,000 × 60; mutants `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly` | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`) |
+| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit`; since 2026-09-26 over release, the commit slack, daily partitions and the check's range | 5,000 × 60 on five design instances; mutants by simulation `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly`, `releaseInFlight`; by scripted counterexample runs `releaseInFlight`, `keeperOverrun`, `noHorizon`, `wallRange`, `gcReopens` ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale) | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`), `release_in_flight`, `wall_range` |
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
@@ -131,6 +131,12 @@ Assumptions every model makes, and which the code must therefore guarantee:
   ([D12](#d12-consumer-gc-and-checkpoint-compaction)).
 - **Worker insert time bound** (`ZOMBIE_INSERT_BOUNDED`). This is enforced by
   the worker's own clock and by the server-side fence ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+- **A commit lands by fence + budget + slack, and the margin covers the
+  slack** (`SLACK ≤ MARGIN`; the worker refuses to start otherwise, [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+- **A worker acts on a lane only once its statements are gone:** verify,
+  retry and release wait out an unanswered statement ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+- **A copy of a request is received within the check's horizon of its
+  original** (1 day; `HORIZON ≥ MAX_DAY` in the model, [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)).
 - **Small domains and bounded depth.** A ✓ in simulation is not a proof.
   Apalache goes to 6–12 steps only.
 
@@ -525,7 +531,8 @@ views return exactly contrib's `otel_metrics_*` rows.
 
 ### D8. Consumer: leases and checkpoints on S3
 
-**Status:** accepted (`1b5ce6c`).
+**Status:** accepted (`1b5ce6c`); idle-lane backoff and load-based
+balancing added (`f923fa8`, `11b479d`, 2026-09-26).
 
 **Decision.** A lane is one producer's signal namespace. Workers share lanes
 through S3 objects written with conditional requests:
@@ -536,8 +543,23 @@ through S3 objects written with conditional requests:
 - `workers/{w}.json`: a heartbeat, for the fair share.
 
 Taking a lane rewrites its checkpoint first, so every later CAS by the old
-holder fails. Expiry is judged on the observer's own monotonic clock. Load is
-balanced as ⌈lanes / live workers⌉.
+holder fails. Expiry is judged on the observer's own monotonic clock.
+
+**Fleet scale (2026-09-26):**
+
+- **Load is balanced by weight,** not lane count: a base per lane plus its
+  recent rows/s, exchanged in the heartbeats; the target is a water level
+  (a lane heavier than an even split gets a worker to itself), with a
+  ±20% band, one release per round, a 30 s minimum hold. `--balance count`
+  keeps ⌈lanes / live workers⌉. A release is allowed only once none of the
+  lane's statements can still land.
+- **Idle lanes back off their LIST:** after 10 s without work, waits of
+  1 s doubling to 30 s, jittered; work found puts a lane back on every
+  poll. Lane directories are listed every 30 s instead of every 2 s.
+- **Event notifications** (S3 → SQS/EventBridge) are designed as hints
+  that wake a lane early, with LIST kept as the truth and the 30 s cap as
+  the reconciliation; the seam (`discovery::Hints`) and the event parsing
+  are built, the SQS client is not.
 
 **Alternatives.** A catalog database; Keeper/etcd; a single consumer. The
 S3-native design already had a CAS'd lease and checkpoint; this generalises it
@@ -553,24 +575,44 @@ to a fleet of workers.
   A paused worker skipped its own expired leases while the others sat at their
   fair share. It is fixed, with a regression test. **The model missed it**,
   because quint-connect drives `coord`, not `Worker::balance`.
+- **Fleet-scale LIST cost** ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale,
+  `scripts/consumer_scale.sh`): 42 lanes (7 busy, 35 idle), one worker, 1 s
+  poll, the previous binary (180 s) against this one (600 s): **2.87 M →
+  0.65 M LISTs per lane per month** over all the worker's LISTs [M]; an
+  idle lane's own LISTs 2.6 M → 156 k (the 10 s grace and the doubling
+  included) and 86 k at the 30 s cap [E from M]; a busy lane's unchanged
+  (one per poll); discovery per worker 11.4 M → 2.7 M.
+- **Balancing:** a unit test with one 4,000 rows/s lane and eight of 25 on
+  three workers settles with the heavy lane alone and the light ones 3–5 per worker,
+  and stops moving; the randomized fleet (12 seeds) passes with load
+  balancing, backoff and linger on. The model's `releaseInFlight` mutant
+  (release with a statement in flight) breaks `atMostOnce`.
 
 **Consequences.** Consumer workers are stateless and use S3 as the only
-coordination store. S3 cost: one LIST per held lane per poll, plus one
-checkpoint CAS per lane that advanced.
+coordination store. S3 cost: one LIST per busy lane per poll and one per
+idle lane per 30 s; per worker, two LISTs per `--discover` and one per
+producer every 30 s; one checkpoint CAS per lane that advanced; **and one
+lease renewal (CAS) per lane every TTL/3, now the largest cost of an idle
+lane: 173 k PUTs a month at a 45 s TTL, about $0.86** [E] (the LIST at the
+cap is about $0.43).
 
 **Open risks.**
 
-- **LIST cost at fleet scale:** 2.6 M LISTs per lane per month at a 1 s poll,
-  about $13 per lane [E]. Thousands of lanes need S3 event notifications, which
-  are not built.
-- **Fairness** counts lanes, not load.
+- LIST pricing was measured locally (counts), not billed on AWS
+  ([risk 3](#4-open-risks-and-unknowns-ranked)). Event notifications, which
+  would take an idle lane's LIST to near zero, are not built; whether
+  Nutanix Objects has them is unknown.
+- Balancing uses rows/s as the load; a lane's cost also depends on its
+  objects/s (fixed cost per statement). The weights were tested in unit
+  tests and the soak, not on a real fleet.
 - The consumer's own S3 faults were injected in in-memory tests only.
 
 ---
 
 ### D9. Consumer: time bound on inserts plus a server-side deadline
 
-**Status:** accepted (`1b5ce6c`).
+**Status:** accepted (`1b5ce6c`); margin ≥ 10 s enforced, unanswered
+statements waited out (`f923fa8`, 2026-09-26).
 
 **Decision.** A statement starts only if `now + budget ≤ safe_until` for every
 lane in it, and runs with `max_execution_time = budget`. The holder's window
@@ -598,16 +640,40 @@ duplicates. The code mutant `no_time_bound` is caught at trace 3, step 35.
 - The server-side half needs the worker's and ClickHouse's **wall clocks
   within the margin**.
 - **On a replicated central, one Keeper request can outlive the time limit by
-  `operation_timeout_ms` (10 s).** Production settings are therefore a TTL of
-  30 s and a margin of at least 10 s ([`central-replicated/README.md`](central-replicated/README.md) §A time-bound caveat).
-- The soak used a TTL of 6 s and a margin of 1 s.
+  `operation_timeout_ms` (10 s)** ([`central-replicated/README.md`](central-replicated/README.md) §A time-bound caveat).
+  **Enforced since 2026-09-26:** the worker refuses to start with a margin
+  below 10 s, or below `--keeper-slack` (10 s), naming the reason and the
+  fix; `--allow-short-margin` is for tests. A statement lands by
+  `sent + ttl + slack` on the worker's clock (fence, the server clock up to
+  a margin behind, budget, slack), and nobody takes over before
+  `sent + ttl + margin`, hence `margin ≥ slack`. The model's commit slack
+  (`cApply` by fence + BUDGET + SLACK) and its mutant `keeperOverrun`
+  (SLACK > MARGIN breaks `atMostOnce`) record it.
+- **The earlier production figures were inconsistent:** "a TTL of 30 s and
+  a margin of at least 10 s" fails the existing check with a 10 s budget
+  (budget + 2 × margin + TTL/3 ≤ TTL needs a TTL of 45 s), and the code's
+  defaults were a TTL of 30 s and a margin of 2 s. **Defaults now: TTL
+  45 s, margin 10 s, budget 10 s, slack 10 s**, `consume gc --delay` 75 s.
+  A crashed worker's lanes are taken over after 55 s.
+- **Unanswered statements (a gap, fixed 2026-09-26):** after an insert with
+  no answer the worker killed it and verified at once, re-inserting what
+  was missing. The KILL can reach the server before the statement, and a
+  replicated commit can outlive the worker's HTTP timeout, so the first
+  statement could land after the retry. Now its lanes are left alone
+  (no check, verify, retry or release) until `sent + ttl + slack`; a
+  server's error answer still settles at once. The model always required
+  this (a worker verifies only once its statement is gone); the code
+  didn't. Tested with statements that land as late as fence + budget +
+  slack (`MemCentral`), and by the code mutant `release_in_flight`.
+- The soak used a TTL of 6 s and a margin of 1 s (`--allow-short-margin`).
 
 ---
 
 ### D10. Consumer: multi-object statements squashed to one block
 
 **Status:** accepted (`1b5ce6c`). This supersedes FASTPATH's "one object per
-insert, token as backstop" importer shape.
+insert, token as backstop" importer shape. Linger added, off by default
+(`f923fa8`, 2026-09-26).
 
 **Decision.** Per table, across a worker's lanes, the consumer issues:
 
@@ -645,14 +711,29 @@ INSERT … SELECT …, transform(_path, …) FROM s3('…/{k1,…,k32}')
   comes from D11.
 - Batching needs several objects pending per table per poll. At a 200 ms poll
   with 7 lanes, statements averaged 1.01 objects. Get batching with more lanes
-  per worker, a longer poll, or a linger, which is not built.
+  per worker, a longer poll, or a linger.
+- **Linger (built 2026-09-26, `--linger`, off by default):** a table whose
+  pending objects don't fill a statement waits up to the linger from its
+  oldest object's HEAD, never past a lane's window; HEADs are cached, so
+  waiting costs no second HEAD. At 2 objects/s into one table [M]
+  ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale):
+
+  | linger | objects per statement | server CPU per object | visible p50 / max |
+  |---|---|---|---|
+  | 0 | 4.0 | 14.8 ms | 538 / 1,142 ms |
+  | 1 s | 7.1 | 9.2 ms | 1,956 / 2,907 ms |
+  | 3 s | 10.2 | 7.2 ms | 2,382 / 4,707 ms |
+
+  (Server CPU is server-wide over the run, loaded box.) At fleet rates a
+  worker's lanes of a table fill statements without it; it is for sparse
+  tables.
 
 ---
 
 ### D11. Consumer: count check and repair, not dedup tokens
 
 **Status:** accepted (`bd1ae88` for the design, `1b5ce6c` for the
-implementation).
+implementation); the check's partition range (`f923fa8`, 2026-09-26).
 
 **Decision.**
 
@@ -705,15 +786,36 @@ The soak skipped 357 copies by the check, with `over_count` 0.
   `ReplacingMergeTree` by default.
 - The series lane has no check. Re-inserting into the `AggregatingMergeTree`
   is idempotent.
-- **The check reads every part's projection, cold parts included.** It needs a
-  partition predicate: `toDate(received_at) >= oldest pending − 1`. **This is
-  not implemented** ([`central-replicated/README.md`](central-replicated/README.md) §Two further findings).
+- **The check reads only the partitions the batch's rows can be in
+  (2026-09-26).** Not a predicate on `received_at`: that makes 26.10 read
+  the table instead of the projection [M]; `_partition_value.1 BETWEEN
+  toDate(lo) AND toDate(hi)` keeps the projection [M]. The range comes from
+  the data, not the clock: each object's `received_at` is constant and in
+  its metadata, and **the insert asserts it on every row** (`throwIf`,
+  before the object's block is written), so rows an insert wrote are
+  provably in it. The pre-check reads the batch's days ± a **copy
+  horizon** (1 day), because a copy of a request (resent into a new epoch)
+  has the same content key and a later `received_at`; the verify reads the
+  statement's own days and recounts over the horizon before re-inserting
+  (a narrower count is only ever lower). No metadata, a failed assertion, a
+  table partitioned otherwise, or `--check-horizon all`: every partition.
+  On 90 daily partitions on S3 (180 parts) a check went from **2,320 S3
+  GETs and 546 ms CPU to 56 and 12.8 ms** (cold; warm 1,240 / 275 → 32 /
+  7.3) [M] ([`otap-rs/README.md`](otap-rs/README.md) §The count check's partition range).
+  Tested: a batch spanning midnight, an object received five days before
+  the worker's clock with an earlier attempt already in central, a copy 20
+  hours later, rows that don't match their metadata; the model's `noHorizon`
+  and `wallRange` mutants break `atMostOnce`.
+- **The horizon is an assumption:** a copy received more than a day after
+  its original is ingested twice and nothing reports it. Before, the horizon
+  was the retention (90 days).
 
 ---
 
 ### D12. Consumer: GC and checkpoint compaction
 
-**Status:** accepted (GC `1b5ce6c`; compaction `9f2c75d`).
+**Status:** accepted (GC `1b5ce6c`; compaction `9f2c75d`; the slot below
+the position kept, `11b479d`, 2026-09-26).
 
 **Decision.**
 
@@ -748,6 +850,20 @@ The soak skipped 357 copies by the check, with `over_count` 0.
 
 **Consequences.** The bound in production is about 1–2 entries per lane at a
 30 s quiet time, a 10-minute zombie bound and one restart an hour.
+
+**GC keeps the slot below the position (a gap, fixed 2026-09-26).** The
+consumer model at TTL 3 with writer faults broke `neverSkipsCommitted`,
+before this round's changes too: a writer whose PUT's answer was lost is
+`Unresolved` at that slot, and its next batch goes to the same slot,
+create-only. If the first PUT landed late, was ingested, and GC deleted it
+before the writer's next batch, that PUT succeeded on the deleted key:
+committed and acked below the checkpoint, never ingested. `--delay` covers
+a PUT's lifetime, not how long a lane may stay idle and unresolved. GC now
+keeps each epoch's slot just below the position until the epoch retires
+(one object per open epoch); the writer then gets 412, sees another batch,
+and moves on. Mutant `gcReopens` (the old rule) breaks the invariant by a
+scripted run; the design instance at TTL 3 with faults passes 5,000 × 60
+[Q] ([`otap-rs/README.md`](otap-rs/README.md) §GC keeps the slot below the checkpoint).
 
 **Open risks** ([risk 6](#4-open-risks-and-unknowns-ranked)):
 
@@ -1155,12 +1271,12 @@ how likely it is.
 |---|---|---|---|
 | 1 | **Nutanix Objects conditional writes** | The commit protocol ([D3](#d3-commit-protocol-manifest-less-create-only-slots)) and the consumer's leases, checkpoints and `gc.json` ([D8](#d8-consumer-leases-and-checkpoints-on-s3), [D12](#d12-consumer-gc-and-checkpoint-compaction)) all need atomic `If-None-Match: *` and `If-Match` on single-part PUT, plus read-after-write HEAD/LIST. The docs are behind a login and nothing public says. A store that ignores the header looks correct until two writers race; MinIO before 2024-09-13 and Garage are examples. The fallbacks are a Keeper/etcd `Coordinator` for the control plane (designed, not built) or closing epochs by time (not modelled). | Run `awss3/probe` and `s3cas` (`TestCreateRace`, `TestCASRace`, the ambiguous-resolution tests) against a real bucket, with the private CA and static keys. Add a startup self-test: two create-only PUTs of a scratch key, and refuse to run unless the second gets 412. |
 | 2 | **Real per-pod rates and data shape** | Every rate in §1.2 is an estimate. `bSpan` and `bLog` (80 / 60 B) drive about 88% of stored bytes. Synthetic compression is ±50%. Real fleets carry 20+ resource attributes; the synthetic data carries 12–21. Series churn is untested. | Sample a real cluster's spans/s, logs/s and series per pod, and the stored bytes per row after merges. |
-| 3 | **Real AWS behaviour** | Everything ran on SeaweedFS on localhost: no latency, and no 409 `ConditionalRequestConflict`, which object_store retries. Per-prefix request limits (3,500 PUT/s per prefix), LIST pricing at thousands of lanes, real STS and session tokens were not exercised. Lane throughput is 1 / (encode + PUT): about 20 batches/s locally, lower with real latency. | A soak on a real bucket under IRSA and Pod Identity: commit latency, 409 rates, LIST cost per lane. |
+| 3 | **Real AWS behaviour** | Everything ran on SeaweedFS on localhost: no latency, and no 409 `ConditionalRequestConflict`, which object_store retries. Per-prefix request limits (3,500 PUT/s per prefix), real STS and session tokens were not exercised. LIST and renewal *counts* at fleet scale were measured locally (an idle lane: one LIST per 30 s, one renewal per 15 s; [D8](#d8-consumer-leases-and-checkpoints-on-s3)), not billed. Lane throughput is 1 / (encode + PUT): about 20 batches/s locally, lower with real latency. | A soak on a real bucket under IRSA and Pod Identity: commit latency, 409 rates, LIST cost per lane. |
 | 4 | **HyperDX compatibility with the series layout** | HyperDX was never run live. Its SQL came from its own test snapshots at `hyperdx@885d30c`. Known degradations: the metric picker scans (1.26 s against 0.08 s); map filters cost 1.6–2.1× A; no rollup acceleration; no writes through the views. HyperDX changes can break the views silently. | Run HyperDX against the views; add the proposed `(MetricName, ServiceName)` helper MergeTree; pin the HyperDX version. |
-| 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a Keeper operation can run 10 s past `max_execution_time`, so margin ≥ 10 s. (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
-| 6 | **GC dependence** | GC is what bounds S3 storage, checkpoint size and `gc.json`. If it stops, compaction stops and checkpoints grow. Its safety rests on two bounds: the PUT lifetime (`--delay`) and the zombie lifetime (`--zombie`). A writer that outlives the zombie bound can re-create a deleted slot; such a batch is never ingested (not duplicated). `gc.json` is one object sized marks × lanes × entries. | An alert on GC lag; shard `gc.json` per lane; enforce the zombie bound (pod termination grace plus kill). |
+| 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a Keeper operation can run 10 s past `max_execution_time`, so margin ≥ 10 s: **retired 2026-09-26**, the worker refuses a smaller margin and waits out unanswered statements ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)). (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
+| 6 | **GC dependence** | GC is what bounds S3 storage, checkpoint size and `gc.json`. If it stops, compaction stops and checkpoints grow. Its safety rests on two bounds: the PUT lifetime (`--delay`) and the zombie lifetime (`--zombie`). A writer that outlives the zombie bound can re-create a deleted slot; such a batch is never ingested (not duplicated). (A live, unresolved writer could do the same below the checkpoint; fixed 2026-09-26: GC keeps the slot below the position, [D12](#d12-consumer-gc-and-checkpoint-compaction).) `gc.json` is one object sized marks × lanes × entries. | An alert on GC lag; shard `gc.json` per lane; enforce the zombie bound (pod termination grace plus kill). |
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
-| 8 | **Consumer check reads the cold tier** | The projection check touches cold parts on S3: 11 ms CPU and 5 GETs per check in the replicated soak. At 90 days that is every cold partition. | Add the partition predicate to the check (not implemented). |
+| 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check now reads the batch's own days ± 1 day: 56 GETs and 13 ms CPU cold against 2,320 and 546 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than the horizon after its original is ingested twice, unreported. | Measure the resend delay of real senders and durable buffers; or an occasional full-range check of a sample of keys to detect it. |
 | 9 | **Replicated insert cost** | 58.6–66.7 µs/row measured on replicas (loaded box, 7.9 objects per statement), against about 12 on one node. If even part of that is real, the calculator is low. | Re-measure replicated inserts on an idle box at 32 objects per statement. |
 | 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26.) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. |

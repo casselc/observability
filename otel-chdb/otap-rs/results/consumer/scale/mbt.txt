@@ -1,0 +1,71 @@
+QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --test-threads 1 (quint 0.32, quint-connect)
+== design
+Generating 300 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_compact_design_simulation
+Generating 1000 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_compact_quiet_simulation
+Generating 500 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_copies_simulation
+Generating 300 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_design_simulation
+Generating 1000 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_quiet_simulation
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 385.98s
+== OTAPRS_CONSUMER_MUTANT=release_in_flight (must fail)
+Generating 300 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_compact_design_simulation 
+Generating 1000 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_compact_quiet_simulation 
+Generating 500 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_copies_simulation 
+Generating 300 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_design_simulation 
+Generating 1000 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_quiet_simulation 
+test result: FAILED. 42 passed; 5 failed; 0 ignored; 0 measured; 0 filtered out; finished in 335.71s
+== OTAPRS_CONSUMER_MUTANT=wall_range (must fail)
+Generating 300 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_compact_design_simulation
+Generating 1000 traces using `0x5eed` as random seed ...
+[OK] s3inline_consumer_compact_quiet_simulation
+Generating 500 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_copies_simulation 
+Generating 300 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_design_simulation 
+Generating 1000 traces using `0x5eed` as random seed ...
+Specification and implementation states diverge
+[FAIL] s3inline_consumer_quiet_simulation 
+test result: FAILED. 44 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 344.26s
+== cargo test --release (the whole crate)
+     Running unittests src/lib.rs 
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/bin/consume.rs 
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.31s
+     Running unittests src/bin/encbench.rs 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/main.rs 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/creds.rs 
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/determinism.rs 
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/mbt_s3inline.rs 
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.36s
+     Running tests/mbt_s3inline_consumer.rs 
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 200.45s
+     Running tests/mbt_s3inline_metrics.rs 
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 76.07s
+     Running tests/metrics.rs 
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/otap_view.rs 
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/series.rs 
+test result: ok. 4 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

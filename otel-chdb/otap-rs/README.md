@@ -196,7 +196,10 @@ encbench: the in-process edge benchmark (pubbench's accounting)
   count()`; dead epochs closed by tombstones; a separate GC step. See
   [Consumer](#consumer). (The prototype it replaces followed one epoch at a
   time with one statement per object and a local state file; its flags
-  still work.)
+  still work.) At fleet scale (2026-09-26): idle lanes back off their LIST,
+  lanes are balanced by load, statements may linger, the check reads only
+  the batch's partitions, and the lease margin is at least 10 s: see
+  [Consumer at fleet scale](#consumer-at-fleet-scale-m).
 
 ## Upstream: what was changed, what was found
 
@@ -1234,8 +1237,8 @@ orphaned after a worker's pause), now fixed and tested. Batching cuts server
 CPU per small object 8× (19.6 → 2.4 ms at 32 objects per statement), but
 only when a poll finds several objects per table. Visibility is 211 ms p50 /
 320 ms p90 at a 200 ms poll (about 1 object per statement there) and 663 /
-1,061 ms at 1 s (3.7). What remains costly is LIST: one per lane per
-poll. The checkpoint is now compacted: an epoch GC has retired leaves it,
+1,061 ms at 1 s (3.7). LIST was one per lane per poll; idle lanes now
+back off to one per 30 s ([fleet scale](#consumer-at-fleet-scale-m)). The checkpoint is now compacted: an epoch GC has retired leaves it,
 and a per-lane floor bounds discovery, so under an edge restart every
 ~3.5 s the checkpoint held 13–31 entries per lane for 15 minutes where it
 had grown to 185 and kept growing [M].**
@@ -1288,9 +1291,13 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   worker's heartbeat, lists heartbeats and leases (their ETags), and evens
   the load: fair share = ⌈lanes / live workers⌉; above it a worker releases
   one lane per round (a released lease can be taken at once), below it
-  takes free, released or expired lanes.
+  takes free, released or expired lanes. (2026-09-26: by load by default,
+  and a release waits until no statement of the lane can still land:
+  [Load-based balancing](#load-based-balancing).)
 - **Discovery.** Per held lane and open epoch, `LIST StartAfter` the
-  checkpoint's key. The newest epoch's LIST is lane-wide, so it also
+  checkpoint's key (2026-09-26: every poll while the lane is busy, backing
+  off to every 30 s when idle:
+  [Idle-lane backoff](#idle-lane-backoff-and-event-driven-discovery)). The newest epoch's LIST is lane-wide, so it also
   returns epochs created since; `--full-list` periodically lists the
   whole lane from its floor (`StartAfter {floor}/~`, a flat LIST), catching
   an epoch that sorts earlier, and then compacts the checkpoint
@@ -1758,16 +1765,399 @@ The new ones:
 `runner::tests::an_unnamed_lane_names_its_epoch_at_its_first_write`
 covers the edge change.
 
+### Consumer at fleet scale [M]
+
+**Built for a region of 15–20 clusters of ~3,000 pods and thousands of
+lanes (2026-09-26): idle lanes back off their LIST, with a seam for S3
+event notifications; lanes are balanced by load, with hysteresis; a
+statement may linger to fill; the count check reads only the partitions
+the batch's rows can be in; and the lease margin is at least 10 s. Doing
+it found two real gaps, both fixed: a statement whose answer was lost
+could be verified, retried or released while it could still land, and GC
+could delete a slot its writer had not resolved, so the writer's next
+batch landed below the checkpoint and was never ingested.** Code:
+`src/consumer/discovery.rs` (new), `coord.rs`, `plan.rs`, `sql.rs`,
+`worker.rs`, `gc.rs`; scripts: `scripts/consumer_scale.sh`,
+`scripts/consumer_check_range.sh`, `scripts/consumer_model.sh`; results:
+`results/consumer/scale/`.
+
+| | What it does | Knobs (default) | Measured |
+|---|---|---|---|
+| Idle-lane backoff | a lane idle for `--idle-after` is LISTed after a doubling, jittered wait; work found puts it back on every poll | `--idle-backoff 1s..30s`, `--idle-after 10s`, `--lanes-every 30s` | LISTs per lane per month: **2.87 M before; 0.65 M after** (42 lanes, 35 idle); an idle lane's own LISTs 2.6 M → 156 k (86 k at the 30 s cap [E]) |
+| Event hints | `discovery::Hints`: an S3 event names a key, its lane is LISTed at the next poll; LIST stays the truth | (seam; no SQS client) | unit tests: woken at the next poll; lost, spurious and unknown hints change nothing |
+| Load balancing | weight = base + recent rows/s; water-level target; ±band; min hold; loads through the heartbeats | `--balance load`, `--hysteresis 0.2`, `--lane-weight 50`, `--load-window 60s`, `--min-hold 30s`, `--loads-every 10s` | unit test: 1 heavy + 8 light lanes on 3 workers settle (the heavy lane alone, the light ones 3–5 per worker) and stop moving |
+| Linger | a table with fewer pending objects than a statement holds waits up to the linger from its oldest object's HEAD | `--linger 0ms` (off) | 2 objects/s: 4.0 → 7.1 → 10.2 objects per statement at 0 / 1 / 3 s; server CPU per object 14.8 → 9.2 → 7.2 ms |
+| Check range | the check reads `_partition_value` in the objects' own received day ± a copy horizon; the insert asserts every row's `received_at` | `--check-horizon 1d` (`all`: off), `--no-check-range` | 90 daily partitions on S3: **2,320 → 56 GETs and 546 → 13 ms CPU** per check, cold |
+| Lease margin | refuses to start with a margin below 10 s or below the commit slack | `--ttl 45s --margin 10s --budget 10s --keeper-slack 10s`, `--allow-short-margin` | unit tests (the old defaults and D9's "30 s / 10 s" are refused) |
+
+#### Idle-lane backoff and event-driven discovery
+
+- **The rule** (`discovery::Backoff`, `worker.rs` `step`). A lane is
+  *busy* when its LIST gives the worker something to do: a slot to ingest
+  (new, lingering or deferred), an epoch to close, or a new epoch. A busy
+  lane is LISTed once per poll. A lane idle for `--idle-after` (10 s) waits
+  1 s, 2 s, 4 s … up to 30 s between LISTs, each wait spread ±10% (a
+  per-worker PRNG), so a fleet of idle lanes doesn't LIST in step. Anything
+  found resets it. The full listing from the floor (`--full-list`) happens
+  at a lane's next LIST once due, so an idle lane costs one LIST per 30 s
+  whatever the poll. The grace keeps a lane with an object every few
+  seconds on every poll: backing it off costs it latency, and statements
+  their batching (the first linger run, without the grace, had 1.1 objects
+  per statement where the run with it had 4.0).
+- **Discovery LISTs** are per worker, not per lane: the lane directories
+  (one LIST of the root, one per producer) every `--lanes-every` (30 s; it
+  was every `--discover`, 2 s), and the heartbeats and leases every
+  `--discover`. A new producer's lanes are found within 30 s, or at once
+  from a hint.
+- **Measured** (`scripts/consumer_scale.sh MODE=lists`,
+  `results/consumer/scale/lists.jsonl`, `lists600.jsonl`): one edge sending
+  3 requests/s per signal (7 busy lanes), 5 producers that sent once and
+  stopped (35 idle lanes), one worker at a 1 s poll; the previous binary
+  for 180 s, this one for 600 s (a 180 s run of it before the 10 s grace
+  existed gave 0.68 M, 162 k and 2.88 M):
+
+  | LISTs per lane per month (×30 d) | before | after |
+  |---|---|---|
+  | all the worker's LISTs / 42 lanes | 2.87 M | **0.65 M** |
+  | a busy lane's own LISTs | ≈ 2.6 M (one per poll) | 2.74 M (one per poll, plus epoch and full listings) |
+  | an idle lane's own LISTs | ≈ 2.6 M | **156 k** (the grace and the doubling are paid once per idle spell) |
+  | discovery, per worker (not per lane) | 11.4 M (9 LISTs every 2 s: root, 6 producers, heartbeats, leases) | **2.7 M** (heartbeats and leases every 2 s; directories every 30 s) |
+
+  In steady state an idle lane LISTs once per 30 s ± 10%: 86 k a month. At
+  $0.005 per 1,000 LISTs an idle lane went from about $13 to $0.43 a month
+  [E from M]. **What an idle lane costs now is its
+  lease renewal:** a CAS every TTL/3 = 15 s, 173 k PUTs a month, about
+  $0.86 [E]; the TTL is the knob.
+- **Event-driven discovery (designed; the seam is built, the SQS client
+  is not).** `s3:ObjectCreated:*` on the data prefix → SQS (or
+  EventBridge → SQS), one queue per region, long-polled by each worker.
+  `discovery::keys_of_event` decodes S3 notification bodies (URL-encoded
+  keys, SNS-wrapped too) and EventBridge events; `lane_of_key` maps a key
+  to its lane; `Hints::poll` hands the lane ids to the worker, which LISTs
+  a held lane at its next poll, and learns a lane it has not listed yet
+  (until the next directory listing). A hint is never trusted for what it
+  says about a slot: the LIST from the checkpoint and the HEAD of each
+  slot stay the only truth, and the idle cap (30 s) is the reconciliation
+  period. So a lost, late, duplicated, reordered or spurious notification
+  changes only *when* a lane is listed, never what is ingested; the unit
+  test `idle_lanes_back_off_and_hints_wake_them` drops hints and sends
+  spurious ones. The worker holding a lane may not be the one that
+  receives its event; with one shared queue every worker sees every event
+  and ignores lanes it doesn't hold (at 7.8 M objects a day that is about
+  90 events/s per worker, cheap to filter), or a fan-out per worker. Not
+  built: the SQS long-poll client (aws-sdk-sqs, which this crate doesn't
+  carry offline), and Nutanix Objects' notification support is unknown.
+  With notifications the idle cap can go to minutes, and an idle lane's
+  LIST cost to near zero.
+
+#### Load-based balancing
+
+- **Weights** (`coord::Ewma`, `load_target`, `pick_release`,
+  `take_by_load`). A lane's weight is a base (`--lane-weight`, 50: what
+  holding any lane costs, its LISTs and renewals, in rows/s) plus its
+  rows/s over the last minute (an EWMA). A worker's load is the sum over
+  its lanes. Each heartbeat carries the worker's load and its lanes' rates;
+  every `--loads-every` a worker GETs the other live workers' heartbeats
+  (one GET each).
+- **The target is a water level:** a lane heavier than an even split
+  can't be split, so it is set aside with a worker of its own, repeatedly,
+  and the rest share what is left. Without that, one heavy lane pushed the
+  even-split target so high that two workers holding 6 and 2 light lanes
+  were both "inside the band" (the first version of the unit test).
+- **Hysteresis:** nothing moves inside target × (1 ± 0.2). Above it a
+  worker gives back one lane per discovery round: the heaviest whose
+  release doesn't take it below the band, never its last lane, never one
+  held less than `--min-hold` (30 s). Below it, a worker takes free,
+  released or expired lanes that keep it inside the band; the least loaded
+  live worker takes one regardless (so a lane nobody's band admits is
+  still taken), and anyone takes a lane no live heartbeat has named for 3
+  load reads (stale figures). A lane another live worker's heartbeat names
+  isn't even read, so balancing costs no GET per held lane. A taken lane
+  starts from its previous holder's rate. `--balance count` keeps the old
+  ⌈lanes / workers⌉.
+- **Lease safety is unchanged:** a take is still `Observer::may_take`, the
+  lease CAS and the checkpoint fence. A release is a lease CAS to no owner
+  (fencing epoch + 1), which anyone may take at once, so it is the one
+  place balancing touches the protocol: **a worker releases a lane only
+  once none of its statements can still land** (`coord::may_act`, below).
+  The model has `wRelease` with that guard; the mutant `releaseInFlight`
+  (release while a statement is in flight) breaks `atMostOnce`: the next
+  holder checks, inserts, and the old statement lands too.
+- **Measured** in the unit test `load_balancing_spreads_weight_and_settles`
+  (3 workers, a lane of 4,000 rows/s and 8 of 25): the heavy lane's worker
+  holds nothing else, the light lanes split 3–5 per worker, and no lane moves in the
+  second half of the run; every object once. The randomized fleet test runs
+  with load balancing too (`randomized_fleet_at_scale`, 12 seeds).
+
+#### Linger
+
+- **The rule** (`worker.rs` `lingers`). Per table, per poll: if the
+  pending objects don't fill a statement (32 objects, 16 MB or 200k rows),
+  the oldest was first HEADed less than `--linger` ago, and every lane
+  involved can still start a statement when the linger ends, the table
+  waits. The worker wakes at the linger's end rather than a whole poll
+  later. A statement starts at most linger + one LIST after its oldest
+  object was seen: the bound on the latency it adds. HEADs are cached per
+  slot (a slot above the checkpoint never changes), so waiting costs no
+  second HEAD.
+- **Measured** (`scripts/consumer_scale.sh MODE=linger`,
+  `results/consumer/scale/linger.jsonl`): 4 lanes × 0.5 requests/s of 200
+  spans (2 objects/s into one table), a 1 s poll, 90 s each; server CPU is
+  `system.events` over the run (server-wide, so merges and the box's other
+  work are in it):
+
+  | linger | objects per statement | server CPU per object | checks per object | visible p50 / p90 / max |
+  |---|---|---|---|---|
+  | 0 | 4.0 | 14.8 ms | 0.50 | 538 / 908 / 1,142 ms |
+  | 1 s | 7.1 | 9.2 ms | 0.28 | 1,956 / 2,714 / 2,907 ms |
+  | 3 s | 10.2 | 7.2 ms | 0.20 | 2,382 / 4,386 / 4,707 ms |
+
+  At low rates the linger trades latency for fixed cost roughly as the
+  batching benchmark predicts (19.6 → 2.4 ms per object from 1 to 32 per
+  statement). The senders here are in step (4 lanes send together), which
+  flatters the no-linger case. Left off by default: at fleet rates a
+  worker's lanes of one table fill statements without it; turn it on for
+  a sparse table.
+
+#### The count check's partition range
+
+**The problem (DECISIONS risk 8):** the check `content_key IN (…)` reads
+the projection of every part, cold parts on S3 included. A predicate on
+the partition key is not enough by itself, and is not safe by itself:
+
+- **The projection:** `received_at >= x` or `toDate(received_at) >= x`
+  makes ClickHouse 26.10 read the table instead of the aggregating
+  projection [M]. `_partition_value.1 BETWEEN toDate(a) AND toDate(b)`
+  keeps the projection (EXPLAIN: `ReadFromMergeTree (by_content)`) [M].
+- **Copies:** the check is there to find *any* object with the same
+  content key, and a copy (a request resent after a lost ack, into a new
+  epoch, or replayed by a durable buffer after a crash) carries a new
+  `received_at`. A range from the object's own data alone would miss its
+  original on an earlier day.
+- **Clocks:** the worker's wall clock says nothing about the batch: late
+  data (a backlog, an outage) is older, and a batch can span midnight.
+
+**The design** (`plan::own_range`, `plan::check_range`, `sql.rs`):
+
+1. **The range comes from the data.** Each object's `received_at` is
+   constant: the edge writes the same value into every row and into
+   `x-amz-meta-oscope-received` (`flatten.rs`, `batch.rs`), which the
+   consumer already HEADs. **The insert asserts it row by row:**
+   `AND NOT throwIf(toUnixTimestamp64Nano(received_at) != transform(_path,
+   [paths], [received_ns], -1), 'OTAPRS_RANGE_GUARD: …')`. Under the
+   single-block settings the assertion fails before the object's block is
+   written, so every row an insert has ever written for an object carries
+   that object's received time. A statement over objects from 23:59 and
+   00:01 reads both days; an object received five days ago reads that day,
+   whatever today is.
+2. **The pre-check** reads [min − horizon, max + horizon] of the batch's
+   received times (`--check-horizon`, 1 day): earlier attempts of the same
+   objects are in [min, max] (by 1), and a copy is found if it was received
+   within the horizon of its original.
+3. **The verify** after a statement reads [min, max] first (only this
+   statement's objects' rows matter), and recounts over the horizon any
+   object that falls short, before anything is inserted again. A count over
+   fewer partitions can only be lower, so a complete one is final; a short
+   one is never acted on unconfirmed.
+4. **Anything unproven reads everything:** an object without the metadata,
+   an object whose assertion fired (rows from a foreign producer that
+   don't match; remembered per worker, and a new holder's guarded insert
+   fails the same way, deterministically, before it writes), a table whose
+   partition key isn't `toDate(received_at)` (read from `system.tables` at
+   start; e.g. an operator's `toDate(Timestamp)`), `--check-horizon all`.
+   The row repair (`row_ordinal NOT IN`) always reads every partition, so
+   it never adds a row that is anywhere already.
+
+**What it assumes:** a copy is received within the horizon of its
+original (1 day by default). Before, the horizon was the retention (90
+days: a copy of a dropped batch was ingested again too). A copy later than
+that is ingested twice, and nothing reports it; the edges' durable buffer
+replays within minutes of a restart, and a sender's retry window is
+minutes. The model makes the assumption explicit (below).
+
+**Tests:** `the_check_range_follows_the_data` (a batch spanning midnight
+with a partial first statement, and an object received five days before
+the worker's clock with an earlier attempt already in central: each
+exactly once, every check restricted; the `WallRange` mutant, today by the
+worker's clock, inserts the old object again),
+`copies_within_the_horizon_and_lying_metadata` (a copy received 20 hours
+later is skipped; an object whose rows don't match its metadata trips the
+assertion and is then checked over every partition, exactly once), the
+randomized fleet across midnight with copies (`randomized_fleet_at_scale`),
+and `statements_parse_on_clickhouse` (the generated SQL parses on the
+server: the first version quoted the assertion's message wrongly and
+every insert failed with a syntax error).
+
+**Measured** (`scripts/consumer_check_range.sh`,
+`results/consumer/scale/check-range.jsonl`): the consumer's logs table on a
+dynamic S3 disk (SeaweedFS), wide parts, 90 daily partitions × 2 parts,
+4,000 rows and 40 hashed content keys per part (a hash, as the edge's
+BLAKE3 keys are, so the projection's primary key prunes no part by key);
+a check of 32 keys (31 absent, 1 present today), median of 5, the query's
+own ProfileEvents, cold = mark, index, uncompressed and filesystem caches
+dropped:
+
+| check | parts read | S3 GETs | S3 read time | CPU | wall |
+|---|---|---|---|---|---|
+| every partition, cold | 180 | 2,320 | 26.4 s | 546 ms | 44 s |
+| every partition, warm | 180 | 1,240 | 21.4 s | 275 ms | 24 s |
+| **today ± 1 day, cold** | 4 | **56** | 79 ms | **12.8 ms** | 181 ms |
+| today ± 1 day, warm | 4 | 32 | 40 ms | 7.3 ms | 95 ms |
+
+Both answered from the projection. The wall times are a local SeaweedFS
+serving small GETs one after another; the point is the ratio: **41× fewer
+GETs and 43× less CPU**, and the restricted check no longer grows with
+retention.
+
+#### The lease margin, and statements whose answer was lost
+
+- **Margin ≥ 10 s** (`Timing::check_production`). On a replicated central
+  one Keeper request can outlive `max_execution_time` by
+  `operation_timeout_ms`, 10 s (DECISIONS risk 5c). A statement sent under
+  a lease version written at `sent` starts by the fence (`sent + ttl −
+  margin − budget`, the server's clock, up to a margin behind ours), runs
+  at most `budget`, commits at most `slack` later: it has landed by
+  `sent + ttl + slack`; nobody may take the lane before `sent + ttl +
+  margin`. So `margin ≥ slack` (`--keeper-slack`, 10 s), and the worker
+  refuses to start below 10 s with the reason and the fix, unless
+  `--allow-short-margin` (the soak's 1 s). **The defaults were wrong:** ttl
+  30 s / margin 2 s; and DECISIONS D9's "TTL 30 s, margin ≥ 10 s" fails
+  the existing check with a 10 s budget (budget + 2 × margin + ttl/3 ≤
+  ttl needs ttl ≥ 45 s). The defaults are now ttl 45 s, margin 10 s,
+  budget 10 s, slack 10 s, and `consume gc --delay` 75 s (ttl + margin +
+  a PUT's lifetime). Takeover after a crash is now 55 s.
+- **Unsettled statements (a gap found, fixed).** When an insert got no
+  answer (a timeout, a reset, a replica switch), the worker killed it and
+  verified at once: anything missing was re-inserted. But the KILL can
+  reach the server before the statement does, and on a replicated table
+  the commit can outlive `max_execution_time` by a Keeper request (10 s),
+  far beyond the worker's HTTP timeout (budget + 5 s). Either way the
+  first statement could land after the retry: a duplicate. The model never
+  allowed this (its worker verifies only once its statement is gone), the
+  code did. Now an unanswered statement leaves its lanes alone until
+  `Held::settled_by` (`sent + ttl + slack`, never after the earliest
+  takeover): no check, verify, retry or release, and a graceful stop
+  leaves such a lease to expire. A server's error answer still settles at
+  once. `MemCentral` gained late-landing statements (no answer; land as
+  late as fence + budget + slack), and `an_unanswered_statement_is_waited_out`
+  fails with the `ReleaseInFlight` mutant.
+
+#### GC keeps the slot below the checkpoint (a gap found, fixed)
+
+The model's hostile instance at TTL 3 broke `neverSkipsCommitted`, in the
+model as it was before this round too. A writer whose PUT's answer is lost
+is `Unresolved` at that slot, and its next batch goes to the *same* slot,
+create-only (`proto.rs` `Lane::start`). If the first PUT landed late, was
+ingested, and GC deleted it (the checkpoint had passed it) before the
+writer's next batch, that PUT succeeded on the deleted key: a batch
+committed and acked below the checkpoint, never ingested. GC's `--delay`
+covers a PUT's lifetime, not how long a lane can stay idle and unresolved.
+**Fix** (`gc::doomed`): the slot just below a lane epoch's position is kept
+until the epoch is retired; the writer's PUT then gets 412, its HEAD shows
+another batch, and it moves on. No slot below that one can be a writer's
+current slot (a writer resolves a slot before it writes the next). Cost:
+one object per open epoch. The model's GC has the same rule, and the
+mutant `gcReopens` (the old rule) breaks `neverSkipsCommitted` by a
+scripted run.
+
+#### Model and model-based test
+
+- **s3InlineConsumer.qnt** adds `wRelease` (guarded as above), the commit
+  slack (`cApply` lands by fence + BUDGET + SLACK; the design has SLACK =
+  MARGIN), daily partitions (`day`, `newDay`, each epoch's receive day
+  `eDay`, central's rows per payload and day `crows`; check and verify
+  read the objects' day ± HORIZON), and GC keeping the slot below the
+  position. Instance `designCopies` (writer faults, TTL 3, days on) joins
+  the designs. s3InlineConsumerCompact.qnt gets the release, the slack and
+  the GC rule.
+- **Results** (`scripts/consumer_model.sh`,
+  `results/consumer/scale/model.txt`, seed 0x5eed):
+  - **the designs pass** 5,000 × 60: `s3InlineConsumerDesign`,
+    `designQuiet`, `designShortLease`, `designCopies` (writer faults at TTL
+    3, days on: the instance that broke before GC kept the slot below the
+    position) and `designDays`; and `compactDesign`, `compactQuiet`;
+  - **witnesses reached:** a release followed by everything ingested, a
+    copy received on a later day than its original with both ingested once,
+    a statement landing after its fence (inside the slack), midnight, a
+    takeover, a partial statement, a fenced statement, a lost checkpoint
+    CAS;
+  - **the earlier mutants still fail** by simulation (`noTimeBound` 94 s,
+    `noVerify`, `gcTombs`, `announceEarly`, `earlyCompact`, `floorOnly`),
+    and `releaseInFlight` (184 s). `keeperOverrun`, `noHorizon`,
+    `gcReopens` and, in this run, `wallRange` (found in 54 s in an earlier
+    run) were not found in 20,000 random traces: each needs about a dozen
+    specific steps among ~30 kinds of action;
+  - **so each has a scripted counterexample** (`*BreaksTest` in the model,
+    run on the mutant's instance): `releaseInFlight`, `keeperOverrun`,
+    `noHorizon` and `wallRange` end with `atMostOnce` broken, `gcReopens`
+    with `neverSkipsCommitted` broken; and the same prefix on the designs
+    (`*DesignTest`, all five design instances, 28 runs) shows the step the
+    counterexample needs disabled there (or, for the release, harmless once
+    the statement has settled).
+- **quint-connect** (`tests/mbt_s3inline_consumer.rs`): `wRelease` goes
+  through `coord::may_act` and `coord::release`; `newDay` and each epoch's
+  day map to received times, and the check and the verify count only the
+  partitions `plan::check_range` / `own_range` give (the verify's recount
+  too); `cApply` may land up to fence + budget + slack; after every step
+  the driver also compares central's rows per payload and day and, per
+  worker, `mayRelease` (the model's formula against the code's). The five
+  instances pass (`s3InlineConsumerDesign` 300 × 60, `designQuiet` 1,000 ×
+  80, `designDays` 500 × 80, `compactDesign` 300 × 60, `compactQuiet` 1,000
+  × 80; `results/consumer/scale/mbt.txt`). The code mutants fail as they
+  should: `OTAPRS_CONSUMER_MUTANT=release_in_flight` on all five (the
+  code's `may_release` disagrees with the model's while a statement is in
+  flight), `wall_range` on the three with days (after midnight the code's
+  check misses rows the model's sees). `designDays` is `designCopies` at
+  the driver's TTL of 6. The whole crate's `cargo test --release` passes.
+
+#### Soak and faults
+
+- **Soak** (`scripts/consumer_soak.sh`, 10 minutes, the fleet and faults of
+  [Soak under chaos](#soak-under-chaos-m) with every fleet-scale feature
+  on: linger 300 ms, idle backoff 0.5–5 s after 2 s, load balancing with a
+  5 s minimum hold and 2 s load reads, the check's range with a 1-day
+  horizon; lease 6 s, margin 1 s with `--allow-short-margin`;
+  `results/consumer/scale/soak/`): 15 worker SIGKILLs, 9 pauses past the
+  lease, 12 edge SIGKILLs. 25,950 committed objects in 353 epochs, 55
+  cross-epoch copies. **PASS: missing 0, partial 0, duplicated 0,
+  uncommitted 0** in all six tables, and every acked request's rows
+  exactly once. The workers: 7,205 statements for 25,747 objects (3.6 per
+  statement; the 30-minute soak at the same 200 ms poll had 1.6), 328
+  copies skipped by the check, **all 12,646 checks restricted to a range**
+  (no recount, no assertion fired), 76 lanes released by the balancing,
+  293 taken, 65 lapsed, 2 checkpoint CASes lost, 1 unanswered statement
+  waited out, 30,444 lane polls skipped by the backoff; GC 119 runs, 0
+  CAS conflicts.
+- **Faults** (`scripts/faults.sh`, the prototype's five scenarios with the
+  prototype's flags, now at the 45 s / 10 s / 10 s defaults): all PASS
+  (`results/consumer/scale/faults-compat.txt`).
+- **Unit tests** (`cargo test --release --bin consume`, 42, all passing):
+  the new ones are named above, plus the timing checks, the backoff and
+  jitter, the key → lane mapping and the event bodies, the load decisions
+  (release, take, water level, EWMA), the ranges and `fills`, and the
+  randomized fleet at scale (12 seeds × 1,500 events: load balancing,
+  backoff, linger, received times across midnight with copies, and
+  statements that land late).
+
 ### What the consumer leaves open
 
-- **LIST cost at short polls.** One LIST per held lane per poll, whether
-  or not anything arrived: at 1 s that is 2.6 M LISTs per lane per month,
-  about $13 at $0.005 per 1,000 [E]; at 5 s $2.6. A fleet of thousands of
-  lanes needs S3 event notifications (SQS/EventBridge) as the discovery
-  path, with LIST as the periodic reconciliation, or an idle-lane backoff
-  (not built).
-- **Fairness is coarse:** fair share by lane count, not by load; a lane
-  moves only when a worker is above its share.
+(Updated 2026-09-26 for the fleet-scale round, [above](#consumer-at-fleet-scale-m).)
+
+- **LIST cost:** an idle lane now costs one LIST per 30 s (about $0.43 a
+  month [E from M]) and a busy lane one per poll; per worker, two LISTs per
+  `--discover` and one per producer every 30 s. **Event notifications**
+  (S3 → SQS/EventBridge) would take the idle LIST to near zero: designed,
+  the `Hints` seam and the event parsing built, the SQS client not.
+- **Lease renewals** are now the largest cost of an idle lane: a CAS every
+  TTL/3 (173 k a month at 45 s, about $0.86 [E]). A longer TTL, or one
+  lease per worker instead of per lane, would cut it; neither is built.
+- **Balancing** weighs rows/s plus a base per lane; objects/s (the fixed
+  cost per statement) isn't in the weight. It was tested in unit tests and
+  the soak, not on a real fleet.
+- **The check's copy horizon:** a copy of a request received more than
+  `--check-horizon` (1 day) after its original is ingested twice, and
+  nothing reports it. A table partitioned on anything but
+  `toDate(received_at)` is checked over every partition.
 - **The server fence needs synchronized wall clocks** (within the margin)
   between worker and ClickHouse; the client-side bound doesn't.
 - **Replicated or SharedMergeTree central** wasn't tested here: the check
@@ -1776,7 +2166,8 @@ covers the edge change.
   nothing without quorum inserts; the consumer's `--sync-replica` runs
   `SYSTEM SYNC REPLICA … LIGHTWEIGHT` before the check:
   [`../central-replicated/README.md`](../central-replicated/README.md).
-  SharedMergeTree is still untested.)
+  SharedMergeTree is still untested.) The 10 s margin and the unanswered-
+  statement wait were built for it, but not run against it this round.
 - **Compaction's assumptions:**
   - the zombie bound, which GC already needed;
   - no producer clock steps back by more than about the zombie bound.
@@ -1787,7 +2178,7 @@ covers the edge change.
 - **Compaction waits for GC:** if `consume gc` doesn't run, checkpoints
   grow as before, for as long as it is down. **gc.json is one object** of
   size marks × lanes × entries: bounded, but a fleet of thousands of lanes
-  would want it sharded per lane.
+  would want it sharded per lane (not done this round).
 - **Not tested against AWS S3:** SeaweedFS's single-part `If-Match` and
   `If-None-Match` were shown atomic (../model/S3NATIVE.md); AWS may answer a
   concurrent `If-Match` with 409, which object_store retries.
@@ -1912,7 +2303,20 @@ B=$S/bin OUT=results/consumer/latency.jsonl POLLS="200ms 1s" scripts/consumer_la
 B=$S/bin OUT=$S/soak DURATION=1800 scripts/consumer_soak.sh                              # verdict: $S/soak/summary.txt
 B=$S/bin OUT=$S/ckpt-soak DURATION=900 scripts/consumer_ckpt_soak.sh                      # edge restarts every 2-5 s; checkpoint sizes + verdict in summary.txt
 $S/bin/consume purge --s3 http://127.0.0.1:18333/otel/otap-rs-consumer/$R                # clean up
+# the consumer at fleet scale: LISTs per lane (previous binary, then this one), linger, the check's range on an S3 tier
+for c in consume-before consume; do B=$S/bin CONSUME=$S/bin/$c MODE=lists IDLE=5 BUSY=1 SECS=180 CFLAGS="--poll 1s" OUT=results/consumer/scale/lists.jsonl scripts/consumer_scale.sh; done
+B=$S/bin MODE=linger LANES=4 RATE=0.5 SECS=90 LINGERS="0ms 1s 3s" CFLAGS="--poll 1s --lanes-every 2s" OUT=results/consumer/scale/linger.jsonl scripts/consumer_scale.sh
+CHC="clickhouse client --port 19000" B=$S/bin DAYS=90 ROWS=4000 KEYS=40 REPS=5 OUT=results/consumer/scale/check-range.jsonl scripts/consumer_check_range.sh
+OUT=results/consumer/scale/model.txt scripts/consumer_model.sh      # designs, witnesses, mutants, scripted counterexamples
+QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --nocapture   # OTAPRS_CONSUMER_MUTANT=release_in_flight|wall_range: fails
+B=$S/bin OUT=$S/soak DURATION=600 BP=scale-consumer DBP=scale_soak_ WFLAGS="--linger 300ms --idle-backoff 500ms..5s --idle-after 2s --min-hold 5s --loads-every 2s --load-window 20s --lane-weight 5" scripts/consumer_soak.sh
 ```
+
+The soak scripts pass `--allow-short-margin` (their lease is 6 s with a
+1 s margin); `BP` and `DBP` choose the bucket/prefix and the database
+prefix, `WFLAGS` adds worker flags. `faults.sh` takes its S3 keys from
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (default otel/otelsecret),
+since `configs/edge.yaml` no longer carries them.
 
 Everything writes under `s3://otel/otap-rs/` (metrics: `s3://otel/metrics-rs/`; this round's runs:
 `s3://otel/otap-rs-edge/` and, for the consumer, `s3://otel/otap-rs-consumer/`, deleted afterwards) on the local SeaweedFS. Every
@@ -1933,7 +2337,7 @@ ClickHouse database is private and dropped afterwards.
 | `src/batch.rs`, `src/encode.rs` | content key, flatten + encode per slot; Parquet and Arrow IPC writers |
 | `src/proto.rs` | the commit protocol: `Lane`, `Consumer`, keys, metadata, mutations |
 | `src/runner.rs`, `src/store.rs` | the protocol's I/O loop; object_store S3, credential order, CA bundle, credential_process, in-memory store with faults |
-| `src/bin/consume.rs`, `src/consumer/`, `src/central.rs` | the central consumer: `coord` (lease, checkpoint), `plan` (scan, verdicts, grouping), `bucket` (S3 with request counts; in memory), `sql` (lane kinds, statements; in-memory central), `worker`, `gc`, `tests` (the in-memory fleet); `consume gc`, `audit`, `purge` |
+| `src/bin/consume.rs`, `src/consumer/`, `src/central.rs` | the central consumer: `coord` (lease, checkpoint, margin rules, load balancing), `plan` (scan, verdicts, grouping, the check's range), `bucket` (S3 with request counts; in memory), `discovery` (idle backoff, event hints), `sql` (lane kinds, statements, the range assertion; in-memory central with partitions and late statements), `worker`, `gc`, `tests` (the in-memory fleet); `consume gc`, `audit`, `purge` |
 | `src/bin/encbench.rs` | the in-process edge benchmark |
 | `tests/mbt_s3inline.rs`, `tests/mbt_s3inline_metrics.rs`, `tests/mbt_s3inline_consumer.rs`, `tests/common/` | quint-connect model-based tests against `../model/s3Inline.qnt`, `../model/s3InlineMetrics.qnt`, `../model/s3InlineConsumer.qnt` and `../model/s3InlineConsumerCompact.qnt`; the shared log driver |
 | `tests/metrics.rs` | metrics: determinism, OTLP vs OTAP input, DateTime rendering, Empty-type rejection |
@@ -1942,5 +2346,5 @@ ClickHouse database is private and dropped afterwards.
 | `configs/edge.yaml`, `configs/edge-durable.yaml`, `configs/edge-otap.yaml` | the pipeline (env-substituted); with the durable buffer; with the OTAP receiver |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
 | `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`) |
-| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat; checkpoint compaction: `ckpt-soak/`, `ckpt-soak-before/`, `compact-model.txt`, `compact-mbt.txt`) |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`), `consumer_scale.sh` (LISTs per lane, linger), `consumer_check_range.sh` (the check on an S3 tier), `consumer_model.sh` (the consumer models' checks) |
+| `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat; checkpoint compaction: `ckpt-soak/`, `ckpt-soak-before/`, `compact-model.txt`, `compact-mbt.txt`; fleet scale: `scale/`) |

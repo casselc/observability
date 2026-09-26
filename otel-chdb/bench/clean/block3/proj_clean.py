@@ -11,7 +11,7 @@ part, b its own slope of rewrites per row against ln N (fit.py: the earlier
 fit.py's direct fit M = am + bm · ln N is shown beside it ("direct"); the
 two bracket the value.
 
-Runs that the disk budget stopped below MIN_OWN parts (random-id traces at 39
+Runs that the disk budget stopped below MIN_OWN (300) parts (random-id traces at 39
 B/row: ~160 parts; the top-level merge's output needs as much free space as
 the data) take the slope of the named run that went further (proj.py did the
 same with its 10k runs); their own short-range slope is the other end of the
@@ -24,9 +24,9 @@ import json, math, os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES = os.path.join(HERE, "results")
 
-MIN_OWN = 500
+MIN_OWN = 300
 # slope donor for a run stopped below MIN_OWN parts
-DONOR = {"traces-100k": "traces-100k-tg", "logs-100k": "traces-100k-tg", "clickstack-sum-100k": "clickstack-histogram-100k"}
+DONOR = {"traces-100k": "traces-100k-tg", "exphist-100k": "histogram-100k", "logs-100k": "traces-100k-tg", "clickstack-sum-100k": "clickstack-histogram-100k"}
 # (label, table, clean run, earlier 100k-row projection at N=1e4 [µs/row] and ×insert from merges/results/projection.md)
 ROWS = [
     ("traces, random ids", "traces", "traces-100k", 11.7, 2.2),

@@ -55,6 +55,48 @@
   "earlier": null,
   "src": "block 2 fit: F_stmt/32 + F_obj per object at 32 objects/statement"
  },
+ "mergeRow": {
+  "clean": 10.064513548803827,
+  "lo": 7.6625138035802625,
+  "hi": 10.064513548803827,
+  "n": 1,
+  "earlier": 11.0,
+  "src": "block 3: traces\u00b70.75 + logs\u00b70.25 at 1e4 parts (range: the two projection estimates)"
+ },
+ "mergePointB": {
+  "clean": 4.140017201057795,
+  "lo": 4.006541017043978,
+  "hi": 4.1741452324267225,
+  "n": 1,
+  "earlier": 6.5,
+  "src": "block 3: B points mix at 1e4 parts (range: the two projection estimates)"
+ },
+ "mergePointA": {
+  "clean": 19.448505316977297,
+  "lo": 19.448505316977297,
+  "hi": 19.695510464774774,
+  "n": 1,
+  "earlier": 30.0,
+  "src": "block 3: sum\u00b70.7 + histogram\u00b70.3 at 1e4 parts (range: the two projection estimates)"
+ },
+ "bPointB": {
+  "clean": 6.7009,
+  "n": 1,
+  "earlier": 6.3,
+  "src": "block 4: B mix, no-replay pool, OPTIMIZE FINAL"
+ },
+ "bPointA": {
+  "clean": 26.366300000000003,
+  "n": 1,
+  "earlier": 26.0,
+  "src": "block 4: ClickStack mix, no-replay pool, OPTIMIZE FINAL"
+ },
+ "bSeries": {
+  "clean": 38.44,
+  "n": 1,
+  "earlier": 39.6,
+  "src": "block 4: series table, 5 cycles"
+ },
  "edgeGoSpan": {
   "clean": 6.81,
   "lo": 6.33,

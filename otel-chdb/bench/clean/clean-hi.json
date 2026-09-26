@@ -1,0 +1,19 @@
+{
+ "usRow": 3.964,
+ "usPointB": 1.364,
+ "usPointA": 4.803,
+ "fixedMs": 18.556,
+ "mergeRow": 10.065,
+ "mergePointB": 4.174,
+ "mergePointA": 19.696,
+ "bPointB": 6.701,
+ "bPointA": 26.366,
+ "bSeries": 38.44,
+ "edgeGoSpan": 6.89,
+ "edgeGoLog": 4.97,
+ "edgeRsSpan": 4.07,
+ "edgeRsLog": 3.06,
+ "edgePointB": 2.15,
+ "edgeRsPointA": 6.26,
+ "edgeGoPointA": 7.766
+}

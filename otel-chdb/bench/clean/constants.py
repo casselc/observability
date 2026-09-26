@@ -3,7 +3,9 @@
 (central-sizing.html), the earlier like-for-like measurement on the loaded
 box, and the clean median [min–max].
 
-  constants.py            writes clean.json (calc.py's overrides) and prints constants.md
+  constants.py            writes clean.json (calc.py's overrides), clean-lo.json and clean-hi.json
+                          (every constant at the low / high end of its spread), constants.json, and
+                          prints constants.md
 Sources:
   block1/results.md       edge CPU per row (ms per 10k, s3 destination unless noted)
   block2/fit.json + raw   central INSERT…SELECT: per-rep fits, cpu = F_stmt + n·F_obj + rows·u
@@ -108,7 +110,7 @@ def block3():
     src = {"mergeRow": "block 3: traces·0.75 + logs·0.25 at 1e4 parts", "mergePointB": "block 3: B points mix at 1e4 parts",
            "mergePointA": "block 3: sum·0.7 + histogram·0.3 at 1e4 parts"}
     old = {"mergeRow": 11.0, "mergePointB": 6.5, "mergePointA": 30.0}
-    return {k: {"clean": v[0], "lo": v[1], "hi": v[2], "n": 1, "earlier": old[k], "src": src[k] + " (range: step … direct fit)"} for k, v in c.items()}
+    return {k: {"clean": v[0], "lo": v[1], "hi": v[2], "n": 1, "earlier": old[k], "src": src[k] + " (range: the two projection estimates)"} for k, v in c.items()}
 
 
 def block4():
@@ -118,14 +120,14 @@ def block4():
     r = {x["label"]: x["data_compressed_B_per_row"] for x in map(json.loads, open(p)) if x.get("rows")}
     out = {}
     try:
-        b = {"sum": r["B-sum"], "gauge": r["B-gauge"], "histogram": r["B-histogram"],
-             "exponential_histogram": r["B-exponential_histogram"], "summary": r["B-summary"]}
-        out["bPointB"] = {"clean": sum(MIX[t] * b[t] for t in MIX), "n": 1, "earlier": 6.3, "src": "block 4: B mix, OPTIMIZE FINAL"}
+        # the no-replay rows: the replayed 24-round pool repeats each series' values and halves counter bytes
+        b = {t: r[f"B-{t} no replay"] for t in MIX}
+        out["bPointB"] = {"clean": sum(MIX[t] * b[t] for t in MIX), "n": 1, "earlier": 6.3, "src": "block 4: B mix, no-replay pool, OPTIMIZE FINAL"}
     except KeyError:
         pass
     try:
-        a = {t: r[f"A-{t}"] for t in MIX}
-        out["bPointA"] = {"clean": sum(MIX[t] * a[t] for t in MIX), "n": 1, "earlier": 26.0, "src": "block 4: ClickStack mix, OPTIMIZE FINAL"}
+        a = {t: r[f"A-{t} no replay"] for t in MIX}
+        out["bPointA"] = {"clean": sum(MIX[t] * a[t] for t in MIX), "n": 1, "earlier": 26.0, "src": "block 4: ClickStack mix, no-replay pool, OPTIMIZE FINAL"}
     except KeyError:
         pass
     if "B-series (5 cycles)" in r:
@@ -152,6 +154,10 @@ def main():
     allc.update(edge(block1()))
     json.dump({k: round(v["clean"], 3) for k, v in allc.items() if not k.startswith("_")}, open(os.path.join(C, "clean.json"), "w"), indent=1)
     json.dump(allc, open(os.path.join(C, "constants.json"), "w"), indent=1)
+    # the spread's ends, for calc.py: every constant at its min (clean-lo.json) or max (clean-hi.json)
+    for end in ("lo", "hi"):
+        json.dump({k: round(v.get(end, v["clean"]), 3) for k, v in allc.items() if not k.startswith("_")},
+                  open(os.path.join(C, f"clean-{end}.json"), "w"), indent=1)
     print("| constant | current (calculator) | earlier like-for-like (loaded box) | clean, median [min–max] | n | Δ vs current | >15%? | source |")
     print("|---|---|---|---|---|---|---|---|")
     for k in CURRENT:

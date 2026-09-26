@@ -1,0 +1,281 @@
+{
+ "rows": [
+  {
+   "label": "traces, random ids",
+   "table": "traces",
+   "run": "traces-100k",
+   "rows": 100000,
+   "N_end": 161,
+   "insert_us": 3.62,
+   "merge_us_end": 5.521,
+   "rewrites_end": 2.534,
+   "stored_B": 40.78,
+   "earlier_e4": 11.7,
+   "earlier_x_e4": 2.2,
+   "proj": {
+    "1000": 7.807209383894235,
+    "10000": 10.689564360953518,
+    "100000": 13.571919338012801
+   },
+   "direct": {
+    "1000": 6.539227708793231,
+    "10000": 7.822965639752407,
+    "100000": 9.106703570711584
+   },
+   "b_per_decade": 1.3700381303314573,
+   "c_upper": 2.1038501872659174,
+   "slope_from": "slope of traces-100k-tg"
+  },
+  {
+   "label": "traces, testgen ids",
+   "table": "traces",
+   "run": "traces-100k-tg",
+   "rows": 100000,
+   "N_end": 1066,
+   "insert_us": 3.303,
+   "merge_us_end": 6.027,
+   "rewrites_end": 3.267,
+   "stored_B": 9.4,
+   "earlier_e4": 12.2,
+   "earlier_x_e4": 2.6,
+   "proj": {
+    "1000": 6.027,
+    "10000": 8.406581304067824,
+    "100000": 10.854098853745782
+   },
+   "direct": {
+    "1000": 5.89686630876819,
+    "10000": 8.32148841169092,
+    "100000": 10.74611051461365
+   },
+   "b_per_decade": 1.3700381303314573,
+   "c_upper": 1.786459438968916,
+   "slope_from": "own"
+  },
+  {
+   "label": "logs",
+   "table": "logs",
+   "run": "logs-100k",
+   "rows": 100000,
+   "N_end": 536,
+   "insert_us": 2.522,
+   "merge_us_end": 5.793,
+   "rewrites_end": 3.513,
+   "stored_B": 18.53,
+   "earlier_e4": 9.7,
+   "earlier_x_e4": 2.6,
+   "proj": {
+    "1000": 6.303702694238196,
+    "10000": 8.189361112354751,
+    "100000": 10.075019530471309
+   },
+   "direct": {
+    "1000": 5.2308687212978695,
+    "10000": 7.1811582950638275,
+    "100000": 9.131447868829785
+   },
+   "b_per_decade": 1.2618166309607373,
+   "c_upper": 1.4943997185080928,
+   "slope_from": "own"
+  },
+  {
+   "label": "series layout: number points (gauge+sum)",
+   "table": "number",
+   "run": "number-100k",
+   "rows": 80000,
+   "N_end": 2100,
+   "insert_us": 0.83,
+   "merge_us_end": 3.034,
+   "rewrites_end": 5.206,
+   "stored_B": 1.24,
+   "earlier_e4": 5.9,
+   "earlier_x_e4": 5.0,
+   "proj": {
+    "1000": 3.034,
+    "10000": 3.6465404832506256,
+    "100000": 4.550284833733658
+   },
+   "direct": {
+    "1000": 2.8610980184590162,
+    "10000": 3.632464024612022,
+    "100000": 4.403830030765027
+   },
+   "b_per_decade": 1.6762819476996653,
+   "c_upper": 0.5391362423983783,
+   "slope_from": "own"
+  },
+  {
+   "label": "series layout: histogram points",
+   "table": "histogram",
+   "run": "histogram-100k",
+   "rows": 96000,
+   "N_end": 1496,
+   "insert_us": 1.612,
+   "merge_us_end": 4.098,
+   "rewrites_end": 4.093,
+   "stored_B": 7.58,
+   "earlier_e4": 7.4,
+   "earlier_x_e4": 3.1,
+   "proj": {
+    "1000": 4.098,
+    "10000": 5.049652479706135,
+    "100000": 6.2030749986654055
+   },
+   "direct": {
+    "1000": 3.287154373654122,
+    "10000": 4.431539164872163,
+    "100000": 5.575923956090204
+   },
+   "b_per_decade": 1.2641192160537313,
+   "c_upper": 0.9124317582640438,
+   "slope_from": "own"
+  },
+  {
+   "label": "series layout: exp. histogram points",
+   "table": "exponential_histogram",
+   "run": "exphist-100k",
+   "rows": 100000,
+   "N_end": 458,
+   "insert_us": 3.515,
+   "merge_us_end": 4.878,
+   "rewrites_end": 2.485,
+   "stored_B": 16.57,
+   "earlier_e4": 13.5,
+   "earlier_x_e4": 2.6,
+   "proj": {
+    "1000": 5.669941960702814,
+    "10000": 8.005127290823376,
+    "100000": 10.340312620943937
+   },
+   "direct": {
+    "1000": 6.137943861558011,
+    "10000": 8.585591815410682,
+    "100000": 11.033239769263352
+   },
+   "b_per_decade": 1.2687243862397195,
+   "c_upper": 1.840577319587629,
+   "slope_from": "own"
+  },
+  {
+   "label": "series layout: summary points",
+   "table": "summary",
+   "run": "summary-100k",
+   "rows": 100000,
+   "N_end": 1800,
+   "insert_us": 1.613,
+   "merge_us_end": 2.856,
+   "rewrites_end": 3.921,
+   "stored_B": 2.76,
+   "earlier_e4": 8.1,
+   "earlier_x_e4": 3.2,
+   "proj": {
+    "1000": 2.856,
+    "10000": 3.5450400459992233,
+    "100000": 4.470264441124858
+   },
+   "direct": {
+    "1000": 2.726102111592855,
+    "10000": 3.647136148790474,
+    "100000": 4.568170185988092
+   },
+   "b_per_decade": 1.3677355452384632,
+   "c_upper": 0.6764643928035982,
+   "slope_from": "own"
+  },
+  {
+   "label": "series layout: series table",
+   "table": "series",
+   "run": "series-100k",
+   "rows": 100000,
+   "N_end": 600,
+   "insert_us": 8.245,
+   "merge_us_end": 1.946,
+   "rewrites_end": 1.198,
+   "stored_B": 38.86,
+   "earlier_e4": null,
+   "earlier_x_e4": null,
+   "proj": {
+    "1000": 1.966733594676617,
+    "10000": 2.060191839144848,
+    "100000": 2.1536500836130794
+   },
+   "direct": {
+    "1000": 1.9805722533911427,
+    "10000": 2.091096337854857,
+    "100000": 2.201620422318571
+   },
+   "b_per_decade": 0.05756462732485115,
+   "c_upper": 1.6235359944367176,
+   "slope_from": "own"
+  },
+  {
+   "label": "ClickStack otel_metrics_sum",
+   "table": "A_sum",
+   "run": "clickstack-sum-100k",
+   "rows": 104000,
+   "N_end": 491,
+   "insert_us": 5.833,
+   "merge_us_end": 11.088,
+   "rewrites_end": 2.576,
+   "stored_B": 19.62,
+   "earlier_e4": null,
+   "earlier_x_e4": null,
+   "proj": {
+    "1000": 12.732136067404566,
+    "10000": 18.054368389137238,
+    "100000": 23.37660071086991
+   },
+   "direct": {
+    "1000": 12.789287766466645,
+    "10000": 18.24871702195553,
+    "100000": 23.708146277444413
+   },
+   "b_per_decade": 1.2618166309607373,
+   "c_upper": 4.217912643678161,
+   "slope_from": "own"
+  },
+  {
+   "label": "ClickStack otel_metrics_histogram",
+   "table": "A_histogram",
+   "run": "clickstack-histogram-100k",
+   "rows": 96000,
+   "N_end": 314,
+   "insert_us": 7.754,
+   "merge_us_end": 12.526,
+   "rewrites_end": 2.5,
+   "stored_B": 28.5,
+   "earlier_e4": 29.3,
+   "earlier_x_e4": 2.7,
+   "proj": {
+    "1000": 15.931687614211963,
+    "10000": 22.70149148193743,
+    "100000": 29.471295349662903
+   },
+   "direct": {
+    "1000": 15.82052137351475,
+    "10000": 23.071361831353002,
+    "100000": 30.322202289191246
+   },
+   "b_per_decade": 1.3999717365403799,
+   "c_upper": 4.835671814671815,
+   "slope_from": "own"
+  }
+ ],
+ "constants": {
+  "mergeRow": [
+   10.064513548803827,
+   7.6625138035802625,
+   10.064513548803827
+  ],
+  "mergePointB": [
+   4.140017201057795,
+   4.006541017043978,
+   4.1741452324267225
+  ],
+  "mergePointA": [
+   19.448505316977297,
+   19.448505316977297,
+   19.695510464774774
+  ]
+ }
+}

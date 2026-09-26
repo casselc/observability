@@ -1,0 +1,10 @@
+clickstack-histogram-100k            A_histogram: R = -1.08 + 0.608 ln N  (1.40 per decade), N_end=314 R_end=2.50; M = -5.93 + 3.15 ln N µs (end 12.53); N=1000: R=3.12 ×2.04, N=10000: R=4.52 ×2.98, N=100000: R=5.92 ×3.91
+clickstack-sum-100k                  A_sum: R = -0.80 + 0.548 ln N  (1.26 per decade), N_end=491 R_end=2.58; M = -3.59 + 2.37 ln N µs (end 11.09); N=1000: R=2.98 ×2.19, N=10000: R=4.24 ×3.13, N=100000: R=5.5 ×4.06
+      exphist-100k  exponential_histogram: R = -0.68 + 0.551 ln N  (1.27 per decade), N_end=458 R_end=2.48; M = -1.20 + 1.06 ln N µs (end 4.88); N=1000: R=3.13 ×1.75, N=10000: R=4.4 ×2.44, N=100000: R=5.66 ×3.14
+    histogram-100k              histogram: R = -0.54 + 0.549 ln N  (1.26 per decade), N_end=1496 R_end=4.09; M = -0.15 + 0.50 ln N µs (end 4.10); N=1000: R=3.25 ×2.04, N=10000: R=4.51 ×2.75, N=100000: R=5.77 ×3.46
+         logs-100k                   logs: R = -0.74 + 0.548 ln N  (1.26 per decade), N_end=536 R_end=3.51; M = -0.62 + 0.85 ln N µs (end 5.79); N=1000: R=3.05 ×2.07, N=10000: R=4.31 ×2.85, N=100000: R=5.57 ×3.62
+       number-100k                 number: R = -0.24 + 0.728 ln N  (1.68 per decade), N_end=2100 R_end=5.21; M = 0.55 + 0.33 ln N µs (end 3.03); N=1000: R=4.79 ×3.45, N=10000: R=6.47 ×4.38, N=100000: R=8.15 ×5.3
+       series-100k                 series: R = 1.04 + 0.025 ln N  (0.06 per decade), N_end=600 R_end=1.20; M = 1.65 + 0.05 ln N µs (end 1.95); N=1000: R=1.21 ×0.24, N=10000: R=1.27 ×0.25, N=100000: R=1.33 ×0.27
+      summary-100k                summary: R = -0.34 + 0.594 ln N  (1.37 per decade), N_end=1800 R_end=3.92; M = -0.04 + 0.40 ln N µs (end 2.86); N=1000: R=3.77 ×1.69, N=10000: R=5.13 ×2.26, N=100000: R=6.5 ×2.83
+       traces-100k                 traces: R = 0.42 + 0.265 ln N  (0.61 per decade), N_end=161 R_end=2.53; M = 0.43 + 0.68 ln N µs (end 5.52); N=1000: R=2.25 ×1.42, N=10000: R=2.86 ×1.86, N=100000: R=3.47 ×2.29
+    traces-100k-tg                 traces: R = -0.91 + 0.595 ln N  (1.37 per decade), N_end=1066 R_end=3.27; M = -1.38 + 1.05 ln N µs (end 6.03); N=1000: R=3.21 ×1.79, N=10000: R=4.58 ×2.52, N=100000: R=5.95 ×3.26

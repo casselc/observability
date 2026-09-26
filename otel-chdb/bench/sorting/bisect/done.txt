@@ -1,0 +1,15 @@
+pre 1
+head 1
+head-nodur 1
+pre 2
+head 2
+head-nodur 2
+pre 3
+head 3
+head-nodur 3
+pre 4
+head 4
+head-nodur 4
+pre 5
+head 5
+head-nodur 5

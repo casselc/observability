@@ -1,0 +1,10 @@
+   Compiling otap-s3pq v0.1.0 (/home/user/oscope/spike/otel-chdb/otap-rs)
+    Finished `release` profile [optimized] target(s) in 2m 05s
+built pre (8cf80ad ) free 4.29 GB
+   Compiling otel-arrow-dfe-core-nodes v0.57.0 (/home/user/oscope/spike/otel-chdb/otap-rs/.upstream/rust/otap-dataflow/crates/core-nodes)
+   Compiling otap-s3pq v0.1.0 (/home/user/oscope/spike/otel-chdb/otap-rs)
+    Finished `release` profile [optimized] target(s) in 1m 22s
+built head-nodur (HEAD --no-default-features --features jemalloc) free 4.02 GB
+   Compiling otap-s3pq v0.1.0 (/home/user/oscope/spike/otel-chdb/otap-rs)
+    Finished `release` profile [optimized] target(s) in 32.70s
+built head (HEAD ) free 3.92 GB

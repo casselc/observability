@@ -564,3 +564,10 @@
 [histogram-100k] t=427s inserts=853 err=0 parts={'otel_metrics_histogram_points': 10} db=562MB free=3.94GB mergeCPU=265.9s
 [histogram-100k] t=432s inserts=864 err=0 parts={'otel_metrics_histogram_points': 12} db=578MB free=3.90GB mergeCPU=267.3s
 [histogram-100k] t=437s inserts=874 err=0 parts={'otel_metrics_histogram_points': 19} db=600MB free=3.86GB mergeCPU=271.1s
+[histogram-100k] t=442s inserts=884 err=0 parts={'otel_metrics_histogram_points': 19} db=613MB free=3.80GB mergeCPU=277.7s
+[histogram-100k] t=447s inserts=894 err=0 parts={'otel_metrics_histogram_points': 24} db=630MB free=3.66GB mergeCPU=285.5s
+[histogram-100k] t=452s inserts=904 err=0 parts={'otel_metrics_histogram_points': 18} db=626MB free=3.56GB mergeCPU=292.2s
+[histogram-100k] t=457s inserts=914 err=0 parts={'otel_metrics_histogram_points': 23} db=643MB free=4.15GB mergeCPU=299.3s
+[histogram-100k] t=462s inserts=924 err=0 parts={'otel_metrics_histogram_points': 8} db=616MB free=4.12GB mergeCPU=302.3s
+[histogram-100k] t=467s inserts=934 err=0 parts={'otel_metrics_histogram_points': 14} db=635MB free=4.07GB mergeCPU=304.3s
+[histogram-100k] t=472s inserts=944 err=0 parts={'otel_metrics_histogram_points': 10} db=634MB free=4.02GB mergeCPU=306.3s

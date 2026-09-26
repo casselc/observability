@@ -317,6 +317,8 @@ func newPGSignalNamed(root string, cols []pgCol, o Options) (*pgSignal, error) {
 	}
 	if !o.PageIndex {
 		s.opts = append(s.opts, parquet.ColumnIndexSizeLimit(func([]string) int { return 0 }))
+	} else if o.ColumnIndexLimit > 0 {
+		s.opts = append(s.opts, parquet.ColumnIndexSizeLimit(func([]string) int { return o.ColumnIndexLimit }))
 	}
 	if o.NoBounds {
 		// No min/max anywhere: neither in the chunk statistics nor in the

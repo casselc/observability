@@ -47,6 +47,12 @@ type Options struct {
 	// index (with Statistics and PageIndex off: layout B's
 	// `statistics: none`).
 	NoBounds bool
+	// ColumnIndexLimit truncates the column index's min/max to this many
+	// bytes (parquet-go's default is 16; parquet-rs's 64).
+	ColumnIndexLimit int
+	// TruncateStatistics bounds the footer's chunk statistics to this many
+	// bytes (TruncateStatistics; applied by the manifest-less edge).
+	TruncateStatistics int
 }
 
 // HighCardinality are the columns that are unique, or nearly, per row.

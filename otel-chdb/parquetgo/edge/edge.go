@@ -78,12 +78,16 @@ type Config struct {
 	Now func() time.Time
 }
 
-// EdgeParquet is the Rust edge's Parquet for traces and logs: zstd,
-// dictionaries except on the near-unique columns, page statistics and page
-// index, a bloom filter on TraceId only.
+// EdgeParquet is the Rust edge's Parquet for traces and logs (parquet-rs
+// defaults as otap-rs sets them): zstd, dictionaries except on the
+// near-unique columns, chunk statistics and the page index with min/max cut
+// to 64 bytes, no statistics in the page headers, a bloom filter on
+// TraceId only.
 func EdgeParquet() parquetgo.Options {
 	o := parquetgo.DefaultOptions()
 	o.BloomColumns = []string{"TraceId"}
+	o.Statistics = false // page-header statistics; chunk statistics stay
+	o.ColumnIndexLimit, o.TruncateStatistics = 64, 64
 	return o
 }
 
@@ -250,7 +254,14 @@ func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64,
 	if _, err := walk(enc, buf, e.env(r, received)); err != nil {
 		return commit.Object{}, err
 	}
-	return commit.Object{Body: buf.Bytes(), ContentType: commit.ParquetContentType, Meta: meta}, nil
+	body := buf.Bytes()
+	if n := e.cfg.Parquet.TruncateStatistics; n > 0 {
+		var err error
+		if body, err = parquetgo.TruncateStatistics(body, n); err != nil {
+			return commit.Object{}, err
+		}
+	}
+	return commit.Object{Body: body, ContentType: commit.ParquetContentType, Meta: meta}, nil
 }
 
 func (e *Edge) now() uint64 { return uint64(e.cfg.Now().UnixNano()) }

@@ -24,6 +24,9 @@ runs() { # main match expect
 }
 C=s3InlineConsumer.qnt K=s3InlineConsumerCompact.qnt
 for m in s3InlineConsumerDesign designQuiet designShortLease designCopies designDays; do sim $C $m safety 5000 60 ok; done
+# The horizon audit: silent on the designs; under noHorizon every duplicate is one it reports.
+for m in designCopies designDays; do sim $C $m auditSilent 5000 60 ok; done
+sim $C noHorizon dupAudited 20000 60 ok
 for w in wReleasedIngest wCopyAcrossDays wLateLanding wMidnight wTakeoverIngest wPartial wFenced wCasLost; do
   sim $C designCopies "not($w)" 20000 60 VIOLATED
 done

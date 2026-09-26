@@ -1789,7 +1789,9 @@ batch landed below the checkpoint and was never ingested.** Code:
 | Event hints | `discovery::Hints`: an S3 event names a key, its lane is LISTed at the next poll; LIST stays the truth | (seam; no SQS client) | unit tests: woken at the next poll; lost, spurious and unknown hints change nothing |
 | Load balancing | weight = base + recent rows/s; water-level target; ±band; min hold; loads through the heartbeats | `--balance load`, `--hysteresis 0.2`, `--lane-weight 50`, `--load-window 60s`, `--min-hold 30s`, `--loads-every 10s` | unit test: 1 heavy + 8 light lanes on 3 workers settle (the heavy lane alone, the light ones 3–5 per worker) and stop moving |
 | Linger | a table with fewer pending objects than a statement holds waits up to the linger from its oldest object's HEAD | `--linger 0ms` (off) | 2 objects/s: 4.0 → 7.1 → 10.2 objects per statement at 0 / 1 / 3 s; server CPU per object 14.8 → 9.2 → 7.2 ms |
-| Check range | the check reads `_partition_value` in the objects' own received day ± a copy horizon; the insert asserts every row's `received_at` | `--check-horizon 1d` (`all`: off), `--no-check-range` | 90 daily partitions on S3: **2,320 → 56 GETs and 546 → 13 ms CPU** per check, cold |
+| Check range | the check reads `_partition_value` in the objects' own received day ± a copy horizon; the insert asserts every row's `received_at` | `--check-horizon 3d` (was 1d; `all`: off), `--no-check-range` | 90 daily partitions on S3: **2,320 → 116 GETs and 516 → 25 ms CPU** per check, cold, at 3 days (56 GETs, 13 ms at 1 day) |
+| Horizon audit | finds copies ingested twice because they were received more than the horizon after their original: keys in two partitions beyond the check's reach, confirmed by repeated rows; a WARN per copy, `consumer_late_copies_total` | `consume gc --db D` (every `--audit-every 24h`), or `consume horizon-audit`; `--audit-lookback 2d`, `--audit-sample-hex 0` | same table: **1,716 GETs, 426 ms CPU** per run cold (about one unranged check); 18 M keys: 3.8 s CPU, 0.78 s at a 1/16 sample |
+| Metrics | Prometheus text on `/metrics` (tokio's listener, no framework) | `--metrics-addr` (off) | format and endpoint tested; scraped in the soak |
 | Lease margin | refuses to start with a margin below 10 s or below the commit slack | `--ttl 45s --margin 10s --budget 10s --keeper-slack 10s`, `--allow-short-margin` | unit tests (the old defaults and D9's "30 s / 10 s" are refused) |
 
 #### Idle-lane backoff and event-driven discovery
@@ -1953,7 +1955,8 @@ the partition key is not enough by itself, and is not safe by itself:
    00:01 reads both days; an object received five days ago reads that day,
    whatever today is.
 2. **The pre-check** reads [min − horizon, max + horizon] of the batch's
-   received times (`--check-horizon`, 1 day): earlier attempts of the same
+   received times (`--check-horizon`, 3 days since the audit round; it was
+   1 day): earlier attempts of the same
    objects are in [min, max] (by 1), and a copy is found if it was received
    within the horizon of its original.
 3. **The verify** after a statement reads [min, max] first (only this
@@ -1971,11 +1974,16 @@ the partition key is not enough by itself, and is not safe by itself:
    it never adds a row that is anywhere already.
 
 **What it assumes:** a copy is received within the horizon of its
-original (1 day by default). Before, the horizon was the retention (90
-days: a copy of a dropped batch was ingested again too). A copy later than
-that is ingested twice, and nothing reports it; the edges' durable buffer
-replays within minutes of a restart, and a sender's retry window is
-minutes. The model makes the assumption explicit (below).
+original (3 days by default; 1 day before the audit round). Before the
+range, the horizon was the retention (90 days: a copy of a dropped batch
+was ingested again too). A copy later than that is ingested twice. The
+edges' durable buffer replays within minutes of a restart and a sender's
+retry window is minutes, but an edge that committed, crashed before it
+learned so, and came back after a long outage replays from its buffer
+with a new `received_at` (the exporter stamps it at receipt, after the
+buffer). **That is no longer silent:** the horizon audit
+([below](#the-horizon-audit-late-copies-m)) finds every such copy after
+the fact and counts it. The model makes the assumption explicit (below).
 
 **Tests:** `the_check_range_follows_the_data` (a batch spanning midnight
 with a partial first statement, and an object received five days before
@@ -2005,11 +2013,160 @@ dropped:
 | every partition, warm | 180 | 1,240 | 21.4 s | 275 ms | 24 s |
 | **today ± 1 day, cold** | 4 | **56** | 79 ms | **12.8 ms** | 181 ms |
 | today ± 1 day, warm | 4 | 32 | 40 ms | 7.3 ms | 95 ms |
+| **today ± 3 days, cold** (the default since the audit round) | 8 | **116** | 332 ms | **24.9 ms** | 537 ms |
+| today ± 3 days, warm | 8 | 68 | 109 ms | 14.6 ms | 193 ms |
 
-Both answered from the projection. The wall times are a local SeaweedFS
+All answered from the projection. The wall times are a local SeaweedFS
 serving small GETs one after another; the point is the ratio: **41× fewer
-GETs and 43× less CPU**, and the restricted check no longer grows with
-retention.
+GETs and 43× less CPU** at 1 day, **20× and 21×** at 3 days (the 3-day
+rows are a later run of the same script, `results/consumer/horizon/cost.jsonl`,
+whose 1-day and unrestricted rows match the table's within 10%), and the
+restricted check no longer grows with retention. Tripling the horizon
+doubles the check (4 past days of parts instead of 2; no partition is
+ahead of today) for 3 days of tolerance to a late copy.
+
+#### The horizon audit: late copies [M]
+
+**Why:** a copy received more than `--check-horizon` after its original is
+out of the check's reach and is ingested a second time, and nothing on the
+ingest path can tell (it looks like a new request). The audit finds those
+copies afterwards, so a broken assumption shows up as a number and a log
+line instead of silently doubled rows.
+
+**What it detects is the failure itself,** not a proxy for it: a content
+key is one request's rows, and every row an insert writes for an object
+carries that object's constant `received_at` (the insert asserts it), so
+one ingestion of an object lies in exactly one partition. A key present in
+two partitions was ingested at least twice. (`src/consumer/audit.rs`)
+
+1. **Candidates, from the content projection:** the keys in a recent
+   partition (from `toDate(now − --audit-lookback)`, 2 days) that are in
+   any other partition as well; one query per table, answered from
+   `by_content` (EXPLAIN shows it for both reads). It reads the projection of
+   every part, the whole retention, once per run instead of once per
+   statement.
+2. **Confirmation, from the table,** for the candidates only and only in
+   their partitions: per key, rows minus distinct `row_ordinal` (the rows
+   that are there twice; an object whose rows carry several received
+   times, a foreign producer's, spreads over partitions without a repeated
+   row and is not reported), and per (day, producer, epoch) the earliest
+   `received_at` and the rows, each one ingestion.
+3. **Classification:** ordered by received time, each ingestion after the
+   first is a copy. It is **late** if the check could have missed every
+   earlier one in either order of ingestion (the earlier one's partition
+   before `toDate(recv − h)`, or the later one's after `toDate(recv + h)`,
+   `plan::check_range`'s reach); otherwise **unexplained**, a duplicate
+   the check should have prevented (a bug, or workers with a wider horizon
+   than the audit's `--check-horizon`).
+4. **Reported once:** a WARN per copy (lane, epoch, content key, both
+   received times, the gap, rows, duplicated rows, the horizon), the
+   counters `consumer_late_copies_total{signal,table}` and
+   `consumer_audit_unexplained_copies_total{signal,table}`; what was
+   reported is kept in `{ctl}/audit/{db}.json`, so neither a later run nor
+   a restart counts a copy twice. The totals survive restarts too.
+
+```
+WARN horizon-audit: late copy in otel_logs: lane p1/logs epoch 20260926T211346.821Z-09856d29 received 2026-09-26T21:13:46Z,
+  120.0h after its original (lane p1/logs epoch 20260926T211346.815Z-c58d74e1 received 2026-09-21T21:13:46Z);
+  content_key 840b6daf9d437274bb6a57f5bcb6c883, 7 rows, 7 rows duplicated; check horizon 72.0h
+```
+
+**Where it runs:** beside GC (`consume gc … --ch URL --db DB`, every
+`--audit-every`, 24 h by default, `off` to disable) or alone (`consume
+horizon-audit --db DB [--every 1h]`); **never in a worker**, so it cannot
+delay a statement or a lease renewal, and one process audits a database
+(each worker auditing would multiply the cost and the counts). GC and the
+audit share one task and interleave at their awaits. Its queries run with
+`max_threads = 2` (`--audit-max-threads`) and a 30-minute HTTP timeout. A
+failure (central down, a table unreadable) is logged and counted
+(`consumer_audit_runs_total{result="error"}`, the last success time stops
+moving), never fatal, and the next run covers the same window again.
+Tables whose partition key isn't `toDate(received_at)` are skipped (their
+checks read every partition already). `--audit-sample-hex k` audits only
+keys starting with k zeros (1/16^k: the projection is ordered by key, so
+this reads that fraction of each part's projection); keys are hashes, so a
+sample estimates the rate without bias, and a replay after an outage copies
+many requests at once.
+
+**Metrics** (`--metrics-addr HOST:PORT`, off by default, on the worker, GC
+and the audit; `src/consumer/metrics.rs`, text format 0.0.4 on tokio's
+listener, nothing added to `Cargo.lock`):
+
+| process | families |
+|---|---|
+| audit | `consumer_late_copies_total{signal,table}`, `consumer_audit_unexplained_copies_total{signal,table}`, `consumer_audit_runs_total{result}`, `consumer_audit_last_success_timestamp_seconds`, `consumer_audit_duration_seconds`, `consumer_audit_candidates`, `consumer_audit_tables`, `consumer_check_horizon_seconds` |
+| GC | `consumer_gc_runs_total{result}`, `consumer_gc_deleted_objects_total`, `consumer_gc_last_success_timestamp_seconds` |
+| worker | `consumer_objects_ingested_total{kind}`, `consumer_rows_ingested_total`, `consumer_statements_total`, `consumer_copies_skipped_total`, `consumer_repairs_total{kind=missing\|partial}`, `consumer_over_count_total`, `consumer_insert_errors_total`, `consumer_unsettled_statements_total`, `consumer_checks_total{range=ranged\|all}`, `consumer_check_recounts_total`, `consumer_range_guard_failures_total`, `consumer_lane_lists_total`, `consumer_lane_lists_skipped_total`, `consumer_s3_requests_total{op}`, `consumer_lane_changes_total{event}`, `consumer_gaps_seen_total`, `consumer_epochs_closed_total`, `consumer_errors_total`, `consumer_lanes_held`, `consumer_lanes_known`, `consumer_live_workers`, `consumer_visible_seconds{quantile}`, `consumer_cpu_seconds_total`, `consumer_check_horizon_seconds` |
+
+Alert on `increase(consumer_late_copies_total[1d]) > 0` (a horizon too
+short for what the senders do: widen it, and delete the copies by content
+key and epoch from the WARN), on any `consumer_audit_unexplained_copies_total`
+(a bug), and on `time() - consumer_audit_last_success_timestamp_seconds >
+2 × the interval`.
+
+**Measured** (`scripts/consumer_check_range.sh`, the same table as the
+check's measurement above: 90 daily partitions on a SeaweedFS S3 disk, 182
+parts, a late copy (10 days) and a copy within the horizon (2 days)
+planted today; lookback 2 days, `max_threads` 2, median of 5, the queries'
+own ProfileEvents; `results/consumer/horizon/cost.jsonl`; and the same
+with 100,000 keys per part, 18 M keys, median of 3,
+`cost-100k-keys.jsonl`):
+
+| query | keys | parts read | S3 GETs | CPU | wall (local S3) |
+|---|---|---|---|---|---|
+| check, today ± 3 days, cold (per statement) | 7,200 | 8 | 116 | 24.9 ms | 0.5 s |
+| check, every partition, cold | 7,200 | 180 | 2,320 | 516 ms | 42 s |
+| **audit candidates, cold (per run)** | 7,200 | 190 | **1,716** | **426 ms** | 26 s |
+| audit candidates, warm | 7,200 | 190 | 940 | 237 ms | 12 s |
+| audit confirmation (2 keys), cold | | 8 | 264 | 43 ms | 0.9 s |
+| check, today ± 3 days, cold | 18 M | 8 | 116 | 121 ms | 0.9 s |
+| check, every partition, cold | 18 M | 180 | 2,160 | 2,534 ms | 123 s |
+| **audit candidates, cold** | 18 M | 190 | 1,562 | **3,796 ms** | 61 s |
+| audit candidates, 1/16 sample, cold | 18 M | 188 | 1,922 | 775 ms | 40 s |
+
+Both found exactly the late copy and the one within the horizon (the
+script checks it). **A run costs about one unranged check**, the thing the
+range was built to stop doing per statement: once a day that is ~1,700
+GETs, about $0.02 a table a month at $0.0004 per 1,000 [E from M]. CPU
+grows with the keys read: 3.8 s per 18 M keys, about 0.2 µs a key [M];
+at fleet scale (7.8 M objects a day, 700 M keys in 90 days across the
+tables) a full run is roughly 150 s of central CPU and reads the keys'
+projection columns (about 30 B a key, ~20 GB) from the cold tier, and the
+recent side holds ~20 M keys in the IN set (~1 GB) [E]: run it daily, or
+with `--audit-sample-hex 1` (1/16 of the keys: 5× less CPU measured, 1/16
+of the bytes and memory) hourly. Local S3 serves small GETs slowly, so the
+wall times are high here; the GET counts barely change with the keys,
+since each part's projection is read in a few requests.
+
+**Tests:** `audit::tests` (the reach in both orders and at a fractional
+horizon, classification out of order, spread objects, counted once and
+forgotten after the lookback, the statements and parsing);
+`planted_copies_on_clickhouse` (on the server: a copy 5 days after its
+original is late, one 2 days after is unexplained, an object spread over
+two days and a pair older than the lookback are not reported, a second run
+adds nothing, a sampled run reads none of them, the candidates come from
+the projection, an unreachable server is an error in the report);
+**`a_copy_beyond_the_horizon_end_to_end`**: edge objects on SeaweedFS
+(the edge's encoder), the worker with the default 3-day horizon, two
+requests received 5 and 2 days ago and ingested, each then resent into a
+new epoch: the worker skips the copy within the horizon, ingests the other
+again (14 rows where 7 were sent), and the audit reports exactly that one,
+late, with its lane, epochs and a 120 h gap;
+`the_default_horizon_is_three_days` (the worker with MemCentral: copies
+2.5 and 4 days late); `metrics::tests` (the text format, escaping, every
+family, and the endpoint answering a scrape with the latest text). The
+model gained `auditLate` (below).
+
+**Edge-side early warning: not built.** The exporter can't tell a replay
+from a new request (it stamps `received_at` when the pipeline hands it the
+request, after the durable buffer), and the consumer sees only the new
+received time. The cheap fix is at the source: stamp the receipt time
+before the durable buffer (a processor ahead of Quiver, carried through
+the WAL) so a replay keeps its original `received_at` and lands in the
+original's partition, where even the 1-day check finds it. That changes the
+edge's pipeline and the envelope's meaning (a receipt time from before a
+crash), so it is left as a follow-up; a resend by an agent to its
+publisher would still get a new time.
 
 #### The lease margin, and statements whose answer was lost
 
@@ -2069,7 +2226,13 @@ scripted run.
   MARGIN), daily partitions (`day`, `newDay`, each epoch's receive day
   `eDay`, central's rows per payload and day `crows`; check and verify
   read the objects' day ± HORIZON), and GC keeping the slot below the
-  position. Instance `designCopies` (writer faults, TTL 3, days on) joins
+  position. (Audit round: `auditLate`, a payload in central on two days
+  more than HORIZON apart, is what the horizon audit reports;
+  `auditSilent` holds on the designs, `dupAudited` (every duplicate is
+  one the audit reports) under `noHorizon`, and `noHorizonBreaksTest`
+  now ends with both `atMostOnce` broken and `auditLate`; the whole
+  `consumer_model.sh` rerun gives the same verdicts as before,
+  `results/consumer/horizon/model.txt`.) Instance `designCopies` (writer faults, TTL 3, days on) joins
   the designs. s3InlineConsumerCompact.qnt gets the release, the slack and
   the GC rule.
 - **Results** (`scripts/consumer_model.sh`,
@@ -2130,10 +2293,23 @@ scripted run.
   293 taken, 65 lapsed, 2 checkpoint CASes lost, 1 unanswered statement
   waited out, 30,444 lane polls skipped by the backoff; GC 119 runs, 0
   CAS conflicts.
+- **Soak with the horizon audit** (the same script, 6 minutes, the
+  3-day default horizon, the audit beside GC every 60 s, every process's
+  metrics scraped at the end; `results/consumer/horizon/soak/`): 7 worker
+  SIGKILLs, 3 pauses past the lease, 11 edge SIGKILLs; 15,555 committed
+  objects in 270 epochs, 58 cross-epoch copies (49 skipped by the check).
+  **PASS** in all six tables, and **the audit reported nothing:** 7 runs
+  beside GC and a final one over the 6 tables, late 0, unexplained 0,
+  errors 0, no candidate key (every copy here is resent within seconds and
+  was skipped). Every check was restricted to a range
+  (`consumer_checks_total{range="all"} 0` on every worker).
 - **Faults** (`scripts/faults.sh`, the prototype's five scenarios with the
   prototype's flags, now at the 45 s / 10 s / 10 s defaults): all PASS
   (`results/consumer/scale/faults-compat.txt`).
-- **Unit tests** (`cargo test --release --bin consume`, 42, all passing):
+- **Unit tests** (`cargo test --release --bin consume`, 42, all passing;
+  53 since the audit round, and the whole crate's `cargo test --release`
+  passes, the model-based test's five instances included,
+  `results/consumer/horizon/cargo-test.txt`):
   the new ones are named above, plus the timing checks, the backoff and
   jitter, the key → lane mapping and the event bodies, the load decisions
   (release, take, water level, EWMA), the ranges and `fills`, and the
@@ -2157,9 +2333,15 @@ scripted run.
   cost per statement) isn't in the weight. It was tested in unit tests and
   the soak, not on a real fleet.
 - **The check's copy horizon:** a copy of a request received more than
-  `--check-horizon` (1 day) after its original is ingested twice, and
-  nothing reports it. A table partitioned on anything but
-  `toDate(received_at)` is checked over every partition.
+  `--check-horizon` (3 days; 1 day before the audit round) after its
+  original is ingested twice. The horizon audit now reports every such
+  copy (`consumer_late_copies_total`, a WARN each) but doesn't prevent or
+  remove it: deleting a reported copy (by content key and epoch) is manual,
+  and stamping `received_at` before the durable buffer, which would keep a
+  replay in its original's partition, isn't built. A full audit reads the
+  whole content projection (~20 GB and ~150 s of central CPU at fleet scale
+  [E]): daily, or sampled. A table partitioned on anything but
+  `toDate(received_at)` is checked over every partition, and not audited.
 - **The server fence needs synchronized wall clocks** (within the margin)
   between worker and ClickHouse; the client-side bound doesn't.
 - **Replicated or SharedMergeTree central** wasn't tested here: the check
@@ -2312,7 +2494,11 @@ B=$S/bin MODE=linger LANES=4 RATE=0.5 SECS=90 LINGERS="0ms 1s 3s" CFLAGS="--poll
 CHC="clickhouse client --port 19000" B=$S/bin DAYS=90 ROWS=4000 KEYS=40 REPS=5 OUT=results/consumer/scale/check-range.jsonl scripts/consumer_check_range.sh
 OUT=results/consumer/scale/model.txt scripts/consumer_model.sh      # designs, witnesses, mutants, scripted counterexamples
 QUINT_SEED=0x5eed cargo test --release --test mbt_s3inline_consumer -- --nocapture   # OTAPRS_CONSUMER_MUTANT=release_in_flight|wall_range: fails
-B=$S/bin OUT=$S/soak DURATION=600 BP=scale-consumer DBP=scale_soak_ WFLAGS="--linger 300ms --idle-backoff 500ms..5s --idle-after 2s --min-hold 5s --loads-every 2s --load-window 20s --lane-weight 5" scripts/consumer_soak.sh
+B=$S/bin OUT=$S/soak DURATION=600 BP=scale-consumer DBP=scale_soak_ WFLAGS="--linger 300ms --idle-backoff 500ms..5s --idle-after 2s --min-hold 5s --loads-every 2s --load-window 20s --lane-weight 5" scripts/consumer_soak.sh# the horizon audit: its cost beside the check at 1 and 3 days (90 days on S3), then with 100k keys a part; its tests; the soak runs it beside GC
+CHC="clickhouse client --port 19000" B=$S/bin BUCKET=audit-consumer DBP=audit_cold_ DAYS=90 ROWS=4000 KEYS=40 REPS=5 HORIZON_DAYS=3 OUT=results/consumer/horizon/cost.jsonl scripts/consumer_check_range.sh
+CHC="clickhouse client --port 19000" B=$S/bin BUCKET=audit-consumer DBP=audit_cold_ DAYS=90 ROWS=100000 KEYS=100000 REPS=3 OUT=results/consumer/horizon/cost-100k-keys.jsonl scripts/consumer_check_range.sh
+OTAPRS_S3=http://127.0.0.1:18333/audit-consumer cargo test --release --bin consume audit::   # ClickHouse and S3 tests skip when neither is up
+$S/bin/consume horizon-audit --s3 $ROOT --ch http://127.0.0.1:18123 --db central --every 1h --metrics-addr :9464   # or: consume gc ... --db central
 ```
 
 The soak scripts pass `--allow-short-margin` (their lease is 6 s with a
@@ -2350,5 +2536,5 @@ ClickHouse database is private and dropped afterwards.
 | `configs/edge-publisher.yaml` | the deployed publisher: durable buffer plus a batch step before it |
 | `sql/series_tables.sql`, `sql/series_views.sql` | layout B's central tables and the contrib-compatible views |
 | `tools/` (Go) | `otlpgen` (datasets as OTLP, `-metrics` too; parquetgo reference), `otlpsend` (the retrying sender), `faultproxy2` (answer-late / apply-late / drop, held HEADs), `metricsref` (the contrib exporter's rows), `seriesref` (the Go prototype's objects; fleet batches; S3 cleanup), `otapsend` (OTAP sender, otel-arrow's Go producer); `otlpsend -grpc`; `soaksend` (endless distinct requests, tagged per request, resent until 2xx) |
-| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`), `consumer_scale.sh` (LISTs per lane, linger), `consumer_check_range.sh` (the check on an S3 tier), `consumer_model.sh` (the consumer models' checks) |
+| `scripts/` | correctness, faults, bench, central bench, latency, summaries; `series_bench.sh`, `series_wire.py`, `durable.sh`, `otap_e2e.sh`, `otap_diff.py`, `input_bench.sh` and their summarizers; the consumer's `consumer_bench.sh`, `consumer_fixedcost.sh`, `consumer_latency.sh`, `consumer_soak.sh` (+ `consumer_soak_edge.yaml`, `consumer_soak_check.py`), `consumer_ckpt_soak.sh` (+ `consumer_ckpt_sample.py`), `consumer_scale.sh` (LISTs per lane, linger), `consumer_check_range.sh` (the check on an S3 tier, and the horizon audit's queries), `consumer_model.sh` (the consumer models' checks) |
 | `results/` | `metrics/` (correctness, faults, bench, central), `mbt/metrics.txt`, `bench.jsonl`/`.md`, `central.md`, `correctness.txt`, `faults/`, `mbt/`, `latency/`, `creds.txt`; `series/` (correctness, bench, wire), `durable/` (crash test, cost), `otap/` (OTAP correctness), `inputs/` (transport bench); `consumer/` (bench, fixed cost, latency, soak, model, mbt, faults compat; checkpoint compaction: `ckpt-soak/`, `ckpt-soak-before/`, `compact-model.txt`, `compact-mbt.txt`; fleet scale: `scale/`) |

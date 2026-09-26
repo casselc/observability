@@ -51,7 +51,7 @@ disagreed with each other, and how each was resolved.
 | [D8](#d8-consumer-leases-and-checkpoints-on-s3) | Consumer: leases and checkpoints on S3 | accepted; idle-lane LIST backoff, load-based balancing (2026-09-26); event notifications designed, not built |
 | [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted; margin ≥ 10 s enforced, unanswered statements waited out (2026-09-26) |
 | [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted; linger built, off by default (2026-09-26) |
-| [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted; the check reads the batch's partitions ± a copy horizon (2026-09-26) |
+| [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted; the check reads the batch's partitions ± a copy horizon (2026-09-26), 3 days, with a horizon audit reporting late copies |
 | [D12](#d12-consumer-gc-and-checkpoint-compaction) | Consumer: GC and checkpoint compaction | accepted; GC keeps the slot below the position (2026-09-26) |
 | [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted |
 | [D14](#d14-storage-tiers) | Storage tiers: hot 1–7 days, then cold | accepted; cold medium open |
@@ -115,7 +115,7 @@ quint-connect or quintgo test replays model traces through the implementation.
 | `model/partLifetime.qnt` (native parts; now moot) | `noReadOfDeleted`, `noLeakAfterExit`, `noDoubleCount`; the rule **`old_parts_lifetime` > max query + refresh interval** | Apalache ≤ 10–12 steps | server test `TestOldPartsLifetimeProtectsServerQueries` (`2f1f3c2`) |
 | `model/s3Inline.qnt` (**the commit protocol in use**) | `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload`, `onlyCommittedIngested`, `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | 3,000 × 80 steps, two seeds; Apalache ≤ 6 steps (8 partial); 6 mutations caught ([`awss3/README.md`](awss3/README.md), `0855334`) | `tests/mbt_s3inline.rs`: 300 traces, 16,981 steps; 3 code mutants caught ([`otap-rs/README.md`](otap-rs/README.md), `060e963`) |
 | `model/s3InlineMetrics.qnt` | `reqAckedImpliesAllCommitted`, `noObjectLost` (a request is acked only when all its objects commit) | 3,000 × 60; mutant `ackOnAny` caught | `tests/mbt_s3inline_metrics.rs`: 300 traces, 23,968 steps |
-| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit`; since 2026-09-26 over release, the commit slack, daily partitions and the check's range | 5,000 × 60 on five design instances; mutants by simulation `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly`, `releaseInFlight`; by scripted counterexample runs `releaseInFlight`, `keeperOverrun`, `noHorizon`, `wallRange`, `gcReopens` ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale) | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`), `release_in_flight`, `wall_range` |
+| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit`; since 2026-09-26 over release, the commit slack, daily partitions and the check's range; the horizon audit's `auditSilent` (designs) and `dupAudited` (`noHorizon`) | 5,000 × 60 on five design instances; mutants by simulation `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly`, `releaseInFlight`; by scripted counterexample runs `releaseInFlight`, `keeperOverrun`, `noHorizon`, `wallRange`, `gcReopens` ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale) | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`), `release_in_flight`, `wall_range` |
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
@@ -136,7 +136,10 @@ Assumptions every model makes, and which the code must therefore guarantee:
 - **A worker acts on a lane only once its statements are gone:** verify,
   retry and release wait out an unanswered statement ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
 - **A copy of a request is received within the check's horizon of its
-  original** (1 day; `HORIZON ≥ MAX_DAY` in the model, [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)).
+  original** (3 days; `HORIZON ≥ MAX_DAY` in the model, [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)).
+  The consumer can't enforce it, so it watches for it: the horizon audit
+  reports every copy ingested twice because of it (`auditLate` in the
+  model; `consumer_late_copies_total`).
 - **Small domains and bounded depth.** A ✓ in simulation is not a proof.
   Apalache goes to 6–12 steps only.
 
@@ -733,7 +736,8 @@ INSERT … SELECT …, transform(_path, …) FROM s3('…/{k1,…,k32}')
 ### D11. Consumer: count check and repair, not dedup tokens
 
 **Status:** accepted (`bd1ae88` for the design, `1b5ce6c` for the
-implementation); the check's partition range (`f923fa8`, 2026-09-26).
+implementation); the check's partition range (`f923fa8`, 2026-09-26); the
+horizon 3 days and the horizon audit (`9f1d958`, `eed5d9c`, 2026-09-26).
 
 **Decision.**
 
@@ -794,21 +798,40 @@ The soak skipped 357 copies by the check, with `over_count` 0.
   its metadata, and **the insert asserts it on every row** (`throwIf`,
   before the object's block is written), so rows an insert wrote are
   provably in it. The pre-check reads the batch's days ± a **copy
-  horizon** (1 day), because a copy of a request (resent into a new epoch)
+  horizon** (3 days; it was 1 day), because a copy of a request (resent into a new epoch)
   has the same content key and a later `received_at`; the verify reads the
   statement's own days and recounts over the horizon before re-inserting
   (a narrower count is only ever lower). No metadata, a failed assertion, a
   table partitioned otherwise, or `--check-horizon all`: every partition.
   On 90 daily partitions on S3 (180 parts) a check went from **2,320 S3
-  GETs and 546 ms CPU to 56 and 12.8 ms** (cold; warm 1,240 / 275 → 32 /
-  7.3) [M] ([`otap-rs/README.md`](otap-rs/README.md) §The count check's partition range).
+  GETs and 546 ms CPU to 56 and 12.8 ms** at 1 day (cold; warm 1,240 /
+  275 → 32 / 7.3), and **116 and 24.9 ms at 3 days** [M] ([`otap-rs/README.md`](otap-rs/README.md) §The count check's partition range).
   Tested: a batch spanning midnight, an object received five days before
   the worker's clock with an earlier attempt already in central, a copy 20
   hours later, rows that don't match their metadata; the model's `noHorizon`
   and `wallRange` mutants break `atMostOnce`.
-- **The horizon is an assumption:** a copy received more than a day after
-  its original is ingested twice and nothing reports it. Before, the horizon
-  was the retention (90 days).
+- **The horizon is an assumption, now watched (2026-09-26):** a copy
+  received more than the horizon after its original is ingested twice.
+  The default went from 1 day to **3 days** (an edge that committed,
+  crashed before learning so, and replays its durable buffer after a long
+  outage stamps a new `received_at`), and a **horizon audit** reports each
+  such copy: keys of recent partitions also in another partition, from the
+  content projection; for those only, repeated `row_ordinal`s and the
+  ingestions per day and epoch from the table; a copy beyond the check's
+  reach in either order is **late** (`consumer_late_copies_total`, a WARN
+  with lane, epoch, key and ages), one within it **unexplained** (a bug).
+  It runs beside GC or alone, never in a worker, once a day by default;
+  failures are counted, never fatal. **Cost per run: about one unranged
+  check** (90 days on S3: 1,716 GETs, 426 ms CPU cold; 18 M keys: 3.8 s
+  CPU, 0.78 s at a 1/16 key sample) [M]; at fleet scale a full run is
+  ~150 s of central CPU and ~20 GB of projection read [E], hence daily, or
+  sampled hourly. Tested end to end (edge objects on S3, the worker, the
+  audit: the copy 2 days late skipped, the one 5 days late ingested twice
+  and reported, nothing else) and in the model (`auditSilent` on the
+  designs, `dupAudited` under `noHorizon`). Not built: an edge-side
+  warning; the real fix is stamping `received_at` before the durable
+  buffer, so a replay keeps its original partition
+  ([`otap-rs/README.md`](otap-rs/README.md) §The horizon audit).
 
 ---
 
@@ -1308,7 +1331,7 @@ how likely it is.
 | 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a Keeper operation can run 10 s past `max_execution_time`, so margin ≥ 10 s: **retired 2026-09-26**, the worker refuses a smaller margin and waits out unanswered statements ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)). (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
 | 6 | **GC dependence** | GC is what bounds S3 storage, checkpoint size and `gc.json`. If it stops, compaction stops and checkpoints grow. Its safety rests on two bounds: the PUT lifetime (`--delay`) and the zombie lifetime (`--zombie`). A writer that outlives the zombie bound can re-create a deleted slot; such a batch is never ingested (not duplicated). (A live, unresolved writer could do the same below the checkpoint; fixed 2026-09-26: GC keeps the slot below the position, [D12](#d12-consumer-gc-and-checkpoint-compaction).) `gc.json` is one object sized marks × lanes × entries. | An alert on GC lag; shard `gc.json` per lane; enforce the zombie bound (pod termination grace plus kill). |
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
-| 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check now reads the batch's own days ± 1 day: 56 GETs and 13 ms CPU cold against 2,320 and 546 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than the horizon after its original is ingested twice, unreported. | Measure the resend delay of real senders and durable buffers; or an occasional full-range check of a sample of keys to detect it. |
+| 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check reads the batch's own days ± 3 days (1 day until the audit round): 116 GETs and 25 ms CPU cold against 2,320 and 516 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than 3 days after its original (a durable buffer replaying after a long outage) is ingested twice. **It is no longer silent:** the horizon audit counts every such copy (`consumer_late_copies_total`, a WARN per copy) after the fact, daily by default; it doesn't prevent the duplicate, and a same-day duplicate is outside what it sees. | Measure the resend delay of real senders and durable buffers, and alert on the counter; stamp `received_at` before the durable buffer so a replay keeps its partition (not built); a deletion tool for reported copies (not built). |
 | 9 | **Replicated insert cost** | 58.6–66.7 µs/row measured on replicas (loaded box, 7.9 objects per statement), against about 12 on one node. If even part of that is real, the calculator is low. | Re-measure replicated inserts on an idle box at 32 objects per statement. |
 | 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |

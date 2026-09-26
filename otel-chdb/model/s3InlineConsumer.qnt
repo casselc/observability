@@ -45,7 +45,13 @@
  *    check or verify of objects of day d reads only days d - HORIZON ..
  *    d + HORIZON (the code: the objects' own received time, widened by the
  *    horizon). The environment makes every copy within MAX_DAY days of its
- *    original; the design takes HORIZON >= MAX_DAY.
+ *    original; the design takes HORIZON >= MAX_DAY. That is an assumption
+ *    about the senders, not something the consumer can enforce (the code's
+ *    default horizon is 3 days; a durable buffer replaying after a longer
+ *    outage breaks it), so the code watches for its violation: the horizon
+ *    audit reports a payload in central on two days more than HORIZON apart
+ *    (`auditLate`). The design never raises it (`auditSilent`), and under
+ *    noHorizon every duplicate raises it (`dupAudited`).
  *
  * Mutations (design flags):
  *  - TIME_BOUND = false: workers ignore their windows and statements carry
@@ -539,6 +545,19 @@ module s3InlineConsumer {
     ackedImpliesCommitted, noPayloadLost, L::epochNoDuplicatePayload, announcedOnlyAfterCommit,
   }
 
+  // The horizon audit (otap-rs consumer/audit.rs), at day granularity: a
+  // payload in central on two days more than HORIZON apart, which no check
+  // could have seen together. The code confirms it by repeated rows; here a
+  // payload's inserts are its rows. `auditSilent`: the design raises no
+  // alarm while copies stay within the horizon. `dupAudited`: under
+  // noHorizon (the horizon's assumption broken), every duplicate is one the
+  // audit reports; a same-day duplicate would not be, and would be a bug
+  // of the check itself.
+  val auditLate: bool = L::PAYLOADS.exists(p => DAYS.exists(d1 => DAYS.exists(d2 =>
+    d2 - d1 > HORIZON and crows.get(p).get(d1) > 0 and crows.get(p).get(d2) > 0)))
+  val auditSilent: bool = not(auditLate)
+  val dupAudited: bool = atMostOnce or auditLate
+
   // ---- witnesses ------------------------------------------------------------------------------------
   val wTakeover: bool = cevents.contains("takeover")
   val wLapsed: bool = cevents.contains("lapsed")
@@ -602,7 +621,7 @@ module s3InlineConsumer {
       .then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wAdvance(1))
       .then(wCheck(1, 2, 1)).then(wSend(1))
   run noHorizonDesignTest = horizonPrefix.expect(and { stmts == Set(), atMostOnce })
-  run noHorizonBreaksTest = horizonPrefix.then(cLand(1)).expect(not(atMostOnce))
+  run noHorizonBreaksTest = horizonPrefix.then(cLand(1)).expect(and { not(atMostOnce), auditLate })
 
   // The range from the data, not the clock: payload 1 (day 0) lands, its
   // worker dies before advancing, midnight passes, another worker takes over.

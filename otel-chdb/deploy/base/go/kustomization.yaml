@@ -1,9 +1,10 @@
-# The Go edge (secondary, kept by DECISIONS.md D1): otelcol-awss3
-# (../../../awss3/collector/builder-config.yaml) running the awss3inline
-# exporter (key_mode: sequence: manifest-less create-only slots) with the
-# parquet_encoding extension. Traces and logs only: the Go path has no
-# manifest-less metrics lanes and no layout B yet (D1 "The Go gaps"), so the
-# agents here drop metrics rather than send them nowhere.
+# The Go edge (kept by DECISIONS.md D1): otelcol-s3pq
+# (../../../awss3/collector/builder-config.yaml) running the s3pq exporter
+# (../../../parquetgo/s3pqexporter): manifest-less create-only slots for
+# traces, logs and metrics (layout B: points lanes plus metrics_series,
+# announced only after its commit), the Rust publishers' objects, keys and
+# metadata, so the one consumer reads both (../../../conformance). The agents
+# send every signal.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: otel-edge

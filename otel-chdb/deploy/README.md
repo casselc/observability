@@ -20,8 +20,8 @@ deploy/
                       NetworkPolicy, the edge-target ConfigMap (per-target settings)
   base/rust/          otap-s3pq publishers (StatefulSet + PVC) running
                       ../otap-rs/configs/edge-publisher.yaml; agent config agent-rust.yaml
-  base/go/            otelcol-awss3 publishers (StatefulSet + PVC, awss3inline); publisher-config.yaml;
-                      agent config agent-go.yaml (traces and logs only)
+  base/go/            otelcol-s3pq publishers (StatefulSet + PVC, the s3pq exporter); publisher-config.yaml;
+                      agent config agent-go.yaml (every signal)
   components/         eks-irsa, eks-pod-identity, nutanix, roles-anywhere: one per target;
                       routing: the D16 gateway tier (Rust edge)
   overlays/           {rust,go}-{eks-irsa,eks-pod-identity,nutanix,roles-anywhere}, rust-eks-irsa-routing
@@ -69,11 +69,11 @@ Central (the consumer) is unchanged and is not deployed here.
 
 | Decision | Where | Setting |
 |---|---|---|
-| D1 edge publisher | base/rust (primary), base/go (secondary) | the Go edge is `awss3inline` (manifest-less, traces and logs); its agents drop metrics, which have no Go lane yet |
+| D1 edge publisher | base/rust (primary), base/go (secondary) | the Go edge is the `s3pq` exporter (`../parquetgo/s3pqexporter`, 2026-09-26): manifest-less for traces, logs and metrics layout B, the Rust edge's objects (`../conformance`); it replaced `awss3inline`, which had no metrics lanes |
 | D3 commit protocol | both publishers | one create-only PUT per object at `{bucket}/edge/{CLUSTER-pod}/{signal}/{epoch}/{seq}`; the IAM policy grants `s3:ListBucket` so a free slot is 404 |
 | D4 / risk #10: batch before any queue, never after | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml | agents: `batch` processor, then `sending_queue` on `file_storage`, no `sending_queue.batch`; Rust publisher: `processor:batch` in front of the WAL, nothing between the WAL and the exporter; Go publisher: no batching (its queue is right behind the receiver) |
 | D4: retries never give up | agents, Go publisher, Rust buffer | `retry_on_failure.max_elapsed_time: 0`; Quiver retries NACKs with backoff 1–30 s and no deadline (`max_age` unset) |
-| D7 layout B | edge-publisher.yaml | `metrics_layout: series_table` (per-type points lanes + the series lane) |
+| D7 layout B | edge-publisher.yaml, Go publisher-config.yaml | `metrics_layout: series_table` (per-type points lanes + the series lane) |
 | D16 sorting off | all otap-rs configs | `parquet.sort.by: none` |
 | D16 routing | components/routing | gateway with `routing_key: service`, 8 publishers, ring Service with `publishNotReadyAddresses` (§Routing) |
 | D18 credentials | components/* | no keys in any file; the default chain in both clients (§Targets) |
@@ -128,7 +128,9 @@ any pipeline** (the build carried it, nothing used it), and **batches of
 `otelcol-chdb validate`.
 
 `awss3/collector/builder-config.yaml`: `memorylimiterprocessor` and
-`healthcheckextension` added, for the Go publisher's config and probes.
+`healthcheckextension` added, for the Go publisher's config and probes;
+since 2026-09-26 it builds `otelcol-s3pq` with the `s3pq` exporter (the
+image `base/go` runs), the awss3 prototypes kept for their demo.
 
 ## Targets
 
@@ -171,8 +173,9 @@ consumer reads both with `--depth 2`.
   and STS clients (src/store.rs); the Go SDK appends it to the system
   roots. `SSL_CERT_FILE` is not used: it would replace the system roots.
 - **Path-style**: otap-s3pq is path-style for any custom endpoint
-  (`S3_BASE=https://objects.example/BUCKET/edge`); the Go publisher gets
-  `s3_force_path_style: true`.
+  (`S3_BASE=https://objects.example/BUCKET/edge`), and so is the Go
+  publisher's `s3pq` (parquetgo's client: path-style for an http(s)://
+  URL; `s3.path_style` overrides). `S3_FORCE_PATH_STYLE` is no longer read.
 - **Checksums**: `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` and
   `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`, which the acceptance
   kit's `checksum` check calls for when the store rejects the SDKs' default
@@ -454,13 +457,16 @@ build of this branch and ocb v0.161.0 builds:
 
 Notes:
 
-- **The Go publisher** (`base/go/publisher-config.yaml` on `otelcol-awss3`):
-  16 + 16 requests acked, SIGKILL 4 s in, restart on the same queue: all
-  160,000 spans and 160,000 logs in S3 once, 16 objects each, one epoch (the
-  queue replayed everything). The consumer could not be used for it: the
-  working-tree consumer the other work in this branch was building at the
-  time failed every statement with a quoting error (a `throwIf` message
-  containing apostrophes), so rows were counted from the objects instead.
+- **The Go publisher** (`base/go/publisher-config.yaml` on `otelcol-s3pq`,
+  2026-09-26, `results/go-edge-s3pq.txt`): 16 traces, 16 logs and 16
+  metrics requests (10k items each), SIGKILL 4 s in, restart on the same
+  queue, then the Rust consumer: 160,000 spans, 160,000 logs, 64,000
+  number points and 32,000 points of each other type in central, each
+  request once (16 content keys per table; 8 cross-epoch copies skipped by
+  the consumer's content check), 8,000 series rows, no point without its
+  series row. (The earlier `awss3inline` run, `results/go-edge.txt`, had
+  traces and logs only, counted from the objects: the consumer of that
+  hour was broken.)
 - `route_check.sh` has a `CHECK=s3` mode that counts straight from the
   objects and drops an object whose rows, in order, equal another's (what
   the consumer's content check skips). On `gwkill-stock` it gives the
@@ -483,5 +489,5 @@ GW=$S/otelcol-deploy/otelcol-deploy BIN=$B/otap-s3pq SEND=$T/otlpsend MIX=$S/mix
 BIN=$B/otap-s3pq SEND=$T/otlpsend MIX=$S/mix W=$S/run TMPFS=/mnt/160m-tmpfs scripts/diskfull.sh
 GW=... BIN=... CONSUME=$B/consume SEND=... MIX=... W=$S/run RUN=gwkill-patched SCEN=gwkill N=8 scripts/route_test.sh
 CFG=$PWD/../otap-rs/configs/edge-publisher.yaml SENDERS=8 CHECK=s3 ... RUN=gwkill-batched ... scripts/route_test.sh
-GOCOL=otelcol-awss3 CONSUME=... SEND=... MIX=... W=$S/run RUN=go1 scripts/go_edge_test.sh
+GOCOL=otelcol-s3pq CONSUME=... SEND=... MIX=... W=$S/run RUN=go1 scripts/go_edge_test.sh   # MIX: + metrics-b00NN.pb
 ```

@@ -34,7 +34,7 @@ func TestConfig(t *testing.T) {
 		"producer_id": "p1", "lanes": 2, "metrics_layout": "clickstack_tables",
 		"series":  map[string]any{"window": "30m", "byte_stream_split": false},
 		"parquet": map[string]any{"bloom_columns": []any{}, "zstd_level": 6},
-		"s3": map[string]any{"url": "https://objects.example/bucket/edge/p1", "path_style": "true",
+		"s3": map[string]any{"url": "https://objects.example/bucket/edge/p1", "path_style": true,
 			"put_timeout": "5s", "access_key_id": "k", "secret_access_key": "s"},
 	})
 	if err := cfg.Validate(); err != nil {

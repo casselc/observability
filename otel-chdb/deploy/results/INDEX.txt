@@ -25,6 +25,9 @@ route-*.txt  scripts/route_test.sh: senders -> gateway (scripts/gateway-local.ya
   the rest with CHECK=s3 (the working-tree consumer was broken at the time);
   route_check.sh CHECK=s3 on gwkill-stock reproduced the consumer's numbers.
 durable-diskfull.txt   scripts/diskfull.sh (Quiver backpressure / drop_oldest / ENOSPC)
+go-edge-s3pq.txt       scripts/go_edge_test.sh (base/go on otelcol-s3pq: traces, logs and metrics,
+                       SIGKILL + restart, the Rust consumer); go-edge.txt is the earlier
+                       awss3inline run (traces and logs only)
 agent-queue.txt        scripts/agent_test.sh (base/rust/agent-rust.yaml, publisher down)
 configs-correctness.txt scripts/configs_e2e.sh (correctness.py + metrics_correctness.py
                        for edge.yaml, edge-durable.yaml, edge-otap.yaml)

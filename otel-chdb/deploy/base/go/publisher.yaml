@@ -1,4 +1,4 @@
-# otelcol-awss3 publishers (Go edge). A StatefulSet for the same reasons as
+# otelcol-s3pq publishers (Go edge). A StatefulSet for the same reasons as
 # the Rust one: the persistent sending queue lives on the pod's PVC, and the
 # producer id (CLUSTER-otelcol-publisher-N) must be stable per volume.
 apiVersion: v1
@@ -79,7 +79,7 @@ spec:
                     app.kubernetes.io/name: otelcol-publisher
       containers:
         - name: otelcol
-          image: otelcol-awss3:v0.161.0    # images/otelcol-awss3.Dockerfile; set with `images:`
+          image: otelcol-s3pq:v0.161.0     # images/otelcol.Dockerfile with BIN=otelcol-s3pq; set with `images:`
           args: ["--config=/etc/otelcol/publisher.yaml"]
           envFrom:
             - configMapRef:

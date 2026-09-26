@@ -19,8 +19,8 @@ configMapGenerator:
       - RA_PROFILE_ARN=arn:aws:rolesanywhere:eu-west-1:111122223333:profile/CHANGE-ME
       - RA_ROLE_ARN=arn:aws:iam::111122223333:role/CHANGE-ME-otel-edge-publisher
 images:
-  - name: otelcol-awss3
-    newName: REGISTRY/otelcol-awss3
+  - name: otelcol-s3pq
+    newName: REGISTRY/otelcol-s3pq
     newTag: v0.161.0
   - name: otelcol-deploy
     newName: REGISTRY/otelcol-deploy

@@ -22,8 +22,8 @@ configMapGenerator:
     files:
       - ca.pem=nutanix-ca.pem
 images:
-  - name: otelcol-awss3
-    newName: REGISTRY/otelcol-awss3
+  - name: otelcol-s3pq
+    newName: REGISTRY/otelcol-s3pq
     newTag: v0.161.0
   - name: otelcol-deploy
     newName: REGISTRY/otelcol-deploy

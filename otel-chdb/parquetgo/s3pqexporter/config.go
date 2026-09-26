@@ -71,9 +71,9 @@ type S3Config struct {
 	RoleARN         string              `mapstructure:"role_arn"`
 	// CABundle: PEM with extra roots (a private CA); AWS_CA_BUNDLE otherwise.
 	CABundle string `mapstructure:"ca_bundle"`
-	// PathStyle overrides the addressing ("true"/"false"; default: path-style
-	// for a custom endpoint).
-	PathStyle   string        `mapstructure:"path_style"`
+	// PathStyle overrides the addressing (default: path-style for a custom
+	// endpoint, virtual-hosted for s3://).
+	PathStyle   *bool         `mapstructure:"path_style"`
 	PutTimeout  time.Duration `mapstructure:"put_timeout"`
 	HeadTimeout time.Duration `mapstructure:"head_timeout"`
 }
@@ -102,11 +102,6 @@ func (c *Config) Validate() error {
 	case "", "none", "page":
 	default:
 		errs = append(errs, fmt.Errorf("parquet.statistics %q: want none or page", c.Parquet.Statistics))
-	}
-	switch c.S3.PathStyle {
-	case "", "true", "false":
-	default:
-		errs = append(errs, fmt.Errorf("s3.path_style %q: want true, false or empty", c.S3.PathStyle))
 	}
 	if c.Lanes < 0 || c.Lanes > 64 {
 		errs = append(errs, fmt.Errorf("lanes %d: want 1..64", c.Lanes))
@@ -138,10 +133,7 @@ func (c *Config) EdgeConfig() edge.Config {
 	s3 := parquetgo.Config{URL: c.S3.URL, S3Region: c.S3.Region, AccessKeyID: c.S3.AccessKeyID,
 		SecretAccessKey: string(c.S3.SecretAccessKey), SessionToken: string(c.S3.SessionToken),
 		Profile: c.S3.Profile, RoleARN: c.S3.RoleARN, CABundle: c.S3.CABundle}
-	if c.S3.PathStyle != "" {
-		v := c.S3.PathStyle == "true"
-		s3.PathStyle = &v
-	}
+	s3.PathStyle = c.S3.PathStyle
 	series := c.Series
 	d := parquetgo.DefaultSeriesOptions()
 	if series.Window == 0 {

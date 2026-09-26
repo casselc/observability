@@ -1,0 +1,25 @@
+# scripts/go_edge_test.sh RUN=go1 (2026-09-26): base/go/publisher-config.yaml on otelcol-s3pq
+# (awss3/collector/builder-config.yaml, ocb v0.161.0: the s3pq exporter), SeaweedFS bucket
+# goedge-deploy, keys from the env; the Rust consumer (otap-rs consume) into ClickHouse.
+# 16 distinct 10k-span, 16 distinct 10k-log and 16 distinct 10k-point metrics requests
+# (otlpgen -variants 16; -metrics -variants 16: 2,000 points of each type), publisher
+# SIGKILLed 4 s in and restarted on the same file_storage queue. The traces/logs datasets
+# reuse ids across variants (only timestamps shift), hence the distinct-id columns.
+publisher SIGKILL 4 s in
+sender traces: "attempts":23 "requests":16 (16 requests)
+sender logs: "attempts":23 "requests":16 (16 requests)
+sender metrics: "attempts":23 "requests":16 (16 requests)
+publisher: s3pq stop	{"committed": 78, "resolved_own": 0, "resent": 0, "learned_o
+consumer: "dedup_skipped":8 "errors":0 "objects_inserted":96 "over_count":0 "rows_inserted":480000
+traces: rows, distinct (TraceId, SpanId), objects, epochs; expected 160000
+160000	10000	16	4
+logs: rows, distinct, objects, epochs; expected 160000
+160000	153500	16	4
+metrics points per table: rows, distinct (series_id, TimeUnix, StartTimeUnix), objects, epochs; expected 64000 number (gauge + sum), 32000 each other type
+number_points	64000	51200	16	4
+histogram_points	32000	25600	16	4
+exponential_histogram_points	32000	25600	16	4
+summary_points	32000	25600	16	4
+series: rows, distinct series; points without a series row
+8000	8000
+0

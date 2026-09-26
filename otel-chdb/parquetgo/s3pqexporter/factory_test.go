@@ -69,7 +69,6 @@ func TestExportToBucket(t *testing.T) {
 	}
 	run := time.Now().Format("150405.000")
 	cfg := load(t, map[string]any{"producer_id": "exporter-test", "s3": map[string]any{"url": url + "/exporter-test/" + run}})
-	cfg.QueueSettings = cfg.QueueSettings // default in-memory queue
 	set := exportertest.NewNopSettings(Type)
 	set.ID = component.NewIDWithName(Type, "t")
 	ctx := context.Background()

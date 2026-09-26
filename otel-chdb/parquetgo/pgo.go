@@ -7,6 +7,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -30,6 +31,11 @@ import (
 // column is handed to parquet-go's column writer a page's worth of rows at
 // a time. Same schema, same Options.
 type PGEncoder struct {
+	// Footer, if set, gives each file's key-value metadata once its rows are
+	// walked (rows and env's time range known): the manifest-less edge puts
+	// the batch description there.
+	Footer func(rows int, env *Envelope) map[string]string
+
 	opts    Options
 	traces  *pgSignal
 	logs    *pgSignal
@@ -48,6 +54,7 @@ func (e *PGEncoder) Traces(dst io.Writer, td ptrace.Traces, env *Envelope) (int,
 	}
 	e.traces.reset()
 	n := writeTraces(e.traces, td, env)
+	e.footer(e.traces, n, env)
 	return n, e.traces.flush(dst)
 }
 
@@ -61,7 +68,14 @@ func (e *PGEncoder) Logs(dst io.Writer, ld plog.Logs, env *Envelope) (int, error
 	}
 	e.logs.reset()
 	n := writeLogs(e.logs, ld, env)
+	e.footer(e.logs, n, env)
 	return n, e.logs.flush(dst)
+}
+
+func (e *PGEncoder) footer(s *pgSignal, rows int, env *Envelope) {
+	if e.Footer != nil {
+		s.setFooter(e.Footer(rows, env))
+	}
 }
 
 type pgKind int
@@ -85,6 +99,7 @@ const (
 	kListU64
 	kListF64
 	kListDT
+	kListU32 // layout B: Exemplars.TimeUnix as uint32 seconds
 )
 
 type pgCol struct {
@@ -154,20 +169,36 @@ type pgSignal struct {
 	elem  int // element index inside the open list
 
 	scratch []byte
-	kvs     []attrKV // sortedAttrs' buffer
-	arena   []byte   // hex ids and rendered values, referenced by vals until flush
+	footer  [][2]string // key-value metadata for the next file, sorted by key
+	kvs     []attrKV    // sortedAttrs' buffer
+	arena   []byte      // hex ids and rendered values, referenced by vals until flush
 	hex     [32]byte
 }
 
 const pgPageRows = 1024
 
 func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
-	plain := map[string]bool{}
-	for _, p := range o.PlainFor {
-		plain[p] = true
+	return newPGSignalNamed("schema", cols, o)
+}
+
+// newPGSignalNamed is newPGSignal with the schema's root name (layout B
+// names it after the prototype's row type, as the Rust edge does).
+func newPGSignalNamed(root string, cols []pgCol, o Options) (*pgSignal, error) {
+	set := func(paths []string) map[string]bool {
+		m := map[string]bool{}
+		for _, p := range paths {
+			m[p] = true
+		}
+		return m
 	}
+	plain, delta, bss := set(o.PlainFor), set(o.DeltaFor), set(o.ByteStreamSplitFor)
 	leafNode := func(path string, n parquet.Node) parquet.Node {
-		if o.Dictionary && !plain[path] {
+		switch {
+		case bss[path]:
+			n = parquet.Encoded(n, &parquet.ByteStreamSplit)
+		case delta[path]:
+			n = parquet.Encoded(n, &parquet.DeltaBinaryPacked)
+		case o.Dictionary && !plain[path]:
 			n = parquet.Encoded(n, &parquet.RLEDictionary)
 		}
 		return parquet.Required(n)
@@ -179,7 +210,14 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 	u64 := func(path string) parquet.Node { return leafNode(path, parquet.Uint(64)) }
 	g := parquet.Group{}
 	var blooms []parquet.BloomFilterColumn
+	var bloomOnly map[string]bool
+	if o.BloomColumns != nil {
+		bloomOnly = set(o.BloomColumns)
+	}
 	bloom := func(path ...string) {
+		if bloomOnly != nil && !bloomOnly[strings.Join(path, ".")] {
+			return
+		}
 		if o.BloomFilters {
 			// ClickHouse's default, output_format_parquet_bloom_filter_bits_per_value.
 			blooms = append(blooms, parquet.SplitBlockFilter(11, path...))
@@ -223,13 +261,15 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 			g[c.name] = parquet.Required(parquet.List(f64(c.name + ".list.element")))
 		case kListDT:
 			g[c.name] = parquet.Required(parquet.List(dt(c.name + ".list.element")))
+		case kListU32:
+			g[c.name] = parquet.Required(parquet.List(leafNode(c.name+".list.element", parquet.Uint(32))))
 		}
 		switch c.kind {
 		case kMap:
 			bloom(c.name, "key_value", "key")
 			bloom(c.name, "key_value", "value")
 		case kBool:
-		case kListStr, kListTS, kListU64, kListF64, kListDT:
+		case kListStr, kListTS, kListU64, kListF64, kListDT, kListU32:
 			bloom(c.name, "list", "element")
 		case kListMap:
 			bloom(c.name, "list", "element", "key_value", "key")
@@ -242,14 +282,14 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 	for i, c := range cols {
 		order[i] = c.name
 	}
-	schema := parquet.NewSchema("schema", orderedGroup{g, order})
+	schema := parquet.NewSchema(root, orderedGroup{g, order})
 	s := &pgSignal{cols: cols, schema: schema, leaf: make([][2]int, len(cols)), parallel: o.Parallelism, reusable: true}
 	for i, c := range cols {
 		var paths [][]string
 		switch c.kind {
 		case kMap:
 			paths = [][]string{{c.name, "key_value", "key"}, {c.name, "key_value", "value"}}
-		case kListStr, kListTS, kListU64, kListF64, kListDT:
+		case kListStr, kListTS, kListU64, kListF64, kListDT, kListU32:
 			paths = [][]string{{c.name, "list", "element"}}
 		case kListMap:
 			paths = [][]string{{c.name, "list", "element", "key_value", "key"}, {c.name, "list", "element", "key_value", "value"}}
@@ -278,10 +318,28 @@ func newPGSignal(cols []pgCol, o Options) (*pgSignal, error) {
 	if !o.PageIndex {
 		s.opts = append(s.opts, parquet.ColumnIndexSizeLimit(func([]string) int { return 0 }))
 	}
+	if o.NoBounds {
+		// No min/max anywhere: neither in the chunk statistics nor in the
+		// column index (parquet-go still writes the index structures).
+		for _, p := range schema.Columns() {
+			s.opts = append(s.opts, parquet.SkipPageBounds(p...))
+		}
+	}
 	if len(blooms) > 0 {
 		s.opts = append(s.opts, parquet.BloomFilters(blooms...))
 	}
 	return s, nil
+}
+
+// setFooter sets the key-value metadata of the files flushed from now on
+// (sorted by key). parquet-go keeps a writer's metadata across Reset, so a
+// signal is always flushed with the same set of keys.
+func (s *pgSignal) setFooter(kv map[string]string) {
+	s.footer = s.footer[:0]
+	for k, v := range kv {
+		s.footer = append(s.footer, [2]string{k, v})
+	}
+	slices.SortFunc(s.footer, func(a, b [2]string) int { return strings.Compare(a[0], b[0]) })
 }
 
 func (s *pgSignal) reset() {
@@ -309,6 +367,9 @@ func (s *pgSignal) flush(dst io.Writer) error {
 		if !s.reusable {
 			s.w = parquet.NewWriter(dst, s.opts...)
 		}
+	}
+	for _, kv := range s.footer {
+		s.w.SetKeyValueMetadata(kv[0], kv[1])
 	}
 	cws := s.w.ColumnWriters()
 	// Page-sized runs of whole rows per column; the writer cuts a page when

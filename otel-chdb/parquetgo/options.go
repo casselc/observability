@@ -35,6 +35,18 @@ type Options struct {
 	// reader then rejects the file (compare/pagesplit_test.go). V2 pages
 	// always end at row boundaries. On by default.
 	DataPageV2 bool
+	// BloomColumns, when non-nil, limits BloomFilters to these leaf paths
+	// (parquet-go engine; the Rust edge's default is TraceId only).
+	BloomColumns []string
+	// DeltaFor and ByteStreamSplitFor are leaf paths written
+	// DELTA_BINARY_PACKED / BYTE_STREAM_SPLIT, without a dictionary
+	// (parquet-go engine).
+	DeltaFor           []string
+	ByteStreamSplitFor []string
+	// NoBounds leaves min/max out of the chunk statistics and the column
+	// index (with Statistics and PageIndex off: layout B's
+	// `statistics: none`).
+	NoBounds bool
 }
 
 // HighCardinality are the columns that are unique, or nearly, per row.

@@ -126,6 +126,7 @@ func (e *PGEncoder) MetricsOf(dst io.Writer, md pmetric.Metrics, t MetricType, e
 	var envs [NumMetricTypes]*Envelope
 	envs[t] = env
 	rows := writeMetrics(&ws, md, &envs)
+	e.footer(s, rows[t], env)
 	err = s.flush(dst)
 	s.reset()
 	return rows[t], err
@@ -145,22 +146,24 @@ type attrKV struct {
 }
 
 // sortedKVs appends m's entries to dst with keys in byte order, as the
-// exporter's clickhouse-go orderedmap.CollectN sorts them (slices.SortFunc
-// with cmp.Compare). Duplicate keys, which only wire-decoded pdata can hold,
-// keep their pdata order here; the exporter's unstable sort leaves theirs
-// unspecified.
+// exporter's clickhouse-go orderedmap.CollectN sorts them: slices.SortFunc
+// (unstable) by key over the pdata order. Duplicate keys, which only
+// wire-decoded pdata can hold, therefore land where Go's pdqsort puts them,
+// exactly as in contrib's rows (the Rust edge ports the same sort,
+// otap-rs/src/gosort.rs). Without duplicates any sort gives the same order,
+// so an already sorted map is left alone.
 func sortedKVs(dst []attrKV, m pcommon.Map) []attrKV {
 	kvs := dst[:0]
 	sorted := true
 	m.Range(func(k string, v pcommon.Value) bool {
-		if n := len(kvs); n > 0 && kvs[n-1].k > k {
+		if n := len(kvs); n > 0 && kvs[n-1].k >= k {
 			sorted = false
 		}
 		kvs = append(kvs, attrKV{k, v})
 		return true
 	})
 	if !sorted {
-		slices.SortStableFunc(kvs, func(a, b attrKV) int { return strings.Compare(a.k, b.k) })
+		slices.SortFunc(kvs, func(a, b attrKV) int { return strings.Compare(a.k, b.k) })
 	}
 	return kvs
 }

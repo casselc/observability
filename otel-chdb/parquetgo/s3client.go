@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -112,4 +113,29 @@ func newS3Client(cfg Config, u *url.URL) (*s3.Client, error) {
 		o.UsePathStyle = pathStyle
 		o.HTTPClient = &http.Client{Transport: rt}
 	}), nil
+}
+
+// NewS3Client builds the S3 client for cfg.URL (s3://bucket/prefix or
+// http(s)://host/bucket/prefix) with cfg's credentials, addressing and CA
+// settings, and returns it with the bucket and the key prefix (no leading
+// or trailing slash). The manifest-less edge (../edge) uses it.
+func NewS3Client(cfg Config) (client *s3.Client, bucket, prefix string, err error) {
+	u, err := url.Parse(cfg.URL)
+	if err != nil {
+		return nil, "", "", err
+	}
+	switch u.Scheme {
+	case "s3", "http", "https":
+	default:
+		return nil, "", "", fmt.Errorf("S3 URL %q: want s3:// or http(s)://", cfg.URL)
+	}
+	bucket, prefix = u.Host, strings.Trim(u.Path, "/")
+	if u.Scheme != "s3" {
+		bucket, prefix, _ = strings.Cut(prefix, "/")
+	}
+	if bucket == "" {
+		return nil, "", "", fmt.Errorf("S3 URL %q names no bucket", cfg.URL)
+	}
+	client, err = newS3Client(cfg, u)
+	return client, bucket, strings.Trim(prefix, "/"), err
 }

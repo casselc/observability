@@ -1,0 +1,7 @@
+12 batches
+{"attempts":1200,"producer":"smallB","requests":1200,"summary":true}
+{"attempts":400,"producer":"smallA","requests":400,"summary":true}
+{"attempts":20,"elapsed_s":0.91332272,"max_ack_ms":57.276,"median_ack_ms":44.394,"min_ack_ms":42.348,"requests":20,"summary":true}
+{"attempts":20,"elapsed_s":0.630469112,"max_ack_ms":33.593,"median_ack_ms":31.629,"min_ack_ms":30.219,"requests":20,"summary":true}
+{"attempts":12,"elapsed_s":3.62867412,"max_ack_ms":1675.628,"median_ack_ms":175.438,"min_ack_ms":171.226,"requests":12,"summary":true}
+{"attempts":12,"elapsed_s":8.053401191,"max_ack_ms":1399.076,"median_ack_ms":606.964,"min_ack_ms":550.92,"requests":12,"summary":true}

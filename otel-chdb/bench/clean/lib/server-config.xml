@@ -1,0 +1,33 @@
+<!-- The private instance for blocks 2-4: ../merges/server-config.xml without the
+     TTL-move storage policies. SRV is its directory; start.sh substitutes it. -->
+<clickhouse>
+    <logger><level>information</level><log>SRV/server.log</log><errorlog>SRV/server.err.log</errorlog><size>100M</size><count>2</count></logger>
+    <http_port>18623</http_port>
+    <tcp_port>19600</tcp_port>
+    <listen_host>127.0.0.1</listen_host>
+    <path>SRV/data/</path>
+    <tmp_path>SRV/data/tmp/</tmp_path>
+    <user_files_path>SRV/data/user_files/</user_files_path>
+    <mark_cache_size>268435456</mark_cache_size>
+    <users>
+        <default>
+            <password/>
+            <networks><ip>127.0.0.1</ip><ip>::1</ip></networks>
+            <profile>default</profile>
+            <quota>default</quota>
+            <access_management>1</access_management>
+        </default>
+    </users>
+    <profiles><default/></profiles>
+    <quotas><default/></quotas>
+    <!-- The only additions over the shared server's embedded config: the two logs
+         this measurement attributes CPU from. Merge settings are all defaults. -->
+    <part_log>
+        <database>system</database><table>part_log</table>
+        <flush_interval_milliseconds>2000</flush_interval_milliseconds>
+    </part_log>
+    <query_log>
+        <database>system</database><table>query_log</table>
+        <flush_interval_milliseconds>2000</flush_interval_milliseconds>
+    </query_log>
+</clickhouse>

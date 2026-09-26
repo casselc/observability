@@ -9,7 +9,9 @@
 // contrib-schema encoder) with -a.
 //
 //	mgen -prefix merges/pool/small -rounds 24 -pods-per-batch 25
-//	mgen -prefix merges/pool/big   -rounds 24 -pods-per-batch 200
+//	mgen -prefix merges/pool/big   -rounds 24 -pods-per-batch 200 -a
+//	mgen -prefix merges/pool/big50 -rounds 50 -pods-per-batch 200 -only exponential_histogram,summary
+//	mgen -clean merges/                      # remove the pools (and the TTL runs' S3 disk)
 //
 // Keys: {prefix}/{B|A}/{type}/{round:04d}-{batch:02d}.parquet.
 package main
@@ -37,8 +39,13 @@ func main() {
 	services := flag.Int("services", 20, "services (10 pods each; 20 = the README's 100k series)")
 	doA := flag.Bool("a", false, "also write layout A (contrib schema) objects")
 	only := flag.String("only", "", "comma-separated B types to write (default: all, series included)")
+	clean := flag.String("clean", "", "delete every object under this key prefix (e.g. merges/) and exit")
 	flag.Parse()
 	ctx := context.Background()
+	if *clean != "" {
+		fmt.Println("deleted", central.DeletePrefix(ctx, central.S3(), *clean), "objects under", *clean)
+		return
+	}
 
 	cfg := fleet.Default()
 	cfg.Services = *services

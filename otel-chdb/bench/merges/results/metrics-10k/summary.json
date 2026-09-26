@@ -51,6 +51,27 @@
    "bytes_written_per_inserted_byte": 2.579,
    "merge_user_sys_over_insert": 3.138,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 643,
+     "rows_in": 271940000,
+     "rows_out": 271940000,
+     "bytes_read": 25116031009,
+     "bytes_written": 1497162015,
+     "cpu_us": 338570438.0,
+     "user_sys_us": 338520979.0,
+     "real_us": 427414567.0,
+     "us_per_row_in": 1.2450188938736486
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 4234,
    "size_classes": {
     "4-16x": {
      "merges": 265,
@@ -340,6 +361,27 @@
    "bytes_written_per_inserted_byte": 1.499,
    "merge_user_sys_over_insert": 1.764,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 521,
+     "rows_in": 117360000,
+     "rows_out": 117360000,
+     "bytes_read": 28602009177,
+     "bytes_written": 2028511456,
+     "cpu_us": 232576131.0,
+     "user_sys_us": 232553936.0,
+     "real_us": 299547703.0,
+     "us_per_row_in": 1.9817325408997954
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 3211,
    "size_classes": {
     "4-16x": {
      "merges": 364,
@@ -615,6 +657,27 @@
    "bytes_written_per_inserted_byte": 2.172,
    "merge_user_sys_over_insert": 1.795,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 169,
+     "rows_in": 33770000,
+     "rows_out": 33770000,
+     "bytes_read": 14873284246,
+     "bytes_written": 872550468,
+     "cpu_us": 103453783.0,
+     "user_sys_us": 103443027.0,
+     "real_us": 138308846.0,
+     "us_per_row_in": 3.0634818774059815
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 1061,
    "size_classes": {
     "4-16x": {
      "merges": 128,
@@ -893,6 +956,27 @@
    "bytes_written_per_inserted_byte": 2.251,
    "merge_user_sys_over_insert": 1.697,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 324,
+     "rows_in": 104440000,
+     "rows_out": 104440000,
+     "bytes_read": 12895074711,
+     "bytes_written": 797371600,
+     "cpu_us": 120327900.0,
+     "user_sys_us": 120316089.0,
+     "real_us": 153197809.0,
+     "us_per_row_in": 1.1521246648793566
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 2117,
    "size_classes": {
     "4-16x": {
      "merges": 174,
@@ -1165,6 +1249,27 @@
    "bytes_written_per_inserted_byte": 1.347,
    "merge_user_sys_over_insert": 0.865,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 84,
+     "rows_in": 12550000,
+     "rows_out": 7025000,
+     "bytes_read": 8112153980,
+     "bytes_written": 270345920,
+     "cpu_us": 68708854.0,
+     "user_sys_us": 68704885.0,
+     "real_us": 84526257.0,
+     "us_per_row_in": 5.474809083665338
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 533,
    "size_classes": {
     "4-16x": {
      "merges": 84,

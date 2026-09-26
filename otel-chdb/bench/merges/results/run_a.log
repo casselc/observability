@@ -1,0 +1,126 @@
+[clickstack-100k] t=5s inserts=7 err=0 parts={'otel_metrics_sum': 5, 'otel_metrics_histogram': 2} db=16MB free=5.33GB mergeCPU=0.1s
+[clickstack-100k] t=10s inserts=15 err=0 parts={'otel_metrics_sum': 5, 'otel_metrics_histogram': 5} db=35MB free=5.29GB mergeCPU=2.2s
+[clickstack-100k] t=15s inserts=23 err=0 parts={'otel_metrics_sum': 5, 'otel_metrics_histogram': 3} db=49MB free=5.23GB mergeCPU=8.1s
+[clickstack-100k] t=20s inserts=30 err=0 parts={'otel_metrics_sum': 5, 'otel_metrics_histogram': 5} db=63MB free=5.19GB mergeCPU=10.3s
+[clickstack-100k] t=25s inserts=37 err=0 parts={'otel_metrics_sum': 10, 'otel_metrics_histogram': 7} db=79MB free=5.15GB mergeCPU=15.8s
+[clickstack-100k] t=30s inserts=45 err=0 parts={'otel_metrics_sum': 4, 'otel_metrics_histogram': 5} db=90MB free=5.07GB mergeCPU=23.1s
+[clickstack-100k] t=35s inserts=53 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 8} db=110MB free=5.04GB mergeCPU=25.1s
+[clickstack-100k] t=40s inserts=60 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 5} db=120MB free=5.00GB mergeCPU=30.0s
+[clickstack-100k] t=45s inserts=68 err=0 parts={'otel_metrics_sum': 7, 'otel_metrics_histogram': 8} db=138MB free=4.95GB mergeCPU=34.6s
+[clickstack-100k] t=50s inserts=75 err=0 parts={'otel_metrics_sum': 7, 'otel_metrics_histogram': 10} db=153MB free=4.90GB mergeCPU=39.9s
+[clickstack-100k] t=55s inserts=83 err=0 parts={'otel_metrics_sum': 7, 'otel_metrics_histogram': 8} db=168MB free=4.85GB mergeCPU=43.1s
+[clickstack-100k] t=60s inserts=90 err=0 parts={'otel_metrics_sum': 12, 'otel_metrics_histogram': 10} db=184MB free=4.81GB mergeCPU=50.9s
+[clickstack-100k] t=65s inserts=99 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 13} db=202MB free=4.73GB mergeCPU=60.2s
+[clickstack-100k] t=70s inserts=105 err=0 parts={'otel_metrics_sum': 10, 'otel_metrics_histogram': 15} db=216MB free=4.67GB mergeCPU=69.3s
+[clickstack-100k] t=76s inserts=114 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 6} db=205MB free=4.65GB mergeCPU=74.3s
+[clickstack-100k] t=81s inserts=120 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 8} db=218MB free=4.61GB mergeCPU=79.3s
+[clickstack-100k] t=86s inserts=129 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 6} db=232MB free=4.53GB mergeCPU=87.6s
+[clickstack-100k] t=91s inserts=136 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 8} db=247MB free=4.50GB mergeCPU=89.8s
+[clickstack-100k] t=96s inserts=144 err=0 parts={'otel_metrics_sum': 16, 'otel_metrics_histogram': 11} db=267MB free=4.44GB mergeCPU=99.0s
+[clickstack-100k] t=101s inserts=151 err=0 parts={'otel_metrics_sum': 16, 'otel_metrics_histogram': 8} db=276MB free=4.43GB mergeCPU=105.8s
+[clickstack-100k] t=106s inserts=159 err=0 parts={'otel_metrics_sum': 16, 'otel_metrics_histogram': 11} db=295MB free=4.37GB mergeCPU=115.0s
+[clickstack-100k] t=111s inserts=166 err=0 parts={'otel_metrics_sum': 16, 'otel_metrics_histogram': 8} db=305MB free=4.30GB mergeCPU=125.0s
+[clickstack-100k] t=116s inserts=174 err=0 parts={'otel_metrics_sum': 21, 'otel_metrics_histogram': 11} db=325MB free=4.23GB mergeCPU=137.7s
+[clickstack-100k] t=121s inserts=181 err=0 parts={'otel_metrics_sum': 6, 'otel_metrics_histogram': 13} db=325MB free=4.15GB mergeCPU=149.0s
+[clickstack-100k] t=126s inserts=189 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 11} db=341MB free=4.07GB mergeCPU=159.3s
+[clickstack-100k] t=131s inserts=196 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 7} db=336MB free=4.00GB mergeCPU=164.2s
+[clickstack-100k] t=136s inserts=204 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 10} db=354MB free=3.95GB mergeCPU=171.5s
+[clickstack-100k] t=141s inserts=211 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 7} db=364MB free=3.90GB mergeCPU=174.7s
+[clickstack-100k] t=146s inserts=219 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 10} db=383MB free=3.86GB mergeCPU=177.7s
+[clickstack-100k] t=151s inserts=226 err=0 parts={'otel_metrics_sum': 10, 'otel_metrics_histogram': 7} db=393MB free=3.81GB mergeCPU=183.2s
+[clickstack-100k] t=156s inserts=234 err=0 parts={'otel_metrics_sum': 15, 'otel_metrics_histogram': 10} db=413MB free=3.76GB mergeCPU=188.2s
+[clickstack-100k] t=161s inserts=241 err=0 parts={'otel_metrics_sum': 9, 'otel_metrics_histogram': 8} db=422MB free=3.69GB mergeCPU=194.8s
+[clickstack-100k] t=166s inserts=249 err=0 parts={'otel_metrics_sum': 10, 'otel_metrics_histogram': 11} db=441MB free=3.71GB mergeCPU=199.3s
+[clickstack-100k] t=171s inserts=256 err=0 parts={'otel_metrics_sum': 11, 'otel_metrics_histogram': 13} db=456MB free=3.66GB mergeCPU=206.5s
+[clickstack-100k] t=176s inserts=264 err=0 parts={'otel_metrics_sum': 16, 'otel_metrics_histogram': 16} db=476MB free=3.59GB mergeCPU=216.7s
+[clickstack-100k] t=181s inserts=272 err=0 parts={'otel_metrics_sum': 10, 'otel_metrics_histogram': 14} db=488MB free=3.49GB mergeCPU=228.2s
+[clickstack-100k] t=186s inserts=279 err=0 parts={'otel_metrics_sum': 15, 'otel_metrics_histogram': 9} db=483MB free=3.45GB mergeCPU=234.1s
+[clickstack-100k] t=191s inserts=287 err=0 parts={'otel_metrics_sum': 15, 'otel_metrics_histogram': 12} db=502MB free=3.39GB mergeCPU=244.7s
+[clickstack-100k] inserts stopped (db size); draining 90.0s
+[clickstack-100k] done: 288 inserts, 0 errors, results in /home/user/oscope/spike/otel-chdb/bench/merges/results/clickstack-100k
+[clickstack-10k] t=5s inserts=10 err=0 parts={'otel_metrics_histogram': 5} db=8MB free=5.18GB mergeCPU=1.4s
+[clickstack-10k] t=10s inserts=20 err=0 parts={'otel_metrics_histogram': 10} db=17MB free=5.14GB mergeCPU=4.7s
+[clickstack-10k] t=15s inserts=30 err=0 parts={'otel_metrics_histogram': 9} db=23MB free=5.11GB mergeCPU=7.0s
+[clickstack-10k] t=20s inserts=40 err=0 parts={'otel_metrics_histogram': 8} db=29MB free=5.07GB mergeCPU=10.0s
+[clickstack-10k] t=25s inserts=50 err=0 parts={'otel_metrics_histogram': 8} db=36MB free=5.04GB mergeCPU=12.1s
+[clickstack-10k] t=30s inserts=60 err=0 parts={'otel_metrics_histogram': 7} db=42MB free=5.00GB mergeCPU=15.4s
+[clickstack-10k] t=35s inserts=71 err=0 parts={'otel_metrics_histogram': 12} db=51MB free=4.96GB mergeCPU=21.6s
+[clickstack-10k] t=40s inserts=81 err=0 parts={'otel_metrics_histogram': 11} db=48MB free=4.92GB mergeCPU=26.0s
+[clickstack-10k] t=45s inserts=91 err=0 parts={'otel_metrics_histogram': 10} db=54MB free=4.89GB mergeCPU=28.3s
+[clickstack-10k] t=50s inserts=101 err=0 parts={'otel_metrics_histogram': 9} db=60MB free=4.86GB mergeCPU=31.2s
+[clickstack-10k] t=55s inserts=111 err=0 parts={'otel_metrics_histogram': 9} db=67MB free=4.89GB mergeCPU=33.4s
+[clickstack-10k] t=60s inserts=121 err=0 parts={'otel_metrics_histogram': 8} db=73MB free=4.85GB mergeCPU=36.8s
+[clickstack-10k] t=65s inserts=131 err=0 parts={'otel_metrics_histogram': 13} db=81MB free=4.82GB mergeCPU=42.8s
+[clickstack-10k] t=70s inserts=141 err=0 parts={'otel_metrics_histogram': 11} db=79MB free=4.77GB mergeCPU=47.4s
+[clickstack-10k] t=75s inserts=151 err=0 parts={'otel_metrics_histogram': 10} db=85MB free=4.73GB mergeCPU=49.6s
+[clickstack-10k] t=80s inserts=161 err=0 parts={'otel_metrics_histogram': 9} db=91MB free=4.69GB mergeCPU=52.7s
+[clickstack-10k] t=85s inserts=171 err=0 parts={'otel_metrics_histogram': 9} db=98MB free=4.66GB mergeCPU=55.3s
+[clickstack-10k] t=90s inserts=181 err=0 parts={'otel_metrics_histogram': 15} db=106MB free=4.62GB mergeCPU=58.7s
+[clickstack-10k] t=96s inserts=191 err=0 parts={'otel_metrics_histogram': 10} db=111MB free=4.59GB mergeCPU=61.2s
+[clickstack-10k] t=101s inserts=201 err=0 parts={'otel_metrics_histogram': 15} db=120MB free=4.55GB mergeCPU=67.2s
+[clickstack-10k] t=106s inserts=211 err=0 parts={'otel_metrics_histogram': 12} db=114MB free=4.50GB mergeCPU=72.6s
+[clickstack-10k] t=111s inserts=221 err=0 parts={'otel_metrics_histogram': 11} db=119MB free=4.47GB mergeCPU=75.1s
+[clickstack-10k] t=116s inserts=231 err=0 parts={'otel_metrics_histogram': 11} db=126MB free=4.43GB mergeCPU=78.3s
+[clickstack-10k] t=121s inserts=241 err=0 parts={'otel_metrics_histogram': 12} db=133MB free=4.82GB mergeCPU=80.8s
+[clickstack-10k] t=126s inserts=251 err=0 parts={'otel_metrics_histogram': 17} db=142MB free=4.77GB mergeCPU=87.0s
+[clickstack-10k] t=131s inserts=262 err=0 parts={'otel_metrics_histogram': 15} db=142MB free=4.73GB mergeCPU=90.5s
+[clickstack-10k] t=136s inserts=272 err=0 parts={'otel_metrics_histogram': 10} db=147MB free=4.70GB mergeCPU=92.9s
+[clickstack-10k] t=141s inserts=282 err=0 parts={'otel_metrics_histogram': 15} db=155MB free=4.67GB mergeCPU=99.3s
+[clickstack-10k] t=146s inserts=292 err=0 parts={'otel_metrics_histogram': 14} db=161MB free=4.64GB mergeCPU=106.9s
+[clickstack-10k] t=151s inserts=302 err=0 parts={'otel_metrics_histogram': 14} db=168MB free=4.65GB mergeCPU=114.3s
+[clickstack-10k] t=156s inserts=312 err=0 parts={'otel_metrics_histogram': 13} db=175MB free=4.59GB mergeCPU=122.4s
+[clickstack-10k] t=161s inserts=322 err=0 parts={'otel_metrics_histogram': 18} db=183MB free=4.53GB mergeCPU=129.8s
+[clickstack-10k] t=166s inserts=332 err=0 parts={'otel_metrics_histogram': 11} db=169MB free=4.50GB mergeCPU=135.9s
+[clickstack-10k] t=171s inserts=342 err=0 parts={'otel_metrics_histogram': 16} db=177MB free=4.45GB mergeCPU=142.5s
+[clickstack-10k] t=176s inserts=352 err=0 parts={'otel_metrics_histogram': 8} db=172MB free=4.41GB mergeCPU=145.8s
+[clickstack-10k] t=181s inserts=362 err=0 parts={'otel_metrics_histogram': 8} db=178MB free=4.38GB mergeCPU=148.3s
+[clickstack-10k] t=186s inserts=372 err=0 parts={'otel_metrics_histogram': 7} db=185MB free=4.70GB mergeCPU=151.6s
+[clickstack-10k] t=191s inserts=382 err=0 parts={'otel_metrics_histogram': 12} db=193MB free=4.67GB mergeCPU=153.7s
+[clickstack-10k] t=196s inserts=392 err=0 parts={'otel_metrics_histogram': 11} db=199MB free=4.64GB mergeCPU=156.9s
+[clickstack-10k] t=201s inserts=403 err=0 parts={'otel_metrics_histogram': 16} db=208MB free=4.58GB mergeCPU=163.1s
+[clickstack-10k] t=206s inserts=413 err=0 parts={'otel_metrics_histogram': 9} db=206MB free=4.55GB mergeCPU=166.6s
+[clickstack-10k] t=211s inserts=423 err=0 parts={'otel_metrics_histogram': 9} db=213MB free=4.52GB mergeCPU=169.1s
+[clickstack-10k] t=216s inserts=433 err=0 parts={'otel_metrics_histogram': 13} db=221MB free=4.49GB mergeCPU=172.0s
+[clickstack-10k] t=221s inserts=443 err=0 parts={'otel_metrics_histogram': 14} db=228MB free=4.46GB mergeCPU=174.3s
+[clickstack-10k] t=226s inserts=453 err=0 parts={'otel_metrics_histogram': 11} db=227MB free=4.41GB mergeCPU=179.9s
+[clickstack-10k] t=231s inserts=463 err=0 parts={'otel_metrics_histogram': 10} db=233MB free=4.37GB mergeCPU=183.0s
+[clickstack-10k] t=236s inserts=473 err=0 parts={'otel_metrics_histogram': 11} db=241MB free=4.35GB mergeCPU=185.2s
+[clickstack-10k] t=241s inserts=483 err=0 parts={'otel_metrics_histogram': 11} db=247MB free=4.76GB mergeCPU=188.2s
+[clickstack-10k] t=246s inserts=493 err=0 parts={'otel_metrics_histogram': 11} db=254MB free=4.72GB mergeCPU=191.1s
+[clickstack-10k] t=251s inserts=503 err=0 parts={'otel_metrics_histogram': 17} db=263MB free=4.70GB mergeCPU=194.9s
+[clickstack-10k] t=256s inserts=513 err=0 parts={'otel_metrics_histogram': 10} db=261MB free=4.64GB mergeCPU=200.6s
+[clickstack-10k] t=261s inserts=523 err=0 parts={'otel_metrics_histogram': 10} db=268MB free=4.61GB mergeCPU=203.5s
+[clickstack-10k] t=266s inserts=533 err=0 parts={'otel_metrics_histogram': 11} db=275MB free=4.70GB mergeCPU=208.3s
+[clickstack-10k] t=272s inserts=543 err=0 parts={'otel_metrics_histogram': 16} db=283MB free=4.67GB mergeCPU=215.2s
+[clickstack-10k] t=277s inserts=553 err=0 parts={'otel_metrics_histogram': 15} db=289MB free=4.61GB mergeCPU=222.5s
+[clickstack-10k] t=282s inserts=563 err=0 parts={'otel_metrics_histogram': 14} db=296MB free=4.55GB mergeCPU=230.9s
+[clickstack-10k] t=287s inserts=573 err=0 parts={'otel_metrics_histogram': 14} db=302MB free=4.48GB mergeCPU=238.2s
+[clickstack-10k] t=292s inserts=583 err=0 parts={'otel_metrics_histogram': 12} db=284MB free=4.71GB mergeCPU=244.1s
+[clickstack-10k] t=297s inserts=593 err=0 parts={'otel_metrics_histogram': 17} db=293MB free=4.69GB mergeCPU=249.4s
+[clickstack-10k] t=302s inserts=604 err=0 parts={'otel_metrics_histogram': 10} db=288MB free=4.64GB mergeCPU=253.5s
+[clickstack-10k] t=307s inserts=614 err=0 parts={'otel_metrics_histogram': 10} db=295MB free=4.61GB mergeCPU=256.2s
+[clickstack-10k] t=312s inserts=624 err=0 parts={'otel_metrics_histogram': 9} db=301MB free=4.60GB mergeCPU=259.4s
+[clickstack-10k] t=317s inserts=634 err=0 parts={'otel_metrics_histogram': 10} db=308MB free=4.57GB mergeCPU=261.7s
+[clickstack-10k] t=322s inserts=644 err=0 parts={'otel_metrics_histogram': 10} db=315MB free=4.54GB mergeCPU=264.8s
+[clickstack-10k] t=327s inserts=654 err=0 parts={'otel_metrics_histogram': 15} db=323MB free=4.50GB mergeCPU=270.5s
+[clickstack-10k] t=332s inserts=664 err=0 parts={'otel_metrics_histogram': 13} db=323MB free=4.46GB mergeCPU=274.9s
+[clickstack-10k] t=337s inserts=674 err=0 parts={'otel_metrics_histogram': 12} db=329MB free=4.43GB mergeCPU=277.8s
+[clickstack-10k] t=342s inserts=684 err=0 parts={'otel_metrics_histogram': 12} db=335MB free=4.39GB mergeCPU=280.7s
+[clickstack-10k] t=347s inserts=694 err=0 parts={'otel_metrics_histogram': 14} db=343MB free=4.37GB mergeCPU=283.0s
+[clickstack-10k] t=352s inserts=704 err=0 parts={'otel_metrics_histogram': 11} db=348MB free=4.75GB mergeCPU=285.9s
+[clickstack-10k] t=357s inserts=714 err=0 parts={'otel_metrics_histogram': 16} db=357MB free=4.72GB mergeCPU=291.9s
+[clickstack-10k] t=362s inserts=724 err=0 parts={'otel_metrics_histogram': 14} db=353MB free=4.68GB mergeCPU=296.0s
+[clickstack-10k] t=367s inserts=734 err=0 parts={'otel_metrics_histogram': 10} db=359MB free=4.64GB mergeCPU=298.8s
+[clickstack-10k] t=372s inserts=744 err=0 parts={'otel_metrics_histogram': 10} db=365MB free=4.61GB mergeCPU=301.6s
+[clickstack-10k] t=377s inserts=754 err=0 parts={'otel_metrics_histogram': 16} db=374MB free=4.58GB mergeCPU=305.3s
+[clickstack-10k] t=382s inserts=764 err=0 parts={'otel_metrics_histogram': 16} db=381MB free=4.55GB mergeCPU=312.2s
+[clickstack-10k] t=387s inserts=774 err=0 parts={'otel_metrics_histogram': 15} db=387MB free=4.58GB mergeCPU=319.9s
+[clickstack-10k] t=392s inserts=784 err=0 parts={'otel_metrics_histogram': 20} db=395MB free=4.59GB mergeCPU=328.0s
+[clickstack-10k] t=397s inserts=794 err=0 parts={'otel_metrics_histogram': 19} db=401MB free=4.52GB mergeCPU=335.3s
+[clickstack-10k] t=402s inserts=805 err=0 parts={'otel_metrics_histogram': 15} db=390MB free=4.49GB mergeCPU=338.7s
+[clickstack-10k] t=407s inserts=815 err=0 parts={'otel_metrics_histogram': 11} db=395MB free=4.45GB mergeCPU=341.5s
+[clickstack-10k] t=412s inserts=825 err=0 parts={'otel_metrics_histogram': 16} db=404MB free=4.74GB mergeCPU=347.1s
+[clickstack-10k] t=417s inserts=835 err=0 parts={'otel_metrics_histogram': 13} db=398MB free=4.68GB mergeCPU=352.3s
+[clickstack-10k] t=422s inserts=840 err=0 parts={'otel_metrics_histogram': 7} db=399MB free=4.66GB mergeCPU=354.3s
+[clickstack-10k] inserts stopped (duration); draining 90.0s
+[clickstack-10k] done: 840 inserts, 0 errors, results in /home/user/oscope/spike/otel-chdb/bench/merges/results/clickstack-10k

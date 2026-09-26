@@ -1,0 +1,183 @@
+{
+ "run": "set-hourly",
+ "rows_per_insert": "10k",
+ "tables": {
+  "traces": {
+   "statements": 1200,
+   "rows_per_statement": 10000,
+   "inserted_rows": 12000000,
+   "achieved_rate": 3.98,
+   "insert_cpu_s": 72.01,
+   "insert_us_per_row": 6.001,
+   "insert_user_sys_us_per_row": 6.001,
+   "insert_ms_per_statement": 60.0,
+   "new_part_bytes_per_row": 51.06,
+   "new_part_uncompressed_per_row": 508.5,
+   "stored_bytes_per_row": 42.13,
+   "final_parts": 31,
+   "final_levels": {
+    "0": 8,
+    "1": 4,
+    "2": 5,
+    "3": 7,
+    "4": 7
+   },
+   "ingest_window": {
+    "merges": 213,
+    "rows_in": 32180000,
+    "rows_out": 32180000,
+    "bytes_read": 16353790574,
+    "bytes_written": 1369984836,
+    "cpu_us": 155399476.0,
+    "user_sys_us": 155365094.0,
+    "real_us": 159085461.0,
+    "us_per_row_in": 4.829070105655687
+   },
+   "with_drain": {
+    "merges": 213,
+    "rows_in": 32180000,
+    "rows_out": 32180000,
+    "bytes_read": 16353790574,
+    "bytes_written": 1369984836,
+    "cpu_us": 155399476.0,
+    "user_sys_us": 155365094.0,
+    "real_us": 159085461.0,
+    "us_per_row_in": 4.829070105655687
+   },
+   "merge_us_per_inserted_row": 12.95,
+   "merge_over_insert": 2.158,
+   "merge_over_insert_ingest_window": 2.158,
+   "rows_rewritten_per_inserted_row": 2.682,
+   "bytes_written_per_inserted_byte": 2.236,
+   "merge_user_sys_over_insert": 2.158,
+   "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 213,
+     "rows_in": 32180000,
+     "rows_out": 32180000,
+     "bytes_read": 16353790574,
+     "bytes_written": 1369984836,
+     "cpu_us": 155399476.0,
+     "user_sys_us": 155365094.0,
+     "real_us": 159085461.0,
+     "us_per_row_in": 4.829070105655687
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 1382,
+   "size_classes": {
+    "4-16x": {
+     "merges": 167,
+     "rows_in": 13020000,
+     "us_per_row_in": 7.843,
+     "share_of_cpu": 0.657,
+     "algorithms": [
+      "Horizontal"
+     ],
+     "avg_sources": 6.1
+    },
+    "16-64x": {
+     "merges": 39,
+     "rows_in": 10860000,
+     "us_per_row_in": 2.918,
+     "share_of_cpu": 0.204,
+     "algorithms": [
+      "Vertical"
+     ],
+     "avg_sources": 7.6
+    },
+    "64-256x": {
+     "merges": 7,
+     "rows_in": 8300000,
+     "us_per_row_in": 2.601,
+     "share_of_cpu": 0.139,
+     "algorithms": [
+      "Vertical"
+     ],
+     "avg_sources": 8.9
+    }
+   },
+   "curve": [
+    {
+     "minute": 1,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 15.51,
+     "merge_cpu_s": 30.7,
+     "ratio": 1.98,
+     "max_merge_rows": 1180000,
+     "cum_rewrites_per_row": 2.47
+    },
+    {
+     "minute": 2,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.43,
+     "merge_cpu_s": 32.62,
+     "ratio": 2.26,
+     "max_merge_rows": 1220000,
+     "cum_rewrites_per_row": 2.73
+    },
+    {
+     "minute": 3,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.08,
+     "merge_cpu_s": 29.58,
+     "ratio": 2.1,
+     "max_merge_rows": 1180000,
+     "cum_rewrites_per_row": 2.64
+    },
+    {
+     "minute": 4,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 13.85,
+     "merge_cpu_s": 32.4,
+     "ratio": 2.34,
+     "max_merge_rows": 1220000,
+     "cum_rewrites_per_row": 2.73
+    },
+    {
+     "minute": 5,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.14,
+     "merge_cpu_s": 29.68,
+     "ratio": 2.1,
+     "max_merge_rows": 1180000,
+     "cum_rewrites_per_row": 2.68
+    },
+    {
+     "minute": 6,
+     "ins_rows": 0,
+     "ins_cpu_s": 0.0,
+     "merge_cpu_s": 0.41,
+     "ratio": null,
+     "max_merge_rows": 50000,
+     "cum_rewrites_per_row": 2.68
+    },
+    {
+     "minute": 7,
+     "ins_rows": 0,
+     "ins_cpu_s": 0.0,
+     "merge_cpu_s": 0.0,
+     "ratio": null,
+     "max_merge_rows": 0,
+     "cum_rewrites_per_row": 2.68
+    }
+   ]
+  }
+ },
+ "duration_s": 301.6,
+ "stop_reason": "db size",
+ "errors": 0,
+ "crosscheck": {
+  "merge_threads_proc_cpu_s": 160.11,
+  "part_log_merge_cpu_s": 155.4,
+  "part_log_over_proc": 0.971,
+  "move_threads_cpu_s": 0.0
+ }
+}

@@ -9,7 +9,7 @@ ProfileEvents OSCPUVirtualTimeMicroseconds (User+System is reported beside it).
 Windows: "ingest" = merges that finished while statements were being sent;
 "+drain" also counts those that finished in the drain after the last insert.
 """
-import json, math, os, sys
+import gzip, json, math, os, sys
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -19,7 +19,10 @@ def ts(s):
 
 
 def load(d):
-    rd = lambda f: [json.loads(l) for l in open(os.path.join(d, f)) if l.strip()]
+    def rd(f):
+        p = os.path.join(d, f)
+        fh = open(p) if os.path.exists(p) else gzip.open(p + ".gz", "rt")
+        return [json.loads(l) for l in fh if l.strip()]
     return (json.load(open(os.path.join(d, "args.json"))), json.load(open(os.path.join(d, "run.json"))),
             rd("part_log.jsonl"), rd("query_log.jsonl"), rd("inserts.jsonl"), rd("samples.jsonl"))
 
@@ -122,6 +125,12 @@ def analyze(d):
             "bytes_written_per_inserted_byte": round(w_all["bytes_written"] / new_bytes, 3) if new_bytes else None,
             "merge_user_sys_over_insert": round(w_all["user_sys_us"] / ins_us, 3) if ins_us else None,
             "ttl_merges": agg(ttl_merges) if ttl_merges else None,
+            "merges_by_reason": {r: agg([m for m in merges if m["merge_reason"] == r]) for r in sorted({m["merge_reason"] for m in merges})},
+            "moves": (lambda mv: {"parts": len(mv), "bytes": sum(int(m["size_in_bytes"]) for m in mv),
+                                  "rows": sum(int(m["rows"]) for m in mv), "cpu_us": sum(num(m["cpu_us"]) for m in mv),
+                                  "disks": sorted({m["disk_name"] for m in mv})})(
+                [p for p in pl if p["table"] == tbl and p["event_type"] == "MovePart" and not p["error"]]),
+            "removed_parts": sum(1 for p in pl if p["table"] == tbl and p["event_type"] == "RemovePart"),
             "size_classes": cls, "curve": curve,
         }
         out["tables"][n] = t

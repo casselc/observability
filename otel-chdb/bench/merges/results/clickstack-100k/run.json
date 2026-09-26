@@ -1,0 +1,50 @@
+{
+ "t0": 1790380488.9798453,
+ "t_ins_end": 1790380680.4176524,
+ "t_after": 1790380770.8712695,
+ "t_end": 1790380770.8924503,
+ "reason": "db size",
+ "errors": [],
+ "n_errors": 0,
+ "final_parts": [
+  [
+   "otel_metrics_sum",
+   8,
+   9984000,
+   201675442,
+   7787393231,
+   "[(3,4680000),(3,4732000),(1,312000),(0,52000),(0,52000),(0,52000),(0,52000),(0,52000)]"
+  ],
+  [
+   "otel_metrics_histogram",
+   7,
+   9216000,
+   284639501,
+   9937192966,
+   "[(2,2688000),(2,2592000),(2,2592000),(1,576000),(1,576000),(0,96000),(0,96000)]"
+  ]
+ ],
+ "base_threads": {
+  "clickhouse": 94.50999999999999,
+  "AsyncLogger": 22.23,
+  "SignalListnr": 0.0,
+  "HTTPHandler": 1388.03,
+  "MemoryWorker": 14.459999999999999,
+  "BgSchPool": 36.42,
+  "PoolDelayExec": 6.63,
+  "BgBufSchPool": 0.0,
+  "BgMBSchPool": 0.0,
+  "BgDistSchPool": 0.0,
+  "BgStrmSchPool": 3.820000000000001,
+  "CgrpMemUsgObsr": 0.05,
+  "MergeMutate": 4353.599999999999,
+  "Move": 0.0,
+  "Fetch": 0.0,
+  "Common": 0.0,
+  "ThreadPool": 655.2199999999996,
+  "AsyncMetrics": 55.88,
+  "ExternalLoader": 1.74,
+  "ConfigReloader": 0.53,
+  "RuntimeData": 68.3
+ }
+}

@@ -1,0 +1,268 @@
+{
+ "run": "traces-10k-tg",
+ "rows_per_insert": "10k",
+ "tables": {
+  "traces": {
+   "statements": 2400,
+   "rows_per_statement": 10000,
+   "inserted_rows": 24000000,
+   "achieved_rate": 3.98,
+   "insert_cpu_s": 144.24,
+   "insert_us_per_row": 6.01,
+   "insert_user_sys_us_per_row": 6.01,
+   "insert_ms_per_statement": 60.1,
+   "new_part_bytes_per_row": 25.49,
+   "new_part_uncompressed_per_row": 508.5,
+   "stored_bytes_per_row": 11.5,
+   "final_parts": 8,
+   "final_levels": {
+    "0": 2,
+    "3": 1,
+    "6": 1,
+    "7": 1,
+    "8": 3
+   },
+   "ingest_window": {
+    "merges": 472,
+    "rows_in": 111550000,
+    "rows_out": 111550000,
+    "bytes_read": 56688203174,
+    "bytes_written": 1339735628,
+    "cpu_us": 411431479.0,
+    "user_sys_us": 411347204.0,
+    "real_us": 423063461.0,
+    "us_per_row_in": 3.6883144688480503
+   },
+   "with_drain": {
+    "merges": 472,
+    "rows_in": 111550000,
+    "rows_out": 111550000,
+    "bytes_read": 56688203174,
+    "bytes_written": 1339735628,
+    "cpu_us": 411431479.0,
+    "user_sys_us": 411347204.0,
+    "real_us": 423063461.0,
+    "us_per_row_in": 3.6883144688480503
+   },
+   "merge_us_per_inserted_row": 17.143,
+   "merge_over_insert": 2.852,
+   "merge_over_insert_ingest_window": 2.852,
+   "rows_rewritten_per_inserted_row": 4.648,
+   "bytes_written_per_inserted_byte": 2.19,
+   "merge_user_sys_over_insert": 2.852,
+   "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 472,
+     "rows_in": 111550000,
+     "rows_out": 111550000,
+     "bytes_read": 56688203174,
+     "bytes_written": 1339735628,
+     "cpu_us": 411431479.0,
+     "user_sys_us": 411347204.0,
+     "real_us": 423063461.0,
+     "us_per_row_in": 3.6883144688480503
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 2864,
+   "size_classes": {
+    "4-16x": {
+     "merges": 299,
+     "rows_in": 23670000,
+     "us_per_row_in": 7.71,
+     "share_of_cpu": 0.444,
+     "algorithms": [
+      "Horizontal",
+      "Vertical"
+     ],
+     "avg_sources": 5.7
+    },
+    "16-64x": {
+     "merges": 141,
+     "rows_in": 35390000,
+     "us_per_row_in": 2.839,
+     "share_of_cpu": 0.244,
+     "algorithms": [
+      "Vertical"
+     ],
+     "avg_sources": 6.5
+    },
+    "64-256x": {
+     "merges": 28,
+     "rows_in": 29410000,
+     "us_per_row_in": 2.507,
+     "share_of_cpu": 0.179,
+     "algorithms": [
+      "Vertical"
+     ],
+     "avg_sources": 7.6
+    },
+    "256-1024x": {
+     "merges": 4,
+     "rows_in": 23080000,
+     "us_per_row_in": 2.372,
+     "share_of_cpu": 0.133,
+     "algorithms": [
+      "Vertical"
+     ],
+     "avg_sources": 6.2
+    }
+   },
+   "curve": [
+    {
+     "minute": 1,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.6,
+     "merge_cpu_s": 34.61,
+     "ratio": 2.37,
+     "max_merge_rows": 1830000,
+     "cum_rewrites_per_row": 3.64
+    },
+    {
+     "minute": 2,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.3,
+     "merge_cpu_s": 35.47,
+     "ratio": 2.48,
+     "max_merge_rows": 1680000,
+     "cum_rewrites_per_row": 3.75
+    },
+    {
+     "minute": 3,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.12,
+     "merge_cpu_s": 50.4,
+     "ratio": 3.57,
+     "max_merge_rows": 6420000,
+     "cum_rewrites_per_row": 4.61
+    },
+    {
+     "minute": 4,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.24,
+     "merge_cpu_s": 36.77,
+     "ratio": 2.58,
+     "max_merge_rows": 1900000,
+     "cum_rewrites_per_row": 4.46
+    },
+    {
+     "minute": 5,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.62,
+     "merge_cpu_s": 36.98,
+     "ratio": 2.53,
+     "max_merge_rows": 1890000,
+     "cum_rewrites_per_row": 4.32
+    },
+    {
+     "minute": 6,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.2,
+     "merge_cpu_s": 49.1,
+     "ratio": 3.46,
+     "max_merge_rows": 6470000,
+     "cum_rewrites_per_row": 4.62
+    },
+    {
+     "minute": 7,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.44,
+     "merge_cpu_s": 40.18,
+     "ratio": 2.78,
+     "max_merge_rows": 3000000,
+     "cum_rewrites_per_row": 4.6
+    },
+    {
+     "minute": 8,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.35,
+     "merge_cpu_s": 37.98,
+     "ratio": 2.65,
+     "max_merge_rows": 2130000,
+     "cum_rewrites_per_row": 4.51
+    },
+    {
+     "minute": 9,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.69,
+     "merge_cpu_s": 38.8,
+     "ratio": 2.64,
+     "max_merge_rows": 1880000,
+     "cum_rewrites_per_row": 4.46
+    },
+    {
+     "minute": 10,
+     "ins_rows": 2400000,
+     "ins_cpu_s": 14.68,
+     "merge_cpu_s": 51.14,
+     "ratio": 3.48,
+     "max_merge_rows": 7190000,
+     "cum_rewrites_per_row": 4.65
+    },
+    {
+     "minute": 11,
+     "ins_rows": 0,
+     "ins_cpu_s": 0.0,
+     "merge_cpu_s": 0.0,
+     "ratio": null,
+     "max_merge_rows": 0,
+     "cum_rewrites_per_row": 4.65
+    },
+    {
+     "minute": 12,
+     "ins_rows": 0,
+     "ins_cpu_s": 0.0,
+     "merge_cpu_s": 0.0,
+     "ratio": null,
+     "max_merge_rows": 0,
+     "cum_rewrites_per_row": 4.65
+    }
+   ],
+   "fit": {
+    "a": 0.14,
+    "b_per_ln": 0.598,
+    "per_decade": 1.377,
+    "fan_in_equiv": 5.33,
+    "cpu_a_us": 6.415,
+    "cpu_b_us_per_ln": 1.384,
+    "cpu_per_decade_us": 3.187,
+    "M_at_end_us": 17.143,
+    "parts_reached": 2400,
+    "R_at_end": 4.648,
+    "projection": {
+     "1000": {
+      "rewrites_per_row": 4.27,
+      "merge_us_per_row": 15.98,
+      "merge_over_insert": 2.66
+     },
+     "10000": {
+      "rewrites_per_row": 5.65,
+      "merge_us_per_row": 19.16,
+      "merge_over_insert": 3.19
+     },
+     "100000": {
+      "rewrites_per_row": 7.02,
+      "merge_us_per_row": 22.35,
+      "merge_over_insert": 3.72
+     }
+    }
+   }
+  }
+ },
+ "duration_s": 603.3,
+ "stop_reason": "duration",
+ "errors": 0,
+ "crosscheck": {
+  "merge_threads_proc_cpu_s": 425.51,
+  "part_log_merge_cpu_s": 411.43,
+  "part_log_over_proc": 0.967,
+  "move_threads_cpu_s": 0.0
+ }
+}

@@ -1,0 +1,47 @@
+{
+ "run": "set-novertical",
+ "tables": "traces",
+ "rows": "10k",
+ "rate": [
+  "4"
+ ],
+ "duration": 300.0,
+ "drain": 60.0,
+ "workers": 3,
+ "ids": "random",
+ "partition": "toDate(received_at)",
+ "ttl": "",
+ "setting": [
+  "enable_vertical_merge_algorithm = 0"
+ ],
+ "time_scale": 1.0,
+ "max_db_gb": 0.5,
+ "min_free_gb": 2.6,
+ "keep": false,
+ "after": "",
+ "after_wait": 0,
+ "db": "mrg_set_novertical",
+ "argv": [
+  "merges.py",
+  "--run",
+  "set-novertical",
+  "--tables",
+  "traces",
+  "--rows",
+  "10k",
+  "--rate",
+  "4",
+  "--workers",
+  "3",
+  "--duration",
+  "300",
+  "--drain",
+  "60",
+  "--max-db-gb",
+  "0.5",
+  "--setting",
+  "enable_vertical_merge_algorithm = 0"
+ ],
+ "pid": 3489,
+ "start": 1790379681.9566956
+}

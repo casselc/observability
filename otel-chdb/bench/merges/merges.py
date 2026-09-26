@@ -12,12 +12,12 @@ the envelope; traces and logs also get fresh random trace/span ids per row
 
 While it runs it samples the tables' part layout and the server's merge-thread
 CPU; afterwards it dumps this run's system.part_log and system.query_log rows
-(the per-merge and per-insert CPU) into results/<run>/ and drops the database.
+(the per-merge and per-insert CPU) into results/<run>/*.jsonl.gz and drops the database.
 analyze.py turns those files into the numbers.
 
   merges.py --run t10k --tables traces --rows 10k --rate 4 --duration 600
 """
-import argparse, datetime as dt, json, os, re, shutil, subprocess, sys, threading, time, uuid
+import argparse, datetime as dt, gzip, json, os, re, shutil, subprocess, sys, threading, time, uuid
 import requests
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -355,6 +355,7 @@ def main():
     p.add_argument("--ttl", default="", help="TTL clause for the tables")
     p.add_argument("--setting", action="append", default=[], help="extra MergeTree setting, k = v")
     p.add_argument("--time-scale", type=float, default=1.0, help="synthetic received_at seconds per wall second")
+    p.add_argument("--real-time", action="store_true", help="received_at = the wall clock (TTL is evaluated against it)")
     p.add_argument("--max-db-gb", type=float, default=1.3)
     p.add_argument("--min-free-gb", type=float, default=2.6)
     p.add_argument("--keep", action="store_true", help="don't drop the database")
@@ -406,7 +407,8 @@ def main():
                         return
                 if time.time() - t0 > a.duration:
                     return
-                recv_ns = int((BASE.timestamp() + (time.time() - wall0) * a.time_scale) * 1e9)
+                base = wall0 if a.real_time else BASE.timestamp()
+                recv_ns = int((base + (time.time() - wall0) * a.time_scale) * 1e9)
                 sql, rows = stmt(name, k, a.rows, recv_ns, a)
                 qid = f"{a.run}-{name}-{k}-{uuid.uuid4().hex[:6]}"
                 prm = dict(SETTINGS, query_id=qid, insert_deduplication_token=qid)
@@ -486,18 +488,18 @@ def main():
         ProfileEvents['MergeProjectionStageExecuteMilliseconds'] AS proj_ms, ProfileEvents['MergedRows'] AS merged_rows,
         ProfileEvents['MergedUncompressedBytes'] AS merged_uncompressed, error
         FROM system.part_log WHERE database = '{a.db}' AND event_time >= toDateTime({int(t0) - 5}) ORDER BY event_time_microseconds FORMAT JSONEachRow""", timeout=600)
-    open(os.path.join(out, "part_log.jsonl"), "w").write(pl)
+    gzip.open(os.path.join(out, "part_log.jsonl.gz"), "wt").write(pl)
     ql = ch(f"""SELECT query_id, type, event_time_microseconds, query_duration_ms, written_rows, written_bytes, read_rows, read_bytes,
         ProfileEvents['UserTimeMicroseconds'] AS user_us, ProfileEvents['SystemTimeMicroseconds'] AS sys_us,
         ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS cpu_us, ProfileEvents['S3GetObject'] AS gets, ProfileEvents['S3HeadObject'] AS heads,
         ProfileEvents['InsertedRows'] AS inserted_rows, ProfileEvents['InsertedBytes'] AS inserted_bytes, memory_usage, exception_code
         FROM system.query_log WHERE query_id LIKE '{a.run}-%' AND type != 'QueryStart' AND event_time >= toDateTime({int(t0) - 5})
         ORDER BY event_time_microseconds FORMAT JSONEachRow""", timeout=600)
-    open(os.path.join(out, "query_log.jsonl"), "w").write(ql)
-    with open(os.path.join(out, "inserts.jsonl"), "w") as f:
+    gzip.open(os.path.join(out, "query_log.jsonl.gz"), "wt").write(ql)
+    with gzip.open(os.path.join(out, "inserts.jsonl.gz"), "wt") as f:
         for r in inserts:
             f.write(json.dumps(r) + "\n")
-    with open(os.path.join(out, "samples.jsonl"), "w") as f:
+    with gzip.open(os.path.join(out, "samples.jsonl.gz"), "wt") as f:
         for s in samples:
             f.write(json.dumps(s) + "\n")
     json.dump({"t0": t0, "t_ins_end": t_ins_end, "t_after": t_after, "t_end": tend, "reason": reason, "errors": errors[:20],

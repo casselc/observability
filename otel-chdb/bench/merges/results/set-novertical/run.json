@@ -1,0 +1,42 @@
+{
+ "t0": 1790379681.9569385,
+ "t_ins_end": 1790379978.6434212,
+ "t_after": 1790380038.948858,
+ "t_end": 1790380038.9712498,
+ "reason": "db size",
+ "errors": [],
+ "n_errors": 0,
+ "final_parts": [
+  [
+   "otel_traces",
+   10,
+   11870000,
+   500372149,
+   5755911519,
+   "[(5,8060000),(4,1180000),(4,1160000),(3,380000),(3,550000),(3,360000),(2,150000),(0,10000),(0,10000),(0,10000)]"
+  ]
+ ],
+ "base_threads": {
+  "clickhouse": 83.63,
+  "AsyncLogger": 19.36,
+  "SignalListnr": 0.0,
+  "HTTPHandler": 1243.99,
+  "MemoryWorker": 12.88,
+  "BgSchPool": 32.24,
+  "PoolDelayExec": 6.01,
+  "BgBufSchPool": 0.0,
+  "BgMBSchPool": 0.0,
+  "BgDistSchPool": 0.0,
+  "BgStrmSchPool": 3.41,
+  "CgrpMemUsgObsr": 0.05,
+  "MergeMutate": 3893.13,
+  "Move": 0.0,
+  "Fetch": 0.0,
+  "Common": 0.0,
+  "ThreadPool": 601.9999999999999,
+  "AsyncMetrics": 52.64,
+  "ExternalLoader": 1.53,
+  "ConfigReloader": 0.48,
+  "RuntimeData": 60.48
+ }
+}

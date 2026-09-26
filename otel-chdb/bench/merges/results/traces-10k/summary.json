@@ -50,6 +50,27 @@
    "bytes_written_per_inserted_byte": 2.913,
    "merge_user_sys_over_insert": 2.649,
    "ttl_merges": null,
+   "merges_by_reason": {
+    "RegularMerge": {
+     "merges": 412,
+     "rows_in": 74020000,
+     "rows_out": 74020000,
+     "bytes_read": 37616339472,
+     "bytes_written": 3170270713,
+     "cpu_us": 367244893.0,
+     "user_sys_us": 367195681.0,
+     "real_us": 646109196.0,
+     "us_per_row_in": 4.961427897865442
+    }
+   },
+   "moves": {
+    "parts": 0,
+    "bytes": 0,
+    "rows": 0,
+    "cpu_us": 0,
+    "disks": []
+   },
+   "removed_parts": 2532,
    "size_classes": {
     "4-16x": {
      "merges": 336,

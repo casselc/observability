@@ -1,0 +1,718 @@
+From 612dbf532a62f20cba19ecee439e003d9ef7a447 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 27 Sep 2026 22:55:11 +0000
+Subject: [PATCH] No silent partial results: pin every *_overflow_mode to throw
+
+ClickHouse's overflow modes decide what a limit does: 'throw' fails the
+query, 'break' (and 'any' for GROUP BY) returns what was read so far with
+HTTP 200 and no marker. HyperDX set 'break' on metadata queries (filter
+keys and values, the metric catalog, metric attribute values, MCP
+previews), 'any' on value distributions and 'break' on raw SQL tables, and
+passed a source's querySettings (charts, search, alerts) into the SQL
+SETTINGS clause unfiltered, so a source or a server profile could make any
+result partial. A short answer reads as a complete one.
+
+- core/overflow.ts: NO_PARTIAL_RESULTS, the eleven overflow modes as
+  'throw'.
+- The client pins them last in processClickhouseSettings, over the call's
+  own settings, on every query (charts, search, alerts, metadata, MCP).
+- joinQuerySettings drops overflow modes from a source's querySettings (the
+  SQL SETTINGS clause would override the pin).
+- Limits stay; a query that reaches one fails and the UI shows the error.
+  Removed the 'break'/'any' settings in metadata (getMapKeys x2,
+  getMetadataMVKeyValues, getKeyValues, getValuesDistribution),
+  useMetricCatalog, useFetchMetricAttributeValues, raw SQL tables
+  (result_overflow_mode 'throw') and the MCP tools.
+- One exception, a read sample for suggestion lists: getJSONKeys,
+  getMapValues and the two text-index key/value lookups keep
+  read_overflow_mode 'break' at max_rows_to_read through the new
+  QueryInputs.allowSampledRead flag, which lets only the read modes
+  through. Charts, search and alerts never set it.
+---
+ .../renderChartConfig.int.test.ts.snap        | 11 ----
+ .../__tests__/renderChartConfig.int.test.ts   |  8 +--
+ .../src/mcp/tools/sources/describeMetric.ts   |  9 ++-
+ .../api/src/mcp/tools/sources/listMetrics.ts  |  3 +-
+ .../api/src/mcp/tools/sources/listSources.ts  | 13 ++--
+ .../useOffsetPaginatedQuery.test.tsx          |  4 +-
+ .../hooks/useFetchMetricAttributeValues.tsx   |  3 +-
+ packages/app/src/hooks/useMetricCatalog.ts    |  4 +-
+ .../app/src/hooks/useOffsetPaginatedQuery.tsx |  7 ++-
+ .../src/__tests__/clickhouse.test.ts          | 62 +++++++++++++++++++
+ .../src/__tests__/metadata.test.ts            |  2 -
+ .../common-utils/src/__tests__/utils.test.ts  | 16 +++++
+ .../common-utils/src/clickhouse/browser.ts    |  2 +
+ packages/common-utils/src/clickhouse/index.ts | 24 +++++++
+ packages/common-utils/src/clickhouse/node.ts  |  2 +
+ packages/common-utils/src/core/metadata.ts    | 52 ++++++++++++----
+ packages/common-utils/src/core/overflow.ts    | 38 ++++++++++++
+ packages/common-utils/src/core/utils.ts       | 10 ++-
+ 18 files changed, 222 insertions(+), 48 deletions(-)
+ create mode 100644 packages/common-utils/src/core/overflow.ts
+
+diff --git a/packages/api/src/clickhouse/__tests__/__snapshots__/renderChartConfig.int.test.ts.snap b/packages/api/src/clickhouse/__tests__/__snapshots__/renderChartConfig.int.test.ts.snap
+index 5cb786d..7735989 100644
+--- a/packages/api/src/clickhouse/__tests__/__snapshots__/renderChartConfig.int.test.ts.snap
++++ b/packages/api/src/clickhouse/__tests__/__snapshots__/renderChartConfig.int.test.ts.snap
+@@ -482,17 +482,6 @@ exports[`renderChartConfig Query Metrics - Sum sum values as without rate comput
+ ]
+ `;
+ 
+-exports[`renderChartConfig Query settings handles the the query settings 1`] = `
+-[
+-  {
+-    "Body": "Oh no! Something went wrong!",
+-  },
+-  {
+-    "Body": "This is a test message.",
+-  },
+-]
+-`;
+-
+ exports[`renderChartConfig aggFn numeric agg functions should handle numeric values as strings 1`] = `
+ [
+   {
+diff --git a/packages/api/src/clickhouse/__tests__/renderChartConfig.int.test.ts b/packages/api/src/clickhouse/__tests__/renderChartConfig.int.test.ts
+index 4f93e19..714a09f 100644
+--- a/packages/api/src/clickhouse/__tests__/renderChartConfig.int.test.ts
++++ b/packages/api/src/clickhouse/__tests__/renderChartConfig.int.test.ts
+@@ -4848,10 +4848,10 @@ describe('renderChartConfig', () => {
+         [...querySettings, { setting: 'result_overflow_mode', value: 'break' }],
+       );
+ 
+-      const res = await queryData(query);
+-      // ensures `result_overflow_mode = break` is applied, otherwise query would error.
+-      expect(res).toHaveLength(2);
+-      expect(res).toMatchSnapshot();
++      // A source's overflow mode is dropped (core/overflow.ts): the limit
++      // fails the query instead of cutting the result short.
++      expect(query.sql).not.toContain('result_overflow_mode');
++      await expect(queryData(query)).rejects.toThrow();
+     });
+   });
+ });
+diff --git a/packages/api/src/mcp/tools/sources/describeMetric.ts b/packages/api/src/mcp/tools/sources/describeMetric.ts
+index d42bc23..ea93be3 100644
+--- a/packages/api/src/mcp/tools/sources/describeMetric.ts
++++ b/packages/api/src/mcp/tools/sources/describeMetric.ts
+@@ -227,7 +227,8 @@ async function fetchUnitAndDescription({
+       connectionId,
+       clickhouse_settings: {
+         max_execution_time: METRIC_ATTR_KEYS_MAX_EXEC_SECONDS,
+-        timeout_overflow_mode: 'break',
++        // no timeout_overflow_mode 'break': past the limit the query fails
++        // (the client pins 'throw', common-utils core/overflow.ts)
+       },
+       abort_signal: signal,
+     });
+@@ -329,7 +330,8 @@ async function fetchAttributeKeys({
+       connectionId,
+       clickhouse_settings: {
+         max_execution_time: METRIC_ATTR_KEYS_MAX_EXEC_SECONDS,
+-        timeout_overflow_mode: 'break',
++        // no timeout_overflow_mode 'break': past the limit the query fails
++        // (the client pins 'throw', common-utils core/overflow.ts)
+       },
+       abort_signal: signal,
+     });
+@@ -457,7 +459,8 @@ async function sampleAttributeValues({
+       connectionId,
+       clickhouse_settings: {
+         max_execution_time: METRIC_ATTR_KEYS_MAX_EXEC_SECONDS,
+-        timeout_overflow_mode: 'break',
++        // no timeout_overflow_mode 'break': past the limit the query fails
++        // (the client pins 'throw', common-utils core/overflow.ts)
+       },
+       abort_signal: signal,
+     });
+diff --git a/packages/api/src/mcp/tools/sources/listMetrics.ts b/packages/api/src/mcp/tools/sources/listMetrics.ts
+index 5ad4f60..611d90c 100644
+--- a/packages/api/src/mcp/tools/sources/listMetrics.ts
++++ b/packages/api/src/mcp/tools/sources/listMetrics.ts
+@@ -218,7 +218,8 @@ async function fetchMetricsForKind({
+     connectionId,
+     clickhouse_settings: {
+       max_execution_time: MAX_EXEC_SECONDS,
+-      timeout_overflow_mode: 'break',
++      // no timeout_overflow_mode 'break': past the limit the query fails
++      // (the client pins 'throw', common-utils core/overflow.ts)
+     },
+     abort_signal: signal,
+   });
+diff --git a/packages/api/src/mcp/tools/sources/listSources.ts b/packages/api/src/mcp/tools/sources/listSources.ts
+index a85061d..8e04460 100644
+--- a/packages/api/src/mcp/tools/sources/listSources.ts
++++ b/packages/api/src/mcp/tools/sources/listSources.ts
+@@ -40,12 +40,12 @@ const PREVIEW_CONCURRENCY = 6;
+ const PREVIEW_QUERY_MAX_EXECUTION_SEC = 2.5;
+ 
+ /**
+- * ClickhouseClient that caps every query with max_execution_time +
+- * timeout_overflow_mode=break, so a slow sampling query returns whatever
+- * rows ClickHouse processed within the budget instead of timing out with
+- * nothing. The AbortController in attachMetricNamePreviews remains the
+- * wall-clock backstop for stalls the server-side cap cannot cover (e.g.
+- * network).
++ * ClickhouseClient that caps every query with max_execution_time. Past it
++ * the query fails (the client pins every overflow mode to 'throw',
++ * common-utils core/overflow.ts) and the preview is omitted, rather than
++ * attaching a partial list the agent would read as complete. The
++ * AbortController in attachMetricNamePreviews remains the wall-clock
++ * backstop for stalls the server-side cap cannot cover (e.g. network).
+  */
+ class PreviewClickhouseClient extends ClickhouseClient {
+   query<Format extends DataFormat>(props: QueryInputs<Format>) {
+@@ -54,7 +54,6 @@ class PreviewClickhouseClient extends ClickhouseClient {
+       clickhouse_settings: {
+         ...props.clickhouse_settings,
+         max_execution_time: PREVIEW_QUERY_MAX_EXECUTION_SEC,
+-        timeout_overflow_mode: 'break' as const,
+       },
+     });
+   }
+diff --git a/packages/app/src/hooks/__tests__/useOffsetPaginatedQuery.test.tsx b/packages/app/src/hooks/__tests__/useOffsetPaginatedQuery.test.tsx
+index edc70c9..c69f645 100644
+--- a/packages/app/src/hooks/__tests__/useOffsetPaginatedQuery.test.tsx
++++ b/packages/app/src/hooks/__tests__/useOffsetPaginatedQuery.test.tsx
+@@ -891,7 +891,7 @@ describe('useOffsetPaginatedQuery', () => {
+         .mockResolvedValueOnce({ done: true });
+     };
+ 
+-    it('should set readonly=2, result_overflow_mode=break, and max_result_rows=MAX_TABLE_ROWS when no existing setting', async () => {
++    it('should set readonly=2, result_overflow_mode=throw, and max_result_rows=MAX_TABLE_ROWS when no existing setting', async () => {
+       mockMetadata.getSetting.mockResolvedValue(null);
+       mockRawSqlRead();
+ 
+@@ -907,7 +907,7 @@ describe('useOffsetPaginatedQuery', () => {
+         mockClickhouseClient.query.mock.calls[0][0].clickhouse_settings;
+       expect(clickhouseSettings.readonly).toBe('2');
+       expect(clickhouseSettings.max_result_rows).toBe('10000');
+-      expect(clickhouseSettings.result_overflow_mode).toBe('break');
++      expect(clickhouseSettings.result_overflow_mode).toBe('throw');
+     });
+ 
+     it('should use MAX_TABLE_ROWS when existingMaxResultRowsSetting is 0', async () => {
+diff --git a/packages/app/src/hooks/useFetchMetricAttributeValues.tsx b/packages/app/src/hooks/useFetchMetricAttributeValues.tsx
+index 2bbb3e0..0815f38 100644
+--- a/packages/app/src/hooks/useFetchMetricAttributeValues.tsx
++++ b/packages/app/src/hooks/useFetchMetricAttributeValues.tsx
+@@ -94,8 +94,9 @@ export const useFetchMetricAttributeValues = ({
+           abort_signal: signal,
+           connectionId: tableSource!.connection,
+           clickhouse_settings: {
++            // Past the limit the query fails rather than return a short
++            // value list (common-utils core/overflow.ts).
+             max_execution_time: 60,
+-            timeout_overflow_mode: 'break',
+           },
+         })
+         .then(res => res.json())) as ResponseJSON<AttributeValueResponse>;
+diff --git a/packages/app/src/hooks/useMetricCatalog.ts b/packages/app/src/hooks/useMetricCatalog.ts
+index 01cd718..9b1e4fb 100644
+--- a/packages/app/src/hooks/useMetricCatalog.ts
++++ b/packages/app/src/hooks/useMetricCatalog.ts
+@@ -146,8 +146,10 @@ export function useMetricCatalog({
+               abort_signal: signal,
+               connectionId,
+               clickhouse_settings: {
++                // Past the limit the query fails rather than return part of
++                // the catalog: a metric missing from it reads as "not
++                // reported" (common-utils core/overflow.ts).
+                 max_execution_time: MAX_EXEC_SECONDS,
+-                timeout_overflow_mode: 'break',
+               },
+             })
+             .then(res => res.json())) as ResponseJSON<CatalogRow>;
+diff --git a/packages/app/src/hooks/useOffsetPaginatedQuery.tsx b/packages/app/src/hooks/useOffsetPaginatedQuery.tsx
+index 5a27d39..a868d72 100644
+--- a/packages/app/src/hooks/useOffsetPaginatedQuery.tsx
++++ b/packages/app/src/hooks/useOffsetPaginatedQuery.tsx
+@@ -245,10 +245,11 @@ const queryFn: QueryFunction<TQueryFnData, TQueryKey, TPageParam> = async ({
+         ? Math.min(Number(existingMaxResultRowsSetting), MAX_TABLE_ROWS)
+         : MAX_TABLE_ROWS;
+ 
+-    // result_overflow_mode=break will prevent an error when the result set exceeds max_result_rows,
+-    // and instead just return the first max_result_rows rows.
++    // A result larger than max_result_rows fails with an error naming the
++    // limit (add a LIMIT), instead of 'break' showing its first rows as the
++    // whole result (common-utils core/overflow.ts; the client pins it too).
+     clickHouseSettings.max_result_rows = String(maxResultRows);
+-    clickHouseSettings.result_overflow_mode = 'break';
++    clickHouseSettings.result_overflow_mode = 'throw';
+   }
+ 
+   const resultSet =
+diff --git a/packages/common-utils/src/__tests__/clickhouse.test.ts b/packages/common-utils/src/__tests__/clickhouse.test.ts
+index f8e6551..b5b050c 100644
+--- a/packages/common-utils/src/__tests__/clickhouse.test.ts
++++ b/packages/common-utils/src/__tests__/clickhouse.test.ts
+@@ -1,3 +1,4 @@
++import { NO_PARTIAL_RESULTS } from '@/core/overflow';
+ import {
+   ChSql,
+   chSqlToAliasMap,
+@@ -502,6 +503,7 @@ describe('processClickhouseSettings - optimization settings', () => {
+       wait_end_of_query: 0,
+       output_format_json_quote_64bit_integers: 1,
+       cancel_http_readonly_queries_on_client_close: 1,
++      ...NO_PARTIAL_RESULTS,
+     });
+   });
+ 
+@@ -548,6 +550,7 @@ describe('processClickhouseSettings - optimization settings', () => {
+       use_skip_indexes_on_data_read: '1',
+       use_skip_indexes_for_disjunctions: '1',
+       allow_calculating_subcolumns_sizes_for_merge_tree_reading: '0',
++      ...NO_PARTIAL_RESULTS,
+     });
+   });
+ 
+@@ -610,6 +613,7 @@ describe('processClickhouseSettings - optimization settings', () => {
+       cancel_http_readonly_queries_on_client_close: 1,
+       use_skip_indexes_for_top_k: '1',
+       max_rows_to_read: '1000000',
++      ...NO_PARTIAL_RESULTS,
+     });
+   });
+ 
+@@ -657,6 +661,7 @@ describe('processClickhouseSettings - optimization settings', () => {
+       wait_end_of_query: 0,
+       output_format_json_quote_64bit_integers: 1,
+       cancel_http_readonly_queries_on_client_close: 1,
++      ...NO_PARTIAL_RESULTS,
+     });
+   });
+ 
+@@ -683,3 +688,60 @@ describe('processClickhouseSettings - optimization settings', () => {
+     expect(settingsCalls.length).toEqual(1);
+   });
+ });
++
++describe('processClickhouseSettings - no partial results (core/overflow.ts)', () => {
++  const run = async (
++    settings: Record<string, any>,
++    allowSampledRead?: boolean,
++  ) => {
++    const client = new ClickhouseClient({
++      host: 'http://localhost:8123',
++      username: 'default',
++      password: '',
++    });
++    const query = jest.fn(async ({ clickhouse_settings }: any) => ({
++      json: async () => ({ data: [], clickhouse_settings }),
++    }));
++    (client as any).client = { query };
++    await client.query({
++      query: 'SELECT 1',
++      format: 'JSON',
++      clickhouse_settings: settings,
++      allowSampledRead,
++    });
++    return query.mock.calls[0][0].clickhouse_settings;
++  };
++
++  beforeEach(() => {
++    jest.spyOn(console, 'debug').mockImplementation(() => {});
++    jest.spyOn(console, 'info').mockImplementation(() => {});
++  });
++
++  afterEach(() => {
++    jest.restoreAllMocks();
++  });
++
++  it("pins every overflow mode to throw over the caller's settings", async () => {
++    const s = await run({
++      timeout_overflow_mode: 'break',
++      read_overflow_mode: 'break',
++      group_by_overflow_mode: 'any',
++      result_overflow_mode: 'break',
++      max_execution_time: '15',
++    });
++    expect(s).toMatchObject(NO_PARTIAL_RESULTS);
++    expect(s.max_execution_time).toBe('15');
++  });
++
++  it('lets only a read sample through with allowSampledRead', async () => {
++    const s = await run(
++      { read_overflow_mode: 'break', timeout_overflow_mode: 'break' },
++      true,
++    );
++    expect(s.read_overflow_mode).toBe('break');
++    expect(s.timeout_overflow_mode).toBe('throw');
++    expect(s.group_by_overflow_mode).toBe('throw');
++    const plain = await run({}, true);
++    expect(plain.read_overflow_mode).toBe('throw');
++  });
++});
+diff --git a/packages/common-utils/src/__tests__/metadata.test.ts b/packages/common-utils/src/__tests__/metadata.test.ts
+index 85587d7..e36c13b 100644
+--- a/packages/common-utils/src/__tests__/metadata.test.ts
++++ b/packages/common-utils/src/__tests__/metadata.test.ts
+@@ -598,7 +598,6 @@ describe('Metadata', () => {
+         expect.objectContaining({
+           clickhouse_settings: {
+             max_rows_to_read: '0',
+-            timeout_overflow_mode: 'break',
+             max_execution_time: 15,
+           },
+         }),
+@@ -711,7 +710,6 @@ describe('Metadata', () => {
+         expect.objectContaining({
+           clickhouse_settings: {
+             max_rows_to_read: '0',
+-            timeout_overflow_mode: 'break',
+             max_execution_time: 15,
+           },
+         }),
+diff --git a/packages/common-utils/src/__tests__/utils.test.ts b/packages/common-utils/src/__tests__/utils.test.ts
+index 11dc1a7..ac436c7 100644
+--- a/packages/common-utils/src/__tests__/utils.test.ts
++++ b/packages/common-utils/src/__tests__/utils.test.ts
+@@ -2821,6 +2821,22 @@ describe('utils', () => {
+       ).toEqual('async_insert_busy_timeout_min_ms = 20000');
+     });
+ 
++    test('drops overflow modes, which would make results partial (core/overflow.ts)', () => {
++      expect(
++        joinQuerySettings([
++          { setting: 'read_overflow_mode', value: 'break' },
++          { setting: 'max_rows_to_read', value: '1000' },
++          { setting: 'group_by_overflow_mode', value: 'any' },
++          { setting: 'timeout_overflow_mode_leaf', value: 'break' },
++        ]),
++      ).toEqual('max_rows_to_read = 1000');
++      expect(
++        joinQuerySettings([
++          { setting: 'result_overflow_mode', value: 'break' },
++        ]),
++      ).toBe(undefined);
++    });
++
+     test('joins the values into key value pairs', () => {
+       const result = joinQuerySettings([
+         { setting: 'additional_result_filter', value: 'x != 2' },
+diff --git a/packages/common-utils/src/clickhouse/browser.ts b/packages/common-utils/src/clickhouse/browser.ts
+index fc107f0..a32c684 100644
+--- a/packages/common-utils/src/clickhouse/browser.ts
++++ b/packages/common-utils/src/clickhouse/browser.ts
+@@ -160,6 +160,7 @@ export class ClickhouseClient extends BaseClickhouseClient {
+     connectionId,
+     queryId,
+     shouldSkipApplySettings,
++    allowSampledRead,
+   }: QueryInputs<Format>): Promise<BaseResultSet<ReadableStream, Format>> {
+     // FIXME: we couldn't initialize the client in the constructor
+     // since the window is not avalible
+@@ -175,6 +176,7 @@ export class ClickhouseClient extends BaseClickhouseClient {
+       const neutralSettings = await this.processClickhouseSettings({
+         connectionId,
+         externalClickhouseSettings,
++        allowSampledRead,
+       });
+       // processClickhouseSettings produces @clickhouse/client-common's
+       // ClickHouseSettings. It is structurally identical to the web client's
+diff --git a/packages/common-utils/src/clickhouse/index.ts b/packages/common-utils/src/clickhouse/index.ts
+index fd13c86..3a0be5a 100644
+--- a/packages/common-utils/src/clickhouse/index.ts
++++ b/packages/common-utils/src/clickhouse/index.ts
+@@ -29,6 +29,7 @@ import {
+   restoreReplacements,
+   splitAndTrimWithBracket,
+ } from '@/core/utils';
++import { NO_PARTIAL_RESULTS } from '@/core/overflow';
+ import { isBuilderChartConfig } from '@/guards';
+ import { ChartConfigWithOptDateRange, QuerySettings } from '@/types';
+ 
+@@ -424,6 +425,14 @@ export interface QueryInputs<Format extends DataFormat> {
+   connectionId?: string;
+   queryId?: string;
+   shouldSkipApplySettings?: boolean;
++  /**
++   * A sample, not an answer: lets `read_overflow_mode` 'break' through the
++   * client's pin (core/overflow.ts), so reading stops at `max_rows_to_read`
++   * and the rows read so far are the result. Only for suggestion lists
++   * (metadata key and value vocabularies); never for charts, search results
++   * or alerts. Every other overflow mode stays 'throw'.
++   */
++  allowSampledRead?: boolean;
+ }
+ 
+ export type ClickhouseClientOptions = {
+@@ -521,9 +530,11 @@ export abstract class BaseClickhouseClient {
+   protected async processClickhouseSettings({
+     connectionId,
+     externalClickhouseSettings,
++    allowSampledRead,
+   }: {
+     connectionId?: string;
+     externalClickhouseSettings?: ClickHouseSettings;
++    allowSampledRead?: boolean;
+   }): Promise<ClickHouseSettings> {
+     const clickhouse_settings = structuredClone(
+       externalClickhouseSettings || {},
+@@ -595,6 +606,19 @@ export abstract class BaseClickhouseClient {
+     return {
+       ...defaultSettings,
+       ...clickhouse_settings,
++      // Last, so no caller can turn a limit into a silent partial result
++      // (core/overflow.ts).
++      ...NO_PARTIAL_RESULTS,
++      ...(allowSampledRead
++        ? {
++            read_overflow_mode:
++              clickhouse_settings.read_overflow_mode ??
++              NO_PARTIAL_RESULTS.read_overflow_mode,
++            read_overflow_mode_leaf:
++              clickhouse_settings.read_overflow_mode_leaf ??
++              NO_PARTIAL_RESULTS.read_overflow_mode_leaf,
++          }
++        : {}),
+     };
+   }
+ 
+diff --git a/packages/common-utils/src/clickhouse/node.ts b/packages/common-utils/src/clickhouse/node.ts
+index 4ab917e..5aa44a6 100644
+--- a/packages/common-utils/src/clickhouse/node.ts
++++ b/packages/common-utils/src/clickhouse/node.ts
+@@ -46,6 +46,7 @@ export class ClickhouseClient extends BaseClickhouseClient {
+     connectionId,
+     queryId,
+     shouldSkipApplySettings,
++    allowSampledRead,
+   }: QueryInputs<Format>): Promise<BaseResultSet<ReadableStream, Format>> {
+     this.logQuery(query, query_params);
+ 
+@@ -55,6 +56,7 @@ export class ClickhouseClient extends BaseClickhouseClient {
+       const neutralSettings = await this.processClickhouseSettings({
+         externalClickhouseSettings,
+         connectionId,
++        allowSampledRead,
+       });
+       // processClickhouseSettings produces @clickhouse/client-common's
+       // ClickHouseSettings. It is structurally identical to the node client's
+diff --git a/packages/common-utils/src/core/metadata.ts b/packages/common-utils/src/core/metadata.ts
+index 80f5c3e..696f750 100644
+--- a/packages/common-utils/src/core/metadata.ts
++++ b/packages/common-utils/src/core/metadata.ts
+@@ -1093,7 +1093,8 @@ export class Metadata {
+                 connectionId,
+                 clickhouse_settings: {
+                   ...this.getClickHouseSettings(),
+-                  timeout_overflow_mode: 'break',
++                  // A key list cut short at the time limit reads as "no such
++                  // key": the limit fails the query instead (core/overflow.ts).
+                   max_execution_time: 15,
+                   max_rows_to_read: '0',
+                 },
+@@ -1203,8 +1204,8 @@ export class Metadata {
+           connectionId,
+           clickhouse_settings: {
+             ...this.getClickHouseSettings(),
+-            // Max 15 seconds to get keys
+-            timeout_overflow_mode: 'break',
++            // Max 15 seconds to get keys; past it the query fails rather
++            // than return a short list (core/overflow.ts).
+             max_execution_time: 15,
+             // Set the value to 0 (unlimited) so that the LIMIT is used instead
+             max_rows_to_read: '0',
+@@ -1277,6 +1278,8 @@ export class Metadata {
+             SELECT DISTINCT JSONDynamicPathsWithTypes(${{ Identifier: column }}) as paths
+             FROM ${tableExpr({ database: databaseName, table: tableName })} ${where}
+             LIMIT ${{ Int32: maxKeys }}
++            -- A sample of the paths for suggestions (allowSampledRead below):
++            -- the SQL SETTINGS clause is outside the client's pin.
+             SETTINGS timeout_overflow_mode = 'break', max_execution_time = 2
+         )
+         SELECT groupUniqArrayMap(paths) as pathMap
+@@ -1287,13 +1290,18 @@ export class Metadata {
+             query: sql.sql,
+             query_params: sql.params,
+             connectionId,
++            // A value sample for suggestions, not an answer: reading stops at
++            // max_rows_to_read (read_overflow_mode 'break' below), which the
++            // client allows only with this flag (core/overflow.ts). Every other
++            // overflow mode stays 'throw'. Not used by charts or alerts.
++            allowSampledRead: true,
+             clickhouse_settings: {
+               max_rows_to_read: String(
+                 this.getClickHouseSettings().max_rows_to_read ??
+                   DEFAULT_METADATA_MAX_ROWS_TO_READ,
+               ),
+-              read_overflow_mode: 'break',
+               ...this.getClickHouseSettings(),
++              read_overflow_mode: 'break',
+             },
+           })
+           .then(res => res.json<{ pathMap: Record<string, string[]> }>())
+@@ -1426,13 +1434,18 @@ export class Metadata {
+           query: sql.sql,
+           query_params: sql.params,
+           connectionId,
++          // A value sample for suggestions, not an answer: reading stops at
++          // max_rows_to_read (read_overflow_mode 'break' below), which the
++          // client allows only with this flag (core/overflow.ts). Every other
++          // overflow mode stays 'throw'. Not used by charts or alerts.
++          allowSampledRead: true,
+           clickhouse_settings: {
+             max_rows_to_read: String(
+               this.getClickHouseSettings().max_rows_to_read ??
+                 DEFAULT_METADATA_MAX_ROWS_TO_READ,
+             ),
+-            read_overflow_mode: 'break',
+             ...this.getClickHouseSettings(),
++            read_overflow_mode: 'break',
+           },
+           abort_signal: signal,
+         })
+@@ -1502,13 +1515,18 @@ export class Metadata {
+             query: sql.sql,
+             query_params: sql.params,
+             connectionId,
++            // A value sample for suggestions, not an answer: reading stops at
++            // max_rows_to_read (read_overflow_mode 'break' below), which the
++            // client allows only with this flag (core/overflow.ts). Every other
++            // overflow mode stays 'throw'. Not used by charts or alerts.
++            allowSampledRead: true,
+             clickhouse_settings: {
+               max_rows_to_read: String(
+                 this.getClickHouseSettings().max_rows_to_read ??
+                   DEFAULT_METADATA_MAX_ROWS_TO_READ,
+               ),
+-              read_overflow_mode: 'break',
+               ...this.getClickHouseSettings(),
++              read_overflow_mode: 'break',
+             },
+             abort_signal: signal,
+           })
+@@ -1578,13 +1596,18 @@ export class Metadata {
+             query: sql.sql,
+             query_params: sql.params,
+             connectionId,
++            // A value sample for suggestions, not an answer: reading stops at
++            // max_rows_to_read (read_overflow_mode 'break' below), which the
++            // client allows only with this flag (core/overflow.ts). Every other
++            // overflow mode stays 'throw'. Not used by charts or alerts.
++            allowSampledRead: true,
+             clickhouse_settings: {
+               max_rows_to_read: String(
+                 this.getClickHouseSettings().max_rows_to_read ??
+                   DEFAULT_METADATA_MAX_ROWS_TO_READ,
+               ),
+-              read_overflow_mode: 'break',
+               ...this.getClickHouseSettings(),
++              read_overflow_mode: 'break',
+             },
+             abort_signal: signal,
+           })
+@@ -1684,7 +1707,8 @@ export class Metadata {
+             connectionId,
+             clickhouse_settings: {
+               ...this.getClickHouseSettings(),
+-              timeout_overflow_mode: 'break',
++              // Past the limit the query fails rather than return a short
++              // value list (core/overflow.ts).
+               max_execution_time: 15,
+               max_rows_to_read: '0',
+             },
+@@ -2354,9 +2378,12 @@ export class Metadata {
+             connectionId: chartConfig.connection,
+             clickhouse_settings: {
+               ...this.getClickHouseSettings(),
+-              // Set max_rows_to_group_by to avoid using too much memory when grouping on high cardinality key columns
++              // Set max_rows_to_group_by to avoid using too much memory when
++              // grouping on high cardinality key columns. Past it the query
++              // fails: with 'any' the distribution counted an arbitrary subset
++              // of the values and showed its shares as the real ones
++              // (core/overflow.ts).
+               max_rows_to_group_by: `${limit * 10}`,
+-              group_by_overflow_mode: 'any',
+               // disable max_rows_to_read limit since this is a sampled query that only happens after the user toggles it on
+               max_rows_to_read: '0',
+             },
+@@ -2857,8 +2884,9 @@ export class Metadata {
+             clickhouse_settings: !disableRowLimit
+               ? {
+                   ...this.getClickHouseSettings(),
+-                  // Max 15 seconds to get keys
+-                  timeout_overflow_mode: 'break',
++                  // Max 15 seconds to get values; past it the query fails
++                  // rather than return a short list, which the filter panel
++                  // would show as the complete set (core/overflow.ts).
+                   max_execution_time: 15,
+                   // Set the value to 0 (unlimited) so that the LIMIT is used instead
+                   max_rows_to_read: '0',
+diff --git a/packages/common-utils/src/core/overflow.ts b/packages/common-utils/src/core/overflow.ts
+new file mode 100644
+index 0000000..ddb8f49
+--- /dev/null
++++ b/packages/common-utils/src/core/overflow.ts
+@@ -0,0 +1,38 @@
++/**
++ * No partial results.
++ *
++ * ClickHouse's `*_overflow_mode` settings decide what happens when a query
++ * hits a limit (`max_execution_time`, `max_rows_to_read`,
++ * `max_rows_to_group_by`, `max_result_rows`, ...): `throw` fails the query;
++ * `break` (and `any` for GROUP BY) stops early and returns what it has with
++ * HTTP 200 and no marker. A short answer then reads as a complete one: a
++ * filter value that is missing reads as "no such value", a metric missing
++ * from the catalog as "not reported", a distribution as the real one, and an
++ * alert window as quiet.
++ *
++ * This fork pins every overflow mode to `throw` on every query the HyperDX
++ * client sends (`processClickhouseSettings`), after the call's own settings,
++ * so neither a call site nor a server or user profile can make a result
++ * partial. The limits themselves stay: a query that hits one fails, and the
++ * UI shows the error instead of a short answer. A source's `querySettings`
++ * go into the SQL `SETTINGS` clause, which ClickHouse applies over the HTTP
++ * parameters, so `joinQuerySettings` drops any overflow mode given there.
++ */
++export const NO_PARTIAL_RESULTS = {
++  timeout_overflow_mode: 'throw',
++  timeout_overflow_mode_leaf: 'throw',
++  read_overflow_mode: 'throw',
++  read_overflow_mode_leaf: 'throw',
++  result_overflow_mode: 'throw',
++  group_by_overflow_mode: 'throw',
++  set_overflow_mode: 'throw',
++  join_overflow_mode: 'throw',
++  sort_overflow_mode: 'throw',
++  distinct_overflow_mode: 'throw',
++  transfer_overflow_mode: 'throw',
++} as const;
++
++/** True for a setting that decides whether a limit truncates or fails. */
++export function isOverflowModeSetting(name: string): boolean {
++  return /_overflow_mode(_leaf)?$/i.test(name.trim());
++}
+diff --git a/packages/common-utils/src/core/utils.ts b/packages/common-utils/src/core/utils.ts
+index a18d9c7..60fa424 100644
+--- a/packages/common-utils/src/core/utils.ts
++++ b/packages/common-utils/src/core/utils.ts
+@@ -6,6 +6,7 @@ import { z } from 'zod';
+ 
+ export { default as objectHash } from 'object-hash';
+ 
++import { isOverflowModeSetting } from '@/core/overflow';
+ import { isQueryExpressionFilter, isStaticListFilter } from '@/filters';
+ import { isBuilderSavedChartConfig, isRawSqlSavedChartConfig } from '@/guards';
+ import { MacroExpansionError, MalformedMacroArgsError } from '@/macroErrors';
+@@ -1250,10 +1251,17 @@ export function joinQuerySettings(
+     return undefined;
+   }
+ 
++  // An overflow mode here would reach the SQL SETTINGS clause, which
++  // ClickHouse applies over the client's pinned `throw` (core/overflow.ts).
+   const emptyFiltered = querySettings.filter(
+-    ({ setting, value }) => setting.length && value.length,
++    ({ setting, value }) =>
++      setting.length && value.length && !isOverflowModeSetting(setting),
+   );
+ 
++  if (!emptyFiltered.length) {
++    return undefined;
++  }
++
+   const formattedPairs = emptyFiltered.map(
+     ({ setting, value }) =>
+       `${setting} = ${parseToNumber(value) ?? `'${value}'`}`,

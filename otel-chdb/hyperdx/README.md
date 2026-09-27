@@ -444,6 +444,8 @@ databases 150 MB for the big load.
 
 ## Files
 
+- `fork/`: the HyperDX fork, as a patch series against `885d30c`
+  (`fork/README.md`); 0001 stops silent partial results (AMBIGUITY.md X7).
 - `scripts/hdxgen/`: the OTLP generator (Go, pdata).
 - `scripts/run.sh`: the stack, step by step.
 - `scripts/setup_db.py`: stock tables, the views over B, the picker helper.

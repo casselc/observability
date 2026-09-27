@@ -6,6 +6,7 @@ replace github.com/casselc/observability/otel-chdb/parquetgo => ../
 
 require (
 	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	go.opentelemetry.io/collector/client v1.67.0
 	go.opentelemetry.io/collector/component v1.67.0
 	go.opentelemetry.io/collector/config/configopaque v1.67.0
 	go.opentelemetry.io/collector/config/configoptional v1.67.0
@@ -17,6 +18,7 @@ require (
 	go.opentelemetry.io/collector/exporter/exporterhelper v0.161.0
 	go.opentelemetry.io/collector/exporter/exportertest v0.161.0
 	go.opentelemetry.io/collector/pdata v1.67.0
+	go.opentelemetry.io/collector/pdata/xpdata v0.161.0
 	go.uber.org/zap v1.28.0
 )
 
@@ -72,7 +74,6 @@ require (
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/collector/client v1.67.0 // indirect
 	go.opentelemetry.io/collector/component/componenttest v0.161.0 // indirect
 	go.opentelemetry.io/collector/consumer/consumertest v0.161.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.161.0 // indirect
@@ -82,7 +83,6 @@ require (
 	go.opentelemetry.io/collector/featuregate v1.67.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.161.0 // indirect
 	go.opentelemetry.io/collector/pdata/pprofile v0.161.0 // indirect
-	go.opentelemetry.io/collector/pdata/xpdata v0.161.0 // indirect
 	go.opentelemetry.io/collector/pipeline v1.67.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.161.0 // indirect
 	go.opentelemetry.io/collector/receiver v1.67.0 // indirect

@@ -132,11 +132,13 @@ func verdict(err error) error {
 }
 
 func (x *exp) traces(ctx context.Context, td ptrace.Traces) error {
-	return verdict(x.e.PushTraces(ctx, td))
+	return verdict(x.e.PushTraces(withReceived(ctx), td))
 }
-func (x *exp) logs(ctx context.Context, ld plog.Logs) error { return verdict(x.e.PushLogs(ctx, ld)) }
+func (x *exp) logs(ctx context.Context, ld plog.Logs) error {
+	return verdict(x.e.PushLogs(withReceived(ctx), ld))
+}
 func (x *exp) metrics(ctx context.Context, md pmetric.Metrics) error {
-	return verdict(x.e.PushMetrics(ctx, md))
+	return verdict(x.e.PushMetrics(withReceived(ctx), md))
 }
 
 func newExp(set exporter.Settings, cfg component.Config) (*exp, *Config, error) {
@@ -163,7 +165,11 @@ func createTraces(ctx context.Context, set exporter.Settings, cfg component.Conf
 	if err != nil {
 		return nil, err
 	}
-	return exporterhelper.NewTraces(ctx, set, cfg, x.traces, options(x, c)...)
+	e, err := exporterhelper.NewTraces(ctx, set, cfg, x.traces, options(x, c)...)
+	if err != nil {
+		return nil, err
+	}
+	return stampTraces{e, time.Now}, nil
 }
 
 func createLogs(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
@@ -171,7 +177,11 @@ func createLogs(ctx context.Context, set exporter.Settings, cfg component.Config
 	if err != nil {
 		return nil, err
 	}
-	return exporterhelper.NewLogs(ctx, set, cfg, x.logs, options(x, c)...)
+	e, err := exporterhelper.NewLogs(ctx, set, cfg, x.logs, options(x, c)...)
+	if err != nil {
+		return nil, err
+	}
+	return stampLogs{e, time.Now}, nil
 }
 
 func createMetrics(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
@@ -179,5 +189,9 @@ func createMetrics(ctx context.Context, set exporter.Settings, cfg component.Con
 	if err != nil {
 		return nil, err
 	}
-	return exporterhelper.NewMetrics(ctx, set, cfg, x.metrics, options(x, c)...)
+	e, err := exporterhelper.NewMetrics(ctx, set, cfg, x.metrics, options(x, c)...)
+	if err != nil {
+		return nil, err
+	}
+	return stampMetrics{e, time.Now}, nil
 }

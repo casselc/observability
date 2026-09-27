@@ -269,3 +269,82 @@ func TestHaltOnTombstone(t *testing.T) {
 		t.Fatal("no halt")
 	}
 }
+
+// received_at is the custody time the caller hands over (WithReceived), not
+// the edge's clock: a replay by a later incarnation, days later, carries the
+// original's value into every object and row; the content key is unchanged.
+func TestReplayKeepsReceived(t *testing.T) {
+	const t0 = uint64(1_780_000_000_000_000_001)
+	st := commit.NewMemStore()
+	var n atomic.Int64
+	incarnation := func() *Edge {
+		e, err := New(Config{Store: st, Prefix: "root/p1", ProducerID: "p1", PutTimeout: time.Second, HeadTimeout: time.Second,
+			NewEpoch: func() string { return fmt.Sprintf("20260926T000000.000Z-%08x", n.Add(1)) },
+			// four days after the request was queued
+			Now: func() time.Time { return time.Unix(0, int64(t0)).Add(96 * time.Hour) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	ctx := WithReceived(context.Background(), t0)
+	td, md := traces(4, 7), metrics(7)
+	for range 2 { // the original, then a replay by a new incarnation (new epoch)
+		e := incarnation()
+		if err := e.PushTraces(ctx, td); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.PushMetrics(ctx, md); err != nil {
+			t.Fatal(err)
+		}
+	}
+	keys := st.Keys("root/p1/")
+	contents := map[string]map[string]bool{} // namespace -> content keys
+	epochs := map[string]bool{}
+	for _, k := range keys {
+		o, _ := st.Get(k)
+		if o.Meta["oscope-received"] != strconv.FormatUint(t0, 10) {
+			t.Errorf("%s: received %s, want %d", k, o.Meta["oscope-received"], t0)
+		}
+		if footer(t, o.Body)["oscope-received"] != o.Meta["oscope-received"] {
+			t.Errorf("%s: footer and metadata differ", k)
+		}
+		rows, err := parquet.Read[struct {
+			ReceivedAt int64 `parquet:"received_at"`
+		}](bytes.NewReader(o.Body), int64(len(o.Body)))
+		if err != nil || len(rows) == 0 {
+			t.Fatal(k, err)
+		}
+		for _, r := range rows {
+			if uint64(r.ReceivedAt) != t0 {
+				t.Fatalf("%s: row received_at %d", k, r.ReceivedAt)
+			}
+		}
+		ns := o.Meta["oscope-signal"]
+		if contents[ns] == nil {
+			contents[ns] = map[string]bool{}
+		}
+		contents[ns][o.Meta["oscope-content"]] = true
+		epochs[o.Meta["oscope-epoch"]] = true
+	}
+	// Each namespace's two copies share one content key; the series object
+	// is announced again in the new epoch (its own rows' key, also equal).
+	for ns, c := range contents {
+		if len(c) != 1 {
+			t.Errorf("%s: %d content keys", ns, len(c))
+		}
+	}
+	if len(keys) < 4 || len(epochs) < 2 {
+		t.Fatalf("keys %v", keys)
+	}
+	// No custody time handed over: the edge's clock.
+	st2 := commit.NewMemStore()
+	e := newEdge(t, st2, "")
+	if err := e.PushTraces(context.Background(), traces(1, 9)); err != nil {
+		t.Fatal(err)
+	}
+	o, _ := st2.Get(st2.Keys("")[0])
+	if o.Meta["oscope-received"] != "1790000000123456789" {
+		t.Fatal(o.Meta)
+	}
+}

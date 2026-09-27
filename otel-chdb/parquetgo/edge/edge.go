@@ -266,12 +266,37 @@ func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64,
 
 func (e *Edge) now() uint64 { return uint64(e.cfg.Now().UnixNano()) }
 
+type receivedKey struct{}
+
+// WithReceived returns ctx carrying the request's received_at (ns since the
+// Unix epoch): when the request entered the edge's durable custody. Behind a
+// persistent queue that is the enqueue time, which the queue keeps with the
+// request (../s3pqexporter stamps it and reads it back), so a retry and a
+// replay after a restart carry the first value, and a replay lands in the
+// original's toDate(received_at) partition, where the consumer's count
+// check finds the original. Without it the edge stamps its own clock
+// (Config.Now) when it is handed the request: the custody time when nothing
+// holds the request before the edge. The value is beside the request, never
+// in it: the content key and the rows are unchanged, and every object of the
+// request, and every row, carries it.
+func WithReceived(ctx context.Context, ns uint64) context.Context {
+	return context.WithValue(ctx, receivedKey{}, ns)
+}
+
+// received is the request's received_at: WithReceived's, else now.
+func (e *Edge) received(ctx context.Context) uint64 {
+	if ns, ok := ctx.Value(receivedKey{}).(uint64); ok && ns > 0 {
+		return ns
+	}
+	return e.now()
+}
+
 // PushTraces publishes td as one object.
 func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 	if td.SpanCount() == 0 {
 		return nil
 	}
-	received := e.now()
+	received := e.received(ctx)
 	b, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
 	if err != nil {
 		return &PermanentError{err}
@@ -290,7 +315,7 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 	if ld.LogRecordCount() == 0 {
 		return nil
 	}
-	received := e.now()
+	received := e.received(ctx)
 	b, err := (&plog.ProtoMarshaler{}).MarshalLogs(ld)
 	if err != nil {
 		return &PermanentError{err}
@@ -320,7 +345,7 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 		}
 		return nil
 	}
-	received := e.now()
+	received := e.received(ctx)
 	b, err := (&pmetric.ProtoMarshaler{}).MarshalMetrics(md)
 	if err != nil {
 		return &PermanentError{err}

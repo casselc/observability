@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # cargo clippy over otap-rs (lib, bins, tests), warnings denied, except the
 # lints the crate already trips at the commit CI was added. They are all
-# style findings except await_holding_refcell_ref (src/bin/consume.rs, a
-# RefCell borrow held across an .await), which is tracked separately. Most
+# style findings. Most
 # sit in src/consumer/ and src/bin/consume.rs, which are under active
 # development; fixing them belongs there, not in CI. A lint kind that is not
 # on this list fails the job, so the list can only shrink: delete an entry
@@ -21,7 +20,6 @@ allow=(
   type_complexity                 #  2: tests/series.rs
   len_without_is_empty            #  1: src/columns.rs
   sliced_string_as_bytes          #  1: src/creds.rs
-  await_holding_refcell_ref       #  1: src/bin/consume.rs
   explicit_auto_deref             #  1: src/bin/consume.rs
   duplicated_attributes           #  1: consumer/mod.rs
   excessive_precision             #  1: src/render.rs

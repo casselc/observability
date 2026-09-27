@@ -352,18 +352,32 @@ async fn main() {
             // The copies already reported survive a restart: {ctl}/audit/{db}.json.
             let state_key = coord::join(&ctl, &format!("audit/{db}.json"));
             let persist = !flag(&args, "--audit-no-state");
+            // Read before borrowing: `state` is shared with the GC loop, which
+            // borrows it mutably at its own awaits, so no borrow may be held
+            // across one here.
+            let saved = if persist {
+                match bucket.get(&state_key).await {
+                    Ok(Some((b, _))) => match serde_json::from_slice(&b) {
+                        Ok(a) => Some(a),
+                        Err(e) => {
+                            eprintln!("horizon-audit: {state_key}: {e} (starting afresh)");
+                            None
+                        }
+                    },
+                    Ok(None) => None,
+                    Err(e) => {
+                        eprintln!("horizon-audit: reading {state_key}: {e} (starting afresh)");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             {
                 let mut st = state.borrow_mut();
                 st.audit_on = true;
-                if persist {
-                    match bucket.get(&state_key).await {
-                        Ok(Some((b, _))) => match serde_json::from_slice(&b) {
-                            Ok(a) => st.audit = a,
-                            Err(e) => eprintln!("horizon-audit: {state_key}: {e} (starting afresh)"),
-                        },
-                        Ok(None) => {}
-                        Err(e) => eprintln!("horizon-audit: reading {state_key}: {e} (starting afresh)"),
-                    }
+                if let Some(a) = saved {
+                    st.audit = a;
                 }
                 render(&st);
             }

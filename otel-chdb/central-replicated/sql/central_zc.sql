@@ -1,23 +1,185 @@
 CREATE DATABASE IF NOT EXISTS central;
-CREATE TABLE IF NOT EXISTS central.otel_traces (Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String,
-  SpanName LowCardinality(String), SpanKind LowCardinality(String), ServiceName LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeName String, ScopeVersion String,
-  SpanAttributes Map(LowCardinality(String), String), Duration UInt64, StatusCode LowCardinality(String), StatusMessage String,
-  Events Nested (Timestamp DateTime64(9), Name LowCardinality(String), Attributes Map(LowCardinality(String), String)),
-  Links Nested (TraceId String, SpanId String, TraceState String, Attributes Map(LowCardinality(String), String)), producer_id LowCardinality(String), producer_epoch LowCardinality(String), batch_id UInt64, row_ordinal UInt32, received_at DateTime64(9), schema_version UInt16, content_key LowCardinality(String),
-  PROJECTION by_content (SELECT content_key, count() GROUP BY content_key))
-ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_traces', '{replica}') PARTITION BY toDate(received_at) ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
+
+CREATE TABLE IF NOT EXISTS central.otel_traces
+(
+    `Timestamp` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    `TraceId` String CODEC(ZSTD(1)),
+    `SpanId` String CODEC(ZSTD(1)),
+    `ParentSpanId` String CODEC(ZSTD(1)),
+    `TraceState` String CODEC(ZSTD(1)),
+    `SpanName` LowCardinality(String) CODEC(ZSTD(1)),
+    `SpanKind` LowCardinality(String) CODEC(ZSTD(1)),
+    `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+    `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    `ScopeName` String CODEC(ZSTD(1)),
+    `ScopeVersion` String CODEC(ZSTD(1)),
+    `SpanAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    `Duration` UInt64 CODEC(ZSTD(1)),
+    `StatusCode` LowCardinality(String) CODEC(ZSTD(1)),
+    `StatusMessage` String CODEC(ZSTD(1)),
+    `Events.Timestamp` Array(DateTime64(9)) CODEC(ZSTD(1)),
+    `Events.Name` Array(LowCardinality(String)) CODEC(ZSTD(1)),
+    `Events.Attributes` Array(Map(LowCardinality(String), String)) CODEC(ZSTD(1)),
+    `Links.TraceId` Array(String) CODEC(ZSTD(1)),
+    `Links.SpanId` Array(String) CODEC(ZSTD(1)),
+    `Links.TraceState` Array(String) CODEC(ZSTD(1)),
+    `Links.Attributes` Array(Map(LowCardinality(String), String)) CODEC(ZSTD(1)),
+    `__hdx_materialized_rum.sessionId` String MATERIALIZED ResourceAttributes['rum.sessionId'] CODEC(ZSTD(1)),
+    `SampleRate` UInt64 MATERIALIZED greatest(toUInt64OrZero(SpanAttributes['SampleRate']), 1) CODEC(T64, ZSTD(1)),
+    `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
+    `SpanAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), SpanAttributes::Array(Tuple(String, String))),
+    `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
+    `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
+    `batch_id` UInt64 CODEC(ZSTD(1)),
+    `row_ordinal` UInt32 CODEC(ZSTD(1)),
+    `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    `schema_version` UInt16 CODEC(ZSTD(1)),
+    `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
+    INDEX idx_rum_session_id __hdx_materialized_rum.sessionId TYPE text(tokenizer = 'array'),
+    INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_span_attr_items SpanAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_duration Duration TYPE minmax GRANULARITY 1,
+    INDEX idx_lower_span_name SpanName TYPE text(tokenizer = 'splitByNonAlpha', preprocessor=lower(SpanName)),
+    PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
+)
+ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_traces', '{replica}')
+PARTITION BY toDate(received_at)
+ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
-SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1;
-CREATE TABLE IF NOT EXISTS central.otel_logs (Timestamp DateTime64(9), TraceId String, SpanId String, TraceFlags UInt8, SeverityText LowCardinality(String),
-  SeverityNumber UInt8, ServiceName LowCardinality(String), Body String, ResourceSchemaUrl LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeSchemaUrl LowCardinality(String), ScopeName String,
-  ScopeVersion LowCardinality(String), ScopeAttributes Map(LowCardinality(String), String),
-  LogAttributes Map(LowCardinality(String), String), EventName String, producer_id LowCardinality(String), producer_epoch LowCardinality(String), batch_id UInt64, row_ordinal UInt32, received_at DateTime64(9), schema_version UInt16, content_key LowCardinality(String),
-  PROJECTION by_content (SELECT content_key, count() GROUP BY content_key))
-ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_logs', '{replica}') PARTITION BY toDate(received_at) ORDER BY (ServiceName, Timestamp)
+SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE TABLE IF NOT EXISTS central.otel_traces_kv_rollup_15m
+(
+    `Timestamp` DateTime,
+    `ColumnIdentifier` LowCardinality(String),
+    `Key` LowCardinality(String),
+    `Value` String,
+    `count` UInt64,
+    INDEX idx_count_minmax count TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_minmax Timestamp TYPE minmax GRANULARITY 1
+)
+ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/central/otel_traces_kv_rollup_15m', '{replica}')
+PARTITION BY toDate(Timestamp)
+ORDER BY (ColumnIdentifier, Key, Timestamp, Value)
+TTL Timestamp + INTERVAL 1 DAY DELETE
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS central.otel_traces_kv_rollup_15m_mv TO central.otel_traces_kv_rollup_15m
+AS WITH elements AS (
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value FROM central.otel_traces
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanName' AS Key, CAST(SpanName AS String) AS Value FROM central.otel_traces
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanKind' AS Key, CAST(SpanKind AS String) AS Value FROM central.otel_traces
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'StatusCode' AS Key, CAST(StatusCode AS String) AS Value FROM central.otel_traces
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value FROM central.otel_traces
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value FROM central.otel_traces
+)
+SELECT Timestamp, ColumnIdentifier, Key, Value, count() AS count FROM elements
+GROUP BY Timestamp, ColumnIdentifier, Key, Value;
+
+CREATE TABLE IF NOT EXISTS central.otel_logs
+(
+    `Timestamp` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    `TraceId` String CODEC(ZSTD(1)),
+    `SpanId` String CODEC(ZSTD(1)),
+    `TraceFlags` UInt8,
+    `SeverityText` LowCardinality(String) CODEC(ZSTD(1)),
+    `SeverityNumber` UInt8,
+    `ServiceName` LowCardinality(String) CODEC(ZSTD(1)),
+    `Body` String CODEC(ZSTD(1)),
+    `ResourceSchemaUrl` LowCardinality(String) CODEC(ZSTD(1)),
+    `ResourceAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    `ScopeSchemaUrl` LowCardinality(String) CODEC(ZSTD(1)),
+    `ScopeName` String CODEC(ZSTD(1)),
+    `ScopeVersion` LowCardinality(String) CODEC(ZSTD(1)),
+    `ScopeAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    `LogAttributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    `EventName` String CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.cluster.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.cluster.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.container.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.container.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.deployment.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.deployment.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.namespace.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.namespace.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.node.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.node.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.pod.name` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.pod.name'] CODEC(ZSTD(1)),
+    `__hdx_materialized_k8s.pod.uid` LowCardinality(String) MATERIALIZED ResourceAttributes['k8s.pod.uid'] CODEC(ZSTD(1)),
+    `__hdx_materialized_deployment.environment.name` LowCardinality(String) MATERIALIZED ResourceAttributes['deployment.environment.name'] CODEC(ZSTD(1)),
+    `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
+    `ScopeAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ScopeAttributes::Array(Tuple(String, String))),
+    `LogAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), LogAttributes::Array(Tuple(String, String))),
+    `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
+    `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
+    `batch_id` UInt64 CODEC(ZSTD(1)),
+    `row_ordinal` UInt32 CODEC(ZSTD(1)),
+    `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
+    `schema_version` UInt16 CODEC(ZSTD(1)),
+    `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
+    INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_scope_attr_items ScopeAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_log_attr_items LogAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_lower_body lower(Body) TYPE text(tokenizer = 'splitByNonAlpha'),
+    PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
+)
+ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_logs', '{replica}')
+PARTITION BY toDate(received_at)
+ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
-SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1;
+SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, ttl_only_drop_parts = 1, enable_block_number_column = 1, enable_block_offset_column = 1;
+
+CREATE TABLE IF NOT EXISTS central.otel_logs_kv_rollup_15m
+(
+    `Timestamp` DateTime,
+    `ColumnIdentifier` LowCardinality(String),
+    `Key` LowCardinality(String),
+    `Value` String,
+    `count` UInt64,
+    INDEX idx_count_minmax count TYPE minmax GRANULARITY 1,
+    INDEX idx_timestamp_minmax Timestamp TYPE minmax GRANULARITY 1
+)
+ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/central/otel_logs_kv_rollup_15m', '{replica}')
+PARTITION BY toDate(Timestamp)
+ORDER BY (ColumnIdentifier, Key, Timestamp, Value)
+TTL Timestamp + INTERVAL 1 DAY DELETE
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS central.otel_logs_attr_kv_rollup_15m_mv TO central.otel_logs_kv_rollup_15m
+AS WITH elements AS (
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SeverityText' AS Key, CAST(SeverityText AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ResourceSchemaUrl' AS Key, CAST(ResourceSchemaUrl AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeSchemaUrl' AS Key, CAST(ScopeSchemaUrl AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.cluster.name' AS Key, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.container.name' AS Key, CAST(`__hdx_materialized_k8s.container.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.deployment.name' AS Key, CAST(`__hdx_materialized_k8s.deployment.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.namespace.name' AS Key, CAST(`__hdx_materialized_k8s.namespace.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.node.name' AS Key, CAST(`__hdx_materialized_k8s.node.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.name' AS Key, CAST(`__hdx_materialized_k8s.pod.name` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.uid' AS Key, CAST(`__hdx_materialized_k8s.pod.uid` AS String) AS Value FROM central.otel_logs
+    UNION ALL
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_deployment.environment.name' AS Key, CAST(`__hdx_materialized_deployment.environment.name` AS String) AS Value FROM central.otel_logs
+)
+SELECT Timestamp, ColumnIdentifier, Key, Value, count() AS count FROM elements
+GROUP BY Timestamp, ColumnIdentifier, Key, Value;
+
 CREATE TABLE IF NOT EXISTS central.otel_metrics_series
 (
     series_id UInt64,
@@ -47,6 +209,7 @@ ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/central/otel
 ORDER BY (MetricName, ServiceName, series_id)
 TTL LastSeen + INTERVAL 3 MINUTE TO VOLUME 'cold', LastSeen + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 1024, allow_dimensions_outside_sorting_key = 1;
+
 CREATE TABLE IF NOT EXISTS central.otel_metrics_number_points
 (
     MetricName LowCardinality(String) CODEC(ZSTD(1)),
@@ -76,6 +239,7 @@ PARTITION BY toDate(received_at)
 ORDER BY (MetricName, ServiceName, series_id, TimeUnix)
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS central.otel_metrics_histogram_points
 (
     MetricName LowCardinality(String) CODEC(ZSTD(1)),
@@ -108,6 +272,7 @@ PARTITION BY toDate(received_at)
 ORDER BY (MetricName, ServiceName, series_id, TimeUnix)
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS central.otel_metrics_exponential_histogram_points
 (
     MetricName LowCardinality(String) CODEC(ZSTD(1)),
@@ -145,6 +310,7 @@ PARTITION BY toDate(received_at)
 ORDER BY (MetricName, ServiceName, series_id, TimeUnix)
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192;
+
 CREATE TABLE IF NOT EXISTS central.otel_metrics_summary_points
 (
     MetricName LowCardinality(String) CODEC(ZSTD(1)),

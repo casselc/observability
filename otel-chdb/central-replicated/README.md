@@ -132,7 +132,7 @@ production lease timing.
 | replicas | `r1`: HTTP 28123, TCP 29000, interserver 29009; `r2`: 38123 / 39000 / 39009. Configs in `configs/replica{1,2}.xml`, macros `{cluster}=central {shard}=01 {replica}=rN`. Each replica has `max_server_memory_usage_to_ram_ratio = 0.2`, small caches, and `part_log`, `query_log` and `zookeeper_log` on; since 2026-09-27 (after the §4 runs, when the shared box ran out of memory) also a hard `max_server_memory_usage` of 2 GB and `max_threads` 2 |
 | disks | `default` (local, the hot volume); `s3_zc` → `http://127.0.0.1:18333/central-zc/zc/`, the **same prefix on both replicas**; `s3_own` → `central-zc/own-r1/` and `own-r2/`, one prefix per replica (the plain-replication baseline) |
 | policies | `tiered_zc` = hot `default` + cold `s3_zc`; `tiered_own` = hot `default` + cold `s3_own`; both with `move_factor` 0 since the second run (the box's disk is 97% full, and the default 0.1 moved every new part to S3 at once) |
-| tables | `scripts/ddl.py` takes the consumer's own DDL (`consume --print-ddl`: `otel_traces` and `otel_logs` with the envelope columns, the layout-B tables from `otap-rs/sql/series_tables.sql`, plus `content_key` and the `by_content` projection) and rewrites it to `ReplicatedMergeTree('/clickhouse/tables/{shard}/<db>/<table>', '{replica}')` (Replicated**Aggregating**MergeTree for `otel_metrics_series`), with `TTL toDateTime(received_at) + INTERVAL <move> TO VOLUME 'cold', … + INTERVAL <delete> DELETE` (`LastSeen` for the series table) and `SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1`. The soak used a 3-minute move and a 1-day delete; `sql/central_zc.sql` is an example |
+| tables | `scripts/ddl.py` takes the consumer's own DDL (`consume --print-ddl`: `otel_traces` and `otel_logs` with the envelope columns, the layout-B tables from `otap-rs/sql/series_tables.sql`, plus `content_key` and the `by_content` projection) and rewrites it to `ReplicatedMergeTree('/clickhouse/tables/{shard}/<db>/<table>', '{replica}')` (Replicated**Aggregating**MergeTree for `otel_metrics_series`), with `TTL toDateTime(received_at) + INTERVAL <move> TO VOLUME 'cold', … + INTERVAL <delete> DELETE` (`LastSeen` for the series table) and `SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1`. The soak used a 3-minute move and a 1-day delete; `sql/central_zc.sql` is an example. Since 2026-09-27 the traces/logs tables are ClickStack 2.39.1's (text indexes, materialized and ALIAS columns, codecs; `otap-rs/sql/otel_{traces,logs}.sql`), and ddl.py also emits what the consumer's `ensure()` runs after the table (`consume --print-rollups`): the key-value rollup `<table>_kv_rollup_15m` as Replicated**Summing**MergeTree with `TTL Timestamp + INTERVAL <delete> DELETE` on the default policy, and its materialized view: three statements per traces/logs signal (`--no-rollups` leaves them out). Nothing is hand-copied, so a change to the consumer's DDL reaches this one. Checked [M]: `clickhouse format -n` parses the output, it applies on both replicas, and an exact retry (same `insert_deduplication_token`) of a 12-row insert on r1 leaves 12 rows in the table and a count of 12 per key in the rollup on r2 (the view's block is deduplicated by the replicated window). The §4 runs used the earlier DDL, without the rollup |
 | restart | `scratchpad/start-replicas.sh` starts whatever is down (`stop` stops the replicas and Keeper by pid file). It creates bucket `central-zc` and never touches the shared server on 18123/19000 |
 
 **Left running:** nothing of these runs. The first run's databases and
@@ -297,7 +297,11 @@ commit after `fence + budget` (`max_execution_time`).
   still makes ingest exactly-once, and the sync makes the check see
   everything.
 - Keep the token: it is cheap. Drop `non_replicated_deduplication_window`,
-  which means nothing on a replicated table (ddl.py removes it).
+  which means nothing on a replicated table (ddl.py removes it). The token
+  also protects the traces/logs key-value rollup: the view's block of an
+  exact retry is deduplicated in the Replicated rollup table by the same
+  default window (`deduplicate_blocks_in_dependent_materialized_views = 1`,
+  26.10's default) [M, 2026-09-27].
 
 **Two further findings on the consumer:**
 

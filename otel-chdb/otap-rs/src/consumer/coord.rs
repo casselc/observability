@@ -166,14 +166,18 @@ impl Timing {
     /// (the clock assumption); it runs at most `budget` and commits at most
     /// `slack` later: it has landed by `sent + ttl + slack` on our clock. No
     /// other worker may take the lane before `sent + ttl + margin`.
+    ///
+    /// In u128: in u64 the sum could wrap (release) and accept a margin it
+    /// should refuse, or panic (debug) (VERIFY.md, `timing_check_is_exact`).
     pub fn check(&self) -> Result<(), String> {
-        if self.budget_ms + 2 * self.margin_ms + self.ttl_ms / 3 > self.ttl_ms {
+        let (ttl, margin, budget) = (u128::from(self.ttl_ms), u128::from(self.margin_ms), u128::from(self.budget_ms));
+        if budget + 2 * margin + ttl / 3 > ttl {
             return Err(format!(
                 "lease ttl {} ms is too short for budget {} ms + 2 × margin {} ms + a renewal at ttl/3 (need ttl ≥ {} ms)",
                 self.ttl_ms,
                 self.budget_ms,
                 self.margin_ms,
-                (self.budget_ms + 2 * self.margin_ms) * 3 / 2
+                (budget + 2 * margin) * 3 / 2
             ));
         }
         if self.slack_ms > self.margin_ms {
@@ -210,14 +214,18 @@ impl Timing {
     }
 }
 
+// The window arithmetic saturates (or, for a comparison, fails closed) so
+// that no u64 input panics or wraps, and wherever it clips it errs on the
+// safe side: an earlier window end, a later settling, a later expiry
+// (VERIFY.md, `window_math_total_and_conservative`).
 impl Held {
     pub fn safe_until(&self, t: &Timing) -> u64 {
-        (self.sent_ms + self.doc.ttl_ms).saturating_sub(t.margin_ms)
+        self.sent_ms.saturating_add(self.doc.ttl_ms).saturating_sub(t.margin_ms)
     }
 
     /// May a statement start now and finish (by `budget`) inside the window?
     pub fn may_start(&self, now: u64, t: &Timing) -> bool {
-        t.mutation == Mutation::NoTimeBound || now + t.budget_ms <= self.safe_until(t)
+        t.mutation == Mutation::NoTimeBound || now.checked_add(t.budget_ms).is_some_and(|end| end <= self.safe_until(t))
     }
 
     /// Wall-clock deadline ClickHouse checks: rows are read only if the
@@ -226,11 +234,11 @@ impl Held {
         if t.mutation == Mutation::NoTimeBound {
             return u64::MAX;
         }
-        (self.sent_wall_ms + self.doc.ttl_ms).saturating_sub(t.margin_ms + t.budget_ms)
+        self.sent_wall_ms.saturating_add(self.doc.ttl_ms).saturating_sub(t.margin_ms.saturating_add(t.budget_ms))
     }
 
     pub fn renew_due(&self, now: u64) -> bool {
-        now >= self.sent_ms + self.doc.ttl_ms / 3
+        now >= self.sent_ms.saturating_add(self.doc.ttl_ms / 3)
     }
 
     /// Past the window: the lease must be treated as lost (even if nobody took it).
@@ -246,7 +254,7 @@ impl Held {
     /// again nor released before (`may_act`). With `slack ≤ margin` this is
     /// never after the earliest takeover, `sent + ttl + margin`.
     pub fn settled_by(&self, t: &Timing) -> u64 {
-        self.sent_ms + self.doc.ttl_ms + t.slack_ms
+        self.sent_ms.saturating_add(self.doc.ttl_ms).saturating_add(t.slack_ms)
     }
 }
 
@@ -288,8 +296,14 @@ impl Observer {
     /// May this worker take the lane? A released lease: yes. Otherwise only
     /// once its version has stayed unchanged for ttl + margin on our clock.
     pub fn may_take(&self, lane: &str, etag: &str, doc: &LeaseDoc, now: u64, margin_ms: u64) -> bool {
-        doc.released() || self.unchanged_for(lane, etag, now).is_some_and(|d| d >= doc.ttl_ms + margin_ms)
+        doc.released() || self.unchanged_for(lane, etag, now).is_some_and(|d| expired(d, doc.ttl_ms, margin_ms))
     }
+}
+
+/// Whether a lease version seen unchanged for `unchanged_ms` (on the
+/// observer's clock) has expired: `ttl + margin` (`Observer::may_take`).
+pub fn expired(unchanged_ms: u64, ttl_ms: u64, margin_ms: u64) -> bool {
+    ttl_ms.checked_add(margin_ms).is_some_and(|d| unchanged_ms >= d)
 }
 
 /// Lanes per worker: ceil(lanes / live workers), at least 1.
@@ -620,6 +634,28 @@ mod tests {
         assert_eq!(fair_share(7, 3), 3);
         assert_eq!(fair_share(0, 3), 1);
         assert_eq!(fair_share(4, 0), 4);
+    }
+
+    #[test]
+    fn timing_arithmetic_never_wraps() {
+        // Found by Kani (verify/, `timing_check_is_exact`): in u64,
+        // budget + 2 × margin + ttl/3 wrapped in a release build, and a
+        // margin of 2^63 ms with a 3 ms TTL passed `check_production`.
+        let wraps = Timing { ttl_ms: 3, margin_ms: 1 << 63, budget_ms: 0, slack_ms: 0, mutation: Mutation::None };
+        assert!(wraps.check().is_err() && wraps.check_production(false).is_err());
+        let huge = Timing { ttl_ms: u64::MAX, margin_ms: u64::MAX / 2, budget_ms: u64::MAX, slack_ms: 0, mutation: Mutation::None };
+        assert!(huge.check().unwrap_err().contains("need ttl ≥"));
+        // The window arithmetic saturates, or fails closed, at the u64 edge.
+        let t = Timing { ttl_ms: u64::MAX, margin_ms: 1, budget_ms: u64::MAX, slack_ms: u64::MAX, mutation: Mutation::None };
+        let h = Held { doc: take("l", None, "w", u64::MAX, 0), etag: "e".into(), sent_ms: u64::MAX - 1, sent_wall_ms: u64::MAX };
+        assert_eq!(h.safe_until(&t), u64::MAX - 1);
+        assert!(!h.may_start(1, &t), "now + budget does not fit: no statement");
+        assert_eq!(h.fence_wall_ms(&t), 0);
+        assert!(h.renew_due(u64::MAX));
+        assert_eq!(h.settled_by(&t), u64::MAX);
+        assert!(!may_act(Some(h.settled_by(&t)), u64::MAX, &t), "never settled early");
+        assert!(!expired(u64::MAX, u64::MAX, 1), "ttl + margin does not fit: never expired");
+        assert!(expired(30, 20, 10) && !expired(29, 20, 10));
     }
 
     #[test]

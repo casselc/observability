@@ -1,0 +1,38 @@
+# Kani proof harnesses for the consumer's pure decision code (see ../VERIFY.md).
+#
+# A crate of its own because Kani compiles every dependency with its own
+# nightly, and otap-s3pq's graph (otel-arrow, datafusion-free but still
+# tokio, ring, jemalloc, object_store, reqwest) is slow or unsupported under
+# it. This crate mounts the real source files with `#[path]` (src/lib.rs), so
+# what is proved is the code the worker runs, byte for byte; it only needs the
+# four small dependencies those files name.
+[package]
+name = "otap-s3pq-verify"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+rand = "0.10.1"
+blake3 = "1.5.5"
+hex = "0.4.3"
+
+[features]
+# Harnesses that run a mutant (Mutation::WallRange, NoTimeBound, a slack
+# above the margin) and are expected to FAIL: evidence that the properties
+# can see the bug. Off by default and in CI; see ../VERIFY.md.
+mutants = []
+
+[package.metadata.kani.unstable]
+# `#[kani::stub]` (the harnesses stub `format!` out of Timing::check's error path).
+stubbing = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

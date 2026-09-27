@@ -1,0 +1,48 @@
+# Prometheus alerting rules for the publishers' commit protocol (README
+# §Commit outcomes; AMBIGUITY.md S1, E1). Both publishers export
+# s3pq_commit_outcomes_total{outcome} under the same name and label values:
+# the Rust engine at /api/v1/metrics (admin port 8080, otel_scope_name
+# "exporter.s3pq"), the Go collector at :8888/metrics. A plain rules file
+# (`rule_files:`); for the Prometheus Operator, put the `groups:` under a
+# PrometheusRule's `spec:`.
+groups:
+  - name: otel-edge-commit
+    rules:
+      # Slots that stay unresolved: every HEAD that should settle a PUT with
+      # no answer fails (S3 unreachable, 403 without s3:ListBucket, a wrong
+      # clock for SigV4). Nothing is lost: the lane keeps the slot and the
+      # request is NACKed and retried, but custody stays at the edge, so the
+      # buffer (or the agents' queues) fill behind it.
+      - alert: EdgeCommitsUnresolved
+        expr: |
+          sum by (namespace, pod) (increase(s3pq_commit_outcomes_total{outcome="unresolved"}[5m])) > 0
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.pod }}: commits unresolved for 15 min ({{ $value }} in the last 5 min)"
+          runbook: >-
+            The publisher can PUT or not, but can't read back the slot. Check S3
+            reachability and the role's s3:GetObject / s3:ListBucket (a HEAD on a
+            missing key is 403 without ListBucket: unresolved forever), and the
+            node's clock (SigV4 RequestTimeTooSkewed). EdgeBufferFilling follows
+            if it lasts.
+      # Unresolved and nothing settling: the publisher is stuck, not slow.
+      - alert: EdgeCommitsStuck
+        expr: |
+          sum by (namespace, pod) (increase(s3pq_commit_outcomes_total{outcome=~"unresolved|inconsistent"}[10m])) > 0
+          unless on (namespace, pod)
+          sum by (namespace, pod) (increase(s3pq_commit_outcomes_total{outcome=~"committed|resolved_own|known"}[10m])) > 0
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: no commit settled in 20 min while slots stay unresolved"
+      # 412, then the HEAD found nothing: the store is not read-after-write
+      # consistent (or someone deleted a live slot). The protocol stays safe
+      # (the slot is kept unresolved) but its assumption about the store is
+      # broken (AMBIGUITY.md S5, S6): a finding for the store's owner.
+      - alert: EdgeStoreInconsistent
+        expr: |
+          sum by (namespace, pod) (increase(s3pq_commit_outcomes_total{outcome="inconsistent"}[15m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: a 412 whose HEAD found no object (store not read-after-write consistent?)"

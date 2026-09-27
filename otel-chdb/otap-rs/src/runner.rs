@@ -30,6 +30,10 @@ pub struct Stats {
     pub encodes: Cell<u64>,
     pub puts: Cell<u64>,
     pub heads: Cell<u64>,
+    /// The HEAD that should resolve a slot failed or timed out.
+    pub unresolved: Cell<u64>,
+    /// 412, then the HEAD found the slot free.
+    pub inconsistent: Cell<u64>,
 }
 
 fn inc(c: &Cell<u64>) {
@@ -142,10 +146,12 @@ pub async fn append<S: SlotStore>(
             Ok(Ok(Some(m))) => Slot::from_meta(&m),
             Ok(Ok(None)) => Slot::Free,
             Ok(Err(e)) => {
+                inc(&stats.unresolved);
                 lane.phase = proto::Phase::Unresolved;
                 return Err(AppendError::Unresolved(format!("put {key}: {o:?}; head: {e}")));
             }
             Err(_) => {
+                inc(&stats.unresolved);
                 lane.phase = proto::Phase::Unresolved;
                 return Err(AppendError::Unresolved(format!("put {key}: {o:?}; head timed out")));
             }
@@ -163,6 +169,7 @@ pub async fn append<S: SlotStore>(
                 lane.reincarnate(proto::new_epoch());
             }
             Step::Inconsistent => {
+                inc(&stats.inconsistent);
                 return Err(AppendError::Unresolved(format!(
                     "put {key}: 412 but HEAD finds no object (store not read-after-write consistent?)"
                 )));
@@ -255,5 +262,43 @@ mod tests {
         assert_ne!(r.epoch, "E");
         assert_eq!(r.seq, 0);
         assert_eq!(st.halted.get(), 1);
+    }
+
+    /// A store whose PUT always answers `put` and whose HEAD answers `head`.
+    struct Fixed {
+        put: PutOutcome,
+        head_fails: bool,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl SlotStore for Fixed {
+        async fn put_create(&self, _: &str, _: Bytes, _: &str, _: &BTreeMap<String, String>) -> PutOutcome {
+            self.put
+        }
+        async fn head(&self, _: &str) -> Result<Option<crate::store::Meta>, crate::store::StoreError> {
+            if self.head_fails { Err(crate::store::StoreError("no answer".into())) } else { Ok(None) }
+        }
+        async fn list_dirs(&self, _: &str) -> Result<Vec<String>, crate::store::StoreError> {
+            Ok(Vec::new())
+        }
+        async fn list_after(&self, _: &str, _: Option<&str>) -> Result<Vec<String>, crate::store::StoreError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unresolved_and_inconsistent_are_counted() {
+        let st = Stats::default();
+        let mut c = EncodedCache::default();
+        // no answer, then the HEAD fails: unresolved
+        let mut l = Lane::new("E".into());
+        let s = Fixed { put: PutOutcome::Unknown, head_fails: true };
+        assert!(matches!(append(&mut l, &mut c, &s, "p", "prod", "a", &mut enc, &t(), &st).await, Err(AppendError::Unresolved(_))));
+        // 412, then the HEAD finds the slot free: inconsistent
+        let mut l = Lane::new("E".into());
+        let s = Fixed { put: PutOutcome::Exists, head_fails: false };
+        assert!(matches!(append(&mut l, &mut c, &s, "p", "prod", "a", &mut enc, &t(), &st).await, Err(AppendError::Unresolved(_))));
+        assert_eq!((st.unresolved.get(), st.inconsistent.get(), st.committed.get()), (1, 1, 0));
+        assert_eq!(crate::commit_metrics::totals(&st), [0, 0, 0, 0, 0, 0, 1, 1]);
     }
 }

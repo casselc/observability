@@ -28,7 +28,7 @@ deploy/
   collector/          ocb build of the agent/gateway collector; patches/0001 for the gateway
   images/             Dockerfiles: otap-s3pq, any ocb collector, aws_signing_helper
   edgeprobe/          the publishers' readiness probe (a wedged buffer is not ready; §Durable buffer)
-  alerts/             Prometheus rules for the buffers and the probe
+  alerts/             Prometheus rules for the buffers, the probe and the commit outcomes
   scripts/            the local tests below
   results/            their outputs
 ```
@@ -333,6 +333,39 @@ consumer reads both with `--depth 2`.
 - **A publisher not ready, "buffer at its cap"**: S3 unreachable or slower
   than the traffic. Nothing to do at the publisher; the agents hold the
   rest in their queues, and the pod returns once S3 drains it.
+
+## Commit outcomes (AMBIGUITY.md S1, E1)
+
+Both publishers export **`s3pq_commit_outcomes_total{outcome}`**, one counter
+with the same name and label values on each edge (Rust: the engine's
+`/api/v1/metrics`, `otel_scope_name="exporter.s3pq"`,
+`../otap-rs/src/commit_metrics.rs`; Go: `:8888/metrics`,
+`../parquetgo/s3pqexporter/telemetry.go`). Each value is one event of the
+create-only commit (`PUT If-None-Match: *`, then a HEAD when the answer is a
+412 or missing):
+
+| `outcome` | Event | Ends the append? |
+|---|---|---|
+| `committed` | 200 on the PUT | yes: ours |
+| `resolved_own` | 412 or no answer, then the HEAD found our content key and epoch (includes a 5xx or 409 answered after the write applied) | yes: ours |
+| `known` | the lane already found this content committed: the retry of a request whose answer was lost | yes: ours |
+| `learned_other` | the HEAD found another batch in the slot; ours moves on | no |
+| `resent` | no answer, then the HEAD found the slot free; the PUT is sent again to the same slot | no |
+| `tombstoned` | the HEAD found a tombstone: the consumer closed the log, a new epoch | no |
+| `unresolved` | the HEAD failed or timed out: the slot is kept, the request is NACKed and retried | yes: unknown |
+| `inconsistent` | 412, then the HEAD found nothing (store not read-after-write): kept, NACKed | yes: unknown |
+
+The terminal outcomes sum to the appends. `resolved_own`, `known` and
+`resent` are the lost answers the protocol absorbed; none of them makes a
+duplicate. What they cannot see is a copy with a **new content key** (a
+gateway SIGKILL re-cut, a sender's resend into a new batch: §Duplicates);
+they are neither prevented nor counted here. The Rust engine drops a series
+while it is 0, so an outcome appears at its first event.
+
+Alerts (`alerts/edge-commit.rules.yaml`): unresolved commits for 15 min
+(warn: S3 or its permissions; the buffer fills behind it); unresolved with
+nothing settling for 20 min (page); any `inconsistent` (page: the store
+broke read-after-write).
 
 ## Duplicates and request identity (risk #10)
 

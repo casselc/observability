@@ -104,7 +104,7 @@ func TestExportToBucket(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	e, err := acquire(set.ID, cfg) // a fresh edge: the old one was released
+	e, err := acquire(set.ID, cfg, set.MeterProvider) // a fresh edge: the old one was released
 	if err != nil || e == nil {
 		t.Fatal(err)
 	}

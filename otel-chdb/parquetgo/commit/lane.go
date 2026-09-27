@@ -105,6 +105,9 @@ const (
 type Stats struct {
 	Committed, ResolvedOwn, Resent, LearnedOther, Halted, KnownSkipped atomic.Int64
 	Encodes, Puts, Heads                                               atomic.Int64
+	// Unresolved: the HEAD that should resolve a slot failed. Inconsistent:
+	// 412, then the HEAD found the slot free. Both leave the slot unresolved.
+	Unresolved, Inconsistent atomic.Int64
 }
 
 // Event is one protocol step, for an Observer (the quintgo trace recorder).
@@ -328,6 +331,7 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 		m, found, herr := l.Store.Head(hctx, key)
 		cancel()
 		if herr != nil {
+			inc(&st.Unresolved)
 			l.phase = Unresolved
 			l.emit(Event{Kind: "headError", Ref: here, Content: content, Err: herr.Error()})
 			return Ref{}, &ErrUnresolved{fmt.Sprintf("put %s: %v; head: %v", key, o, herr)}
@@ -347,6 +351,7 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 			// 412, then the HEAD found nothing: the store isn't
 			// read-after-write consistent, or the slot was deleted. Never
 			// guess: stay unresolved.
+			inc(&st.Inconsistent)
 			l.phase = Unresolved
 			l.emit(Event{Kind: "inconsistent", Ref: here, Content: content})
 			return Ref{}, &ErrUnresolved{fmt.Sprintf("put %s: 412 but HEAD finds no object (store not read-after-write consistent?)", key)}

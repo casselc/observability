@@ -111,7 +111,7 @@ pub fn validate_config(v: &serde_json::Value) -> Result<(), otel_arrow_dfe_confi
 pub static S3PQ_EXPORTER: ExporterFactory<OtapPdata> = ExporterFactory {
     name: S3PQ_EXPORTER_URN,
     create:
-        |_pipeline: PipelineContext,
+        |pipeline: PipelineContext,
          node: NodeId,
          node_config: Arc<NodeUserConfig>,
          exporter_config: &ExporterConfig,
@@ -119,7 +119,8 @@ pub static S3PQ_EXPORTER: ExporterFactory<OtapPdata> = ExporterFactory {
             let config: Config = serde_json::from_value(node_config.config.clone()).map_err(|e| {
                 otel_arrow_dfe_config::error::Error::InvalidUserConfig { error: e.to_string() }
             })?;
-            Ok(ExporterWrapper::local(S3pqExporter { config }, node, node_config, exporter_config))
+            let outcomes = crate::commit_metrics::CommitOutcomes::register(&pipeline);
+            Ok(ExporterWrapper::local(S3pqExporter { config, outcomes }, node, node_config, exporter_config))
         },
     validate_config,
     context_declarations: None,
@@ -128,6 +129,8 @@ pub static S3PQ_EXPORTER: ExporterFactory<OtapPdata> = ExporterFactory {
 
 pub struct S3pqExporter {
     config: Config,
+    /// `s3pq_commit_outcomes_total{outcome}` (`commit_metrics.rs`).
+    outcomes: crate::commit_metrics::CommitOutcomes,
 }
 
 struct LaneState {
@@ -322,6 +325,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
         effect_handler: EffectHandler<OtapPdata>,
     ) -> Result<TerminalState, Error> {
         let cfg = self.config;
+        let mut outcomes = self.outcomes;
         let store = cfg.s3.build().map_err(|e| Error::ExporterError {
             exporter: effect_handler.exporter_id(),
             kind: ExporterErrorKind::Configuration,
@@ -410,12 +414,16 @@ impl Exporter<OtapPdata> for S3pqExporter {
                     }
                     let s = &sh.stats;
                     crate::log(&format!(
-                        "exporter stop: committed={} resolved_own={} resent={} learned_other={} halted={} known_skipped={} encodes={} puts={} heads={} abandoned={}",
+                        "exporter stop: committed={} resolved_own={} resent={} learned_other={} halted={} known_skipped={} unresolved={} inconsistent={} encodes={} puts={} heads={} abandoned={}",
                         s.committed.get(), s.resolved_own.get(), s.resent.get(), s.learned_other.get(),
-                        s.halted.get(), s.known_skipped.get(), s.encodes.get(), s.puts.get(), s.heads.get(),
+                        s.halted.get(), s.known_skipped.get(), s.unresolved.get(), s.inconsistent.get(),
+                        s.encodes.get(), s.puts.get(), s.heads.get(),
                         in_flight.len()
                     ));
                     return Ok(TerminalState::new(deadline, Vec::<otel_arrow_dfe_telemetry::metrics::MetricSetSnapshot>::new()));
+                }
+                Message::Control(NodeControlMsg::CollectTelemetry { mut metrics_reporter }) => {
+                    let _ = outcomes.report(&sh.stats, &mut metrics_reporter);
                 }
                 Message::Control(_) => {}
                 Message::PData(pdata) => {

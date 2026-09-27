@@ -142,6 +142,26 @@ func TestInconsistentStoreStaysUnresolved(t *testing.T) {
 	if _, _, p := l.State(); p != Unresolved {
 		t.Fatal(p)
 	}
+	if l.Stats.Inconsistent.Load() != 1 || l.Stats.Unresolved.Load() != 0 {
+		t.Fatal(l.Stats.Inconsistent.Load(), l.Stats.Unresolved.Load())
+	}
+}
+
+func TestHeadErrorIsCountedUnresolved(t *testing.T) {
+	s := NewMemStore()
+	l := lane(s)
+	s.Inject(Drop)
+	s.Inject(HeadFail)
+	_, err := l.Append(context.Background(), "a", enc)
+	var u *ErrUnresolved
+	if !errors.As(err, &u) || l.Stats.Unresolved.Load() != 1 {
+		t.Fatal(err, l.Stats.Unresolved.Load())
+	}
+	// the retry goes to the same slot (create-only): the dropped PUT never
+	// landed, so this one commits there
+	if r, err := l.Append(context.Background(), "a", enc); err != nil || r.Seq != 0 || l.Stats.Committed.Load() != 1 {
+		t.Fatal(r, err, l.Stats.Committed.Load())
+	}
 }
 
 type inconsistent struct{}

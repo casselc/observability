@@ -18,6 +18,7 @@ otel-arrow-dfe-otap = { path = ".upstream/rust/otap-dataflow/crates/otap", featu
 otel-arrow-dfe-pdata = { path = ".upstream/rust/otap-dataflow/crates/pdata" }
 otel-arrow-dfe-pdata-views = { path = ".upstream/rust/otap-dataflow/crates/pdata-views" }
 otel-arrow-dfe-telemetry = { path = ".upstream/rust/otap-dataflow/crates/telemetry" }
+otel-arrow-dfe-telemetry-macros = { path = ".upstream/rust/otap-dataflow/crates/telemetry-macros" }
 # The OTLP and OTAP receivers (and their exporters) of the core nodes, plus
 # the durable buffer (Quiver) behind this crate's `durable-buffer` feature: no
 # transform/query engine, no parquet exporter.

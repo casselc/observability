@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 )
 
@@ -62,9 +63,10 @@ type shared struct {
 	e    *edge.Edge
 	err  error
 	refs int
+	reg  metric.Registration // s3pq_commit_outcomes (telemetry.go)
 }
 
-func acquire(id component.ID, cfg *Config) (*edge.Edge, error) {
+func acquire(id component.ID, cfg *Config, mp metric.MeterProvider) (*edge.Edge, error) {
 	edgesMu.Lock()
 	s := edges[id]
 	if s == nil {
@@ -73,7 +75,11 @@ func acquire(id component.ID, cfg *Config) (*edge.Edge, error) {
 	}
 	s.refs++
 	edgesMu.Unlock()
-	s.once.Do(func() { s.e, s.err = edge.New(cfg.EdgeConfig()) })
+	s.once.Do(func() {
+		if s.e, s.err = edge.New(cfg.EdgeConfig()); s.err == nil && mp != nil {
+			s.reg, s.err = registerOutcomes(mp, s.e.Stats())
+		}
+	})
 	return s.e, s.err
 }
 
@@ -91,7 +97,11 @@ func release(id component.ID, log *zap.Logger) {
 				zap.Int64("committed", st.Committed.Load()), zap.Int64("resolved_own", st.ResolvedOwn.Load()),
 				zap.Int64("resent", st.Resent.Load()), zap.Int64("learned_other", st.LearnedOther.Load()),
 				zap.Int64("halted", st.Halted.Load()), zap.Int64("known_skipped", st.KnownSkipped.Load()),
+				zap.Int64("unresolved", st.Unresolved.Load()), zap.Int64("inconsistent", st.Inconsistent.Load()),
 				zap.Int64("encodes", st.Encodes.Load()), zap.Int64("puts", st.Puts.Load()), zap.Int64("heads", st.Heads.Load()))
+		}
+		if s.reg != nil {
+			_ = s.reg.Unregister()
 		}
 		delete(edges, id)
 	}
@@ -100,13 +110,14 @@ func release(id component.ID, log *zap.Logger) {
 // exp is one pipeline's view of the shared edge.
 type exp struct {
 	id  component.ID
+	mp  metric.MeterProvider
 	cfg *Config
 	log *zap.Logger
 	e   *edge.Edge
 }
 
 func (x *exp) start(context.Context, component.Host) error {
-	e, err := acquire(x.id, x.cfg)
+	e, err := acquire(x.id, x.cfg, x.mp)
 	x.e = e
 	return err
 }
@@ -147,7 +158,7 @@ func newExp(set exporter.Settings, cfg component.Config) (*exp, *Config, error) 
 	if !ok {
 		return nil, nil, errors.New("s3pq: unexpected config type")
 	}
-	return &exp{id: set.ID, cfg: c, log: set.Logger}, c, nil
+	return &exp{id: set.ID, mp: set.MeterProvider, cfg: c, log: set.Logger}, c, nil
 }
 
 func options(x *exp, c *Config) []exporterhelper.Option {

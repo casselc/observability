@@ -12,6 +12,7 @@
 //! - `store`:   S3 via object_store, credentials, an in-memory store
 //! - `creds`:   shared config/credentials profiles, AssumeRole chaining, SigV4 for STS
 //! - `exporter`: the otap-dataflow node (`urn:otel:exporter:s3pq`)
+//! - `commit_metrics`: `s3pq_commit_outcomes_total{outcome}`, the exporter's commit outcomes
 //! - `batch`:   one request → content hash + flattened columns → encoded slot object
 //! - `series`:  metrics layout B: narrow points + series objects, edge series ids
 //! - `central`: the ClickHouse side of the consumer
@@ -19,6 +20,7 @@
 pub mod batch;
 pub mod central;
 pub mod columns;
+pub mod commit_metrics;
 pub mod creds;
 pub mod encode;
 pub mod exporter;

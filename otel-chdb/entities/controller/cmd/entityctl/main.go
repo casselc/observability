@@ -42,6 +42,7 @@ func main() {
 	endpoint := flag.String("s3-endpoint", os.Getenv("S3_ENDPOINT"), "S3 endpoint (empty: AWS)")
 	region := flag.String("region", "us-east-1", "S3 region")
 	flush := flag.Duration("flush", 5*time.Second, "delta object interval")
+	putTimeout := flag.Duration("put-timeout", 20*time.Second, "per-attempt S3 PUT / HEAD timeout")
 	resync := flag.Duration("resync", 10*time.Minute, "full-state sync interval")
 	transform := flag.Bool("transform", true, "strip cached objects")
 	workers := flag.Int("workers", 2, "pod workers")
@@ -81,7 +82,7 @@ func main() {
 	}
 	epoch := time.Now().UnixMilli()
 	writer := fmt.Sprintf("%d-%s", epoch, *instance)
-	w := &lane.Writer{S3: s3c, Bucket: *bucket, Lane: fmt.Sprintf("%s/%s/%s", *prefix, *cluster, writer)}
+	w := &lane.Writer{S3: s3c, Bucket: *bucket, PutTimeout: *putTimeout, Lane: fmt.Sprintf("%s/%s/%s", *prefix, *cluster, writer)}
 	c := ctrl.New(ctrl.Config{ClusterName: *cluster, Static: st, PodLabels: strings.Split(*labels, ","), Writer: writer,
 		Resync: *resync, Transform: *transform}, cs, w)
 

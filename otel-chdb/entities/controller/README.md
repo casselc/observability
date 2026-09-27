@@ -17,8 +17,10 @@ agreement with the agents, and outages. Those results are in
   catalog row. That is the 5 s flush plus the 5 s poll.
 - **Cost:** under 0.02 core and ~100 MB for a 3k-pod cluster, and ~0.01 core
   and ~270 MB at 14.6k pods.
-- **Agreement:** `resource_id` matches what the agent computes for every
-  container except two deliberate edge cases.
+- **Agreement:** on KWOK, `resource_id` matched what the agent computes for
+  every container except two deliberate edge cases. The controller now
+  applies the agent's naming rules in those cases too (unit-tested; the
+  KWOK check was not rerun).
 - **Outages:** nothing is lost across aggregator and S3 outages. Pods that
   live and die entirely inside a controller outage are lost.
 - **Volume:** >99% is the periodic full-state sync, which should be made rarer
@@ -123,18 +125,23 @@ No manifest is written yet.
 | deltas per day [E] | ~0.55 MB | ~3.7 MB |
 | one sync / per day at 10 min [E] | 1.75 MB / 250 MB | 8.9 MB / 1.28 GB |
 
+**Covered attributes follow the agent's rules, not the truth.** The two
+cases the KWOK run caught disagreeing:
+
+- A Job made by hand from a CronJob: the agent recognises a CronJob run only
+  by the `-<8 digits>` suffix within a day of the pod's creation.
+- A bare ReplicaSet named like a Deployment's: the agent's name heuristic
+  (the ReplicaSet name minus `-<pod-template-hash>`) invents a Deployment.
+
+`workload()` now derives `k8s.deployment.name`, `k8s.cronjob.name`,
+`k8s.job.name` and `service.name` exactly as k8sattributes does
+(`internal/ctrl/workload_test.go`). The version's `kind` and `name` still
+record the true owner.
+
 ## Known gaps
 
-1. **Covered attributes must follow the agent's rules, not the truth.** Two
-   cases disagree today:
-   - A Job made by hand from a CronJob: the controller follows its owner
-     reference, the agent only recognises the `-<8 digits>` suffix.
-   - A bare ReplicaSet named like a Deployment's: the agent's name heuristic
-     invents a Deployment.
-
-   The telemetry's `resource_id` then has no catalog row. The controller
-   should derive the covered attributes exactly as k8sattributes does, and
-   keep the true owner as an uncovered attribute.
+1. **Agreement after the rule fix is unit-tested only.** Rerun `ridcheck
+   agree` on a KWOK cluster with `--edge-cases`.
 2. **Controller outages lose short-lived pods.** A pod that lives and dies
    entirely inside the outage never reaches the catalog (4 of 4 in a 10-min
    outage at 24× churn). The mitigation is two replicas per cluster; the
@@ -144,9 +151,9 @@ No manifest is written yet.
 4. **No liveness.** A controller that stops for good leaves its cluster's
    versions open. Watch the age of the last sync per lane and treat a silent
    cluster's versions as unknown.
-5. **No per-attempt timeout on lane PUTs.** A hung S3 stalls the lane until
-   the connection breaks. The records are kept, and it recovered by itself
-   here.
+5. **Lane PUTs** now have a per-attempt timeout (`--put-timeout`, 20 s;
+   `internal/lane/s3_test.go`). Before it, a hung S3 stalled the lane until
+   the connection broke.
 6. **Close time after an outage.** A version closed by a sync gets the sync's
    time as `closed_at`, so its validity is overstated by up to the outage.
    That is harmless for joins.

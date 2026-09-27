@@ -45,6 +45,10 @@ type Writer struct {
 	S3     *s3.Client
 	Bucket string
 	Lane   string // {prefix}/{cluster}/{epochMs}-{instance}
+	// PutTimeout bounds each PUT / HEAD attempt (default 20 s). Without it a
+	// hung S3 stalled the lane until the connection broke (k8s-sim.md §6); a
+	// PUT that timed out but landed is recognised by its ETag on the retry.
+	PutTimeout time.Duration
 
 	mu  sync.Mutex
 	buf []Record
@@ -135,11 +139,17 @@ func (w *Writer) put(ctx context.Context, kind string, recs []Record) error {
 	backoff := 200 * time.Millisecond
 	for attempt := 0; ; attempt++ {
 		key := fmt.Sprintf("%s/%012d.%s.ndjson.gz", w.Lane, w.seq, kind)
-		_, err := w.S3.PutObject(ctx, &s3.PutObjectInput{
+		to := w.PutTimeout
+		if to <= 0 {
+			to = 20 * time.Second
+		}
+		actx, cancel := context.WithTimeout(ctx, to)
+		_, err := w.S3.PutObject(actx, &s3.PutObjectInput{
 			Bucket: aws.String(w.Bucket), Key: aws.String(key), Body: bytes.NewReader(body),
 			IfNoneMatch: aws.String("*"), ContentType: aws.String("application/x-ndjson"),
 			ContentLength: aws.Int64(int64(len(body))),
 		})
+		cancel()
 		if err == nil {
 			w.seq++
 			w.Objects.Add(1)
@@ -150,7 +160,9 @@ func (w *Writer) put(ctx context.Context, kind string, recs []Record) error {
 		}
 		var re *smithyhttp.ResponseError
 		if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusPreconditionFailed {
-			h, herr := w.S3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(w.Bucket), Key: aws.String(key)})
+			hctx, hcancel := context.WithTimeout(ctx, to)
+			h, herr := w.S3.HeadObject(hctx, &s3.HeadObjectInput{Bucket: aws.String(w.Bucket), Key: aws.String(key)})
+			hcancel()
 			if herr == nil && strings.Trim(aws.ToString(h.ETag), `"`) == etag {
 				w.seq++ // our own earlier attempt landed
 				w.Objects.Add(1)

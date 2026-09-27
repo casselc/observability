@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -383,6 +385,17 @@ var everything = labels.Everything()
 // workload resolves the pod's owner chain through the ReplicaSet and Job
 // caches. ok=false: an owner is not in the cache yet (retry).
 func (c *Controller) workload(p *corev1.Pod) (kind, name string, wl, pod map[string]string, ok bool) {
+	// The covered attributes follow the AGENT's rules (k8sattributes, which
+	// has no ReplicaSet or Job informer), not the owner chain: a resource_id
+	// the catalog computes differently from the agent joins to nothing.
+	//   - ReplicaSet: k8s.deployment.name is the ReplicaSet name minus
+	//     "-<pod-template-hash>" whenever the pod carries that label, whether
+	//     or not a Deployment owns the ReplicaSet;
+	//   - Job: k8s.cronjob.name only when the Job name ends in -<8 digits>
+	//     (the scheduled minute) within a day of the pod's creation, so a Job
+	//     created by hand from a CronJob has none.
+	// kind and name (the workload version's identity, not hashed into any
+	// resource_id) still follow the owner chain.
 	wl, pod = map[string]string{}, map[string]string{}
 	svc := p.Name // k8sattributes' service.name precedence: pod, owner, deployment/cronjob, name label, instance label
 	svcAtPod := true
@@ -393,14 +406,17 @@ func (c *Controller) workload(p *corev1.Pod) (kind, name string, wl, pod map[str
 		case "ReplicaSet":
 			kind, name = "replicaset", ref.Name
 			wl["k8s.replicaset.name"] = ref.Name
+			if h := p.Labels["pod-template-hash"]; h != "" && strings.HasSuffix(ref.Name, "-"+h) {
+				d := strings.TrimSuffix(ref.Name, "-"+h)
+				wl["k8s.deployment.name"] = d
+				svc = d
+			}
 			rs, err := c.rs.ReplicaSets(p.Namespace).Get(ref.Name)
 			if err != nil {
 				return "", "", nil, nil, false
 			}
 			if d := metav1.GetControllerOf(rs); d != nil && d.Kind == "Deployment" {
 				kind, name = "deployment", d.Name
-				wl["k8s.deployment.name"] = d.Name
-				svc = d.Name
 			}
 		case "StatefulSet":
 			kind, name = "statefulset", ref.Name
@@ -416,9 +432,11 @@ func (c *Controller) workload(p *corev1.Pod) (kind, name string, wl, pod map[str
 			}
 			if cj := metav1.GetControllerOf(j); cj != nil && cj.Kind == "CronJob" {
 				kind, name = "cronjob", cj.Name
-				wl["k8s.cronjob.name"] = cj.Name
+			}
+			if cj, isRun := agentCronJob(ref.Name, p.CreationTimestamp.Time); isRun {
+				wl["k8s.cronjob.name"] = cj
 				pod["k8s.job.name"] = ref.Name // one job per run: pod level
-				svc = cj.Name
+				svc = cj
 			} else {
 				wl["k8s.job.name"] = ref.Name
 			}
@@ -438,6 +456,23 @@ func (c *Controller) workload(p *corev1.Pod) (kind, name string, wl, pod map[str
 		wl["service.name"] = svc
 	}
 	return kind, name, wl, pod, true
+}
+
+var cronJobRun = regexp.MustCompile(`^(.*)-(\d{8})$`)
+
+// agentCronJob is k8sattributes' CronJob rule: a Job named <cronjob>-<minute>
+// whose scheduled minute is within a day of the pod's creation.
+func agentCronJob(job string, created time.Time) (string, bool) {
+	m := cronJobRun.FindStringSubmatch(job)
+	if len(m) != 3 {
+		return "", false
+	}
+	mins, _ := strconv.ParseInt(m[2], 10, 64)
+	d := created.Unix()/60 - mins
+	if d < 0 {
+		d = -d
+	}
+	return m[1], d <= 24*60
 }
 
 func (c *Controller) process(key string) error {

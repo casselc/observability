@@ -80,6 +80,15 @@ type Controller struct {
 	regs       []cache.ResourceEventHandlerRegistration
 
 	Events, Emitted, Requeues, Fallbacks atomic.Int64
+	// Lists counts the informers' LISTs (initial and relists: a watch that
+	// ended with 410 Gone, a broken connection, a restart); anything above
+	// one per informer is a relist, i.e. a window in which events were not
+	// observed (AMBIGUITY.md, "entity controller informer"). client-go
+	// 0.37 relists after a 410 without calling the watch error handler, so
+	// the LIST itself is what is counted. DeletedUnknown counts deletions
+	// seen only by such a relist (cache.DeletedFinalStateUnknown): their
+	// close time is the relist, not the deletion.
+	Lists, DeletedUnknown atomic.Int64
 	Synced                               atomic.Bool
 	inflight                             atomic.Int64
 }
@@ -94,6 +103,7 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 	if cfg.Transform {
 		opts = append(opts, informers.WithTransform(strip))
 	}
+	opts = append(opts, informers.WithTweakListOptions(func(o *metav1.ListOptions) { c.countList(o) }))
 	c.inf = informers.NewSharedInformerFactoryWithOptions(cs, 0, opts...)
 	c.pods = c.inf.Core().V1().Pods().Lister()
 	c.node = c.inf.Core().V1().Nodes().Lister()
@@ -115,9 +125,7 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 		AddFunc:    func(o any) { c.nodeChanged(o.(*corev1.Node), false) },
 		UpdateFunc: func(_, o any) { c.nodeChanged(o.(*corev1.Node), false) },
 		DeleteFunc: func(o any) {
-			if d, ok := o.(cache.DeletedFinalStateUnknown); ok {
-				o = d.Obj
-			}
+			o = c.unknownFinal(o)
 			if n, ok := o.(*corev1.Node); ok {
 				c.nodeChanged(n, true)
 			}
@@ -126,9 +134,7 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 	reg(c.inf.Core().V1().Namespaces().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(o any) { c.nsChanged(o.(*corev1.Namespace), false) },
 		DeleteFunc: func(o any) {
-			if d, ok := o.(cache.DeletedFinalStateUnknown); ok {
-				o = d.Obj
-			}
+			o = c.unknownFinal(o)
 			if n, ok := o.(*corev1.Namespace); ok {
 				c.nsChanged(n, true)
 			}
@@ -176,6 +182,29 @@ func strip(o any) (any, error) {
 		x.ManagedFields, x.Annotations = nil, nil
 	}
 	return o, nil
+}
+
+// countList sees the options of every LIST and WATCH the informers send. A
+// LIST has no watch timeout; a watch that starts with the initial state
+// (the streaming "watch list", SendInitialEvents) is a LIST as well.
+func (c *Controller) countList(o *metav1.ListOptions) {
+	if o.TimeoutSeconds == nil || (o.SendInitialEvents != nil && *o.SendInitialEvents) {
+		if n := c.Lists.Add(1); n > informerCount {
+			log.Printf("informer relist (%d lists for %d informers): events in the gap were not observed; closes found by it carry the relist time", n, informerCount)
+		}
+	}
+}
+
+// informerCount is the number of informers New starts.
+const informerCount = 5
+
+// unknownFinal unwraps a deletion seen only by a relist, counting it.
+func (c *Controller) unknownFinal(o any) any {
+	if d, ok := o.(cache.DeletedFinalStateUnknown); ok {
+		c.DeletedUnknown.Add(1)
+		return d.Obj
+	}
+	return o
 }
 
 func (c *Controller) enqueue(o any) {
@@ -346,9 +375,7 @@ func (c *Controller) nsChanged(n *corev1.Namespace, deleted bool) {
 
 func (c *Controller) podDeleted(o any) {
 	c.Events.Add(1)
-	if d, ok := o.(cache.DeletedFinalStateUnknown); ok {
-		o = d.Obj
-	}
+	o = c.unknownFinal(o)
 	p, ok := o.(*corev1.Pod)
 	if !ok {
 		return
@@ -629,5 +656,6 @@ func (c *Controller) Stats() map[string]int64 {
 	}
 	return map[string]int64{"pods": int64(len(c.podsByUID)), "resources": int64(res), "nodes": int64(len(c.nodes)),
 		"workload_versions": int64(len(c.wls)), "events": c.Events.Load(), "emitted": c.Emitted.Load(),
-		"requeues": c.Requeues.Load(), "fallbacks": c.Fallbacks.Load(), "queue": int64(c.q.Len())}
+		"requeues": c.Requeues.Load(), "fallbacks": c.Fallbacks.Load(), "queue": int64(c.q.Len()),
+		"relists": max(c.Lists.Load()-informerCount, 0), "deleted_unknown": c.DeletedUnknown.Load()}
 }

@@ -703,3 +703,60 @@ grpc-java) or an opt-in builder option.
 the `receiver.otlp.connections` `aged_out` / `force_closed` counters and the
 `grpc.server.connection_age.force_close` warning. tonic reports neither
 event (it logs both at debug).
+
+---
+
+## U24. otel-arrow (Rust): OTAP values that read back differently from their OTLP
+
+- **Status:** patched here, **not proposed — awaiting owner review**:
+  `otap-rs/patches/0005-pdata-otap-zero-values-and-half-floats.patch`.
+  Nothing has been posted upstream.
+- **Project / version:** `open-telemetry/otel-arrow`, `rust/otap-dataflow`
+  `pdata`, at `otap-rs/UPSTREAM` (`5db8358`).
+- **Source here:** found by the property test
+  `prop_otap_rows_match_otlp_and_do_not_depend_on_the_process`
+  ([`otap-rs/HEGEL.md`](otap-rs/HEGEL.md)), which converts a generated OTLP
+  request with upstream's OTLP→OTAP encoder, walks it with upstream's views,
+  and compares every column with the direct OTLP walk. Regression tests
+  `otap-rs/tests/hegel_props.rs` `regression_otap_*`; end to end through
+  the edge and ClickHouse `s3()`: `otap-rs/scripts/otap_values_e2e.sh`.
+
+Four differences, each shrunk by Hegel to one record:
+
+1. **A span with a zero time loses its duration** (`encode/mod.rs`). The
+   encoder stores `end − start` only when both times are present, and
+   proto3 leaves a 0 off the wire: start 0, end 1000 becomes duration 0
+   (the OTLP message and the Go encoder give 1000).
+2. **A log body of int 0 or double 0.0 reads as Empty**
+   (`views/otap/logs.rs` `get_body_from_struct`). The encoder omits a value
+   column whose values all equal the default; the attribute view and the
+   OTAP→OTLP decoder read the missing column as the type's default, the
+   logs view as Empty. Any batch whose int (or double) bodies are all 0.
+3. **Half-precision floats inside arrays and maps read as null**
+   (`views/otap/common.rs` `cbor_to_any_value`). serde_cbor writes the
+   shortest exact float, so 0, 1.5, 65504 and NaN are f16 (major type 7,
+   additional info 25); the reader decodes only f32 and f64 (RFC 8949
+   §3.3 requires all three). `[1.5, 7]` reads `[null, 7]`. Upstream's own
+   test pins it ("half precision floats are classified but never decoded").
+4. **An attribute's −0.0 becomes 0.0** (`encode/record/attributes.rs`). The
+   default check compares with `==`, so a double column of −0.0 is dropped
+   as all-default.
+
+**Repro (end to end, before the patch):** the Rust edge with
+`otlp_path: via_otap`, one OTLP/HTTP request per signal; ClickHouse
+`s3()` over the objects reads Body `""` (direct: `"0"`), attribute
+`a` = `[null,7]` (`[1.5,7]`), `z` = `0` (`-0`), Duration 0 (1000).
+
+**Fix (tested here):** 1: absent time = 0, `wrapping_sub`; 2: the type's
+default, as `common.rs` does; 3: decode additional info 25 (binary16 to
+f64, exact; `cbor_value_type` reports Double); 4: `default_values_optional:
+false` on the any-value double column (a column of zeros now costs its
+bytes). Upstream's unit tests were not run (the pdata crate's
+dev-dependencies are outside otap-rs's lockfile).
+
+**Who is affected:** Rust-encoded OTAP only. The deployed publisher walks
+OTLP directly (`otlp_path: direct`, batch `format: preserve`, the durable
+buffer's `pass_through`), and the Go otelarrow producer appends zeros,
+writes CBOR floats as f64 and always stores the duration. Reached by
+`otlp_path: via_otap`, and by an OTAP receiver fed by a Rust otap-dataflow
+producer.

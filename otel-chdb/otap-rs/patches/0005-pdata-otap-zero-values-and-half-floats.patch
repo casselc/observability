@@ -1,0 +1,191 @@
+pdata: OTAP values that read back differently from the OTLP they came from
+(found by the property tests, ../tests/hegel_props.rs; UPSTREAM_ISSUES.md U-
+entry, not proposed upstream: awaiting owner review).
+
+- encode (OTLP -> OTAP): a span's duration was stored only when both times
+  were present, and a proto3 time of 0 is absent on the wire, so start 0 /
+  end 1 became duration 0. Now `end - start` with an absent time as 0
+  (wrapping), as the OTLP message and the Go encoder give.
+- views/otap/logs.rs: a typed log body whose value column is missing read as
+  Empty. The encoder omits a column whose values all equal the default, so a
+  body of int 0 / double 0.0 in a batch with no other such body lost its
+  value ("" instead of "0"). Now the type's default, as the attribute view
+  (common.rs) and the OTAP -> OTLP decoder read it.
+- views/otap/common.rs: the CBOR reader of array / map values had no half-
+  precision floats (major type 7, additional info 25). serde_cbor writes the
+  shortest exact float, so 0, 1.5, 65504, NaN inside an array or map read as
+  null. Now decoded exactly (RFC 8949 §3.3, Appendix D).
+- encode/record/attributes.rs: the any-value double column no longer drops
+  default values (-0.0 == 0.0, so a column of -0.0 was dropped and read back
+  as 0.0). A column of zeros now costs its bytes; metrics' own double
+  columns are unchanged.
+
+Upstream's `test_cbor_value_type_matches_decoding` pinned f16 as Empty
+("classified but never decoded"); it now expects the value. The upstream
+unit tests were not run here (the pdata crate's dev-dependencies are outside
+otap-rs's lockfile); tests/hegel_props.rs `regression_otap_*` cover the four
+changes through the exporter's flatten.
+
+Go-produced OTAP (otelarrow exporter) never had these shapes: the Go encoder
+appends zeros, writes CBOR floats as f64, and always stores the duration.
+
+diff --git a/rust/otap-dataflow/crates/pdata/src/encode/mod.rs b/rust/otap-dataflow/crates/pdata/src/encode/mod.rs
+--- a/rust/otap-dataflow/crates/pdata/src/encode/mod.rs
++++ b/rust/otap-dataflow/crates/pdata/src/encode/mod.rs
+@@ -134,11 +134,13 @@
+                 spans.append_start_time_unix_nano(
+                     span.start_time_unix_nano().map(|v| v as i64).unwrap_or(0),
+                 );
+-                let duration = match (span.start_time_unix_nano(), span.end_time_unix_nano()) {
+-                    (Some(start), Some(end)) => Some((end as i64) - (start as i64)),
+-                    _ => None,
+-                };
+-                spans.append_duration_time_unix_nano(duration.unwrap_or(0));
++                // otap-s3pq patch 0005: a proto3 time of 0 is absent on the
++                // wire, so an absent time is 0 here, as in the OTLP message
++                // and the Go encoder (`end - start`). Taking the duration only
++                // when both are present turned start 0 / end 1 into 0.
++                let duration = (span.end_time_unix_nano().unwrap_or(0) as i64)
++                    .wrapping_sub(span.start_time_unix_nano().unwrap_or(0) as i64);
++                spans.append_duration_time_unix_nano(duration);
+ 
+                 spans.append_trace_id(span.trace_id().copied().unwrap_or_default())?;
+                 spans.append_span_id(span.span_id().copied().unwrap_or_default())?;
+diff --git a/rust/otap-dataflow/crates/pdata/src/encode/record/attributes.rs b/rust/otap-dataflow/crates/pdata/src/encode/record/attributes.rs
+--- a/rust/otap-dataflow/crates/pdata/src/encode/record/attributes.rs
++++ b/rust/otap-dataflow/crates/pdata/src/encode/record/attributes.rs
+@@ -228,10 +228,13 @@
+                 dictionary_options: Some(DictionaryOptions::dict16()),
+                 ..Default::default()
+             }),
++            // otap-s3pq patch 0005: keep a column of zeros. The default check
++            // compares with ==, and -0.0 == 0.0, so a column of -0.0 was
++            // dropped as all-default and read back as 0.0.
+             double_value: Float64ArrayBuilder::new(ArrayOptions {
+                 optional: true,
+                 dictionary_options: None,
+-                ..Default::default()
++                default_values_optional: false,
+             }),
+             bool_value: AdaptiveBooleanArrayBuilder::new(BooleanBuilderOptions {
+                 optional: true,
+diff --git a/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs b/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
+--- a/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
++++ b/rust/otap-dataflow/crates/pdata/src/views/otap/common.rs
+@@ -449,7 +449,7 @@
+         CBOR_MAJOR_MAP => ValueType::KeyValueList,
+         CBOR_MAJOR_SIMPLE => match first & 0x1f {
+             20 | 21 => ValueType::Bool,
+-            26 | 27 => ValueType::Double,
++            25..=27 => ValueType::Double,
+             _ => ValueType::Empty,
+         },
+         _ => ValueType::Empty,
+@@ -492,6 +492,15 @@
+         CBOR_MAJOR_SIMPLE => match first & 0x1f {
+             20 => OtapAnyValueView::Bool(false),
+             21 => OtapAnyValueView::Bool(true),
++            // otap-s3pq patch 0005: half precision too. serde_cbor (the OTLP
++            // -> OTAP encoder) writes a double in the shortest float that
++            // holds it exactly, so 0, 1.5, 65504 or NaN inside an array or
++            // map arrive as f16; RFC 8949 §3.3 decoders accept all widths.
++            25 => buf
++                .get(1..3)
++                .and_then(|b| b.try_into().ok())
++                .map(|b| OtapAnyValueView::Double(f16_to_f64(u16::from_be_bytes(b))))
++                .unwrap_or(OtapAnyValueView::Empty),
+             26 => buf
+                 .get(1..5)
+                 .and_then(|b| b.try_into().ok())
+@@ -508,6 +517,19 @@
+     }
+ }
+ 
++/// IEEE 754 binary16 to f64 (RFC 8949 Appendix D), exactly.
++fn f16_to_f64(h: u16) -> f64 {
++    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
++    let exp = (h >> 10) & 0x1f;
++    let mant = f64::from(h & 0x3ff);
++    sign * match exp {
++        0 => mant * 2f64.powi(-24),
++        31 if mant == 0.0 => f64::INFINITY,
++        31 => f64::NAN,
++        e => (1024.0 + mant) * 2f64.powi(i32::from(e) - 25),
++    }
++}
++
+ /// Iterator over the elements of a CBOR-encoded array in the `ser` column.
+ pub struct CborArrayIter<'a> {
+     buf: &'a [u8],
+@@ -1032,10 +1054,15 @@
+         // An in-range integer is still Int64.
+         assert_eq!(cbor_value_type(&[0x0a]), ValueType::Int64);
+ 
+-        // Half precision floats are classified but never decoded, so they are Empty.
++        // Half precision floats decode exactly (otap-s3pq patch 0005; serde_cbor writes them).
+         let half = [0xf9, 0x3c, 0x00];
+-        assert_eq!(cbor_value_type(&half), ValueType::Empty);
+-        assert_eq!(cbor_to_any_value(&half).value_type(), ValueType::Empty);
++        assert_eq!(cbor_value_type(&half), ValueType::Double);
++        assert_eq!(cbor_to_any_value(&half).as_double(), Some(1.0));
++        for (bits, want) in [(0x0000u16, 0.0), (0x8000, -0.0), (0x3e00, 1.5), (0x7bff, 65504.0), (0x0001, 5.960464477539063e-8), (0xfc00, f64::NEG_INFINITY)] {
++            let got = f16_to_f64(bits);
++            assert!(got == want && got.is_sign_negative() == want.is_sign_negative(), "{bits:#06x}: {got}");
++        }
++        assert!(f16_to_f64(0x7e00).is_nan());
+ 
+         // A 64-bit float is still Double.
+         let double = [0xfb, 0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+diff --git a/rust/otap-dataflow/crates/pdata/src/views/otap/logs.rs b/rust/otap-dataflow/crates/pdata/src/views/otap/logs.rs
+--- a/rust/otap-dataflow/crates/pdata/src/views/otap/logs.rs
++++ b/rust/otap-dataflow/crates/pdata/src/views/otap/logs.rs
+@@ -681,7 +681,12 @@
+                 .as_ref()
+                 .and_then(|accessor| accessor.str_at(row_idx))
+                 .map(|s| OtapAnyValueView::Str(s.as_bytes()))
+-                .unwrap_or(OtapAnyValueView::Empty),
++                // otap-s3pq patch 0005: the encoder omits a value column
++                // whose values all equal the type's default (an int body of
++                // 0, a double of 0.0, ...); a typed body without its value
++                // is that default, as the attribute view and the OTAP ->
++                // OTLP decoder read it, not Empty.
++                .unwrap_or(OtapAnyValueView::Str(b"")),
+         ),
+         AttributeValueType::Int => Some(
+             anyval
+@@ -689,7 +694,7 @@
+                 .as_ref()
+                 .and_then(|accessor| accessor.value_at(row_idx))
+                 .map(OtapAnyValueView::Int)
+-                .unwrap_or(OtapAnyValueView::Empty),
++                .unwrap_or(OtapAnyValueView::Int(0)),
+         ),
+         AttributeValueType::Double => Some(
+             anyval
+@@ -701,7 +706,7 @@
+                         None
+                     }
+                 })
+-                .unwrap_or(OtapAnyValueView::Empty),
++                .unwrap_or(OtapAnyValueView::Double(0.0)),
+         ),
+         AttributeValueType::Bool => Some(
+             anyval
+@@ -713,7 +718,7 @@
+                         None
+                     }
+                 })
+-                .unwrap_or(OtapAnyValueView::Empty),
++                .unwrap_or(OtapAnyValueView::Bool(false)),
+         ),
+         AttributeValueType::Bytes => Some(
+             anyval
+@@ -721,7 +726,7 @@
+                 .as_ref()
+                 .and_then(|accessor| accessor.slice_at(row_idx))
+                 .map(OtapAnyValueView::Bytes)
+-                .unwrap_or(OtapAnyValueView::Empty),
++                .unwrap_or(OtapAnyValueView::Bytes(b"")),
+         ),
+         AttributeValueType::Map | AttributeValueType::Slice => Some(
+             anyval

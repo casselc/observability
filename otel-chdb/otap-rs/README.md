@@ -1138,6 +1138,9 @@ How it changes the contract:
 - a replayed request is the same OTLP bytes, so it has the same content key:
   if the first incarnation's commit landed, the new epoch's copy is dropped
   by the consumer's content check, as in the non-durable crash scenario.
+- (2026-09-27) the replay also keeps its **`received_at`**, so it lands in
+  its original's partition however long the edge was down
+  ([below](#received_at-is-the-custody-time-2026-09-27)).
 
 **Crash test** (`scripts/durable.sh`, `results/durable/summary.txt`): 12
 distinct 10k-span requests; each object's rows are fingerprinted and matched
@@ -1171,6 +1174,82 @@ moves that custody to the edge's disk.
   blocks the restart until it grows) and metrics through the buffer (layout
   B, 51 checks pass). Not measured: a real power cut. The deployed publisher
   is `configs/edge-publisher.yaml` (this plus a batch step before the WAL).
+
+### received_at is the custody time (2026-09-27)
+
+**`received_at` is when the request entered the edge's durable custody,
+and every retry and replay of it carries that value**, so a replay after
+an outage of any length lands in its original's `toDate(received_at)`
+partition, where the consumer's count check finds the original (`8efc34f`,
+`1fa3651`; tests `33c1800`; model `484f22f`). Before, the exporter stamped
+the time it was handed the request, after the buffer: a replay more than
+the check's horizon (3 days) after its original was ingested a second time
+and only the horizon audit saw it.
+
+- **Rust** (`configs/edge-durable.yaml`, `edge-publisher.yaml`): the WAL
+  write. Quiver already recorded each entry's ingestion time in the WAL;
+  `patches/0003-quiver-persist-ingestion-time-to-pdata.patch` keeps it in
+  the segment manifest (one nullable Int64 per bundle) and hands it to the
+  exporter as the pdata's `ingestion_time`; the exporter uses it
+  (`exporter.rs` `received_ns`). Behind a batch processor (the publisher)
+  it is the WAL write of the batch, when custody of all its requests began.
+- **Go** (`parquetgo/s3pqexporter`): the enqueue. The exporter wraps the
+  ones exporterhelper builds and stamps client metadata
+  `x-s3pq-received-at` before the sending queue; `file_storage` persists
+  client metadata with each request, so a retry or a replay after a
+  restart publishes with the original value (`edge.WithReceived`).
+- **Without a buffer** (`configs/edge.yaml`) custody passes with the
+  commit (the client is answered after it), so the exporter's clock is
+  the custody time, as before.
+- **Unchanged:** request bytes, content keys, rows; the time travels
+  beside the bytes (pdata context, client metadata), and every object and
+  row of a request still carries the one value the range guard asserts.
+- **What still gets a new `received_at`:** new custody of the same bytes.
+  A sender that resends after its own outage, or resends to another
+  publisher, hands the edge a new request. Those are what the horizon
+  audit watches now ([The horizon audit](#the-horizon-audit-late-copies-m)).
+
+**Replay tests** [M] (`scripts/replay_received.sh`,
+`results/replay-received/`; `../conformance/go_replay.sh`,
+`../conformance/results/go-replay/`): 4 distinct 10k-span requests; the
+edge is SIGKILLed after the commits and before the ACKs; the consumer
+ingests during the outage and again after the restart; the Rust edge
+restarts with its wall clock **4 days** ahead (past the 3-day horizon).
+
+| run | replayed in a new epoch | replays with the original's `received_at` | central rows (expected 40,000) | audit WARNs |
+|---|---|---|---|---|
+| Rust, this design | 3 of 4 | **3/3** | **40,000**, each request once | 0 |
+| Rust, control: the binary before the change | 3 of 4 | 0/3 (all 96 h later) | 70,000: 3 requests twice | 3 (late copies, 96.0 h) |
+| Go (`file_storage` queue, 10 s restart) | 2 of 4 | **2/2** | **40,000** | 0 |
+
+In every object the metadata's received time equals the rows'.
+
+**Cost** [M] (`results/replay-received/cost.txt`): Rust, 3 runs each of
+30 × 10k-span requests through `edge-durable.yaml`: 25–30 ms of edge CPU
+per request before, 26–28 after, within noise; disk written per request
+unchanged (6.23 MB): the WAL bytes are the same and the segment manifest
+gains 8 B (plus validity) per bundle. Go (`BenchmarkReceivedStamp`):
+1.5 µs, 624 B and 10 allocations per request to stamp and read back, and
++45 B per request in the `file_storage` record.
+
+**Model** (`../model/s3Inline.qnt`, module `s3InlineReceived`): a wall
+clock that may jump between a commit and its ACK, each request's custody
+day, one stamp per incarnation, and a check limited to HORIZON days.
+`replayKeepsReceivedAt` and `payloadIngestedAtMostOnce` hold at HORIZON 1
+and 0 (3,000 × 80); the mutant `restampOnReplay` breaks `atMostOnce` by
+simulation and in a scripted long-gap run. The consumer model follows it
+([Model and model-based test](#model-and-model-based-test), fleet scale).
+
+**Consequence: retention and outages.** Partitions are dropped by
+`received_at` (a TTL on it, `ttl_only_drop_parts`). A replay keeps the
+old time, so an edge that rides out an outage longer than the TTL
+publishes rows whose partition is already past it: they are inserted and
+dropped at the next TTL merge. **The TTL by `received_at` must exceed the
+longest outage the edge buffer is sized to ride out** (the buffer's
+`retention_size_cap` at the edge's rate) [E]. At 90 days that is not
+binding; a TTL *move* to the cold tier by `received_at` (1–7 days hot)
+sends such a replay's part to cold at its first TTL pass, which costs
+only speed.
 
 ## Inputs: OTAP end to end, OTLP/gRPC [M]
 
@@ -1345,6 +1424,33 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   `sql/series_tables.sql` plus `content_key` and the projection. The series
   lane (`metrics_series`) has no count check and no verify: re-inserting is
   harmless (AggregatingMergeTree).
+- **Tables** (`Central::ensure`, once per signal per worker, before its
+  first check): `CREATE DATABASE` and `CREATE TABLE IF NOT EXISTS` from
+  `src/central.rs`; traces and logs are ClickStack 2.39.1's tables
+  (`sql/otel_{traces,logs}.sql`, [`../hyperdx/README.md`](../hyperdx/README.md)
+  §Schema). **Since 2026-09-27 `ensure` also creates what follows each of
+  them** (`LaneKind::create_rollups` → `central::create_rollups`): the
+  key-value rollup `<table>_kv_rollup_15m` (SummingMergeTree, with the
+  same `non_replicated_deduplication_window`) and the materialized view
+  that fills it, which HyperDX's filter panel reads; metrics get none. Each
+  is `IF NOT EXISTS`, so a table made by an earlier consumer gets its
+  rollup on the next start, without its earlier rows. With `--no-ddl`
+  (replicated central: the operator's tables) the consumer only checks:
+  a missing table is an error, a missing rollup a warning (ingest is
+  exactly-once without it). `consume --print-ddl SIGNAL` prints the
+  table, `--print-rollups SIGNAL` the rest, for scripts
+  (`../central-replicated/scripts/ddl.py` makes the replicated DDL from
+  both). **The rollup counts each row once, retries included** [M]
+  (`sql::tests::ensure_creates_the_rollup_and_an_insert_fills_it`, against
+  ClickHouse and SeaweedFS): two logs objects (7 and 5 rows) inserted by
+  the consumer's own statement give a count of 12 per key; the exact retry
+  of that statement (same dedup token) adds nothing to the table and
+  nothing to the rollup, because 26.10 deduplicates the view's block
+  (`deduplicate_blocks_in_dependent_materialized_views`, on by default)
+  only when the target table has a window. A regrouped retry is not
+  deduplicated here any more than in the table: the count check keeps it
+  from happening. The view adds insert CPU per row; its measured cost is
+  in [`../hyperdx/README.md`](../hyperdx/README.md) §Schema.
 - **GC** (`gc.rs`, `consume gc`, separate and safe to run from anywhere):
   each run appends every lane's checkpoint, with the time, as a mark to
   `gc.json` (CAS), then deletes the data slots below the newest mark that
@@ -1985,9 +2091,13 @@ range, the horizon was the retention (90 days: a copy of a dropped batch
 was ingested again too). A copy later than that is ingested twice. The
 edges' durable buffer replays within minutes of a restart and a sender's
 retry window is minutes, but an edge that committed, crashed before it
-learned so, and came back after a long outage replays from its buffer
-with a new `received_at` (the exporter stamps it at receipt, after the
-buffer). **That is no longer silent:** the horizon audit
+learned so, and came back after a long outage replayed from its buffer
+with a new `received_at` (the exporter stamped it at receipt, after the
+buffer). (2026-09-27: no longer: a replay keeps its custody time,
+[received_at is the custody time](#received_at-is-the-custody-time-2026-09-27),
+so edge replays meet the assumption by construction. What remains is new
+custody of the same bytes: a sender's resend after its own outage, or to
+another publisher.) **That is no longer silent:** the horizon audit
 ([below](#the-horizon-audit-late-copies-m)) finds every such copy after
 the fact and counts it. The model makes the assumption explicit (below).
 
@@ -2183,6 +2293,19 @@ edge's pipeline and the envelope's meaning (a receipt time from before a
 crash), so it is left as a follow-up; a resend by an agent to its
 publisher would still get a new time.
 
+(2026-09-27: **the fix at the source is built**, as the custody time:
+Quiver's WAL write, the Go queue's enqueue
+([received_at is the custody time](#received_at-is-the-custody-time-2026-09-27)).
+Edge replays no longer trigger the audit: in `replay_received.sh` three
+replays 96 h late were skipped by the check and the audit was silent,
+where the old binary ingested them twice and the audit reported all three.
+**What the audit watches now** is new custody of the same bytes: a
+sender that resends a request after its own outage longer than the
+horizon, and a resend to another publisher (a new lane and a new time).
+The end-to-end test above plants exactly that case: a copy with a new
+epoch and a new received time. An early warning at the edge is still not
+built and would still not see those.)
+
 #### The lease margin, and statements whose answer was lost
 
 - **Margin ≥ 20 s** (`Timing::check_production`; 10 s until the replicated
@@ -2308,6 +2431,43 @@ scripted run.
     scripted run (the retry is a new statement: a tick and a renewal give it
     a new fence), and `errorSettlesDesignTest` passes on the five design
     instances (the step is disabled). `consumer_model.sh` runs all three.
+  - **(2026-09-27) custody day** (the edge's `received_at` change,
+    [above](#received_at-is-the-custody-time-2026-09-27)). An object's
+    received day is no longer its epoch's start day (`eDay`) but its
+    request's custody day: `pDay(p)`, day 0 for the queued payloads,
+    stamped into `oDay(e)(p)` once per incarnation when it takes the
+    payload (`s3InlineReceived`'s `stamp`); the check, the verify and
+    central's rows per day use it. `senderResend(p)` (environment flag
+    `RESENDS`, on in the designs and `noHorizon`) is new custody of the
+    same bytes on a later day; `RESTAMP` is the edge before `8efc34f`
+    (the stamp is the incarnation's start day). New instances:
+    **`noHorizonReplays`** (HORIZON 0, writer faults, days on, no resends)
+    passes `safety` and `auditSilent` at 5,000 × 60, and reaches the new
+    witness `wReplayKeepsDay` (a replay in a later epoch, on a later
+    calendar day, with its original's received day, ingested once): edge
+    replays need no horizon. **`restamp`** (HORIZON 0, `RESTAMP`, no
+    resends): `restampBreaksTest` ingests an edge replay twice with
+    `auditLate`, and `restampDesignTest` (the same replay, skipped, its
+    day still 0) passes on the designs, on `noHorizonReplays` and on
+    `noHorizon`. `noHorizonBreaksTest` now needs a sender's resend, and
+    `noHorizonDesignTest` (the resend skipped within HORIZON 1) passes on
+    the designs. The whole `consumer_model.sh` (52 rows,
+    `results/consumer/custody/model.txt`): every design, witness, audit
+    and scripted verdict as expected; the random simulations found
+    `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly` and `wallRange`
+    (17.5 s this time), but not `releaseInFlight`, `keeperOverrun`,
+    `errorSettles`, `noHorizon`, `restamp` or `gcReopens` in 20,000 × 60
+    (`releaseInFlight` and `errorSettles` had been found before: the new
+    resend branch changes the random walk under the same seed); each of
+    those six is caught by its scripted `*BreaksTest`, which all pass.
+  - **quint-connect** after the change (`tests/mbt_s3inline_consumer.rs`:
+    the driver stamps each object with its payload's custody day once per
+    incarnation, maps `senderResend`, and hands the code the stamped
+    received time): all five instances pass, one binary at a time
+    (`s3InlineConsumerDesign` 300 × 60 in 31 s, `designQuiet` 1,000 × 80
+    in 134 s, `designDays` 500 × 80 in 77 s, `compactDesign` 300 × 60 in
+    29 s, `compactQuiet` 1,000 × 80 in 391 s;
+    `results/consumer/custody/mbt.txt`).
 - **quint-connect** (`tests/mbt_s3inline_consumer.rs`): `wRelease` goes
   through `coord::may_act` and `coord::release`; `newDay` and each epoch's
   day map to received times, and the check and the verify count only the
@@ -2395,9 +2555,11 @@ scripted run.
   `--check-horizon` (3 days; 1 day before the audit round) after its
   original is ingested twice. The horizon audit now reports every such
   copy (`consumer_late_copies_total`, a WARN each) but doesn't prevent or
-  remove it: deleting a reported copy (by content key and epoch) is manual,
-  and stamping `received_at` before the durable buffer, which would keep a
-  replay in its original's partition, isn't built. A full audit reads the
+  remove it: deleting a reported copy (by content key and epoch) is manual.
+  (2026-09-27: `received_at` is now the edge's custody time, kept by a
+  replay, so edge replays stay in their original's partition; the
+  residual case is a sender's resend, a new custody, more than the
+  horizon later.) A full audit reads the
   whole content projection (~20 GB and ~150 s of central CPU at fleet scale
   [E]): daily, or sampled. A table partitioned on anything but
   `toDate(received_at)` is checked over every partition, and not audited.

@@ -6,12 +6,14 @@ register the first user, add the ClickHouse connection, and the sources:
   Metrics (layout B views)     hdx_b.otel_metrics_*  (views over the series table, D7)
   Metrics (stock)              hdx_stock.otel_metrics_* (ClickStack's own tables, same rows)
 
-With --schema OLD_DB,NEW_DB (the schema comparison, ../README.md §Schema), instead of the above:
-  Logs/Traces (pre-alignment)  OLD_DB: the consumer's DDL before the ClickStack alignment
-  Logs/Traces (ClickStack DDL) NEW_DB: ../../otap-rs/sql/otel_*.sql, with the key-value rollups
-                               declared as the sources' metadataMaterializedViews (what HyperDX's
-                               source form auto-detects from <table>_kv_rollup_15m)
-and the ids go to hdx_ids_old.json / hdx_ids_new.json (keys Logs, Traces, for hdx_ui.js).
+With --schema old=DB,full=DB,new=DB (the schema comparison, ../README.md §Schema; any subset,
+or OLD_DB,NEW_DB), instead of the above, a Logs and a Traces source per side:
+  old   the consumer's DDL before the ClickStack alignment
+  full  ClickStack 2.39.1's full DDL (../sql/clickstack_full_*.sql)
+  new   the consumer's (../../otap-rs/sql/otel_*.sql: option 2, without the attr-key indexes)
+full and new declare their key-value rollups as the sources' metadataMaterializedViews (what
+HyperDX's source form auto-detects from <table>_kv_rollup_15m). The ids go to
+hdx_ids_<side>.json (keys Logs, Traces, for hdx_ui.js).
 
 Idempotent: logs in if the team exists, and only adds what is missing.
 Prints the ids as JSON (also written to hdx_ids.json next to this script's cwd).
@@ -28,7 +30,7 @@ p.add_argument("--password", default="Hdx-eval-2026!")
 p.add_argument("--ch", default="http://127.0.0.1:18124", help="ClickHouse as HyperDX sees it: chproxy.py in front of :18123")
 p.add_argument("--b", default="hdx_b")
 p.add_argument("--stock", default="hdx_stock")
-p.add_argument("--schema", default="", help="OLD_DB,NEW_DB: the schema comparison's four sources only")
+p.add_argument("--schema", default="", help="old=DB,full=DB,new=DB: the schema comparison's sources only")
 a = p.parse_args()
 
 s = requests.Session()
@@ -103,8 +105,10 @@ def traces_src(name, db, logs_id, extra=None):
 
 
 if a.schema:
-    old_db, new_db = a.schema.split(",")
-    for side, db, label, mv in (("old", old_db, "pre-alignment", False), ("new", new_db, "ClickStack DDL", True)):
+    pairs = [x.split("=") for x in a.schema.split(",")] if "=" in a.schema else list(zip(("old", "new"), a.schema.split(",")))
+    labels = {"old": "pre-alignment", "full": "ClickStack full DDL", "new": "consumer DDL, option 2"}
+    for side, db in pairs:
+        label, mv = labels[side], side != "old"
         rollup = lambda t: {"metadataMaterializedViews": {"kvRollupTable": f"{t}_kv_rollup_15m", "granularity": "15 minute"}} if mv else {}
         side_ids = {"connection": cid}
         side_ids["Logs"] = ensure(logs_src(f"Logs ({label})", db, rollup("otel_logs")))

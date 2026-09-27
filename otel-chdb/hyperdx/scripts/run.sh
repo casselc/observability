@@ -19,12 +19,13 @@
 #   down       stop everything started here and delete the containers and images
 # The schema comparison (../README.md §Schema), instead of edges..setup:
 #   schema-dbs        hdx_old with the pre-alignment DDL (../sql/pre_alignment_traces_logs.sql),
-#                     hdx_new with the consumer's (../../otap-rs/sql/otel_*.sql, with rollups)
+#                     hdx_full with ClickStack 2.39.1's full DDL (../sql/clickstack_full_*.sql),
+#                     hdx_new with the consumer's (../../otap-rs/sql/otel_*.sql, option 2); with rollups
 #   schema-edge       one edge (:14518), bucket hdx-otel, root schema/
-#   schema-consumers  two consumers over that one root (own --ctl each): hdx_old and hdx_new
+#   schema-consumers  three consumers over that one root (own --ctl each): hdx_old, hdx_full, hdx_new
 #                     get the same objects through the consumer's own INSERT
 #   schema-gen        hdxgen traces and logs: 3 h of backfill
-#   schema-setup      HyperDX sources for both (hdx_setup.py --schema hdx_old,hdx_new)
+#   schema-setup      HyperDX sources for each (hdx_setup.py --schema old=hdx_old,full=hdx_full,new=hdx_new)
 # Needs: AWS-style keys otel/otelsecret on SeaweedFS :18333; ClickHouse on CH (default
 # 127.0.0.1:18123; the schema comparison used a private server with query_log).
 set -eu
@@ -88,18 +89,19 @@ for step in "$@"; do
     [ -f "$W/dockerd.pid" ] && kill "$(cat "$W/dockerd.pid")" || true ;;
   schema-dbs)
     CH_URL=http://$CH python3 "$H/setup_db.py" file hdx_old "$H/../sql/pre_alignment_traces_logs.sql"
+    CH_URL=http://$CH python3 "$H/setup_db.py" clickstack-full hdx_full
     CH_URL=http://$CH python3 "$H/setup_db.py" consumer hdx_new ;;
   schema-edge)
     curl -sf -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" -u otel:otelsecret http://127.0.0.1:18333/hdx-otel > /dev/null || true
     AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret bg edge.log env OTLP_HTTP=127.0.0.1:14518 OTLP_GRPC=127.0.0.1:14517 \
       ADMIN_HTTP=127.0.0.1:14580 PRODUCER=hdx-schema S3_URL=http://127.0.0.1:18333/hdx-otel/schema/hdx-schema "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml" ;;
   schema-consumers)
-    for db in hdx_old hdx_new; do
+    for db in hdx_old hdx_full hdx_new; do
       bg "consumer-$db.log" "$B/consume" --s3 http://127.0.0.1:18333/hdx-otel/schema --ctl "ctl-$db" --ch "http://$CH" --db "$db" \
         --key otel --secret otelsecret --worker "w-$db" --signals traces,logs
     done ;;
   schema-gen) bg gen.log "$B/hdxgen" -url http://127.0.0.1:14518 -signals traces,logs -backfill 3h -step 30s -pods 2 -traces 8 ;;
-  schema-setup) python3 "$H/hdx_setup.py" --schema hdx_old,hdx_new ;;
+  schema-setup) python3 "$H/hdx_setup.py" --schema old=hdx_old,full=hdx_full,new=hdx_new ;;
   *) echo "unknown step $step" >&2; exit 2 ;;
   esac
 done

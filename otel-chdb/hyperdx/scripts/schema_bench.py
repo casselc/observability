@@ -79,6 +79,25 @@ def ddl(variant, table, sig):
     return st
 
 
+CPU_SOURCE = os.environ.get("CPU_SOURCE", "query_log")  # or "client": a server without query_log / part_log
+CHC = os.environ.get("CHC", "clickhouse")  # the client binary, for CPU_SOURCE=client
+CHC_PORT = os.environ.get("CHC_PORT", "19000")
+CAP = dict(max_memory_usage=int(os.environ.get("MAX_MEMORY", "2000000000")))
+
+
+def client_events(sql, **settings):
+    """Run one statement with clickhouse client and return its own ProfileEvents (the [ 0 ] totals)."""
+    args = [CHC, "client", "--port", CHC_PORT, "--print-profile-events", "--profile-events-delay-ms=-1", "--query", sql]
+    args += [f"--{k}={v}" for k, v in settings.items()]
+    r = subprocess.run(args, capture_output=True, text=True, timeout=900)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr[-800:])
+    ev = collections.Counter()
+    for m in re.finditer(r"\[ 0 \] (\w+): (\d+) \(increment\)", r.stderr):
+        ev[m.group(1)] += int(m.group(2))
+    return ev
+
+
 def q(sql, **settings):
     r = requests.post(CH + "/", data=sql.encode(), params=settings, timeout=900)
     if r.status_code != 200:
@@ -119,23 +138,33 @@ def main():
             t0 = time.time()
             la0 = load()
             qids = []
+            client_cpu = {}
             for sig in ("traces", "logs"):
                 for i, k in enumerate(objs[sig]):
                     qid = f"schema-{v}-r{rep}-{sig}-{i}-{uuid.uuid4().hex[:8]}"
                     sql = (f"INSERT INTO {db}.otel_{sig} ({cols[sig]}, content_key) SELECT {cols[sig]}, 'ck{i:04d}' "
                            f"FROM s3('http://127.0.0.1:18333/{k}', 'otel', 'otelsecret', 'Parquet', '{st[sig]}') "
                            f"WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64(4102444800000))")
-                    q(sql, **ONE_BLOCK, insert_deduplication_token=uuid.uuid4().hex, insert_deduplicate=1, deduplicate_insert="enable",
-                      deduplicate_insert_select="force_enable", max_execution_time=60, timeout_overflow_mode="throw", query_id=qid)
+                    st_ = dict(**ONE_BLOCK, **CAP, insert_deduplication_token=uuid.uuid4().hex, insert_deduplicate=1, deduplicate_insert="enable",
+                               deduplicate_insert_select="force_enable", max_execution_time=300, timeout_overflow_mode="throw", query_id=qid)
+                    if CPU_SOURCE == "client":
+                        ev = client_events(sql, **st_)
+                        a = client_cpu.setdefault(sig, dict(n=0, rows=0, cpu=0, us_sys=0, ms=0))
+                        a["n"] += 1
+                        a["cpu"] += ev["OSCPUVirtualTimeMicroseconds"]
+                        a["us_sys"] += ev["UserTimeMicroseconds"] + ev["SystemTimeMicroseconds"]
+                    else:
+                        q(sql, **st_)
                     qids.append(qid)
             la1 = load()
-            q("SYSTEM FLUSH LOGS")
-            rows = q(f"""SELECT query_id, written_rows, query_duration_ms, ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS cpu,
+            if CPU_SOURCE != "client":
+                q("SYSTEM FLUSH LOGS")
+            rows = "" if CPU_SOURCE == "client" else q(f"""SELECT query_id, written_rows, query_duration_ms, ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS cpu,
                          ProfileEvents['UserTimeMicroseconds'] + ProfileEvents['SystemTimeMicroseconds'] AS us_sys, memory_usage
                   FROM system.query_log WHERE type = 'QueryFinish' AND query_id LIKE 'schema-{v}-r{rep}-%' AND event_time >= toDateTime({int(t0) - 5})
                   FORMAT JSONEachRow""")
             stm = [json.loads(l) for l in rows.splitlines()]
-            per = {}
+            per = client_cpu
             for r in stm:
                 sig = r["query_id"].split("-")[3]
                 a = per.setdefault(sig, dict(n=0, rows=0, cpu=0, us_sys=0, ms=0))
@@ -154,15 +183,22 @@ def main():
                 return out
             before = size()
             t1 = time.time()
+            opt = {}
             for sig in ("traces", "logs"):
                 q(f"SYSTEM START MERGES {db}.otel_{sig}")
-                q(f"OPTIMIZE TABLE {db}.otel_{sig} FINAL", query_id=f"schemaopt-{v}-r{rep}-{sig}-{uuid.uuid4().hex[:6]}")
-            q("SYSTEM FLUSH LOGS")
-            merges = q(f"""SELECT table, count(), sum(rows), sum(duration_ms), sum(ProfileEvents['OSCPUVirtualTimeMicroseconds']),
+                if CPU_SOURCE == "client":  # OPTIMIZE ... FINAL merges in the statement's own thread
+                    ev = client_events(f"OPTIMIZE TABLE {db}.otel_{sig} FINAL", **CAP, max_threads=2)
+                    opt[f"otel_{sig}"] = dict(merges=1, rows=0, ms=0, cpu=ev["OSCPUVirtualTimeMicroseconds"],
+                                              us_sys=ev["UserTimeMicroseconds"] + ev["SystemTimeMicroseconds"])
+                else:
+                    q(f"OPTIMIZE TABLE {db}.otel_{sig} FINAL", query_id=f"schemaopt-{v}-r{rep}-{sig}-{uuid.uuid4().hex[:6]}")
+            if CPU_SOURCE != "client":
+                q("SYSTEM FLUSH LOGS")
+            merges = "" if CPU_SOURCE == "client" else q(f"""SELECT table, count(), sum(rows), sum(duration_ms), sum(ProfileEvents['OSCPUVirtualTimeMicroseconds']),
                             sum(ProfileEvents['UserTimeMicroseconds'] + ProfileEvents['SystemTimeMicroseconds'])
                      FROM system.part_log WHERE database = '{db}' AND event_type = 'MergeParts' AND event_time >= toDateTime({int(t1) - 2})
                        AND table IN ('otel_traces', 'otel_logs') GROUP BY table FORMAT TSV""")
-            mg = {}
+            mg = opt
             for l in merges.splitlines():
                 t, n, r, ms, cpu, us = l.split("\t")
                 mg[t] = dict(merges=int(n), rows=int(r), ms=int(ms), cpu=int(cpu), us_sys=int(us))

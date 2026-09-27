@@ -124,11 +124,13 @@ Found on the way, **not the views**:
 - ~~**The consumer's traces and logs tables are not ClickStack 2.39.1's
   schema.**~~ **Resolved** (§Schema): the consumer's DDL is now HyperDX
   2.39.1's own (`../otap-rs/sql/otel_{traces,logs}.sql`), with its text
-  indexes, materialized columns, logs sort key and key-value rollup, and
-  HyperDX takes its fast paths on it: **0.14–0.18× the server time** of the
-  old tables over nine log and trace scenarios at 3 M rows per signal, the
-  same results. The price is insert CPU: **4.0× per span or log** with the
-  rollup (3.4 → 13.8 µs/row weighted), 1.8× merge CPU.
+  indexes, materialized columns, logs sort key and key-value rollup, **minus
+  the four `idx_*_attr_key` (mapKeys) indexes** (option 2, the owner's
+  choice, for insert cost). HyperDX takes its fast paths on it, live: key
+  discovery through the items indexes, **0.12–0.14× the server time** of
+  the old tables over nine log and trace scenarios at 3 M rows per signal,
+  the same as the full DDL, the same results. The price: insert CPU 2.4–2.6×
+  per span or log with the rollup (full DDL 2.9–3.5×), merges 2.0×.
 - **HyperDX is growing its own series table.** 2.39.1 carries a
   feature-flagged "unified metrics series table" (`seriesTable` on a metric
   source, enabled by a team flag `isMetricsSeriesTableEnabled`; required
@@ -249,7 +251,8 @@ returns HyperDX 2.39.1's `otel_traces` / `otel_logs`
 `create_rollups` their key-value rollup (`00006`, `00007`). On a server,
 `system.columns` (names, types, MATERIALIZED / ALIAS expressions, codecs),
 `system.data_skipping_indices` and the materialized views equal the seed's,
-column for column [M]. At 2.39.1 the seed has **one** rollup per signal, the
+column for column, but for the four mapKeys indexes option 2 drops [M]; the
+full DDL is kept as `sql/clickstack_full_*.sql` for the comparison. At 2.39.1 the seed has **one** rollup per signal, the
 key-value one (`*_kv_rollup_15m`); the key rollup HyperDX can also read
 (`keyRollupTable`) is not created by it, and HyperDX's source form only
 auto-detects the key-value one [D: `source.ts`].
@@ -262,6 +265,7 @@ What the consumer keeps on top, and why:
 | `PARTITION BY` | `toDate(Timestamp)` | `toDate(received_at)` | batch-constant: an object is one part, the count check prunes on `_partition_value` |
 | `non_replicated_deduplication_window` | – | 1000 on the table **and on the rollup table** | the dedup token of an exact retry; on the rollup table because 26.10 runs the view for a deduplicated block and dedups the view's block only if its target has a window: without it an exact retry counted twice in the rollup [M] |
 | TTL | `toDate(Timestamp) + 30 days` (tables and rollups) | none | retention is the operator's; `toDateTime(received_at) + n` drops whole partitions (`central-replicated/scripts/ddl.py`) |
+| `idx_res_attr_key`, `idx_span_attr_key` / `idx_scope_attr_key`, `idx_log_attr_key` (text indexes on `mapKeys()`) | yes | **dropped** (option 2) | insert cost; HyperDX finds map keys through the `*_attr_items` indexes instead (§Option 2) |
 
 `create_rollups` is not yet run by the consumer: `ensure()` issues one DDL
 statement per lane (`src/consumer/sql.rs`). Until it runs the rollup
@@ -277,7 +281,7 @@ declared as such; no rollups (a `trace_id_ts` lookup table instead); no TTL
 unless configured; no `enable_block_number_column`. Columns and types are the
 same, so the edge's objects fit both.
 
-**HyperDX takes its fast paths** [M]. Both schemas as HyperDX sources
+**HyperDX takes its fast paths** (the first pass: pre-alignment against the full DDL) [M]. Both schemas as HyperDX sources
 (`scripts/hdx_setup.py --schema`), the same data through two real consumers
 (the consumer's INSERT unchanged), the UI driven through nine log and trace
 scenarios, and each side's SQL replayed on 3.0 M spans and 3.0 M logs
@@ -298,7 +302,7 @@ same rows. On the small data alone (23 k rows) the new schema is slower
 statements (`system.parts`, `mergeTreeTextIndex`, the rollup) that pay off
 only once scans cost more than they do.
 
-**What it costs** (`results/schema-insert.md`; loaded box, load 1.6–2.3;
+**What the full DDL costs** (the first pass, before option 2; `results/schema-insert.md`; private server, load 1.6–2.3;
 one-object 10k-row statements as `bench/clean` block 2, same objects, 7
 reps interleaved; median [range]):
 
@@ -318,7 +322,7 @@ reps interleaved; median [range]):
   the two `mapKeys` indexes a span costs 7.0, without the two items indexes
   6.6 [M]. HyperDX's key discovery can use either (`getMapKeys`: the key
   index first, then the items index split at `=`) [D], so dropping the
-  `idx_*_attr_key` indexes is the cheapest deviation if the CPU matters.
+  `idx_*_attr_key` indexes is the cheapest deviation if the CPU matters (done: §Option 2).
 - ZSTD(1) halves the data (spans 23.7 → 11.4 B without indexes), and the
   text indexes add it back for logs; TraceId and the attribute items are
   the big indexes. On hdxgen's richer rows (10 resource attributes) spans
@@ -336,8 +340,76 @@ reps interleaved; median [range]):
   counts) passes, and the same objects give the same stored rows in every
   written column, old table and new [M].
 
-Reproduce: `scripts/run.sh schema-dbs schema-edge schema-consumers
-schema-gen schema-setup` (with `CH=` a server with `query_log`), then
+### Option 2: without the mapKeys indexes
+
+The owner's choice after the first comparison below: ClickStack 2.39.1's DDL
+minus `idx_res_attr_key`, `idx_span_attr_key`, `idx_scope_attr_key` and
+`idx_log_attr_key`. HyperDX 2.39.1 uses a mapKeys text index for one thing,
+map key discovery (`getMapKeys`); with none it reads the map's items index
+(`*AttributeItems`, `k=v` tokens) and splits the tokens at `=`; query
+rendering, value discovery and attribute filters use only the items index
+[D: `metadata.ts` 978–1027, `queryParser.ts` 1750–1766, 1992].
+
+**Live, HyperDX takes that path** [M]: HyperDX 2.39.1 in Docker against
+three databases holding the same rows (count and hash of every written
+column equal): the pre-alignment DDL, the full ClickStack DDL, option 2; the
+nine scenarios twice per schema. Every one of the 46 key-discovery
+statements it sent for the full DDL (`SELECT token AS key FROM
+mergeTreeTextIndex(…, 'idx_*_attr_key')`) it sent for option 2 as `SELECT
+splitByString('=', token)[1] AS key FROM mergeTreeTextIndex(…,
+'idx_*_attr_items')`, and they return the same keys for every map. The rest
+of its SQL is identical. Each side's statements replayed on its own database
+(3.0 M spans and logs; `results/schema3-replay.md`, shared server,
+max_threads 2):
+
+| | pre-alignment | full ClickStack | option 2 |
+|---|---:|---:|---:|
+| server time, 9 scenarios | 17.0 s | 2.12 s (0.12×) | 2.29 s (2.12 s without one extra histogram the UI sent in that run) |
+| rows read | 114 M | 44 M | 48 M |
+| map key discovery (23 statements) | 23 map scans: 648 ms, 26 M rows | mapKeys index: 128 ms, 334 index rows | items index: 146 ms, 56 k index rows |
+| full text (`hasAllTokens`, 9) | `hasToken`: 263 ms, 9.2 M rows | 111 ms, 456 k rows | 110 ms, 409 k rows |
+| attribute filters (`has(*AttributeItems)`, 23) | – | 268 ms | 256 ms |
+| result lists equal to pre-alignment | | 26 of 26 | 26 of 26 |
+
+**What it costs**, three ways (`results/schema3-insert.md`; shared server,
+loaded box, 1-min load 5.6–20; one-object statements, 6 reps interleaved;
+median µs per span / log; merge by clickhouse-local on the same 20–21 parts):
+
+| | pre-alignment | full ClickStack + rollup | option 2 + rollup (ships) | option 2, table only |
+|---|---:|---:|---:|---:|
+| insert, bench-v objects (10k rows) | 3.37 / 3.06 | 12.81 / 7.48 | **9.11 / 7.12** | 6.22 / 4.98 |
+| insert, hdxgen objects (9.6k spans, 3.2k logs, 10 resource attributes) | 3.89 / 7.20 | 9.96 / 25.20 | **8.07 / 21.06** | 5.47 / 12.45 |
+| merge, bench-v | 2.40 / 2.84 | 5.40 / 4.74 | 4.85 / 5.00 | |
+| merge, hdxgen | 2.10 / 4.72 | 5.14 / 9.14 | 4.77 / 8.01 | |
+| stored B, bench-v | 23.7 / 15.0 | 19.2 / 15.2 | 18.9 / 15.2 | |
+| stored B, hdxgen | 82.1 / 68.8 | 61.9 / 66.4 | 61.8 / 66.4 | |
+
+- Option 2 takes a fifth to a third off the full DDL's insert cost for
+  spans (−19% hdxgen, −29% bench-v) and 5–16% for logs. The spread is wide (a busy box:
+  full-DDL spans 8.4–15.3 µs), and the first pass (private server, idle
+  box) put the full DDL higher (13.6 µs/span table only) and the mapKeys
+  indexes' share at half of it.
+- The rollup view costs +2.6–2.9 µs/span, and for logs +2.1 µs at 10k rows
+  but +8.6 µs at 3.2k rows per object: mostly a per-statement cost (the
+  view's 14 `UNION ALL` branches), which larger objects dilute.
+- Merges are 2.0× and nearly all ZSTD and the items indexes; the mapKeys
+  indexes are small (0–0.3 B/row, low-cardinality keys), so dropping them
+  changes neither merges nor bytes much.
+- Sizing (the calculator's weights, 0.75 spans + 0.25 logs, scaled to its
+  idle-box baseline): `usRow` 3.43 → **9.0** (×2.40–2.62; table only 6.2;
+  full DDL 12.0), `mergeRow` 10.1 → **20.1** (×1.95–2.02; full 21.6),
+  `bSpan` ×0.75–0.80, `bLog` ×0.97–1.01. Mid scenario: 91 → **151 vCPU**
+  (3 × 2 nodes; full DDL 169), 992 → 846 TB with `bSpan` 64 / `bLog` 61.
+- `correctness.py` passes on the option-2 tables (32 of 32, rollup counts
+  included).
+
+Reproduce (three-way): `scripts/schema_load.py` (or `scripts/run.sh
+schema-dbs schema-edge schema-consumers schema-gen`), `scripts/run.sh
+dockerd hyperdx chproxy schema-setup`, `hdx_ui.js` per side (`IDS=hdx_ids_<side>.json
+TAG_PREFIX=<side>1-`), `scripts/schema_replay.py chproxy.jsonl --sides
+old:old1:hdx_old:hdx_old,full:full1:hdx_full:hdx_full,new:new1:hdx_new:hdx_new`,
+`scripts/schema_bench.py` (`CPU_SOURCE=client` on a server without
+`query_log`) and `scripts/schema_merge.py`. The first, two-way run:
 `hdx_ui.js` with `IDS=hdx_ids_old.json TAG_PREFIX=old1-` and
 `IDS=hdx_ids_new.json TAG_PREFIX=new1-` (`'^(logs-|traces-|trace-waterfall)'`),
 `scripts/schema_replay.py chproxy.jsonl`, and `scripts/schema_bench.py`.
@@ -377,11 +449,14 @@ databases 150 MB for the big load.
 - `scripts/replay.py`, `scripts/summarize.py`, `scripts/picker_bench.py`:
   timing and result comparison.
 - `scripts/schema_replay.py`, `scripts/schema_bench.py`,
-  `sql/pre_alignment_traces_logs.sql`: the schema comparison (§Schema).
+  `scripts/schema_merge.py`, `scripts/schema_load.py`,
+  `sql/pre_alignment_traces_logs.sql`, `sql/clickstack_full_*.sql`: the
+  schema comparison (§Schema).
 - `scripts/webhook_sink.py`: the alert webhook sink.
 - `sql/stock_metrics.sql`: ClickStack 2.39.1's metric tables with the
   consumer's envelope columns. `sql/metric_picker.sql`: the helper.
-- `results/`: `schema-replay.md` / `.json`, `schema-insert.md`,
+- `results/`: `schema3-replay.md` / `.json`, `schema3-insert.md` (three
+  ways, §Option 2), `schema-replay.md` / `.json`, `schema-insert.md`,
   `schema-partition.txt` (§Schema), `per-scenario.md`, `replay-same-sql.md` (big load),
   `replay-same-sql-small.md`, `picker.md`, `ui.json` (per scenario: console
   errors, errors shown, picker options), `alerts.json` (the notifications).

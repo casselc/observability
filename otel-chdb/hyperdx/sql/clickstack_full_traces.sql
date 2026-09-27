@@ -1,8 +1,11 @@
+-- ClickStack 2.39.1's full DDL as the consumer had it before option 2 (with the
+-- idx_*_attr_key mapKeys text indexes): the 'full' side of the three-way schema
+-- comparison in ../README.md §Schema. The consumer's is ../../otap-rs/sql/otel_traces.sql.
 -- The consumer's central otel_traces: ClickStack 2.39.1's own table
 -- (hyperdx@885d30c docker/otel-collector/schema/seed/00005_otel_traces.sql,
 -- the ClickHouse >= 26.2 variant with text indexes) and its key-value rollup
 -- (00007_otel_traces_rollups.sql), column for column, codec for codec, index
--- for index but two, with the consumer's additions (+) and deviations (~):
+-- for index, with the consumer's additions (+) and deviations (~):
 --
 --  + the edge envelope (producer_id … schema_version), content_key and the
 --    by_content projection: the consumer's exactly-once count check
@@ -22,14 +25,7 @@
 --  ~ no TTL: ClickStack's is `toDate(Timestamp) + ${TRACES_TTL}` (720h by
 --    default). Retention is the operator's: `TTL toDateTime(received_at) +
 --    INTERVAL n DAY` drops whole partitions under ttl_only_drop_parts, as
---    ../../central-replicated/scripts/ddl.py does;
---  ~ no idx_res_attr_key / idx_span_attr_key (text indexes on mapKeys()):
---    insert cost. With them a span costs 13.6 µs to insert, without them
---    7.0 (the items indexes alone), against 4.0 with no text index and 3.5
---    for the pre-alignment DDL [M, ../../hyperdx/README.md §Schema]; HyperDX
---    discovers map keys from the items index instead (getMapKeys: the key
---    index if there is one, else the `*AttributeItems` index's tokens split
---    at '=', hyperdx@885d30c common-utils/src/core/metadata.ts).
+--    ../../central-replicated/scripts/ddl.py does.
 --
 -- {table} is the fully qualified table (db.otel_traces); the rollup is named
 -- after it as HyperDX's source auto-detection expects (`<table>_kv_rollup_15m`).
@@ -71,7 +67,9 @@ CREATE TABLE IF NOT EXISTS {table}
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_rum_session_id __hdx_materialized_rum.sessionId TYPE text(tokenizer = 'array'),
+    INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
+    INDEX idx_span_attr_key mapKeys(SpanAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_span_attr_items SpanAttributeItems TYPE text(tokenizer = 'array'),
     INDEX idx_duration Duration TYPE minmax GRANULARITY 1,
     INDEX idx_lower_span_name SpanName TYPE text(tokenizer = 'splitByNonAlpha', preprocessor=lower(SpanName)),

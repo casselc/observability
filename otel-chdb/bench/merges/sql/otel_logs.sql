@@ -1,6 +1,6 @@
 -- The consumer's central otel_logs (otap-rs/sql/otel_logs.sql: ClickStack
--- 2.39.1's table with text indexes and materialized columns, plus the edge
--- envelope, content_key and the by_content projection, PARTITION BY
+-- 2.39.1's table with text indexes, but not the mapKeys ones, and materialized
+-- columns, plus the edge envelope, content_key and the by_content projection, PARTITION BY
 -- toDate(received_at), the dedup window). Only the table: its key-value
 -- rollup and materialized view are not part of the merge benchmark.
 -- Before the schema alignment (otel-chdb(schema) commits) this file held the
@@ -44,11 +44,8 @@ CREATE TABLE {db}.otel_logs
     `schema_version` UInt16 CODEC(ZSTD(1)),
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
-    INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
-    INDEX idx_scope_attr_key mapKeys(ScopeAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_scope_attr_items ScopeAttributeItems TYPE text(tokenizer = 'array'),
-    INDEX idx_log_attr_key mapKeys(LogAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_log_attr_items LogAttributeItems TYPE text(tokenizer = 'array'),
     INDEX idx_lower_body lower(Body) TYPE text(tokenizer = 'splitByNonAlpha'),
     PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)

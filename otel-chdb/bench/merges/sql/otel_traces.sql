@@ -1,6 +1,6 @@
 -- The consumer's central otel_traces (otap-rs/sql/otel_traces.sql: ClickStack
--- 2.39.1's table with text indexes and materialized columns, plus the edge
--- envelope, content_key and the by_content projection, PARTITION BY
+-- 2.39.1's table with text indexes, but not the mapKeys ones, and materialized
+-- columns, plus the edge envelope, content_key and the by_content projection, PARTITION BY
 -- toDate(received_at), the dedup window). Only the table: its key-value
 -- rollup and materialized view are not part of the merge benchmark.
 -- Before the schema alignment (otel-chdb(schema) commits) this file held the
@@ -44,9 +44,7 @@ CREATE TABLE {db}.otel_traces
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_rum_session_id __hdx_materialized_rum.sessionId TYPE text(tokenizer = 'array'),
-    INDEX idx_res_attr_key mapKeys(ResourceAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
-    INDEX idx_span_attr_key mapKeys(SpanAttributes) TYPE text(tokenizer = 'array'),
     INDEX idx_span_attr_items SpanAttributeItems TYPE text(tokenizer = 'array'),
     INDEX idx_duration Duration TYPE minmax GRANULARITY 1,
     INDEX idx_lower_span_name SpanName TYPE text(tokenizer = 'splitByNonAlpha', preprocessor=lower(SpanName)),

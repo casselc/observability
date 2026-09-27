@@ -8,9 +8,11 @@ token), on a ClickHouse with query_log and part_log. Background merges are
 stopped while inserting; then one OPTIMIZE FINAL (its part_log CPU is the
 merge cost).
 
-Variants: old; new (table + rollup + view); new_main (the table only);
-new_stockpart (ClickStack's PARTITION BY toDate(Timestamp)); abl_* (new_main
-without some text indexes or codecs); only_<index> (new_main with that one
+Variants: old; new (the consumer's DDL, option 2: ClickStack's without the
+idx_*_attr_key indexes; table + rollup + view); new_main (its table only);
+full / full_main (ClickStack's full DDL, ../sql/clickstack_full_*.sql);
+new_stockpart (ClickStack's PARTITION BY toDate(Timestamp)); abl_* (full_main
+without some text indexes or codecs); only_<index> (full_main with that one
 text index).
 
   CH=http://127.0.0.1:18723 S3_PREFIX=http://127.0.0.1:18333/bucket/root CONSUME=.../consume \
@@ -46,11 +48,19 @@ OLD = {sig: next(x for x in sql_statements(os.path.join(HERE, "..", "sql", "pre_
        for sig in ("traces", "logs")}
 
 
+def full_statements(table, sig):
+    """ClickStack 2.39.1's full DDL (with the idx_*_attr_key indexes), as the consumer had it before option 2."""
+    return sql_statements(os.path.join(HERE, "..", "sql", f"clickstack_full_{sig}.sql"), table=table)
+
+
 def ddl(variant, table, sig):
     if variant == "old":
         return [OLD[sig].replace("{table}", table)]
-    st = statements(table, sig)
-    if variant == "new_main":  # what the consumer creates without the ensure() change: no rollup
+    if variant in ("full", "full_main") or variant.startswith(("only_", "abl_")):
+        st = full_statements(table, sig)
+    else:
+        st = statements(table, sig)  # the consumer's: option 2
+    if variant in ("new_main", "full_main"):  # the table only (what ensure() creates today): no rollup
         return st[:1]
     if variant.startswith("only_"):  # new_main with a single text index (by name)
         name = variant[5:]

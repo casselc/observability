@@ -264,6 +264,8 @@ mod tests {
                 assert!(!line.contains(" MATERIALIZED ") && !line.contains(" ALIAS "), "{line}");
             }
             assert!(t.contains("TYPE text(tokenizer = 'array')") && !t.contains("{table}") && !t.contains(" TTL "), "{t}");
+            // Option 2: no text index on mapKeys() (insert cost); the items indexes stay.
+            assert!(!t.contains("_attr_key ") && !t.contains("mapKeys(") && t.contains("_attr_items "), "{t}");
             let r = create_rollups(&table, sig);
             assert_eq!(r.len(), 2);
             assert!(r[0].starts_with(&format!("CREATE TABLE IF NOT EXISTS {table}_kv_rollup_15m\n")) && r[0].contains("SummingMergeTree"), "{}", r[0]);

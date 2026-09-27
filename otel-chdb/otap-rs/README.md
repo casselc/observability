@@ -2295,6 +2295,40 @@ WARN horizon-audit: late copy in otel_logs: lane p1/logs epoch 20260926T211346.8
   content_key 840b6daf9d437274bb6a57f5bcb6c883, 7 rows, 7 rows duplicated; check horizon 72.0h
 ```
 
+5. **Duplicates by content** (2026-09-27; AMBIGUITY.md E1, E2): a copy
+   under a **new** content key is invisible to steps 1–4. A gateway
+   SIGKILL re-cuts the agents' resent requests into new pieces
+   (`../deploy/results/route-gwkill-batched.txt`: 70,320 trace rows), and a
+   sender's resend after a lost answer lands in a new batch at a publisher
+   with a batch step. Each run also counts, per table, the rows received in
+   the lookback whose **row identity** is under more than one content key:
+   Σ (distinct keys − 1) per identity. The identity is a few cheap columns
+   a copy shares with its original whatever request carried it
+   (`row_identity`: traces `TraceId, SpanId, Timestamp`; logs `Timestamp,
+   ServiceName, SeverityNumber, TraceId, SpanId, EventName, Body.size`;
+   layout-B points `series_id, StartTimeUnix, TimeUnix`; the ClickStack
+   metrics tables `ServiceName, MetricName, Attributes, StartTimeUnix,
+   TimeUnix`). Rows repeated inside one request and late copies of a whole
+   request (same key, step 4) are not counted. `--audit-dup-sample n`
+   (default 16; 1 exact, 0 off) keeps the identities whose hash is 0 mod n
+   and reports the count × n: every copy of a row has the same hash, so the
+   sample is unbiased and a burst shows at 1/n of its size, and the
+   GROUP BY holds 1/n of the identities. It reads the identity columns of
+   the lookback's partitions only (logs: the body's length subcolumn, not
+   the body: 3.6 MB instead of 203 MB for 202,000 rows with 1 KB bodies,
+   21 ms, 4 MB of memory at 1/16) [M]. Exported as the gauge
+   `consumer_audit_duplicate_rows{signal,table}` (the duplicates within
+   the last lookback, as of the last run) and in the run's JSON
+   (`duplicate_rows`). It is an estimate of "the same item": two distinct
+   items with the same identity (a log line repeated in the same
+   nanosecond with the same body length, service, severity, trace and span
+   in two requests; a point of one series in the same second) count too.
+   Test: `recut_copies_are_counted_by_content` (a re-cut of half a logs
+   request and a third of a traces request: exactly 500 and 200; sampled
+   1/16: 592 and 176; the late copy, the in-request repeats and the rows
+   before the lookback not counted; every counted table answers the
+   statement).
+
 **Where it runs:** beside GC (`consume gc … --ch URL --db DB`, every
 `--audit-every`, 24 h by default, `off` to disable) or alone (`consume
 horizon-audit --db DB [--every 1h]`); **never in a worker**, so it cannot
@@ -2327,7 +2361,7 @@ listener, nothing added to `Cargo.lock`):
 
 | process | families |
 |---|---|
-| audit | `consumer_late_copies_total{signal,table}`, `consumer_audit_unexplained_copies_total{signal,table}`, `consumer_audit_runs_total{result}`, `consumer_audit_last_success_timestamp_seconds`, `consumer_audit_duration_seconds`, `consumer_audit_candidates`, `consumer_audit_tables`, `consumer_check_horizon_seconds` |
+| audit | `consumer_late_copies_total{signal,table}`, `consumer_audit_unexplained_copies_total{signal,table}`, `consumer_audit_duplicate_rows{signal,table}`, `consumer_audit_runs_total{result}`, `consumer_audit_last_success_timestamp_seconds`, `consumer_audit_duration_seconds`, `consumer_audit_candidates`, `consumer_audit_tables`, `consumer_check_horizon_seconds` |
 | GC | `consumer_gc_runs_total{result}`, `consumer_gc_deleted_objects_total`, `consumer_gc_last_success_timestamp_seconds` |
 | worker | `consumer_objects_ingested_total{kind}`, `consumer_rows_ingested_total`, `consumer_statements_total`, `consumer_copies_skipped_total`, `consumer_repairs_total{kind=missing\|partial}`, `consumer_over_count_total`, `consumer_insert_errors_total`, `consumer_unsettled_statements_total`, `consumer_checks_total{range=ranged\|all}`, `consumer_check_recounts_total`, `consumer_range_guard_failures_total`, `consumer_lane_lists_total`, `consumer_lane_lists_skipped_total`, `consumer_s3_requests_total{op}`, `consumer_lane_changes_total{event}`, `consumer_gaps_seen_total`, `consumer_epochs_closed_total`, `consumer_errors_total`, `consumer_lanes_held`, `consumer_lanes_known`, `consumer_live_workers`, `consumer_visible_seconds{quantile}`, `consumer_cpu_seconds_total`, `consumer_check_horizon_seconds` |
 

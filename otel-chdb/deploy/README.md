@@ -359,7 +359,9 @@ The terminal outcomes sum to the appends. `resolved_own`, `known` and
 `resent` are the lost answers the protocol absorbed; none of them makes a
 duplicate. What they cannot see is a copy with a **new content key** (a
 gateway SIGKILL re-cut, a sender's resend into a new batch: §Duplicates);
-they are neither prevented nor counted here. The Rust engine drops a series
+the consumer's horizon audit counts those rows as
+`consumer_audit_duplicate_rows{signal,table}` (`../otap-rs/README.md` §The
+horizon audit, step 5). The Rust engine drops a series
 while it is 0, so an outcome appears at its first event.
 
 Alerts (`alerts/edge-commit.rules.yaml`): unresolved commits for 15 min

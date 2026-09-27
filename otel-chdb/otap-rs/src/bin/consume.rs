@@ -19,7 +19,7 @@
 //!   consume --print-ddl SIGNAL | --print-rollups SIGNAL | --print-structure SIGNAL | --print-cols SIGNAL
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
 //!           audit flags: [--check-horizon 3d | all] [--audit-lookback 2d] [--audit-sample-hex 0]
-//!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2]
+//!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2] [--audit-dup-sample 16]
 //!           [--audit-timeout 30m] [--audit-no-state]
 //!           replicated central: [--ch URL1,URL2 (a run reads the first that answers)]
 //!           [--sync-replica [--audit-sync-timeout 60s] (SYNC REPLICA … LIGHTWEIGHT per table first)]
@@ -348,6 +348,7 @@ async fn main() {
                 max_threads: arg(&args, "--audit-max-threads").map_or(2, |s| s.parse().expect("--audit-max-threads")),
                 sync_replica: flag(&args, "--sync-replica"),
                 sync_timeout_ms: opt_ms(&args, "--audit-sync-timeout", "60s"),
+                dup_sample: arg(&args, "--audit-dup-sample").map_or(16, |s| s.parse().expect("--audit-dup-sample")),
             };
             // The copies already reported survive a restart: {ctl}/audit/{db}.json.
             let state_key = coord::join(&ctl, &format!("audit/{db}.json"));

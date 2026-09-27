@@ -54,6 +54,28 @@
 //! the same day, which the check can always see), and a table whose
 //! partition key isn't `toDate(received_at)` (skipped: its checks read every
 //! partition anyway).
+//!
+//! **Duplicates by content** (AMBIGUITY.md E1, E2). A copy under a *new*
+//! content key is invisible to everything above: a gateway SIGKILL re-cuts
+//! the agents' resent requests into new pieces, and a sender's resend after
+//! a lost answer lands in a new batch at a publisher with a batch step. Each
+//! run therefore also counts, per table, the rows received in the lookback
+//! whose **row identity** (`row_identity`: a few cheap columns a copy shares
+//! with its original, whatever request carried it) appears under more than
+//! one content key: Σ (distinct content keys − 1) over the identities
+//! (`dup_rows_sql`). Rows repeated inside one request, and a late copy of
+//! the same request (same key, counted above), are not counted. It reads
+//! only the identity columns of the lookback's partitions (logs: the body's
+//! length, `Body.size`, not the body), and with `dup_sample` n > 1 keeps
+//! only the identities whose hash is 0 mod n (every copy of a row shares its
+//! hash, so the sample is unbiased and a burst is seen at 1/n of its size)
+//! and reports the count × n. It is a gauge,
+//! `consumer_audit_duplicate_rows{signal,table}`: the duplicates within the
+//! last lookback, as of the last run. The identities are estimates of
+//! "the same item": two genuinely distinct items with the same identity (a
+//! log line repeated with the same nanosecond, service, severity, trace,
+//! span and body length in two requests; a metric point of one series at
+//! the same second) count too.
 
 use super::plan::DAY_NS;
 use super::sql::{LaneKind, range_partition_key};
@@ -88,11 +110,14 @@ pub struct AuditConfig {
     /// error: the run counts as failed and the next one covers the window.
     pub sync_replica: bool,
     pub sync_timeout_ms: u64,
+    /// Duplicates by content (`dup_rows_sql`): 0 off, 1 exact, n: an
+    /// estimate from 1/n of the row identities.
+    pub dup_sample: u64,
 }
 
 impl Default for AuditConfig {
     fn default() -> Self {
-        AuditConfig { horizon_ms: Some(super::worker::DEFAULT_HORIZON_MS), lookback_ms: 2 * 86_400_000, sample_hex: 0, max_candidates: 1000, tables: Vec::new(), max_threads: 2, sync_replica: false, sync_timeout_ms: 60_000 }
+        AuditConfig { horizon_ms: Some(super::worker::DEFAULT_HORIZON_MS), lookback_ms: 2 * 86_400_000, sample_hex: 0, max_candidates: 1000, tables: Vec::new(), max_threads: 2, sync_replica: false, sync_timeout_ms: 60_000, dup_sample: 16 }
     }
 }
 
@@ -219,6 +244,30 @@ pub fn groups_sql(fq: &str, keys: &[String], days: &BTreeSet<u64>) -> String {
     )
 }
 
+/// The columns that identify a row whatever request carried it, per table:
+/// cheap ones (no map, no body), so the count reads a fraction of the table.
+pub fn row_identity(table: &str) -> Option<&'static str> {
+    Some(match table {
+        "otel_traces" => "TraceId, SpanId, Timestamp",
+        "otel_logs" => "Timestamp, ServiceName, SeverityNumber, TraceId, SpanId, EventName, Body.size",
+        t if t.starts_with("otel_metrics_") && t.ends_with("_points") => "series_id, StartTimeUnix, TimeUnix",
+        t if t.starts_with("otel_metrics_") => "ServiceName, MetricName, Attributes, StartTimeUnix, TimeUnix",
+        _ => return None,
+    })
+}
+
+/// Duplicates by content: rows received from `since_ns`'s day on whose
+/// identity is under more than one content key, Σ (keys − 1), in the sample
+/// (`sample` > 1: identities whose hash is 0 mod `sample`).
+pub fn dup_rows_sql(fq: &str, identity: &str, since_ns: u64, sample: u64) -> String {
+    let since = format!("toDate(fromUnixTimestamp64Nano(toInt64({})))", since_ns.min(i64::MAX as u64));
+    let s = if sample > 1 { format!(" AND cityHash64({identity}) % {sample} = 0") } else { String::new() };
+    format!(
+        "SELECT sum(k - 1) FROM (SELECT uniqExact(content_key) AS k FROM {fq} WHERE _partition_value.1 >= {since}{s} \
+         GROUP BY cityHash64({identity}) HAVING k > 1) FORMAT TSV"
+    )
+}
+
 /// `[19000,19004]` → the days.
 fn parse_days(s: &str) -> Result<Vec<u64>, String> {
     s.trim_matches(|c| c == '[' || c == ']')
@@ -337,6 +386,10 @@ pub struct AuditState {
     /// (signal, table) → copies, since the state began.
     pub late_total: BTreeMap<String, u64>,
     pub unexplained_total: BTreeMap<String, u64>,
+    /// (signal, table) → duplicates by content in the last run's lookback
+    /// (an estimate when sampled): a gauge, replaced by each run that counts.
+    #[serde(default)]
+    pub duplicate_rows: BTreeMap<String, u64>,
 }
 
 /// One run's outcome, per table and overall.
@@ -351,6 +404,8 @@ pub struct AuditReport {
     pub unexplained: Vec<Found>,
     pub errors: Vec<String>,
     pub duration_ms: u64,
+    /// (signal/table) → duplicates by content, estimated (`dup_rows_sql`).
+    pub duplicate_rows: BTreeMap<String, u64>,
     /// The replica this run read (`run_replicas`).
     pub replica: String,
 }
@@ -418,6 +473,22 @@ pub async fn run(ch: &ClickHouse, db: &str, cfg: &AuditConfig, state: &mut Audit
         match audit_table(ch, db, &t, cfg, since, h, &mut rep).await {
             Ok(f) => found.extend(f),
             Err(e) => rep.errors.push(format!("{}: {e}", t.table)),
+        }
+        if let (Some(id), n @ 1..) = (row_identity(&t.table), cfg.dup_sample) {
+            let fq = format!("{db}.{}", t.table);
+            let threads = cfg.max_threads.max(1).to_string();
+            let st = [("max_threads", threads.as_str())];
+            match ch.query(&dup_rows_sql(&fq, id, since, n), &super::sql::no_partial_results(&st)).await {
+                Ok(v) => match v.trim().parse::<u64>() {
+                    Ok(d) => {
+                        let label = format!("{}/{}", t.signal, t.table);
+                        let _ = rep.duplicate_rows.insert(label.clone(), d.saturating_mul(n));
+                        let _ = state.duplicate_rows.insert(label, d.saturating_mul(n));
+                    }
+                    Err(e) => rep.errors.push(format!("{}: duplicates: {v:?}: {e}", t.table)),
+                },
+                Err(e) => rep.errors.push(format!("{}: duplicates: {e}", t.table)),
+            }
         }
     }
     for f in state.record(found) {
@@ -738,6 +809,113 @@ pub(crate) mod tests {
         // An unreachable table is an error in the report, not a panic.
         let rep4 = run(&ClickHouse::new("http://127.0.0.1:1"), &db, &cfg, &mut AuditState::default(), now).await;
         assert_eq!(rep4.errors.len(), 1);
+        ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+    }
+
+    #[test]
+    fn duplicate_statements() {
+        assert_eq!(row_identity("otel_traces"), Some("TraceId, SpanId, Timestamp"));
+        assert!(row_identity("otel_logs").unwrap().ends_with("Body.size"), "the body's length, never the body");
+        assert_eq!(row_identity("otel_metrics_gauge_points"), Some("series_id, StartTimeUnix, TimeUnix"));
+        assert!(row_identity("otel_metrics_sum").unwrap().starts_with("ServiceName, MetricName"));
+        assert_eq!(row_identity("other"), None);
+        for t in targets(&[]) {
+            assert!(row_identity(&t.table).is_some(), "{} has an identity", t.table);
+        }
+        let q = dup_rows_sql("db.t", "a, b", 5 * D, 16);
+        assert_eq!(
+            q,
+            "SELECT sum(k - 1) FROM (SELECT uniqExact(content_key) AS k FROM db.t WHERE _partition_value.1 >= toDate(fromUnixTimestamp64Nano(toInt64(432000000000000))) \
+             AND cityHash64(a, b) % 16 = 0 GROUP BY cityHash64(a, b) HAVING k > 1) FORMAT TSV"
+        );
+        assert!(!dup_rows_sql("db.t", "a", 0, 1).contains('%'), "1: exact");
+    }
+
+    /// Copies under new content keys, planted the way a gateway SIGKILL
+    /// leaves them (AMBIGUITY.md E2, `deploy/results/route-gwkill-batched.txt`):
+    /// the agents' resent requests re-cut into new pieces, so half of one
+    /// logs request and a third of a traces request come back inside
+    /// requests with other keys. Not counted: rows repeated within one
+    /// request, a late copy of a whole request (same key: counted as a late
+    /// copy), and anything received before the lookback. Every counted table
+    /// answers the statement (its identity columns exist).
+    #[tokio::test(flavor = "current_thread")]
+    async fn recut_copies_are_counted_by_content() {
+        let ch = ClickHouse::new(&ch_url());
+        if !ch_up(&ch).await {
+            eprintln!("no ClickHouse: skipped");
+            return;
+        }
+        let db = format!("audit_dup_{}", run_id());
+        ch.query(&format!("CREATE DATABASE {db}"), &[]).await.unwrap();
+        for t in targets(&[]) {
+            let k = LaneKind::for_signal(&t.signal).unwrap();
+            ch.query(&k.create_table(&format!("{db}.{}", t.table)), &[]).await.unwrap();
+        }
+        let now = super::super::wall_ms() * 1_000_000;
+        let today = now / D;
+        let logs = |key: &str, epoch: &str, days_ago: u64, items: std::ops::Range<u64>, same_ts: bool| {
+            let recv = (today - days_ago) * D + HR;
+            let ts = if same_ts { "toDateTime64('2026-09-20 11:00:00', 9)".to_string() } else { "toDateTime64('2026-09-20 10:00:00', 9) + toIntervalMillisecond(number)".to_string() };
+            format!(
+                "INSERT INTO {db}.otel_logs (Timestamp, ServiceName, Body, received_at, row_ordinal, producer_id, producer_epoch, content_key) \
+                 SELECT {ts}, 'svc', concat('line ', toString(number)), fromUnixTimestamp64Nano(toInt64({recv})), number - {}, 'p1', '{epoch}', '{key}' FROM numbers({}, {})",
+                items.start,
+                items.start,
+                items.end - items.start
+            )
+        };
+        let traces = |key: &str, items: std::ops::Range<u64>| {
+            format!(
+                "INSERT INTO {db}.otel_traces (Timestamp, TraceId, SpanId, ServiceName, SpanName, received_at, row_ordinal, producer_id, producer_epoch, content_key) \
+                 SELECT toDateTime64('2026-09-20 10:00:00', 9) + toIntervalMillisecond(number), hex(intDiv(number, 10)), hex(number), 'svc', 'op', \
+                 fromUnixTimestamp64Nano(toInt64({})), number - {}, 'p2', 'E1', '{key}' FROM numbers({}, {})",
+                today * D + HR,
+                items.start,
+                items.start,
+                items.end - items.start
+            )
+        };
+        for q in [
+            logs("orig", "E1", 0, 0..1000, false),
+            logs("recut", "E2", 0, 500..1500, false),     // items 500..999 again: 500
+            logs("late", "E1", 1, 2000..2100, false),
+            logs("late", "E3", 0, 2000..2100, false),     // the same request again: a late copy, not this
+            logs("repeat", "E1", 0, 0..10, true),         // 10 identical rows in one request
+            logs("old", "E1", 9, 3000..3100, false),
+            logs("old2", "E2", 9, 3000..3100, false),     // before the lookback
+            traces("t1", 0..300),
+            traces("t2", 100..400),                       // spans 100..299 again: 200
+        ] {
+            ch.query(&q, &[]).await.unwrap();
+        }
+        let exact = AuditConfig { lookback_ms: 2 * 86_400_000, dup_sample: 1, ..AuditConfig::default() };
+        let mut st = AuditState::default();
+        let rep = run(&ch, &db, &exact, &mut st, now).await;
+        assert!(rep.errors.is_empty(), "{:?}", rep.errors);
+        assert_eq!(rep.duplicate_rows.get("logs/otel_logs"), Some(&500), "{:?}", rep.duplicate_rows);
+        assert_eq!(rep.duplicate_rows.get("traces/otel_traces"), Some(&200), "{:?}", rep.duplicate_rows);
+        assert_eq!(rep.duplicate_rows.len(), targets(&[]).len(), "every counted table, at 0 when clean: {:?}", rep.duplicate_rows);
+        assert_eq!(rep.duplicate_rows.values().sum::<u64>(), 700);
+        assert_eq!(st.duplicate_rows, rep.duplicate_rows);
+        // Sampled (the default, 1/16 of the identities): an estimate, in steps of 16.
+        let rep = run(&ch, &db, &AuditConfig { dup_sample: 16, ..exact.clone() }, &mut AuditState::default(), now).await;
+        let (l, t) = (rep.duplicate_rows["logs/otel_logs"], rep.duplicate_rows["traces/otel_traces"]);
+        assert!(l % 16 == 0 && (250..=1000).contains(&l) && (100..=400).contains(&t), "{:?}", rep.duplicate_rows);
+        eprintln!("sampled 1/16: logs {l}, traces {t} (exact: 500, 200)");
+        // Off: no statement, no gauge.
+        let rep = run(&ch, &db, &AuditConfig { dup_sample: 0, ..exact.clone() }, &mut AuditState::default(), now).await;
+        assert!(rep.duplicate_rows.is_empty() && rep.errors.is_empty(), "{rep:?}");
+        // The metric.
+        let mut p = super::super::metrics::Prom::default();
+        super::super::metrics::audit_families(&mut p, &st, &Default::default(), exact.horizon_ms);
+        let text = p.render();
+        assert!(text.contains("consumer_audit_duplicate_rows{signal=\"logs\",table=\"otel_logs\"} 500\n"), "{text}");
+        assert!(text.contains("consumer_audit_duplicate_rows{signal=\"traces\",table=\"otel_traces\"} 200\n"), "{text}");
+        // What the logs statement reads: the identity columns, not the bodies.
+        let fq = format!("{db}.otel_logs");
+        let ex = ch.query(&format!("EXPLAIN actions = 1 {}", dup_rows_sql(&fq, row_identity("otel_logs").unwrap(), now - 2 * D, 16).replace(" FORMAT TSV", "")), &[]).await.unwrap();
+        assert!(ex.contains("Body.size") && !ex.contains("Body String"), "{ex}");
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
     }
 

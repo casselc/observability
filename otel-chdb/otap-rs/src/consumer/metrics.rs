@@ -234,6 +234,15 @@ pub fn audit_families(p: &mut Prom, st: &super::audit::AuditState, m: &AuditMetr
         let (s, t) = split(k);
         p.counter("consumer_audit_unexplained_copies_total", "", &[("signal", &s), ("table", &t)], *v as f64);
     }
+    p.declare(
+        "consumer_audit_duplicate_rows",
+        Kind::Gauge,
+        "Rows received within the audit lookback whose identity is under more than one content key (re-cut or re-batched copies), as of the last run; estimated from a sample (--audit-dup-sample).",
+    );
+    for (k, v) in &st.duplicate_rows {
+        let (s, t) = split(k);
+        p.gauge("consumer_audit_duplicate_rows", "", &[("signal", &s), ("table", &t)], *v as f64);
+    }
     p.counter("consumer_audit_runs_total", "Horizon audit runs, by result (error: any table failed).", &[("result", "ok")], m.runs_ok as f64);
     p.counter("consumer_audit_runs_total", "", &[("result", "error")], m.runs_err as f64);
     p.declare("consumer_audit_last_success_timestamp_seconds", Kind::Gauge, "Unix time of the last audit run with no error.");
@@ -332,6 +341,7 @@ mod tests {
         }
         let mut st = super::super::audit::AuditState::default();
         let _ = st.late_total.insert("logs/otel_logs".into(), 2);
+        let _ = st.duplicate_rows.insert("logs/otel_logs".into(), 4096);
         let m = AuditMetrics { runs_ok: 3, runs_err: 1, last_success_s: Some(1.79e9), last_duration_s: Some(0.5), last_candidates: 4, tables: 6 };
         let mut p = Prom::default();
         audit_families(&mut p, &st, &m, None);
@@ -343,6 +353,7 @@ mod tests {
             "consumer_audit_runs_total{result=\"error\"} 1",
             "consumer_audit_last_success_timestamp_seconds 1790000000",
             "consumer_audit_duration_seconds 0.5",
+            "consumer_audit_duplicate_rows{signal=\"logs\",table=\"otel_logs\"} 4096",
             "consumer_check_horizon_seconds -1",
         ] {
             assert!(t.contains(want), "{want} not in\n{t}");

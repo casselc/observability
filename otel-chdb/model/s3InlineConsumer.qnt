@@ -16,7 +16,7 @@
  *    in flight afterwards (a paused worker, a slow network): one lands only
  *    by its server-side fence, sent + TTL - MARGIN - BUDGET, and it may land
  *    only in part (one part per object, or per partition).
- *  - The verify: after its statement is gone (answered, or killed), the
+ *  - The verify: after its statement is gone, the
  *    worker counts what landed and advances its checkpoint past the done
  *    prefix only, by CAS. A takeover rewrites the checkpoint (a new
  *    version), so a zombie's CAS fails.
@@ -35,9 +35,17 @@
  *  - Release (load balancing): a holder gives its lane back (the lease CAS
  *    to "no owner", fencing epoch + 1), and anyone may take it at once. It
  *    does so only once none of its statements can still land.
- *  - A statement's commit can outlive its budget by SLACK (on a replicated
- *    central, one Keeper request): it lands by fence + BUDGET + SLACK. The
- *    design's rule is SLACK <= MARGIN (the code refuses to start otherwise).
+ *  - A statement's commit can outlive its budget by SLACK: it lands by
+ *    fence + BUDGET + SLACK. The design's rule is SLACK <= MARGIN (the code
+ *    refuses to start otherwise). On a replicated central (2026-09-26,
+ *    central-replicated/README.md "Keeper overrun") a commit whose Keeper
+ *    request hung is resolved by the server's retry loop, up to the Keeper
+ *    session timeout after the statement started (measured 19 s past a 10 s
+ *    budget), and the statement may answer with an error (TIMEOUT_EXCEEDED)
+ *    and land all the same. So "gone" is not "answered": an error answer
+ *    ends a statement only if it was raised before anything was written;
+ *    otherwise the worker waits for the statement's SLACK to pass. The model
+ *    has no answers: a worker advances only once its statement is gone.
  *  - Partitions and the check's range. Every object of epoch e was
  *    received on day eDay(e) (an epoch's day is the calendar day when its
  *    incarnation started; a copy of a request, resent into a later epoch,
@@ -70,6 +78,10 @@
  *  - SLACK > MARGIN: a commit outlives the margin (a Keeper request past
  *    max_execution_time with a margin below it) and lands after another
  *    worker took the lane and inserted the batch.
+ *  - ERROR_SETTLES: a worker takes an error answer for the end of its
+ *    statement (the code before 2026-09-26): it verifies while the statement
+ *    is still in flight, finds its objects missing, inserts them again, and
+ *    the first statement lands too.
  *  - HORIZON < MAX_DAY: the check misses the original of a copy received on
  *    a later day, and ingests the copy too.
  *  - GC_KEEP = false: GC also deletes the slot below the checkpoint; a
@@ -96,6 +108,7 @@ module s3InlineConsumer {
   const WALL_RANGE: bool       // mutation: the check reads today's day only
   const MAX_DAY: int           // the environment: the calendar runs days 0..MAX_DAY
   const GC_KEEP: bool          // GC keeps the slot below the position until retirement (the design)
+  const ERROR_SETTLES: bool    // mutation: an error answer ends a statement that may still land
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -173,6 +186,11 @@ module s3InlineConsumer {
   // Held::settled_by = sent + TTL + SLACK, the server clock allowed MARGIN behind).
   pure def landBy(q: Stmt): int = q.fence + BUDGET + SLACK
   pure def settledBy(q: Stmt): int = q.fence + MARGIN + BUDGET + SLACK
+  // A worker verifies once its statement is gone. ERROR_SETTLES: also while
+  // it is still in flight (the server answered with an error, and the worker
+  // took that for the end of it).
+  def mayAdvance(w: int): bool =
+    ERROR_SETTLES or stmts.forall(q => not(q.worker == w and q.inc == workers.get(w).inc))
   def mayRelease(w: int): bool = {
     val wk = workers.get(w)
     wk.holds and current(w) and
@@ -350,7 +368,7 @@ module s3InlineConsumer {
     val n = advanceTo(wk.view.next.get(wk.epoch), wk.objs, done)
     val nc = { ...ckpt, version: ckpt.version + 1, next: ckpt.next.set(wk.epoch, n) }
     all {
-      wk.holds, wk.phase == WSent, stmts.forall(q => not(q.worker == w and q.inc == wk.inc)),
+      wk.holds, wk.phase == WSent, mayAdvance(w),
       if (ckpt.version == wk.view.version) all {
         ckpt' = nc,
         workers' = workers.set(w, { ...idle(wk), view: nc }),
@@ -631,6 +649,15 @@ module s3InlineConsumer {
   run wallRangeDesignTest = wallPrefix.expect(and { stmts == Set(), atMostOnce })
   run wallRangeBreaksTest = wallPrefix.then(cLand(2)).expect(not(atMostOnce))
 
+  // An error answer that isn't the end: w1's statement is in flight (its
+  // commit still resolving in Keeper, the server answered TIMEOUT_EXCEEDED).
+  run errorPrefix = init.then(lCommit(1, 1)).then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1))
+  run errorSettlesDesignTest = errorPrefix.expect(not(mayAdvance(1)))
+  run errorSettlesBreaksTest =
+    // (a tick and a renewal first: the retry is a new statement, with a new fence)
+    errorPrefix.then(wAdvance(1)).then(tick).then(wRenew(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(cLand(1))
+      .expect(not(atMostOnce))
+
   // GC and a writer that never learnt its PUT landed: it gives up on slot 0
   // (payload 2, answer lost) and switches to payload 1 for the same slot;
   // the late PUT of payload 2 lands and is ingested (checkpoint at 1).
@@ -653,19 +680,19 @@ module s3InlineConsumer {
 module s3InlineConsumerDesign {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = true, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // The design in the mutants' narrower environment (must pass too).
 module designQuiet {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // ... and with the mutants' short lease.
 module designShortLease {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // ... and with writer faults (copies of a request in a later epoch, on a
 // later day), the short lease, and no series lane. (Before GC_KEEP this
@@ -673,65 +700,72 @@ module designShortLease {
 module designCopies {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // The same at the MBT's lease (TTL 6: tests/mbt_s3inline_consumer.rs has one timing).
 module designDays {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = false, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = true, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = true,
     WRITER_FAULTS = false, SERIES = true, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: a worker releases its lane while its statement may still land.
 module releaseInFlight {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = false, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: a commit outlives the margin (SLACK 2 > MARGIN 1).
 module keeperOverrun {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 2, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: the check reads only the objects' own day (no copy horizon).
 module noHorizon {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: the check reads today's partition by the worker's clock.
 module wallRange {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = true,
-    MAX_DAY = 1, GC_KEEP = true).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
 }
 // Mutation: GC deletes the slot below the checkpoint (as before 2026-09-26).
 module gcReopens {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = false).*
+    MAX_DAY = 0, GC_KEEP = false, ERROR_SETTLES = false).*
+}
+// Mutation: an error answer ends a statement that may still land (the code
+// before 2026-09-26 took any error answer for the end of its statement).
+module errorSettles {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = true).*
 }

@@ -37,12 +37,13 @@ sim $C announceEarly announcedOnlyAfterCommit 20000 60 VIOLATED
 sim $C wallRange atMostOnce 20000 60 VIOLATED
 sim $C releaseInFlight atMostOnce 20000 60 VIOLATED
 sim $C keeperOverrun atMostOnce 20000 60 VIOLATED
+sim $C errorSettles atMostOnce 20000 60 VIOLATED
 sim $C noHorizon atMostOnce 20000 60 VIOLATED
 sim $C gcReopens neverSkipsCommitted 20000 60 VIOLATED
 # (gcReopensDesignTest needs writer faults: a lost answer)
 for m in s3InlineConsumerDesign designCopies designDays; do runs $m DesignTest all-pass; done
-for m in designQuiet designShortLease; do runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|wallRange)DesignTest" all-pass; done
-for m in releaseInFlight keeperOverrun noHorizon wallRange gcReopens; do runs $m "${m}BreaksTest" all-pass; done
+for m in designQuiet designShortLease; do runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|wallRange|errorSettles)DesignTest" all-pass; done
+for m in releaseInFlight keeperOverrun noHorizon wallRange gcReopens errorSettles; do runs $m "${m}BreaksTest" all-pass; done
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

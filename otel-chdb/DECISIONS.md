@@ -1381,6 +1381,38 @@ a private-CA TLS proxy** [M] ([`parquetgo/README.md`](parquetgo/README.md) §Cre
 stand-ins issue empty session tokens, because SeaweedFS rejects foreign ones,
 so the token header was never exercised against a store.
 
+**Write-side ABAC (proposed 2026-09-27; closes STPA R-S7, SEC-1..3; not built).**
+Today every edge in a bucket can write, and delete, any key its credentials
+reach, so a compromised node can forge or delete another cluster's data or the
+consumer's control objects. The fix is attribute-based access on session
+credentials, with the key layout carrying the boundary:
+
+- **Layout.** Put the cluster first: `{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet`
+  for lanes, `{ctl}/…` for leases, checkpoints, tombstones and GC marks, and
+  `{entities}/{cluster}/…` for entity lanes. Today's layout has no cluster
+  segment (`{root}/{producer}/…`), so this is a layout change for the
+  consumer's listing and GC.
+- **Edge publishers:** `s3:PutObject` only, under `{root}/${aws:PrincipalTag/cluster}/*`;
+  no `DeleteObject`, no access to `{ctl}`. Create-only is already enforced by
+  `If-None-Match: *`; the policy adds that a publisher cannot write outside its
+  cluster.
+- **Entity controllers:** `PutObject` only under `{entities}/${aws:PrincipalTag/cluster}/*`.
+  The aggregator rejects a record whose cluster differs from its key's.
+- **Consumer, GC and sealer roles:** read all lanes; write and delete only under
+  `{ctl}`; delete lanes only as GC. No edge role can touch `{ctl}`.
+- **Where the tag comes from:** the `cluster` principal tag is set when the
+  credentials are issued: an IRSA or Pod Identity role per cluster, or a session
+  tag on `AssumeRoleWithWebIdentity` / Roles Anywhere. One policy per role
+  serves all clusters through `${aws:PrincipalTag/cluster}`.
+- **Portability.** Policy variables and session tags are AWS features. On
+  SeaweedFS and Nutanix Objects, whether they are supported is unverified
+  [D]; there the fallback is a separate credential per cluster scoped to its
+  prefix, and the same separation of edge and consumer roles.
+- **Read side** (viewers, the lake UI) uses the same attributes; see
+  `research/lake-ui.md` when it lands.
+- **Not covered:** isolation inside an object, and revoking a credential before
+  it expires (keep sessions short).
+
 ---
 
 ### D19. Durable buffer at the edge

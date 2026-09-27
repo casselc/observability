@@ -1,0 +1,60 @@
+# Temporary: runs the quint commands quint-connect runs, directly, so their
+# stderr shows. Removed once the nightly mbt failures are understood.
+name: debug-mbt
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  QUINT_VERSION: "0.32.0"
+  NODE_VERSION: "22"
+
+jobs:
+  quint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { spec: s3InlineMetrics.qnt, main: s3InlineMetricsDesign, n: 300, steps: 80 }
+          - { spec: s3InlineConsumer.qnt, main: designQuiet, n: 1000, steps: 80 }
+          - { spec: s3InlineConsumer.qnt, main: s3InlineConsumerDesign, n: 300, steps: 60 }
+    defaults:
+      run:
+        working-directory: otel-chdb/otap-rs
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install quint
+        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+      - name: Environment
+        run: |
+          ulimit -a; nproc; free -m; node --version
+          node -e 'console.log(require("v8").getHeapStatistics())'
+      - name: quint run --mbt (as quint-connect runs it)
+        run: |
+          out="$RUNNER_TEMP/itf"; mkdir -p "$out"
+          set +e
+          /usr/bin/time -v quint run "../model/${{ matrix.spec }}" --seed 0x5eed \
+            --max-samples ${{ matrix.n }} --n-traces ${{ matrix.n }} \
+            --out-itf "$out/run_{seq}.itf.json" --mbt --verbosity 0 \
+            --main ${{ matrix.main }} --max-steps ${{ matrix.steps }} \
+            >"$RUNNER_TEMP/stdout" 2>"$RUNNER_TEMP/stderr"
+          rc=$?
+          echo "rc=$rc"
+          echo "--- stdout (tail)"; tail -c 4000 "$RUNNER_TEMP/stdout"
+          echo "--- stderr"; tail -c 8000 "$RUNNER_TEMP/stderr"
+          echo "--- traces: $(ls "$out" | wc -l)"
+          ls -la ~/.quint ~/.quint/* || true
+          sudo dmesg | tail -20 || true
+          exit $rc

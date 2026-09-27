@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lake UI Probe</title>
+<style>
+  :root { --bg: #fbfbfa; --fg: #1d1d1b; --muted: #6b6b66; --line: #deded8; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #33332f; } }
+  body { background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; margin: 0; padding: 16px; }
+  pre { white-space: pre-wrap; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Lake UI probe</h1>
+<p class="muted">DuckDB-WASM in the page; the query service (<code>signer.py</code>) resolves scope to
+objects and hands out presigned URLs. No S3 keys in the page. Driven by <code>drive.mjs</code>;
+call <code>window.lakeRun()</code> by hand otherwise.</p>
+<pre id="out"></pre>
+<script type="module">
+const params = new URLSearchParams(location.search);
+const VER = params.get('v') || '1.32.0';
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += s + '\n'; };
+
+const t = () => performance.now();
+
+// ?src=local: a self-hosted bundle (what an air-gapped site serves); default: jsDelivr.
+// ?src=localdev: the same for the 1.33.1-dev64 build (DuckDB 1.5.x).
+const LOCAL = params.get('src') === 'local' || params.get('src') === 'localdev';
+const VDIR = params.get('src') === 'localdev' ? '/vendor/ddbdev/' : '/vendor/ddb/';
+const duckdb = await import(LOCAL ? VDIR + 'duckdb.mjs'
+                                  : `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${VER}/+esm`);
+function localBundles() {
+  const b = new URL(VDIR, location.href).href;
+  return {
+    mvp: { mainModule: b + 'duckdb-mvp.wasm', mainWorker: b + 'duckdb-browser-mvp.worker.js' },
+    eh: { mainModule: b + 'duckdb-eh.wasm', mainWorker: b + 'duckdb-browser-eh.worker.js' },
+    coi: { mainModule: b + 'duckdb-coi.wasm', mainWorker: b + 'duckdb-browser-coi.worker.js',
+           pthreadWorker: b + 'duckdb-browser-coi.pthread.worker.js' },
+  };
+}
+
+// ?head=shim: a SigV4 query-string signature binds the method, so a URL
+// presigned for GET answers HEAD with 403 (SeaweedFS and AWS alike), and
+// DuckDB-WASM then reads whole objects. This shim, run in DuckDB's worker,
+// turns its HEAD on a presigned URL into GET Range: bytes=0-0 and reports the
+// size from Content-Range (the same shim as head-shim.js, inlined because
+// DuckDB's worker is a classic script). Measured: no effect on DuckDB-WASM
+// 1.32.0 / 1.33.1-dev64, which read whole objects either way, and ?fs=head
+// fails to open files (research/lake-ui.md §2.1). It does fix chdb-wasm.
+const HEADSHIM = params.get('head') === 'shim';
+function headShim() {
+  const X = self.XMLHttpRequest;
+  self.XMLHttpRequest = class extends X {
+    open(m, u, ...a) { this.__h = m === 'HEAD' && /X-Amz-Signature=/.test(u); return super.open(this.__h ? 'GET' : m, u, ...a); }
+    setRequestHeader(k, v) { if (this.__h && k.toLowerCase() === 'range') { this.__r = 1; v = 'bytes=0-0'; } return super.setRequestHeader(k, v); }
+    send(b) { if (this.__h && !this.__r) super.setRequestHeader('Range', 'bytes=0-0'); return super.send(b); }
+    getResponseHeader(k) {
+      if (this.__h && k.toLowerCase() === 'content-length') {
+        const cr = super.getResponseHeader('Content-Range');
+        if (cr) return cr.split('/')[1];
+      }
+      return super.getResponseHeader(k);
+    }
+  };
+}
+
+async function init() {
+  const t0 = t();
+  const all = LOCAL ? localBundles() : duckdb.getJsDelivrBundles();
+  // ?bundle=eh skips the threaded (COI) bundle: in 1.32.0 its extensions fail to
+  // link (shared vs unshared memory), and parquet is an extension.
+  const bundles = params.get('bundle') === 'eh' ? { mvp: all.mvp, eh: all.eh } : all;
+  const bundle = await duckdb.selectBundle(bundles);
+  const workerUrl = URL.createObjectURL(
+    new Blob([(HEADSHIM ? `(${headShim})();\n` : '') + `importScripts("${bundle.mainWorker}");`],
+      { type: 'text/javascript' }));
+  const db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), new Worker(workerUrl));
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  URL.revokeObjectURL(workerUrl);
+  // ?fs=head: trust HEAD and forbid whole-object reads (fails to open; see above).
+  if (params.get('fs') === 'head')
+    await db.open({ filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false } });
+  const conn = await db.connect();
+  // An air-gapped site mirrors the extensions it needs (parquet is not built in).
+  if (LOCAL) await conn.query(`SET custom_extension_repository = '${new URL('/vendor/ext', location.href).href}'`);
+  const v = (await conn.query('SELECT version() AS v')).toArray()[0].v;
+  return { db, conn, info: { pkg: LOCAL ? 'local ' + VER : VER, core: v, bundle: bundle.mainModule.split('/').pop(),
+    coi: self.crossOriginIsolated, headShim: HEADSHIM, initMs: Math.round(t() - t0) } };
+}
+
+// Plan on the query service, register the presigned URLs under plain names
+// (DuckDB would read '?' in a URL as a glob), then query them.
+let seq = 0;
+let TOKEN = null;   // the viewer's OIDC token; the share endpoint scopes by its claims
+async function planAndRegister(db, qs) {
+  const t0 = t();
+  const resp = await fetch('/plan?' + qs, TOKEN ? { headers: { Authorization: 'Bearer ' + TOKEN } } : {});
+  if (!resp.ok) throw new Error(`plan ${resp.status}: ${await resp.text()}`);
+  const plan = await resp.json();
+  const names = [];
+  for (const u of plan.urls) {
+    const name = `o${seq++}.parquet`;
+    await db.registerFileURL(name, u, duckdb.DuckDBDataProtocol.HTTP, false);
+    names.push(name);
+  }
+  return { plan, names, planMs: Math.round(t() - t0) };
+}
+
+async function timed(conn, sql) {
+  const t0 = t();
+  const r = await conn.query(sql);
+  return { ms: Math.round(t() - t0), rows: r.numRows, sample: JSON.parse(JSON.stringify(r.toArray().slice(0, 3).map((x) => x.toJSON()),
+    (k, v) => (typeof v === 'bigint' ? Number(v) : v))) };
+}
+
+const list = (names) => '[' + names.map((n) => `'${n}'`).join(',') + ']';
+
+window.lakeRun = async function (opts = {}) {
+  const trace = opts.trace;
+  TOKEN = opts.token || null;
+  const res = { steps: [] };
+  const { db, conn, info } = await init();
+  res.info = info;
+  log(JSON.stringify(info));
+  try { await conn.query('LOAD iceberg'); res.iceberg = 'loaded'; }
+  catch (e) { res.iceberg = String(e.message || e).slice(0, 200); }
+  log('iceberg: ' + res.iceberg);
+
+  const shapes = [
+    ['trace by id (maplet)', `signal=traces&trace=${trace}`,
+      (n) => `SELECT SpanId, ParentSpanId, ServiceName, SpanName, Duration, StatusCode
+              FROM read_parquet(${list(n)}) WHERE TraceId = '${trace}' ORDER BY Timestamp`],
+    ['trace by id (no maplet, all trace objects)', `signal=traces&trace=${trace}&maplet=0`,
+      (n) => `SELECT SpanId, ServiceName, SpanName, Duration FROM read_parquet(${list(n)})
+              WHERE TraceId = '${trace}'`],
+    ['service search 1 h (entity catalog -> cluster)', `signal=traces&service=svc-2-3`,
+      (n) => `SELECT SpanName, count() AS n, quantile_cont(Duration, 0.95) AS p95,
+                     countIf(StatusCode = 'Error') AS errors
+              FROM read_parquet(${list(n)}) WHERE ServiceName = 'svc-2-3' GROUP BY 1 ORDER BY n DESC`],
+    ['service search, latest 50 rows', `signal=traces&service=svc-2-3`,
+      (n) => `SELECT Timestamp, TraceId, SpanName, Duration FROM read_parquet(${list(n)})
+              WHERE ServiceName = 'svc-2-3' ORDER BY Timestamp DESC LIMIT 50`],
+    ['pod logs (entity catalog -> cluster)', `signal=logs&service=svc-1-2`,
+      (n) => `SELECT Timestamp, SeverityText, Body FROM read_parquet(${list(n)})
+              WHERE ResourceAttributes['k8s.pod.name'] = 'svc-1-2-pod-1' ORDER BY Timestamp DESC LIMIT 100`],
+    ['log needle, all log objects', `signal=logs`,
+      (n) => `SELECT count() FROM read_parquet(${list(n)}) WHERE Body LIKE '%order=424242 %'`],
+    ['metric chart (layout B points, one service)', `signal=metrics_gauge&service=svc-3-1`,
+      (n) => `SELECT date_trunc('minute', TimeUnix) AS m, avg(Value) AS v FROM read_parquet(${list(n)})
+              WHERE MetricName = 'cpu.usage' AND ServiceName = 'svc-3-1' GROUP BY 1 ORDER BY 1`],
+  ];
+  for (const [name, qs, sql] of shapes) {
+    for (const pass of ['cold', 'warm']) {
+      const mark = performance.now();
+      let plan = { steps: {}, bytes: 0 }, names = [], planMs = 0, r;
+      try {
+        ({ plan, names, planMs } = await planAndRegister(db, qs));
+        r = await Promise.race([timed(conn, sql(names)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 60 s')), 60000))]);
+      } catch (e) { r = { error: String(e.message || e) }; }
+      const step = { name, pass, planSteps: plan.steps, objects: names.length, objectBytes: plan.bytes, planMs, ...r,
+                     wallMs: Math.round(performance.now() - mark) };
+      res.steps.push(step);
+      log(JSON.stringify(step));
+      if (opts.onStep) await opts.onStep(step);
+    }
+  }
+  return res;
+};
+// hyparquet (pure JS): range reads with the size from the plan, so no HEAD;
+// only the footer and the needed column chunks cross the network.
+window.lakeRunHyparquet = async function (opts = {}) {
+  const hp = await import('/vendor/ddbdev/hyparquet.mjs');
+  TOKEN = opts.token || null;
+  const buf = (url, n) => ({ byteLength: n,
+    slice: async (a, b) => (await fetch(url, { headers: { Range: `bytes=${a}-${(b ?? n) - 1}` } })).arrayBuffer() });
+  const cached = (f) => hp.cachedAsyncBuffer ? hp.cachedAsyncBuffer(f) : f;
+  async function plan(qs) {
+    const r = await fetch('/plan?' + qs, TOKEN ? { headers: { Authorization: 'Bearer ' + TOKEN } } : {});
+    return r.json();
+  }
+  const out = [];
+  const shapes = [
+    ['hyparquet: trace by id (no maplet, all trace objects)', `signal=traces&trace=${opts.trace}&maplet=0`,
+      ['TraceId'], ['SpanId', 'ServiceName', 'SpanName', 'Duration'], (r) => r.TraceId === opts.trace],
+    ['hyparquet: service search 1 h (entity catalog -> cluster)', 'signal=traces&service=svc-2-3',
+      ['ServiceName'], ['SpanName', 'Duration', 'StatusCode'], (r) => r.ServiceName === 'svc-2-3'],
+  ];
+  for (const [name, qs, filterCols, outCols, pred] of shapes) {
+    const t0 = performance.now();
+    const p = await plan(qs);
+    let hits = 0;
+    await Promise.all(p.urls.map(async (u, i) => {
+      const file = cached(buf(u, p.sizes[i]));
+      const metadata = await hp.parquetMetadataAsync(file);
+      const rows = await hp.parquetReadObjects({ file, metadata, columns: filterCols, compressors: hp.compressors });
+      const idx = rows.map((r, j) => (pred(r) ? j : -1)).filter((j) => j >= 0);
+      if (!idx.length) return;
+      const got = await hp.parquetReadObjects({ file, metadata, columns: outCols,
+        rowStart: idx[0], rowEnd: idx[idx.length - 1] + 1, compressors: hp.compressors });
+      hits += idx.length;
+    }));
+    const step = { name, pass: 'cold', objects: p.urls.length, objectBytes: p.bytes, rows: hits,
+                   ms: Math.round(performance.now() - t0), planSteps: p.steps };
+    out.push(step);
+    if (opts.onStep) await opts.onStep(step);
+  }
+  return out;
+};
+window.lakeInit = init; window.lakePlan = planAndRegister; window.lakeSetToken = (x) => { TOKEN = x; };
+window.lakeReady = true;
+log('ready: duckdb-wasm ' + VER);
+</script>
+</body>
+</html>

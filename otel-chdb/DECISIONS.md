@@ -1571,6 +1571,20 @@ manifest-before-Parquet mutant is caught.
 
 ---
 
+### Owner decisions, 2026-09-27
+
+The owner accepted a **near-tail of 15–40 s** in place of live tail, and
+**alerts about 5 minutes behind** when the aggregates central is down
+(open question 5 of [research/central-optional.md](research/central-optional.md)).
+The UI strategy is **(1) a HyperDX fork first, and (2) a dedicated lake-first
+UI as well**, which may query in the browser with DuckDB or chDB in
+WebAssembly. The feasibility spike for (2) is
+[research/lake-ui.md](research/lake-ui.md): a hybrid design where a share
+endpoint plans and presigns and the browser reads the lake, with the query
+service, entity catalog API and `complete_through` banner shared with the fork.
+
+---
+
 ## 3. Current sizing summary
 
 The mid scenario, as the calculator

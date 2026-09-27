@@ -42,6 +42,19 @@ KNOWN = {
 }
 
 
+# ClickStack's key-value rollups (SummingMergeTree, fed by a view) are compared
+# summed over their key, not row by row: how many rows hold a key depends on
+# which parts have merged, not on the edge. The span-kind difference above
+# reaches them as a Key = 'SpanKind' row with Value '' (Go) or 'Unspecified'
+# (Rust), normalized the same way.
+ROLLUP_VALUE = "if(`Key` = 'SpanKind' AND `Value` = '', 'Unspecified', `Value`)"
+
+
+def rollup_source(table):
+    return (f"(SELECT `Timestamp`, `ColumnIdentifier`, `Key`, {ROLLUP_VALUE} AS `Value`, sum(`count`) AS `count` "
+            f"FROM {table} GROUP BY `Timestamp`, `ColumnIdentifier`, `Key`, `Value`)")
+
+
 def check(name, ok, detail=""):
     global fails
     fails += 0 if ok else 1
@@ -127,6 +140,10 @@ def central(tag):
     for t in sorted(tables["rust"] & tables["go"]):
         cols = ch(f"SELECT name FROM system.columns WHERE database = '{dbs['rust']}' AND table = '{t}' ORDER BY position FORMAT TSV").split("\n")
         src = {e: f"{db}.{t}" for e, db in dbs.items()}
+        if "_kv_rollup_" in t and {"Key", "Value", "count"} <= set(cols):
+            n = {e: ch(f"SELECT countIf(`Key` = 'SpanKind' AND `Value` = '') FROM {s}") for e, s in src.items()}
+            info(f"{t}: compared summed per key", f"span-kind '' rows normalized to 'Unspecified'; rows changed: rust {n['rust']}, go {n['go']}")
+            src = {e: rollup_source(s) for e, s in src.items()}
         exprs = []
         for c in cols:
             if c in RUN_COLS:

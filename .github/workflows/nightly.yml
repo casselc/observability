@@ -1,0 +1,454 @@
+# The heavier suites, nightly and on demand (ci/README.md): the edges end to
+# end through the consumer, the fault and soak runs, the model checks, and
+# the tests that load libchdb.
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: consumer soak duration (s)
+        default: "300"
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GO_VERSION: "1.26.x"
+  QUINT_VERSION: "0.32.0"
+  NODE_VERSION: "22"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # Release binaries (otap-s3pq, consume), the Go tools and the Go edge
+  # (otelcol-s3pq), shared with the end-to-end jobs as one artifact; plus the
+  # otelcol-chdb distribution as a build check.
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        working-directory: otel-chdb/otap-rs
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - name: cargo build --release
+        working-directory: otel-chdb/otap-rs
+        run: cargo build --release --locked --bins
+      - name: Go tools and datasets' generators
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cp -f otel-chdb/otap-rs/target/release/{otap-s3pq,consume} "$RUNNER_TEMP/bin/"
+          (cd otel-chdb/otap-rs/tools && go build -o "$RUNNER_TEMP/bin/" ./cmd/...)
+          (cd otel-chdb/parquetgo/compare && go build -o "$RUNNER_TEMP/bin/" ./cmd/credstubs)
+      - name: Collectors (ocb)
+        run: ci/build-collectors.sh "$RUNNER_TEMP/bin" all
+      - name: Pack
+        run: tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/bin.tgz" bin && ls -la "$RUNNER_TEMP/bin"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bin
+          path: ${{ runner.temp }}/bin.tgz
+          retention-days: 3
+
+  # Cross-edge conformance (both layouts) and the Go edge under faults.
+  conformance:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pyarrow requests
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - name: Datasets
+        env:
+          VARIANTS: "12"
+          CONFORMANCE: "1"
+        run: ci/gen-data.sh "$RUNNER_TEMP/data" "$RUNNER_TEMP/genbin"
+      - name: conformance/run.sh (layout B, series_table)
+        env:
+          B: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          W: ${{ runner.temp }}/out/conformance
+          RUN: ci${{ github.run_id }}b
+        run: otel-chdb/conformance/run.sh
+      - name: conformance/run.sh (ClickStack metrics tables)
+        env:
+          B: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          W: ${{ runner.temp }}/out/conformance
+          RUN: ci${{ github.run_id }}c
+          LAYOUT: clickstack_tables
+          DATASETS: metrics-testgen-3000 metrics-nasty-700 metrics-extra metrics-hostile metrics-mixed-10000
+        run: otel-chdb/conformance/run.sh
+      - name: conformance/go_faults.sh
+        env:
+          B: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          OUT: ${{ runner.temp }}/out/go-faults
+          RUN: ci${{ github.run_id }}
+        run: |
+          otel-chdb/conformance/go_faults.sh
+          ci/verdict.sh "$OUT/summary.txt" 6
+      - name: Service logs
+        if: failure()
+        run: mkdir -p "$RUNNER_TEMP/out" && ci/services.sh logs > "$RUNNER_TEMP/out/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  # The Rust edge under faults, then the consumer fleet under chaos (short).
+  faults-soak:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - name: Datasets
+        env:
+          VARIANTS: "12"
+        run: ci/gen-data.sh "$RUNNER_TEMP/data" "$RUNNER_TEMP/genbin"
+      - name: otap-rs/scripts/faults.sh
+        working-directory: otel-chdb/otap-rs
+        env:
+          B: ${{ runner.temp }}/bin
+          T: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          OUT: ${{ runner.temp }}/out/faults
+          RUN: ci${{ github.run_id }}
+        run: |
+          bash scripts/faults.sh   # the file is not executable in git
+          ../../ci/verdict.sh "$OUT/summary.txt" 5
+      - name: otap-rs/scripts/consumer_soak.sh (short)
+        working-directory: otel-chdb/otap-rs
+        env:
+          B: ${{ runner.temp }}/bin
+          OUT: ${{ runner.temp }}/out/soak
+          DURATION: ${{ inputs.soak_seconds || '300' }}
+          RUN: soakci${{ github.run_id }}
+        run: |
+          scripts/consumer_soak.sh
+          ../../ci/verdict.sh "$OUT/summary.txt" 6
+      - name: Service logs
+        if: failure()
+        run: mkdir -p "$RUNNER_TEMP/out" && ci/services.sh logs > "$RUNNER_TEMP/out/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: faults-soak
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  # The credential modes against local stand-ins, and layout B against the Go
+  # prototype on the fleet batches: the otap-rs integration tests the fast
+  # workflow leaves out.
+  rust-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+      OTAPRS_DATA: ${{ github.workspace }}/.ci/data
+      OTAPRS_SERIES_GO: ${{ github.workspace }}/.ci/data/series/go
+      OTAPRS_SERIES_FLEET: ${{ github.workspace }}/.ci/data/series/fleet
+      OTAPRS_CREDSTUBS: ${{ github.workspace }}/.ci/creds
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        working-directory: otel-chdb/otap-rs
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - name: Datasets (with the Go prototype's fleet objects)
+        env:
+          SERIES: "1"
+          FLEET: "1"
+        run: ci/gen-data.sh "$OTAPRS_DATA"
+      - name: tests/series.rs (corr and fleet)
+        working-directory: otel-chdb/otap-rs
+        run: cargo test --release --locked --test series -- --nocapture
+      - name: tests/creds.rs (credstubs on :18901-18904)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          mkdir -p "$OTAPRS_CREDSTUBS"
+          (cd "$OTAPRS_CREDSTUBS" && exec "$OTAPRS_DATA/bin/credstubs" > credstubs.log 2>&1) &
+          for _ in $(seq 50); do [ -s "$OTAPRS_CREDSTUBS/ca.pem" ] && break; sleep 0.2; done
+          cargo test --release --locked --test creds -- --nocapture --test-threads 1
+      - name: Logs
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"; cp -r "$OTAPRS_CREDSTUBS" "$RUNNER_TEMP/out/" || true
+          ci/services.sh logs > "$RUNNER_TEMP/out/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: rust-integration
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  # The quint-connect model-based tests: quint drives the protocol and the
+  # consumer through traces of ../model/*.qnt (the Rust evaluator). One test
+  # binary per runner, one test at a time: each quint run takes 2.5-4 GB
+  # (node plus the evaluator), and all three binaries' tests at once peaked
+  # near 10 GB locally. No services: the consumer's own ClickHouse / S3
+  # tests, which mbt_s3inline_consumer also includes, skip without them and
+  # run in ci.yml's rust job.
+  rust-mbt:
+    name: otap-rs mbt (${{ matrix.test }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [mbt_s3inline, mbt_s3inline_metrics, mbt_s3inline_consumer]
+    defaults:
+      run:
+        working-directory: otel-chdb/otap-rs
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then
+            ln -sfn "$UPSTREAM_DIR" .upstream
+          else
+            scripts/fetch-upstream.sh "$UPSTREAM_DIR"
+          fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install quint
+        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+      - uses: actions/cache@v6
+        with:
+          path: ~/.quint
+          key: quint-${{ runner.os }}-${{ env.QUINT_VERSION }}
+      - name: cargo test --test ${{ matrix.test }}
+        env:
+          QUINT_SEED: "0x5eed"
+        run: cargo test --release --locked --test "${{ matrix.test }}" -- --test-threads=1 --nocapture
+
+  # The consumer models (quint, Rust evaluator) and parquetgo's model check.
+  model:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install quint (and bc for the report's timings)
+        run: |
+          npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+          command -v bc || { sudo apt-get update -q && sudo apt-get install -y -q bc; }
+      - uses: actions/cache@v6
+        with:
+          path: ~/.quint
+          key: quint-${{ runner.os }}-${{ env.QUINT_VERSION }}
+      - name: otap-rs/scripts/consumer_model.sh
+        env:
+          OUT: ${{ runner.temp }}/out/consumer-model.txt
+        run: mkdir -p "$RUNNER_TEMP/out" && ci/model-check.sh
+      - name: parquetgo/modelcheck
+        run: cat ci/test.env >> "$GITHUB_ENV" && LOG_DIR="$RUNNER_TEMP/out" ci/go-modules.sh test slow
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: model
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
+  # The Go tests that load libchdb (the chdb-go fork, the chdb exporter with
+  # its quint-driven property tests, parquetgo/compare's correctness run).
+  chdb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      LIBCHDB_DIR: ${{ github.workspace }}/.ci/libchdb
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install quint
+        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+      - uses: actions/cache@v6
+        id: libchdb
+        with:
+          path: .ci/libchdb
+          key: libchdb-${{ runner.os }}-${{ hashFiles('otel-chdb/chdb-go/update_libchdb.sh') }}
+      - name: libchdb (the release chdb-go/update_libchdb.sh pins)
+        if: steps.libchdb.outputs.cache-hit != 'true'
+        run: mkdir -p "$LIBCHDB_DIR" && cd "$LIBCHDB_DIR" && bash "$GITHUB_WORKSPACE/otel-chdb/chdb-go/update_libchdb.sh"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - name: go test (chdb modules)
+        env:
+          CHDB_LIB_PATH: ${{ github.workspace }}/.ci/libchdb/libchdb.so
+          PBT_QUINT: "1"
+          LOG_DIR: ${{ runner.temp }}/out
+        run: ci/go-modules.sh test chdb
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs > "$RUNNER_TEMP/out/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: chdb
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore

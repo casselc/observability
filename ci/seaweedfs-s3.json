@@ -1,0 +1,1 @@
+{"identities":[{"name":"otel","credentials":[{"accessKey":"otel","secretKey":"otelsecret"}],"actions":["Admin","Read","Write","List","Tagging"]}]}

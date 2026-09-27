@@ -1,0 +1,160 @@
+# The fast checks, on every push and pull request (ci/README.md).
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GO_VERSION: "1.26.x"
+  QUINT_VERSION: "0.32.0"
+  NODE_VERSION: "22"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  go-vet:
+    name: go vet (all modules)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-vet-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-vet-${{ runner.os }}-
+      - run: ci/go-modules.sh vet all
+
+  go-test:
+    name: go test (fast modules, -race)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-test-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-test-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install quint
+        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - name: go test
+        env:
+          RACE: "1"
+          LOG_DIR: ${{ runner.temp }}/go-logs
+        run: ci/go-modules.sh test fast
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs > "${{ runner.temp }}/go-logs/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: go-test-logs
+          path: ${{ runner.temp }}/go-logs
+          if-no-files-found: ignore
+
+  # otap-rs. This job owns the cargo cache (clippy's and the tests' release
+  # artifacts); the nightly Rust jobs only restore it.
+  rust:
+    name: otap-rs (clippy, unit + integration tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: otel-chdb/otap-rs
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+      OTAPRS_DATA: ${{ github.workspace }}/.ci/data
+      OTAPRS_SERIES_GO: ${{ github.workspace }}/.ci/data/series/go
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain && rustup component add clippy
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then
+            ln -sfn "$UPSTREAM_DIR" .upstream
+          else
+            scripts/fetch-upstream.sh "$UPSTREAM_DIR"
+          fi
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-rust-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/tools/go.sum', 'otel-chdb/parquetgo/compare/go.sum') }}
+          restore-keys: go-rust-${{ runner.os }}-
+      - name: Start SeaweedFS and ClickHouse
+        run: ../../ci/services.sh start
+      - run: cat ../../ci/test.env >> "$GITHUB_ENV"
+      - name: clippy (with the allow-list in ci/clippy.sh)
+        run: ../../ci/clippy.sh
+      - name: Unit tests (lib and bins; the consumer's ClickHouse / S3 tests use the services)
+        run: cargo test --release --locked --lib --bins
+      - name: Datasets (otlpgen; the Go prototype's layout-B objects)
+        env:
+          SERIES: "1"
+        run: ../../ci/gen-data.sh "$OTAPRS_DATA"
+      - name: Integration tests (determinism, otap_view, metrics, series corr)
+        run: cargo test --release --locked --test determinism --test otap_view --test metrics --test series
+      - name: Service logs
+        if: failure()
+        run: |
+          mkdir -p "${{ runner.temp }}/rust-logs"
+          ../../ci/services.sh logs > "${{ runner.temp }}/rust-logs/services.log" 2>&1 || true
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: rust-logs
+          path: ${{ runner.temp }}/rust-logs
+          if-no-files-found: ignore
+

@@ -218,6 +218,21 @@ Most of the defects found so far share one control flaw: a controller treated an
 - **Feedback without freshness** (issue 6, and the open LS-6 to LS-8). A controller acting on feedback must know how current it is; this is the same requirement the UI now carries as R-S1.
 - **Test evidence without provenance** (issue 12, and the memory and disk exhaustion that broke runs). Results are only as good as knowing which build and which environment produced them; CI now records both.
 
+### CAST: bugs found by deterministic simulation (2026-09-27)
+
+Two consumer bugs survived the Quint models, the model-based tests and the fault soaks, and were found by the deterministic simulation ([otap-rs/DST.md](otap-rs/DST.md)). Both live in the gap between a model's instantaneous step and a real step that takes time.
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 13 | A worker took a lease that was still live | DST level 1, seeds 20 and 34; reproduces with no fault at all, one LIST answering 15 s late | H-2 (two workers insert on one lane: duplicates) | Consumer lease discovery: "every lease I list was observed when this round started" (`heartbeat_and_leases` read the clock once, then dated every listed ETag to the round's start) | Rounds take milliseconds on a healthy store; no test combined a slow round with a renewal inside it; the Quint model's list is atomic and instantaneous | Date each observation when its answer arrives (the LIST answer, `try_take`'s GET); regression test `a_slow_discovery_round_does_not_backdate_lease_observations` | Feedback is as old as the moment it was received, not the moment it was asked for; when "unchanged for long enough" grants authority, use the latest possible observation time |
+| 14 | A backlog longer than the lease window livelocked a worker | DST level 1, about 10% of the first 200 seeds | H-2 and L-1 (ingestion stalls, views incomplete) | Consumer step scheduling: "a step is short compared with the lease" (up to 256 HEADs per lane, lane after lane, renewal only at insert) | The 256 cap was sized for throughput; steady-state backlogs are small; model actions cost no time; soaks recovered from short outages only | Renew between lanes and stop scanning a lane once its renewal is due, keeping the HEADs already made; regression test `a_backlog_longer_than_the_lease_window_is_still_ingested` | Bound work per step by time, not count, whenever a lease or deadline governs; schedule renewals independently of the work loop; test recovery from long outages, not only steady state |
+
+**Systemic factors**
+
+- **Models abstract away how long a step takes.** Quint actions are atomic and instantaneous, so a model cannot show a round that outlasts a lease or an observation that ages while in flight. The ambiguity audit found the same gap (the consumer model's lease and checkpoint writes are atomic). Remedies: add "slow observation" and "step duration" behaviours to the model template ([model/TEMPLATE.md](model/TEMPLATE.md)) and a mutant that dates observations at the request; keep DST as the check on real durations.
+- **Slow is a different failure from failed.** Every soak injected errors, lost answers and kills against a store that answers in milliseconds; none injected a slow store with a large backlog. The DST fault menu now includes latency, held links and brownouts; the fault proxies should too.
+- **Recovery paths are under-tested.** Both bugs appear after something slow or long (a slow round, an outage's backlog). Tests should include a long outage followed by recovery at fleet scale.
+
 ## What the models showed
 
 Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.

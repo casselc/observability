@@ -94,6 +94,77 @@ pub struct Config {
     /// Write each batch's stats line to stderr.
     #[serde(default)]
     pub verbose: bool,
+    /// What holds this publisher's custody (`../FORMAT.md` §2, `oscope-low`).
+    #[serde(default)]
+    pub custody: Custody,
+    #[serde(default)]
+    pub heartbeat: HeartbeatConfig,
+}
+
+/// Where the requests this exporter publishes wait before it has them.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Custody {
+    /// Nothing: a sender waits for the commit (ack after commit), so custody
+    /// is the requests in the exporter's hands.
+    #[default]
+    Exporter,
+    /// A durable buffer (Quiver) in front: it publishes its floor on this
+    /// thread (`otel_arrow_dfe_otap::custody`, patches/0006); until it has,
+    /// every object's low is 0.
+    DurableBuffer,
+}
+
+/// Heartbeat slots (`../FORMAT.md` §2): a birth heartbeat per registered
+/// lane at start, then one per lane idle for `interval`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HeartbeatConfig {
+    /// 0: no heartbeats at all, births included (benchmarks only: the
+    /// consumer's complete_through then cannot pass this producer).
+    #[serde(with = "humantime_serde")]
+    pub interval: std::time::Duration,
+    /// How long the exporter waits for its births before it takes requests
+    /// (it keeps trying after that).
+    #[serde(with = "humantime_serde")]
+    pub birth_timeout: std::time::Duration,
+}
+
+impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        HeartbeatConfig { interval: std::time::Duration::from_secs(30), birth_timeout: std::time::Duration::from_secs(30) }
+    }
+}
+
+/// The lanes a publisher registers (heartbeats), by metrics layout
+/// (`../FORMAT.md` §1): every lane it can ever write.
+pub fn registered_signals(layout: MetricsLayout, merge_number_points: bool) -> Vec<Signal> {
+    let mut v = vec![Signal::Traces, Signal::Logs];
+    match layout {
+        MetricsLayout::ClickstackTables => v.extend(Signal::METRICS),
+        MetricsLayout::SeriesTable => v.extend(Signal::SERIES_LAYOUT.into_iter().filter(|s| match s {
+            Signal::MetricsNumberPoints => merge_number_points,
+            Signal::MetricsGaugePoints | Signal::MetricsSumPoints => !merge_number_points,
+            _ => true,
+        })),
+    }
+    v
+}
+
+/// An object's `oscope-low` (ns): the lowest of the send time, the
+/// `received_at` of every request in the exporter's hands, and the durable
+/// buffer's published floor (0 while a configured buffer has published
+/// none). Its own request is included: lower, so still sound.
+pub fn custody_low(now_ns: u64, in_hands_min: Option<u64>, published: Option<u64>, custody: Custody) -> u64 {
+    let mut low = now_ns;
+    if let Some(m) = in_hands_min {
+        low = low.min(m);
+    }
+    match (published, custody) {
+        (Some(p), _) => low.min(p),
+        (None, Custody::DurableBuffer) => 0,
+        (None, Custody::Exporter) => low,
+    }
 }
 
 fn one() -> usize {
@@ -165,6 +236,60 @@ struct Shared {
     lanes_per_signal: usize,
     prefixes: HashMap<Signal, String>,
     verbose: bool,
+    custody: Custody,
+    /// received_at of the requests being committed (a multiset).
+    in_hands: RefCell<std::collections::BTreeMap<u64, usize>>,
+    /// When each lane last committed anything (heartbeats are for idle lanes).
+    last_commit: RefCell<HashMap<Signal, Instant>>,
+}
+
+impl Shared {
+    fn low_now(&self) -> u64 {
+        let m = self.in_hands.borrow().keys().next().copied();
+        custody_low(now_ns(), m, otel_arrow_dfe_otap::custody::current(), self.custody)
+    }
+    fn hold(&self, r: u64) {
+        *self.in_hands.borrow_mut().entry(r).or_default() += 1;
+    }
+    fn release(&self, r: u64) {
+        let mut h = self.in_hands.borrow_mut();
+        if let Some(n) = h.get_mut(&r) {
+            *n -= 1;
+            if *n == 0 {
+                let _ = h.remove(&r);
+            }
+        }
+    }
+}
+
+/// Commits a heartbeat to the signal's first lane: a zero-byte slot with
+/// `oscope-kind: beat` and `oscope-low` (`../FORMAT.md` §2).
+async fn heartbeat(sh: Rc<Shared>, s: Signal) -> (Signal, Result<Ref, String>) {
+    let lane = sh.lanes[&(s, 0)].clone();
+    let mut g = lane.lock().await;
+    let st = &mut *g;
+    let content = format!("beat-{:016x}", rand::random::<u64>());
+    let mut encode = |_r: &Ref| {
+        let mut meta = std::collections::BTreeMap::new();
+        for (k, v) in [
+            (proto::META_KIND, proto::KIND_BEAT.to_string()),
+            (proto::META_FORMAT, proto::FORMAT_VERSION.to_string()),
+            (proto::META_CLUSTER, sh.cluster.clone()),
+            (proto::META_SIGNAL, s.name().to_string()),
+            (proto::META_ROWS, "0".to_string()),
+            (proto::META_LOW, sh.low_now().to_string()),
+        ] {
+            let _ = meta.insert(k.to_string(), v);
+        }
+        Ok(runner::Encoded { body: bytes::Bytes::new(), content_type: "application/octet-stream", meta })
+    };
+    let r = runner::append(&mut st.lane, &mut st.cache, &sh.store, &sh.prefixes[&s], &sh.producer, &content, &mut encode, &sh.timeouts, &sh.stats)
+        .await
+        .map_err(|e| e.to_string());
+    if r.is_ok() {
+        let _ = sh.last_commit.borrow_mut().insert(s, Instant::now());
+    }
+    (s, r)
 }
 
 fn signal_of(t: SignalType) -> Signal {
@@ -282,6 +407,9 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
         let mut o = sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)?;
         let _ = o.meta.insert(proto::META_FORMAT.to_string(), proto::FORMAT_VERSION.to_string());
         let _ = o.meta.insert(proto::META_CLUSTER.to_string(), sh.cluster.clone());
+        // Computed when the object is encoded for its slot, and cached with
+        // its bytes: a resend into the slot carries the same value.
+        let _ = o.meta.insert(proto::META_LOW.to_string(), sh.low_now().to_string());
         Ok(o)
     };
     let res = runner::append(
@@ -316,6 +444,9 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
             Err(e) => crate::log(&format!("{} content={}: {e}", flat.signal.name(), flat.content)),
         }
     }
+    if res.is_ok() {
+        let _ = sh.last_commit.borrow_mut().insert(flat.signal, Instant::now());
+    }
     let out = match res {
         Ok(r) => PartOutcome::Committed(r),
         Err(AppendError::Encode(e)) => PartOutcome::Rejected(e),
@@ -329,7 +460,9 @@ fn commit(sh: Rc<Shared>, pdata: OtapPdata, flats: Vec<Flat>, received_ns: u64) 
     Box::pin(async move {
         let started = Instant::now();
         let rows = flats.iter().map(|f| f.stats.rows).sum();
+        sh.hold(received_ns);
         let parts = futures::future::join_all(flats.into_iter().map(|f| commit_one(sh.clone(), f, received_ns))).await;
+        sh.release(received_ns);
         (pdata, parts, started, rows)
     })
 }
@@ -382,7 +515,41 @@ impl Exporter<OtapPdata> for S3pqExporter {
             lanes_per_signal: cfg.lanes.max(1),
             prefixes,
             verbose: cfg.verbose,
+            custody: cfg.custody,
+            in_hands: RefCell::new(Default::default()),
+            last_commit: RefCell::new(HashMap::new()),
         });
+        // Heartbeats: the births first (every lane this publisher can write
+        // is registered before it takes a request, up to birth_timeout),
+        // then one per lane idle for the interval.
+        let beat_every = cfg.heartbeat.interval;
+        let registered = if beat_every.is_zero() {
+            Vec::new()
+        } else {
+            registered_signals(cfg.metrics_layout, cfg.series.merge_number_points)
+        };
+        let mut beats: FuturesUnordered<LocalBoxFuture<'static, (Signal, Result<Ref, String>)>> = FuturesUnordered::new();
+        let mut beating: std::collections::HashSet<Signal> = std::collections::HashSet::new();
+        if !registered.is_empty() {
+            let until = tokio::time::Instant::now() + cfg.heartbeat.birth_timeout;
+            let mut born = std::collections::HashSet::new();
+            while born.len() < registered.len() && tokio::time::Instant::now() < until {
+                let round: Vec<_> = registered.iter().filter(|s| !born.contains(*s)).map(|s| heartbeat(sh.clone(), *s)).collect();
+                for (s, r) in futures::future::join_all(round).await {
+                    match r {
+                        Ok(_) => {
+                            let _ = born.insert(s);
+                        }
+                        Err(e) => crate::log(&format!("birth heartbeat {}: {e}", s.name())),
+                    }
+                }
+                if born.len() < registered.len() {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+            crate::log(&format!("births: {} of {} lanes registered", born.len(), registered.len()));
+        }
+        let mut next_beat = tokio::time::Instant::now() + beat_every / 2;
         let max_in_flight = cfg.lanes.max(1) * 2;
         let mut in_flight: FuturesUnordered<LocalBoxFuture<'static, Done>> = FuturesUnordered::new();
 
@@ -417,6 +584,27 @@ impl Exporter<OtapPdata> for S3pqExporter {
                 biased;
                 Some(d) = in_flight.next(), if !in_flight.is_empty() => {
                     finish(d, &effect_handler).await?;
+                    continue;
+                }
+                Some((s, r)) = beats.next(), if !beats.is_empty() => {
+                    let _ = beating.remove(&s);
+                    if let Err(e) = r {
+                        crate::log(&format!("heartbeat {}: {e}", s.name()));
+                    }
+                    continue;
+                }
+                _ = tokio::time::sleep_until(next_beat), if !registered.is_empty() => {
+                    next_beat = tokio::time::Instant::now() + beat_every / 2;
+                    let due: Vec<Signal> = registered
+                        .iter()
+                        .copied()
+                        .filter(|s| !beating.contains(s))
+                        .filter(|s| sh.last_commit.borrow().get(s).is_none_or(|t| t.elapsed() >= beat_every))
+                        .collect();
+                    for s in due {
+                        let _ = beating.insert(s);
+                        beats.push(Box::pin(heartbeat(sh.clone(), s)));
+                    }
                     continue;
                 }
                 m = inbox.recv_when(accepting) => m?,
@@ -480,6 +668,31 @@ impl Exporter<OtapPdata> for S3pqExporter {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn oscope_low_is_the_custody_floor() {
+        // nothing held: the send time
+        assert_eq!(custody_low(100, None, None, Custody::Exporter), 100);
+        // requests in the exporter's hands (its own included)
+        assert_eq!(custody_low(100, Some(40), None, Custody::Exporter), 40);
+        // a buffer's published floor, older than anything in hand
+        assert_eq!(custody_low(100, Some(40), Some(25), Custody::DurableBuffer), 25);
+        // a configured buffer that has not published yet: 0 (sound; holds the watermark)
+        assert_eq!(custody_low(100, Some(40), None, Custody::DurableBuffer), 0);
+        // a floor published where none was configured is still honoured
+        assert_eq!(custody_low(100, None, Some(60), Custody::Exporter), 60);
+    }
+
+    #[test]
+    fn registered_lanes_follow_the_layout() {
+        let names = |v: Vec<Signal>| v.into_iter().map(|s| s.name()).collect::<Vec<_>>();
+        assert_eq!(
+            names(registered_signals(MetricsLayout::SeriesTable, true)),
+            ["traces", "logs", "metrics_number_points", "metrics_histogram_points", "metrics_exponential_histogram_points", "metrics_summary_points", "metrics_series"]
+        );
+        assert!(names(registered_signals(MetricsLayout::SeriesTable, false)).contains(&"metrics_gauge_points"));
+        assert_eq!(registered_signals(MetricsLayout::ClickstackTables, true).len(), 7);
+    }
 
     #[test]
     fn received_at_is_the_custody_time_when_the_buffer_has_one() {

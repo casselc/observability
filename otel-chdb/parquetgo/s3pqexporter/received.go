@@ -7,6 +7,7 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/parquetgo/edge"
 	"go.opentelemetry.io/collector/client"
+	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -63,30 +64,70 @@ func withReceived(ctx context.Context) context.Context {
 }
 
 // The exporters exporterhelper builds, with the stamp applied as each
-// request is handed to them (before the queue).
+// request is handed to them (before the queue), the request entered in the
+// custody ledger (custody.go), and, once started, their queue's probe.
 type stampTraces struct {
 	exporter.Traces
 	now func() time.Time
+	c   *custody
 }
 
 func (s stampTraces) ConsumeTraces(ctx context.Context, td ptrace.Traces) error {
-	return s.Traces.ConsumeTraces(stampReceived(ctx, s.now()), td)
+	ctx, id := s.c.take(ctx, s.now())
+	err := s.Traces.ConsumeTraces(ctx, td)
+	if err != nil {
+		s.c.done(id) // refused: the sender keeps it
+	}
+	return err
+}
+
+func (s stampTraces) Start(ctx context.Context, host component.Host) error {
+	if err := s.Traces.Start(ctx, host); err != nil {
+		return err
+	}
+	return s.Traces.ConsumeTraces(probeCtx(ctx), probeTraces())
 }
 
 type stampLogs struct {
 	exporter.Logs
 	now func() time.Time
+	c   *custody
 }
 
 func (s stampLogs) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
-	return s.Logs.ConsumeLogs(stampReceived(ctx, s.now()), ld)
+	ctx, id := s.c.take(ctx, s.now())
+	err := s.Logs.ConsumeLogs(ctx, ld)
+	if err != nil {
+		s.c.done(id)
+	}
+	return err
+}
+
+func (s stampLogs) Start(ctx context.Context, host component.Host) error {
+	if err := s.Logs.Start(ctx, host); err != nil {
+		return err
+	}
+	return s.Logs.ConsumeLogs(probeCtx(ctx), probeLogs())
 }
 
 type stampMetrics struct {
 	exporter.Metrics
 	now func() time.Time
+	c   *custody
 }
 
 func (s stampMetrics) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
-	return s.Metrics.ConsumeMetrics(stampReceived(ctx, s.now()), md)
+	ctx, id := s.c.take(ctx, s.now())
+	err := s.Metrics.ConsumeMetrics(ctx, md)
+	if err != nil {
+		s.c.done(id)
+	}
+	return err
+}
+
+func (s stampMetrics) Start(ctx context.Context, host component.Host) error {
+	if err := s.Metrics.Start(ctx, host); err != nil {
+		return err
+	}
+	return s.Metrics.ConsumeMetrics(probeCtx(ctx), probeMetrics())
 }

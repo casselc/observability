@@ -115,7 +115,11 @@ func TestTracesObject(t *testing.T) {
 			t.Errorf("meta %s = %q, want %q", k, o.Meta[k], v)
 		}
 	}
-	if len(o.Meta) != len(want) {
+	// oscope-low: at most the request's own received_at (it is in the edge's hands).
+	if l, err := strconv.ParseUint(o.Meta[commit.MetaLow], 10, 64); err != nil || l > 1790000000123456789 {
+		t.Errorf("oscope-low %q", o.Meta[commit.MetaLow])
+	}
+	if len(o.Meta) != len(want)+1 {
 		t.Errorf("meta %v", o.Meta)
 	}
 	f := footer(t, o.Body)

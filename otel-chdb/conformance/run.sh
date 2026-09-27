@@ -35,12 +35,12 @@ wait_up() { for _ in $(seq 150); do curl -s -o /dev/null "http://$1/" && return 
 
 # Rust edge
 ADMIN_HTTP=127.0.0.1:14480 OTLP_HTTP=127.0.0.1:14418 OTLP_GRPC=127.0.0.1:14417 PRODUCER=edge-rust METRICS_LAYOUT=$LAYOUT \
-  CLUSTER=conf S3_URL=$S3/$BUCKET/$RUN/rust "$B/otap-s3pq" -c "$here/../otap-rs/configs/edge.yaml" > "$W/edge-rust.log" 2>&1 &
+  CLUSTER=conf HEARTBEAT=1h S3_URL=$S3/$BUCKET/$RUN/rust "$B/otap-s3pq" -c "$here/../otap-rs/configs/edge.yaml" > "$W/edge-rust.log" 2>&1 &
 E=$!; wait_up 127.0.0.1:14418 && send 127.0.0.1:14418 rust; kill -INT $E; wait $E 2>/dev/null
 
 # Go edge
 OTLP_HTTP=127.0.0.1:14518 HEALTH=127.0.0.1:14533 PRODUCER=edge-go METRICS_LAYOUT=$LAYOUT \
-  CLUSTER=conf S3_URL=$S3/$BUCKET/$RUN/go "$B/otelcol-s3pq" --config "$here/go-edge.yaml" > "$W/edge-go.log" 2>&1 &
+  CLUSTER=conf HEARTBEAT=1h S3_URL=$S3/$BUCKET/$RUN/go "$B/otelcol-s3pq" --config "$here/go-edge.yaml" > "$W/edge-go.log" 2>&1 &
 E=$!; wait_up 127.0.0.1:14518 && send 127.0.0.1:14518 go; kill -INT $E; wait $E 2>/dev/null
 
 # The consumer, one root and one database per edge (format v2: {root}/conf/edge-{rust,go}/{signal}/...).

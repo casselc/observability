@@ -3,6 +3,7 @@ package s3pqexporter
 import (
 	"context"
 	"errors"
+	"go.opentelemetry.io/collector/component"
 	"strconv"
 	"strings"
 	"sync"
@@ -164,7 +165,7 @@ func TestBatchReceivedIsTheEnqueueTime(t *testing.T) {
 	var clock atomic.Int64
 	clock.Store(100)
 	c := &captureTraces{}
-	st := stampTraces{c, func() time.Time { return time.Unix(0, clock.Load()) }}
+	st := stampTraces{c, func() time.Time { return time.Unix(0, clock.Load()) }, custodyFor(component.MustNewID("batchtest"))}
 	bt := batchTraces{st, newBatcher(BatchConfig{Enabled: true, FlushTimeout: time.Hour, MinSize: 3}, tracesKind, st.ConsumeTraces)}
 
 	ctxA, cancel := context.WithCancel(client.NewContext(context.Background(),

@@ -25,6 +25,8 @@ package edge
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -82,6 +84,12 @@ type Config struct {
 	NewEpoch func() string
 	// Now is the clock for received_at (default time.Now).
 	Now func() time.Time
+	// Custody is the floor of what waits for the edge before it has it (a
+	// persistent queue: ../s3pqexporter), in ns; nil: nothing does (a sender
+	// waits for the commit). Every object's oscope-low is the lowest of it,
+	// the send time and the received_at of the requests the edge holds
+	// (../../FORMAT.md §2).
+	Custody func() uint64
 }
 
 // EdgeParquet is the Rust edge's Parquet for traces and logs (parquet-rs
@@ -102,13 +110,17 @@ func EdgeParquet() parquetgo.Options {
 
 // Edge publishes requests. Safe for concurrent use.
 type Edge struct {
-	cfg      Config
-	store    commit.Store
-	prefix   string
-	lanes    map[string][]*commit.Lane
-	stats    *commit.Stats
-	series   *parquetgo.SeriesEncoder
-	encs     *parquetgo.FreeList[*parquetgo.PGEncoder]
+	cfg    Config
+	store  commit.Store
+	prefix string
+	lanes  map[string][]*commit.Lane
+	stats  *commit.Stats
+	series *parquetgo.SeriesEncoder
+	encs   *parquetgo.FreeList[*parquetgo.PGEncoder]
+
+	mu         sync.Mutex
+	inHands    map[uint64]int       // received_at of the requests being published (a multiset)
+	lastCommit map[string]time.Time // per namespace: its last commit (heartbeats are for idle lanes)
 }
 
 // Namespaces are every lane namespace, in the Rust edge's order.
@@ -150,7 +162,8 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	e := &Edge{cfg: cfg, store: cfg.Store, lanes: map[string][]*commit.Lane{}, stats: &commit.Stats{}}
+	e := &Edge{cfg: cfg, store: cfg.Store, lanes: map[string][]*commit.Lane{}, stats: &commit.Stats{},
+		inHands: map[uint64]int{}, lastCommit: map[string]time.Time{}}
 	if e.store == nil {
 		client, bucket, prefix, err := parquetgo.NewS3Client(cfg.S3)
 		if err != nil {
@@ -214,6 +227,90 @@ func IsPermanent(err error) bool {
 	return errors.As(err, &p) || errors.As(err, &ee)
 }
 
+// Registered is every namespace this edge can write, by metrics layout: the
+// lanes it registers with birth heartbeats and keeps alive (../../FORMAT.md §1).
+func (e *Edge) Registered() []string {
+	out := []string{"traces", "logs"}
+	if e.cfg.MetricsLayout == ClickstackTables {
+		return append(out, parquetgo.MetricSignals[:]...)
+	}
+	if e.cfg.Series.MergeNumberPoints {
+		out = append(out, parquetgo.SigNumberPoints)
+	} else {
+		out = append(out, parquetgo.SigGaugePoints, parquetgo.SigSumPoints)
+	}
+	return append(out, parquetgo.SigHistogramPoints, parquetgo.SigExpHistogramPoints, parquetgo.SigSummaryPoints, parquetgo.SigSeries)
+}
+
+// low is an object's oscope-low (ns), computed when the object is encoded
+// for its slot (and cached with its bytes, so a resend carries it): the
+// lowest of now, the received_at of every request the edge holds (its own
+// included: lower, still sound) and the custody floor behind it.
+func (e *Edge) low() uint64 {
+	l := e.now()
+	e.mu.Lock()
+	for r := range e.inHands {
+		l = min(l, r)
+	}
+	e.mu.Unlock()
+	if e.cfg.Custody != nil {
+		l = min(l, e.cfg.Custody())
+	}
+	return l
+}
+
+func (e *Edge) hold(r uint64) {
+	e.mu.Lock()
+	e.inHands[r]++
+	e.mu.Unlock()
+}
+
+func (e *Edge) release(r uint64) {
+	e.mu.Lock()
+	if e.inHands[r]--; e.inHands[r] <= 0 {
+		delete(e.inHands, r)
+	}
+	e.mu.Unlock()
+}
+
+func (e *Edge) touch(ns string) {
+	e.mu.Lock()
+	e.lastCommit[ns] = e.cfg.Now()
+	e.mu.Unlock()
+}
+
+// IdleFor is how long namespace ns has committed nothing (a very long time
+// if it never has).
+func (e *Edge) IdleFor(ns string) time.Duration {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	t, ok := e.lastCommit[ns]
+	if !ok {
+		return time.Duration(1<<63 - 1)
+	}
+	return e.cfg.Now().Sub(t)
+}
+
+// Beat commits a heartbeat to namespace ns's first lane: a zero-byte slot
+// with oscope-kind beat and oscope-low, by the same create-only slot
+// protocol as data (../../FORMAT.md §2).
+func (e *Edge) Beat(ctx context.Context, ns string) error {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	content := "beat-" + hex.EncodeToString(b[:])
+	_, err := e.lanes[ns][0].Append(ctx, content, func(commit.Ref) (commit.Object, error) {
+		return commit.Object{ContentType: "application/octet-stream", Meta: map[string]string{
+			commit.MetaKind: commit.KindBeat, commit.MetaFormat: strconv.Itoa(commit.FormatVersion),
+			commit.MetaCluster: e.cfg.Cluster, commit.MetaProducer: e.cfg.ProducerID, commit.MetaSignal: ns,
+			commit.MetaRows: "0", commit.MetaLow: strconv.FormatUint(e.low(), 10),
+		}}, nil
+	})
+	if err == nil {
+		e.touch(ns)
+	}
+	return err
+}
+
 // description is an object's S3 metadata (the lane adds kind, epoch, seq,
 // content and producer); footer is the same plus those four.
 func (e *Edge) description(ns string, rows int, minTS, maxTS, received uint64) map[string]string {
@@ -227,6 +324,7 @@ func (e *Edge) description(ns string, rows int, minTS, maxTS, received uint64) m
 		commit.MetaMinTime:  strconv.FormatUint(minTS, 10),
 		commit.MetaMaxTime:  strconv.FormatUint(maxTS, 10),
 		commit.MetaReceived: strconv.FormatUint(received, 10),
+		commit.MetaLow:      strconv.FormatUint(e.low(), 10),
 	}
 }
 
@@ -310,6 +408,8 @@ func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 		return nil
 	}
 	received := e.received(ctx)
+	e.hold(received)
+	defer e.release(received)
 	b, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
 	if err != nil {
 		return &PermanentError{err}
@@ -320,6 +420,9 @@ func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 			return enc.Traces(buf, td, env)
 		})
 	})
+	if err == nil {
+		e.touch("traces")
+	}
 	return err
 }
 
@@ -329,6 +432,8 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 		return nil
 	}
 	received := e.received(ctx)
+	e.hold(received)
+	defer e.release(received)
 	b, err := (&plog.ProtoMarshaler{}).MarshalLogs(ld)
 	if err != nil {
 		return &PermanentError{err}
@@ -339,6 +444,9 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 			return enc.Logs(buf, ld, env)
 		})
 	})
+	if err == nil {
+		e.touch("logs")
+	}
 	return err
 }
 
@@ -359,6 +467,8 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 		return nil
 	}
 	received := e.received(ctx)
+	e.hold(received)
+	defer e.release(received)
 	b, err := (&pmetric.ProtoMarshaler{}).MarshalMetrics(md)
 	if err != nil {
 		return &PermanentError{err}
@@ -420,6 +530,9 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 		go func() {
 			defer wg.Done()
 			r, err := e.lane(p.ns, p.content).Append(ctx, p.content, p.encode)
+			if err == nil {
+				e.touch(p.ns)
+			}
 			if err == nil && p.onCommit != nil {
 				p.onCommit(r)
 			}

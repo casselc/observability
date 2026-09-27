@@ -1,0 +1,235 @@
+Durable buffer: publish the custody floor for the exporter on the same
+pipeline thread.
+
+A reader that publishes a completeness watermark (otel-chdb FORMAT.md §3)
+needs every published object to carry a lower bound for the received_at of
+what is still in the publisher's custody. Behind a durable buffer that is
+Quiver's un-acked bundles, which only the buffer knows.
+
+- otap: `custody::{publish, current}`, a thread-local: the buffer and the
+  exporter of one pipeline run on one thread (one single-threaded runtime
+  per core).
+- quiver: `BundleMetadata` and `OpenSegmentBundleSummary` carry the
+  bundle's `ingestion_time_ns` (recorded by patch 0003).
+- core-nodes durable buffer: `publish_custody_low` computes
+  min(now, ingestion time over the pending segments' bundles and the open
+  segment's), at every telemetry tick and about once a second on the timer
+  tick, on the processor's own task (never during an ingest, so a later
+  bundle has a later ingestion time). A pending segment counts with its
+  oldest bundle, resolved or not: lower, still sound.
+
+The payload is unchanged. Upstreamable as a hook; the thread-local is the
+simplest carrier for a thread-per-core engine.
+
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
+index 321d537..eae1c30 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
++++ b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
+@@ -345,6 +345,13 @@ pub struct DurableBuffer {
+ 
+     /// Last cumulative Quiver retention-loss totals used to compute segment/bundle deltas.
+     last_loss_snapshot: RetentionLossSnapshot,
++
++    /// Per finalized segment still pending: the oldest ingestion time of its
++    /// bundles (ns; 0 when a bundle has none recorded), for the custody floor.
++    custody_segment_min: HashMap<u64, i64>,
++
++    /// When the custody floor was last published.
++    custody_published_at: Option<Instant>,
+ }
+ 
+ impl DurableBuffer {
+@@ -411,6 +418,8 @@ impl DurableBuffer {
+             segment_cache_generation: 0,
+             metadata_load_warned_segments: HashSet::new(),
+             last_loss_snapshot: RetentionLossSnapshot::default(),
++            custody_segment_min: HashMap::new(),
++            custody_published_at: None,
+         })
+     }
+ 
+@@ -861,6 +870,51 @@ impl DurableBuffer {
+             .items_for_signal(SignalType::Traces)
+             .queued
+             .set(spans);
++        self.publish_custody_low(engine, subscriber_id, Duration::ZERO);
++    }
++
++    /// Publishes the custody floor for the exporter on this thread
++    /// ([`otel_arrow_dfe_otap::custody`]): the oldest ingestion time over the
++    /// bundles still held (finalized segments with an unresolved bundle, and
++    /// the open segment), or the time of this computation when there are
++    /// none. It runs on the processor's own task, never while an ingest is in
++    /// progress, so a bundle ingested after it has a later ingestion time.
++    /// A segment's floor is the oldest bundle in it, resolved or not
++    /// (conservative: lower). At most once per `min_interval`.
++    fn publish_custody_low(&mut self, engine: &QuiverEngine, subscriber_id: &SubscriberId, min_interval: Duration) {
++        let now = Instant::now();
++        if self.custody_published_at.is_some_and(|t| now.duration_since(t) < min_interval) {
++            return;
++        }
++        let computed_at = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map(|d| d.as_nanos() as i64)
++            .unwrap_or(0);
++        let Ok(pending) = engine.registry().pending_segment_progress(subscriber_id) else {
++            return; // not publishing leaves the last value, which is lower: sound
++        };
++        let mut low = computed_at;
++        for seg_seq in pending.keys() {
++            let raw = seg_seq.raw();
++            let m = match self.custody_segment_min.get(&raw) {
++                Some(m) => *m,
++                None => match engine.segment_store().bundle_metadata(*seg_seq) {
++                    Ok(md) => {
++                        let m = md.iter().map(|b| b.ingestion_time_ns.unwrap_or(0)).min().unwrap_or(computed_at);
++                        let _ = self.custody_segment_min.insert(raw, m);
++                        m
++                    }
++                    Err(_) => return,
++                },
++            };
++            low = low.min(m);
++        }
++        for b in engine.open_segment_bundle_summaries() {
++            low = low.min(b.ingestion_time_ns.unwrap_or(0));
++        }
++        self.custody_segment_min.retain(|seq, _| pending.contains_key(&SegmentSeq::new(*seq)));
++        otel_arrow_dfe_otap::custody::publish(u64::try_from(low.max(0)).unwrap_or(0));
++        self.custody_published_at = Some(now);
+     }
+ 
+     /// Initialize the Quiver engine and subscriber.
+@@ -1179,6 +1233,13 @@ impl DurableBuffer {
+                 }
+             }
+         }
++        // The exporter's custody floor, about once a second (and at every
++        // telemetry tick, `recompute_metrics`).
++        {
++            let (engine, subscriber_id) = self.engine()?;
++            let (engine, subscriber_id) = (engine.clone(), subscriber_id.clone());
++            self.publish_custody_low(&engine, &subscriber_id, Duration::from_secs(1));
++        }
+ 
+         // Time-budgeted draining: spend at most 50% of poll_interval processing bundles.
+         // This ensures we yield back promptly to handle incoming data, which is typically
+diff --git a/rust/otap-dataflow/crates/otap/src/custody.rs b/rust/otap-dataflow/crates/otap/src/custody.rs
+new file mode 100644
+index 0000000..ce71a35
+--- /dev/null
++++ b/rust/otap-dataflow/crates/otap/src/custody.rs
+@@ -0,0 +1,44 @@
++//! The custody floor a durable buffer publishes for the exporter behind it.
++//!
++//! A durable buffer (Quiver) holds requests it has acknowledged to their
++//! senders and not yet had acknowledged downstream: its *custody*. An
++//! exporter that publishes to a reader who must know what is still in
++//! custody (for a completeness watermark) needs the oldest ingestion time
++//! among them. The buffer and the exporter of one pipeline run on the same
++//! thread (one single-threaded runtime per core), so the value is a
++//! thread-local: the buffer [`publish`]es it, the exporter reads it with
++//! [`current`].
++//!
++//! The published value is `min(the time it was computed, the ingestion time
++//! of every bundle still held)`, in nanoseconds since the Unix epoch. It is a
++//! lower bound for the ingestion time of everything in custody at any later
++//! moment as well: bundles only leave custody, and a bundle ingested later
++//! has a later ingestion time. `None`: nothing was published on this thread
++//! (no buffer, or not initialised yet).
++use std::cell::Cell;
++
++thread_local! {
++    static LOW: Cell<Option<u64>> = const { Cell::new(None) };
++}
++
++/// Publishes this thread's custody floor (ns since the Unix epoch).
++pub fn publish(low_ns: u64) {
++    LOW.with(|c| c.set(Some(low_ns)));
++}
++
++/// This thread's custody floor, if a durable buffer published one.
++#[must_use]
++pub fn current() -> Option<u64> {
++    LOW.with(Cell::get)
++}
++
++#[cfg(test)]
++mod tests {
++    #[test]
++    fn publish_then_read_on_the_same_thread_only() {
++        assert_eq!(super::current(), None);
++        super::publish(42);
++        assert_eq!(super::current(), Some(42));
++        assert_eq!(std::thread::spawn(super::current).join().unwrap(), None);
++    }
++}
+diff --git a/rust/otap-dataflow/crates/otap/src/lib.rs b/rust/otap-dataflow/crates/otap/src/lib.rs
+index 42f916e..5425072 100644
+--- a/rust/otap-dataflow/crates/otap/src/lib.rs
++++ b/rust/otap-dataflow/crates/otap/src/lib.rs
+@@ -15,6 +15,9 @@ pub mod accessory;
+ 
+ pub mod pdata;
+ 
++/// The custody floor a durable buffer publishes for its exporter.
++pub mod custody;
++
+ mod pdata_conversions;
+ 
+ pub mod metrics;
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs b/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
+index c504a25..61b60f0 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
+@@ -274,6 +274,7 @@ impl OpenSegment {
+             summaries.push(OpenSegmentBundleSummary {
+                 item_count: entry.item_count(),
+                 slot_ids,
++                ingestion_time_ns: entry.ingestion_time_ns(),
+             });
+         }
+         summaries
+@@ -287,6 +288,8 @@ pub struct OpenSegmentBundleSummary {
+     pub item_count: u64,
+     /// Slot IDs populated in the bundle.
+     pub slot_ids: Vec<SlotId>,
++    /// The bundle's ingestion time (ns since the Unix epoch), if recorded.
++    pub ingestion_time_ns: Option<i64>,
+ }
+ 
+ impl Default for OpenSegment {
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment_store.rs b/rust/otap-dataflow/crates/quiver/src/segment_store.rs
+index 15ad89a..520494d 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment_store.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment_store.rs
+@@ -904,6 +904,7 @@ impl SegmentProvider for SegmentStore {
+                 item_count: entry.item_count(),
+                 byte_count: entry.exact_byte_count(),
+                 slot_ids: entry.slot_ids().collect(),
++                ingestion_time_ns: entry.ingestion_time_ns(),
+             })
+             .collect())
+     }
+diff --git a/rust/otap-dataflow/crates/quiver/src/subscriber/registry.rs b/rust/otap-dataflow/crates/quiver/src/subscriber/registry.rs
+index 5ab4aeb..13a72c2 100644
+--- a/rust/otap-dataflow/crates/quiver/src/subscriber/registry.rs
++++ b/rust/otap-dataflow/crates/quiver/src/subscriber/registry.rs
+@@ -78,6 +78,9 @@ pub struct BundleMetadata {
+     /// example, OTAP's `signal_type_from_slot_id` skips shared slots
+     /// (RESOURCE_ATTRS, SCOPE_ATTRS) and classifies the rest by signal.
+     pub slot_ids: Vec<SlotId>,
++    /// The bundle's ingestion time (ns since the Unix epoch), when the
++    /// segment recorded it.
++    pub ingestion_time_ns: Option<i64>,
+ }
+ 
+ /// Trait for accessing segment data.
+@@ -1221,6 +1224,7 @@ mod tests {
+                     item_count: info.items_per_bundle,
+                     byte_count: None,
+                     slot_ids: Vec::new(),
++                    ingestion_time_ns: None,
+                 })
+                 .collect())
+         }

@@ -1100,3 +1100,216 @@ async fn v1_keys_are_invisible_and_clusters_separate_lanes() {
     assert_eq!(w.held_lanes(), vec!["c1/p1/traces", "c2/p1/traces"]);
     assert_eq!((c.count("otel_traces", "a"), c.count("otel_traces", "z"), c.count("otel_traces", "v1")), (2, 2, 0), "rows");
 }
+
+// ---- complete_through (../../FORMAT.md §3, ../../model/completeness.qnt) ------------------
+
+/// How the test edge sets an object's `oscope-low`.
+#[derive(Clone, Copy, PartialEq)]
+enum LowMode {
+    /// The design: min(send time, received_at over the edge's custody).
+    Custody,
+    /// completeness.qnt's `lastReceived` mutant: the object's own received_at.
+    OwnReceived,
+    /// completeness.qnt's `noBirth`: no birth heartbeats, lanes appear with their first data.
+    NoBirth,
+    /// The consumer's `maxNotPrefix`: the lane watermark ignores the pending requests.
+    WmIgnoresPending,
+}
+
+/// One publisher with a durable buffer (custody survives its crashes),
+/// sending any buffered request (not oldest first), heartbeating idle lanes,
+/// and leaving zombie PUTs behind when it crashes.
+struct CustodyEdge {
+    producer: String,
+    signals: Vec<&'static str>,
+    /// (id, signal, received_ns): acknowledged to the sender, not yet seen committed.
+    buffer: Vec<(u64, &'static str, u64)>,
+    /// Per (signal, writer lane): two writer lanes per signal share the custody
+    /// (an exporter's `lanes: 2`), each with its own epoch.
+    epoch: HashMap<(&'static str, u8), (String, u64)>,
+    n_epochs: u32,
+    last_commit: HashMap<&'static str, u64>,
+    /// PUTs sent by an earlier incarnation, still in flight.
+    zombies: Vec<(String, BTreeMap<String, String>)>,
+    mode: LowMode,
+}
+
+impl CustodyEdge {
+    fn new(producer: &str, signals: Vec<&'static str>, mode: LowMode) -> Self {
+        let mut e = CustodyEdge { producer: producer.into(), signals, buffer: Vec::new(), epoch: HashMap::new(), n_epochs: 0, last_commit: HashMap::new(), zombies: Vec::new(), mode };
+        e.restart();
+        e
+    }
+    fn restart(&mut self) {
+        self.n_epochs += 1;
+        for s in self.signals.clone() {
+            for l in 0..2u8 {
+                let _ = self.epoch.insert((s, l), (format!("E{:04}{}", self.n_epochs, l), 0));
+            }
+        }
+    }
+    fn low(&self, now_ns: u64, own: Option<u64>) -> u64 {
+        match (self.mode, own) {
+            (LowMode::OwnReceived, Some(r)) => r,
+            _ => self.buffer.iter().map(|q| q.2).fold(now_ns, u64::min),
+        }
+    }
+    fn meta(&self, s: &'static str, l: u8, content: &str, kind: &str, recv: u64, low: u64) -> BTreeMap<String, String> {
+        let (e, n) = &self.epoch[&(s, l)];
+        let mut m = meta_at(e, *n, content, u64::from(kind == proto::KIND_DATA), recv);
+        let _ = m.insert(proto::META_KIND.into(), kind.into());
+        let _ = m.insert(proto::META_LOW.into(), low.to_string());
+        m
+    }
+    /// A create-only PUT at the lane's next slot; `hold`: the PUT stays in
+    /// flight, its answer never comes (the caller crashes the edge). Returns
+    /// whether it committed (a tombstone moves the lane to a new epoch).
+    #[allow(clippy::too_many_arguments)]
+    async fn put(&mut self, b: &MemBucket, s: &'static str, l: u8, content: &str, kind: &str, recv: u64, low: u64, hold: bool) -> bool {
+        loop {
+            let (e, n) = self.epoch[&(s, l)].clone();
+            let key = proto::slot_key(&format!("{ROOT}/{}/{s}", self.producer), &e, n);
+            let m = self.meta(s, l, content, kind, recv, low);
+            if hold {
+                self.zombies.push((key, m));
+                return false;
+            }
+            match b.put(&key, Bytes::from(vec![0u8; 10]), Cond::Create, &m).await {
+                Put::Ok(_) => {
+                    self.epoch.get_mut(&(s, l)).unwrap().1 += 1;
+                    return true;
+                }
+                _ => match b.head(&key).await.unwrap() {
+                    Some(h) if proto::Slot::from_meta(&h) == proto::Slot::Tomb => {
+                        let _ = self.epoch.insert((s, l), (format!("{e}h{n}"), 0));
+                    }
+                    Some(_) => self.epoch.get_mut(&(s, l)).unwrap().1 += 1,
+                    None => {}
+                },
+            }
+        }
+    }
+}
+
+/// The derivation, randomized against the real worker and the published
+/// watermark (completeness.qnt's `completeSound`): after every publication,
+/// every request received before `complete_through` is in central. Two
+/// clusters, two lanes each, requests sent in any order, edge crashes that
+/// leave zombie PUTs landing late in a superseded epoch (the recomputed
+/// minimum dips; the published one holds), heartbeats, lost and partial
+/// statements. Returns (violations, regressions seen, the final watermark).
+async fn completeness_run(seed: u64, mode: LowMode) -> (Vec<String>, u64, u64) {
+    let (b, c, clk) = setup();
+    c.partial_every.set(5);
+    c.lost_answer_every.set(7);
+    let mut rng = Rng(seed * 0x9E37_79B9_7F4A_7C15 + 7);
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let mut edges = vec![CustodyEdge::new("c1/p0", vec!["traces", "logs"], mode), CustodyEdge::new("c2/p1", vec!["traces", "logs"], mode)];
+    let now_ns = |clk: &FakeClock| clk.0.get() * 1_000_000;
+    // Births: every lane registered before its edge takes custody.
+    if mode != LowMode::NoBirth {
+        for e in edges.iter_mut() {
+            for s in e.signals.clone() {
+                let _ = e.put(&b, s, 0, &format!("beat-{}-{s}-b", e.producer), proto::KIND_BEAT, 0, 0, false).await;
+            }
+        }
+    }
+    let mut wc = cfg("w1");
+    // A small HEAD budget: a backlog leaves slots unread, in the later epochs.
+    wc.max_heads = 3;
+    if mode == LowMode::WmIgnoresPending {
+        wc.timing.mutation = Mutation::WmIgnoresPending;
+    }
+    let mut w = Worker::new(wc, b.clone(), c.clone(), clk.clone());
+    let mut history: Vec<(String, &'static str, u64)> = Vec::new(); // (content, signal, received_ns)
+    let (mut violations, mut regress, mut published) = (Vec::new(), 0u64, 0u64);
+    let mut id = 0u64;
+    for step in 0..900 {
+        let now = now_ns(&clk);
+        let i = rng.below(2) as usize;
+        match rng.below(18) {
+            0..=3 => {
+                // a request enters custody
+                id += 1;
+                let s = if rng.below(2) == 0 { "traces" } else { "logs" };
+                edges[i].buffer.push((id, s, now));
+                history.push((format!("q{id}"), s, now));
+            }
+            4..=8 if !edges[i].buffer.is_empty() => {
+                // any buffered request (not the oldest first), maybe left in flight by a crash
+                let k = rng.below(edges[i].buffer.len() as u64) as usize;
+                let (qid, s, r) = edges[i].buffer[k];
+                let low = edges[i].low(now, Some(r));
+                let crash = rng.below(8) == 0;
+                let l = rng.below(2) as u8;
+                let ok = edges[i].put(&b, s, l, &format!("q{qid}"), proto::KIND_DATA, r, low, crash).await;
+                if crash {
+                    edges[i].restart();
+                } else if ok {
+                    edges[i].buffer.remove(k);
+                    let _ = edges[i].last_commit.insert(s, now);
+                }
+            }
+            9..=11 if !edges[i].zombies.is_empty() && rng.below(4) == 0 => {
+                // a zombie PUT lands (or not: create-only), late
+                let (key, m) = edges[i].zombies.remove(0);
+                let _ = b.put(&key, Bytes::from(vec![0u8; 10]), Cond::Create, &m).await;
+            }
+            12 => {
+                // heartbeats on the idle lanes
+                for s in edges[i].signals.clone() {
+                    if edges[i].last_commit.get(s).is_none_or(|t| now >= t + 2_000_000_000) {
+                        let low = edges[i].low(now, None);
+                        let ok = edges[i].put(&b, s, 0, &format!("beat-{seed}-{step}-{s}"), proto::KIND_BEAT, 0, low, false).await;
+                        if ok {
+                            let _ = edges[i].last_commit.insert(s, now);
+                        }
+                    }
+                }
+            }
+            13..=14 => {
+                let d = super::watermark::watermark_step(&*b, &wcfg, clk.0.get()).await.unwrap();
+                if d.computed_ns < published {
+                    regress += 1;
+                }
+                published = d.complete_through_ns;
+                for (content, s, r) in &history {
+                    let table = otap_s3pq::Signal::from_name(s).unwrap().table();
+                    if *r < published && c.count(table, content) == 0 {
+                        violations.push(format!("seed {seed} step {step}: {content} ({s}, received {r}) not ingested below complete_through {published}"));
+                    }
+                }
+            }
+            _ => {
+                let _ = w.step().await;
+            }
+        }
+        clk.0.set(clk.0.get() + 20 + rng.below(300));
+    }
+    (violations, regress, published)
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn complete_through_is_sound_and_advances() {
+    let (mut regress, mut advanced) = (0, 0);
+    for seed in 1..=20u64 {
+        let (v, r, wm) = completeness_run(seed, LowMode::Custody).await;
+        assert!(v.is_empty(), "{v:#?}");
+        regress += r;
+        advanced += u64::from(wm > 1_000_000 * 1_000_000);
+    }
+    assert!(regress > 0, "a zombie PUT made the recomputed watermark dip (the running max held)");
+    assert!(advanced >= 15, "the watermark advanced in most runs: {advanced} of 20");
+}
+
+/// The mutants the model rejects are caught here as well.
+#[tokio::test(flavor = "current_thread")]
+async fn complete_through_mutants_break_soundness() {
+    for mode in [LowMode::OwnReceived, LowMode::NoBirth, LowMode::WmIgnoresPending] {
+        let mut broken = 0;
+        for seed in 1..=20u64 {
+            broken += usize::from(!completeness_run(seed, mode).await.0.is_empty());
+        }
+        assert!(broken > 0, "mutant {} went unnoticed", mode as u8);
+    }
+}

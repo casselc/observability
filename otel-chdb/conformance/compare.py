@@ -28,7 +28,7 @@ import pyarrow.parquet as pq
 CH = os.environ.get("CH", "http://127.0.0.1:18123")
 KEY, SECRET = os.environ.get("AWS_ACCESS_KEY_ID", "otel"), os.environ.get("AWS_SECRET_ACCESS_KEY", "otelsecret")
 RUN_COLS = {"producer_id", "producer_epoch", "received_at", "content_key"}
-RUN_META = {"oscope-producer", "oscope-epoch", "oscope-received"}
+RUN_META = {"oscope-producer", "oscope-epoch", "oscope-received", "oscope-low"}
 fails = 0
 
 # Known differences between the edges, each normalized on both sides before
@@ -206,10 +206,14 @@ def objects(root):
         for (re_, rs, rk), (ge, gs, gk) in zip(r, g):
             tag = f"{ns}/{rs}"
             rm, gm = head_meta(f"{listed['rust'][0]}/{rk}"), head_meta(f"{listed['go'][0]}/{gk}")
-            same = lambda m: {k: v for k, v in m.items() if k not in RUN_META and not (ns == "metrics_series" and k == "oscope-content")}
+            beat = gm.get("oscope-kind") == "beat"  # a birth heartbeat (FORMAT.md §2): random content, no body
+            same = lambda m: {k: v for k, v in m.items() if k not in RUN_META and not ((ns == "metrics_series" or beat) and k == "oscope-content")}
             check(f"{tag}: S3 metadata", same(rm) == same(gm) and set(rm) == set(gm)
                   and gm.get("oscope-epoch") == ge and gm.get("oscope-seq") == str(int(gs[:-8])),
                   f"rust {sorted(rm.items())} go {sorted(gm.items())}" if same(rm) != same(gm) or set(rm) != set(gm) else "")
+            if beat:
+                check(f"{tag}: both heartbeats", rm.get("oscope-kind") == "beat", f"rust {rm.get('oscope-kind')}")
+                continue
             rb, gb = s3([], f"{listed['rust'][0]}/{rk}"), s3([], f"{listed['go'][0]}/{gk}")
             rf, gf = pq.ParquetFile(io.BytesIO(rb)), pq.ParquetFile(io.BytesIO(gb))
             kv = {e: {k.decode(): v.decode() for k, v in (f.metadata.metadata or {}).items()} for e, f in (("rust", rf), ("go", gf))}

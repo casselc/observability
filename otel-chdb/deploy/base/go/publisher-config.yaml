@@ -60,6 +60,8 @@ exporters:
     cluster: ${env:CLUSTER}
     producer_id: ${env:PRODUCER}
     lanes: 2                              # per signal; = the queue's consumers
+    heartbeat:                            # births + one per idle lane (../../../FORMAT.md §2; complete_through)
+      interval: 30s
     metrics_layout: series_table          # D7 (layout B); clickstack_tables for the contrib tables
     s3:
       url: ${env:S3_BASE}

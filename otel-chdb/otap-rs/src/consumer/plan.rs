@@ -59,19 +59,59 @@ pub fn may_tomb(scan: &EpochScan, newest: bool, quiet_for_ms: u64, quiet_ms: u64
 /// What a slot holds, from its HEAD.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Found {
-    Data { content: String, rows: u64, received_ns: u64 },
+    /// `low_ns`: the object's `oscope-low` (None: absent, as 0).
+    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64> },
+    /// A heartbeat (`../../FORMAT.md` §2): nothing to ingest, only its low.
+    Beat { low_ns: u64 },
     Tomb,
 }
 
+impl Found {
+    /// The slot's custody floor (0 when the object carries none: sound, it
+    /// only holds the lane's watermark where it is).
+    pub fn low_ns(&self) -> u64 {
+        match self {
+            Found::Data { low_ns, .. } => low_ns.unwrap_or(0),
+            Found::Beat { low_ns } => *low_ns,
+            Found::Tomb => 0,
+        }
+    }
+}
+
 pub fn found(meta: &HashMap<String, String>) -> Found {
+    let low_ns = meta.get(proto::META_LOW).and_then(|r| r.parse().ok());
     match proto::Slot::from_meta(meta) {
         proto::Slot::Tomb => Found::Tomb,
+        _ if meta.get(proto::META_KIND).map(String::as_str) == Some(proto::KIND_BEAT) => Found::Beat { low_ns: low_ns.unwrap_or(0) },
         _ => Found::Data {
             content: meta.get(proto::META_CONTENT).cloned().unwrap_or_default(),
             rows: meta.get(proto::META_ROWS).and_then(|r| r.parse().ok()).unwrap_or(0),
             received_ns: meta.get(proto::META_RECEIVED).and_then(|r| r.parse().ok()).unwrap_or(0),
+            low_ns,
         },
     }
+}
+
+/// A lane's watermark at a full listing (`../../FORMAT.md` §3,
+/// `../../model/completeness.qnt`): `min(M, U)`, where `m` is the highest
+/// `oscope-low` the checkpoint had passed before the LIST, and U the lowest
+/// `received_at` over the data slots that LIST shows above the checkpoint.
+/// `pending` holds, per such slot, what its HEAD found (None: not HEADed:
+/// past a gap or the HEAD budget, so no watermark this time). A heartbeat
+/// holds no request; a tombstone ends its epoch.
+pub fn lane_wm(m: u64, pending: &[Vec<Option<Found>>]) -> Option<u64> {
+    let mut u = u64::MAX;
+    for epoch in pending {
+        for f in epoch {
+            match f {
+                None => return None,
+                Some(Found::Tomb) => break,
+                Some(Found::Beat { .. }) => {}
+                Some(Found::Data { received_ns, .. }) => u = u.min(*received_ns),
+            }
+        }
+    }
+    Some(m.min(u))
 }
 
 /// The checkpoint's next position: past the consecutive done slots of
@@ -372,6 +412,16 @@ mod tests {
         m.insert(proto::META_KIND.to_string(), proto::KIND_DATA.to_string());
         m.insert(proto::META_CONTENT.to_string(), "h".to_string());
         m.insert(proto::META_ROWS.to_string(), "12".to_string());
-        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0 });
+        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None });
+        let _ = m.insert(proto::META_LOW.into(), "7".into());
+        assert_eq!(found(&m).low_ns(), 7);
+        let _ = m.insert(proto::META_KIND.into(), proto::KIND_BEAT.into());
+        assert_eq!(found(&m), Found::Beat { low_ns: 7 });
+        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None });
+        // nothing pending: M; a pending request below M: its received_at; unknown: none
+        assert_eq!(lane_wm(50, &[]), Some(50));
+        assert_eq!(lane_wm(50, &[vec![Some(Found::Beat { low_ns: 60 }), d(40)], vec![d(45)]]), Some(40));
+        assert_eq!(lane_wm(50, &[vec![d(70), Some(Found::Tomb), None]]), Some(50));
+        assert_eq!(lane_wm(50, &[vec![d(70), None]]), None);
     }
 }

@@ -291,6 +291,9 @@ struct LaneState {
     taken_at: u64,
     /// Rows ingested (the load).
     load: Ewma,
+    /// The watermark the last full listing computed (ns, wall ms), for the
+    /// next checkpoint write.
+    pending_wm: Option<(u64, u64)>,
 }
 
 impl LaneState {
@@ -312,6 +315,7 @@ impl LaneState {
             unsettled_until: None,
             taken_at: now,
             load,
+            pending_wm: None,
         }
     }
 }
@@ -322,6 +326,8 @@ struct EpochWork {
     epoch: String,
     next: u64,
     data: Vec<u64>,
+    /// Heartbeats among `data`: done without an insert.
+    beats: Vec<u64>,
     tomb: Option<u64>,
 }
 
@@ -465,7 +471,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 Ok(new_epoch) => {
                     // Busy (anything to ingest or close, or a new epoch): LIST
                     // again next poll. Idle: back off.
-                    let busy = objs.len() > n_objs || work.len() > n_work || new_epoch;
+                    // (Heartbeats alone keep an idle lane idle.)
+                    let busy = objs.len() > n_objs || work[n_work..].iter().any(|w| w.tomb.is_some()) || new_epoch;
                     let (b, r) = (self.cfg.backoff, self.jitter.next());
                     if let Some(ls) = self.held.get_mut(id) {
                         if busy {
@@ -993,7 +1000,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
             }
         };
-        if ls.last_full.is_none_or(|t| now >= t + cfg.full_list_ms) {
+        let full = ls.last_full.is_none_or(|t| now >= t + cfg.full_list_ms);
+        if full {
             // The whole lane above the floor: every epoch not retired, and
             // their slots (so no per-epoch LIST this step). A flat LIST: an
             // epoch with no key left isn't returned (a delimiter LIST on
@@ -1053,7 +1061,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     log(&cfg, &format!("gap: {id}/{e} slot {} is free but slot {g} is listed; waiting (never skipped, never tombstoned)", sc.head()));
                 }
             }
-            let mut w = EpochWork { lane: id.to_string(), epoch: e.clone(), next, data: Vec::new(), tomb: None };
+            let mut w = EpochWork { lane: id.to_string(), epoch: e.clone(), next, data: Vec::new(), beats: Vec::new(), tomb: None };
             for (seq, key, size) in &sc.run {
                 if heads >= cfg.max_heads {
                     break;
@@ -1089,7 +1097,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         w.tomb = Some(*seq);
                         break;
                     }
-                    Found::Data { content, rows, received_ns } => {
+                    Found::Beat { .. } => {
+                        w.data.push(*seq);
+                        w.beats.push(*seq);
+                    }
+                    Found::Data { content, rows, received_ns, .. } => {
                         w.data.push(*seq);
                         objs.push(Obj {
                             lane: id.to_string(),
@@ -1128,6 +1140,26 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
             if !w.data.is_empty() || w.tomb.is_some() {
                 work.push(w);
+            }
+        }
+        // The lane's watermark, from a listing of the whole lane
+        // (../../FORMAT.md §3): the max low passed before this LIST, capped
+        // by every request the LIST shows above the checkpoint.
+        if full {
+            let pending: Vec<Vec<Option<Found>>> = ls
+                .known
+                .iter()
+                .filter(|e| !ls.ckpt.closed(e))
+                .map(|e| {
+                    let next = ls.ckpt.next(e);
+                    let mut seqs: Vec<u64> = listed.get(e).map(|v| v.iter().map(|l| l.0).filter(|s| *s >= next).collect()).unwrap_or_default();
+                    seqs.sort_unstable();
+                    seqs.iter().map(|s| ls.heads.get(&(e.clone(), *s)).map(|(f, _)| f.clone())).collect()
+                })
+                .collect();
+            let pending = if cfg.timing.mutation == Mutation::WmIgnoresPending { Vec::new() } else { pending };
+            if let Some(wm) = plan::lane_wm(ls.ckpt.max_low_ns, &pending) {
+                ls.pending_wm = Some((wm, self.clock.wall()));
             }
         }
         Ok(new_epoch)
@@ -1569,14 +1601,30 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let mut changed = false;
         let mut closed = 0;
         for w in work.iter().filter(|w| w.lane == id) {
-            let n = plan::advance_to(w.next, &w.data, |s| done.contains(&(id.to_string(), w.epoch.clone(), s)));
+            let n = plan::advance_to(w.next, &w.data, |s| {
+                w.beats.contains(&s) || done.contains(&(id.to_string(), w.epoch.clone(), s))
+            });
             if n > doc.next(&w.epoch) {
+                // The highest low passed (ingested and verified, or a heartbeat).
+                for s in doc.next(&w.epoch)..n {
+                    if let Some((f, _)) = ls.heads.get(&(w.epoch.clone(), s)) {
+                        doc.max_low_ns = doc.max_low_ns.max(f.low_ns());
+                    }
+                }
                 doc.advance(&w.epoch, n);
                 changed = true;
             }
             if w.tomb == Some(n) && !doc.closed(&w.epoch) {
                 doc.close(&w.epoch, n);
                 closed += 1;
+                changed = true;
+            }
+        }
+        if let Some((wm, at)) = ls.pending_wm.take() {
+            // (A watermark that did not move costs no write.)
+            if wm != doc.wm_ns {
+                doc.wm_ns = wm;
+                doc.wm_wall_ms = at;
                 changed = true;
             }
         }
@@ -1740,7 +1788,7 @@ pub async fn tombstone<B: Bucket + ?Sized>(b: &B, prefix: &str, epoch: &str, seq
                 return match plan::found(&m) {
                     // Ours landed (answer lost), or another worker's.
                     Found::Tomb => TombResult::Closed(!conflict),
-                    Found::Data { .. } => TombResult::LostToData,
+                    Found::Data { .. } | Found::Beat { .. } => TombResult::LostToData,
                 };
             }
             Ok(None) if conflict => return TombResult::Unresolved("412, then the HEAD found nothing".into()),

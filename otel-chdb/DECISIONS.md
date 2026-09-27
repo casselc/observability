@@ -1547,7 +1547,57 @@ cold at once (latency, not loss).
   must likewise be at least the longest custody age, not the 3-day copy
   horizon: a replay older than it is sealed a second time.
 
-**Open requirement: `complete_through` (2026-09-27)** [Q]
+**`complete_through`: implemented (format v2, 2026-09-27)** [M, Q].
+What the model requires below is built; [FORMAT.md](FORMAT.md) §2–§3 is the
+reference:
+
+- **`x-amz-meta-oscope-low`** on every data object, both edges: the lowest
+  of the send time, the `received_at` of the requests the exporter holds
+  (its own included: lower, still sound) and the buffer's floor. Rust:
+  Quiver publishes the oldest ingestion time over its unresolved segments
+  and the open one on the pipeline thread (`patches/0006`,
+  `otel_arrow_dfe_otap::custody`); `custody: durable_buffer` makes every
+  low 0 until it has. Go: a custody ledger keyed by a custody id in the
+  client metadata (persisted by `file_storage` with the request), and a
+  probe per queue at start: until the probe comes out of the FIFO queue,
+  requests persisted by the previous incarnation may be in it and every
+  low is 0. Computed at encode time and cached with the bytes, so a resend
+  carries the same value.
+- **Heartbeat slots** (`oscope-kind: beat`, zero bytes, same slot
+  protocol): a **birth** per registered lane (the layout's namespaces)
+  before the exporter takes requests (Go: in `Start`, which runs before the
+  receivers; Rust: before the exporter's loop, up to `birth_timeout`), then
+  one per lane idle for `heartbeat.interval` (30 s). Cost at 30 s: about
+  86 k PUTs per idle lane-month (≈$0.43), seven lanes per publisher.
+- **The lane watermark** is computed by the lane's holder at each full
+  listing: `min(max low passed before the LIST, min received_at of the data
+  slots that LIST shows above the checkpoint)`. That is the model's prefix
+  rule without an order between epochs, which several writer lanes of one
+  process need; the model has it as `completenessImpl` (`PENDING`).
+  It is kept in the checkpoint (`max_low_ns`, `wm_ns`).
+- **`complete_through`** is published by `consume gc` (or `consume
+  watermark`) to `{ctl}/watermark.json` by CAS: `max(previous, min(t_list −
+  skew, min over listed lanes))`, a lane without a watermark counting as 0.
+  The document names the lanes holding it back and the stale ones
+  (`--wm-stale`, 5 min); the same goes to metrics. Chosen over a
+  ClickHouse table because it must outlive central (the lake's sealer and
+  the evaluator's fallback read it with one GET) and CAS gives the running
+  max across publishers; a query service caches it.
+- **Custody age (R-S6)** is now observable: a lane's lag
+  (`now − wm`) includes the age of the oldest request in its publisher's
+  custody, so the TTL rule above has its measure (`consumer_lane_watermark_lag_seconds`).
+
+Evidence: `consumer::tests::complete_through_is_sound_and_advances` (20
+randomized runs: two clusters, two writer lanes per signal sharing a
+custody, sends in any order, crashes leaving zombie PUTs, heartbeats,
+partial and lost statements; after every publication every request
+received before it is in central; the recomputed value dipped and the
+published one held) and `complete_through_mutants_break_soundness` (own
+`received_at` as the low, no births, and the lane rule without the pending
+cap each break it); s3pqexporter `TestOscopeLowFollowsCustody`,
+`TestCustodyLedger`; conformance with births 254 PASS.
+
+**What the model asked for (2026-09-27, kept for the record)** [Q]
 (`model/completeness.qnt`, `cadd7a1`). A reader (the consumer, or the
 lake's sealer) can publish "every request received before W is readable"
 for deterministic alerts (research

@@ -44,7 +44,7 @@ open(sys.argv[1] + '/traces.pb', 'wb').write(ln(1, ln(2, ln(2, span))))
 EOF
 for path in direct via_otap; do
   ADMIN_HTTP=127.0.0.1:18581 PRODUCER=values-$path OTLP_PATH=$path OTLP_HTTP=127.0.0.1:14518 OTLP_GRPC=127.0.0.1:14517 \
-    S3_URL=$S3/otel/$PREFIX/values/$RUN/$path "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/$path.log" 2>&1 &
+    HEARTBEAT=0s S3_URL=$S3/otel/$PREFIX/values/$RUN/$path "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/$path.log" 2>&1 &
   E=$!
   sleep 2
   for sig in logs traces; do "$T/otlpsend" -url http://127.0.0.1:14518 -signal $sig -file "$tmp/$sig.pb" -n 1 -quiet > /dev/null; done

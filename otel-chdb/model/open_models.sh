@@ -41,6 +41,8 @@ for w in wFire wOk wOkIdleLane wLakeServed wPageNoSource wPageStale wReplayEvalu
   sim $C completenessDesign "not($w)" 20000 80 VIOLATED
 done
 sim $C noHeartbeat safety 5000 80 ok "(safe; stalls: idleLaneStallsTest)"
+sim $C completenessImpl safety 20000 80 ok "(the lane rule as implemented: min(max ingested low, pending received_at))"
+sim $C completenessImpl "not(wRegress)" 20000 80 VIOLATED
 sim $C listTimeIdle completeSound 20000 80 VIOLATED
 sim $C lastReceived completeSound 20000 80 VIOLATED
 sim $C maxNotPrefix completeSound 20000 80 VIOLATED
@@ -51,6 +53,7 @@ sim $C unlabeledFallback resultLabeled 20000 80 VIOLATED
 runs $C completenessDesign "DesignTest|idleLaneStallsTest"
 for m in listTimeIdle lastReceived maxNotPrefix noBirth evalPastComplete noDataOk unlabeledFallback; do runs $C $m "${m}BreaksTest"; done
 runs $C noHeartbeat idleLaneStallsTest
+runs $C completenessImpl "DesignTest"
 
 # ---- entityCatalog: grace window, controller outages, the announcement lane (LS-5) ----
 E=entityCatalog.qnt

@@ -36,7 +36,7 @@ for spec in $PATHS; do
   cfg=edge.yaml; [ "$path" = otapgrpc ] && { cfg=edge-otap.yaml; path=direct; }
   for f in testgen-3000 nasty-700 extra; do
     METRICS_LAYOUT=$layout OTLP_HTTP=127.0.0.1:14418 OTLP_GRPC=127.0.0.1:14417 OTAP_GRPC=127.0.0.1:14419 OTLP_PATH=$path VERBOSE=true PRODUCER=corr-$name \
-      S3_URL=$S3/otel/$PREFIX/corr/$RUN/$name/$f "$B/otap-s3pq" -c "$here/configs/$cfg" >> "$OUT/corr-$RUN-$name.edge.log" 2>&1 &
+      HEARTBEAT=0s S3_URL=$S3/otel/$PREFIX/corr/$RUN/$name/$f "$B/otap-s3pq" -c "$here/configs/$cfg" >> "$OUT/corr-$RUN-$name.edge.log" 2>&1 &
     E=$!
     sleep 1.5
     if [ $cfg = edge-otap.yaml ]; then

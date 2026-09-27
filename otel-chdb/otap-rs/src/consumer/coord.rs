@@ -135,6 +135,10 @@ pub enum Mutation {
     /// closed and retired or not (../model/s3InlineConsumerCompact.qnt's
     /// `earlyCompact`).
     EarlyCompact,
+    /// The lane watermark ignores the requests the full listing shows above
+    /// the checkpoint: the highest low passed, alone (completeness.qnt's
+    /// `maxNotPrefix`).
+    WmIgnoresPending,
     /// A lane is released (or re-checked) while a statement whose answer was
     /// lost may still land (../model/s3InlineConsumer.qnt's `releaseInFlight`).
     ReleaseInFlight,
@@ -429,6 +433,18 @@ pub struct CkptDoc {
     pub floor: String,
     /// The epochs not retired yet (and never one at or below the floor).
     pub epochs: BTreeMap<String, EpochPos>,
+    /// The highest `oscope-low` over the slots passed (ns; `../../FORMAT.md` §3).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub max_low_ns: u64,
+    /// The lane's watermark at the last full listing (ns), and when (wall ms).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wm_ns: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wm_wall_ms: u64,
+}
+
+fn is_zero(x: &u64) -> bool {
+    *x == 0
 }
 
 /// Whether `epoch` is above `floor` in key order: `{epoch}/` sorts after

@@ -20,7 +20,7 @@ tmp=$(mktemp -d)
 for path in otapgrpc direct; do
   cfg=edge-otap.yaml; [ $path = direct ] && cfg=edge.yaml
   VERBOSE=true PRODUCER=corr-$path OTLP_HTTP=127.0.0.1:14418 OTLP_GRPC=127.0.0.1:14417 OTAP_GRPC=127.0.0.1:14419 \
-    S3_URL=$S3/otel/$PREFIX/corr/$RUN/$path "$B/otap-s3pq" -c "$here/configs/$cfg" >> "$OUT/$RUN-$path.edge.log" 2>&1 &
+    HEARTBEAT=0s S3_URL=$S3/otel/$PREFIX/corr/$RUN/$path "$B/otap-s3pq" -c "$here/configs/$cfg" >> "$OUT/$RUN-$path.edge.log" 2>&1 &
   E=$!
   sleep 1.5
   for sig in traces logs; do

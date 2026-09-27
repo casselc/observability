@@ -25,7 +25,7 @@ for rep in $(seq 1 "$REPS"); do
   for sig in traces logs metrics; do
     for tr in otlp-http otlp-grpc otap-grpc; do
       METRICS_LAYOUT=${METRICS_LAYOUT:-series_table} OTLP_HTTP=127.0.0.1:14818 OTLP_GRPC=127.0.0.1:14817 OTAP_GRPC=127.0.0.1:14819 \
-        PRODUCER=inbench S3_URL=$S3/$PREFIX/inbench/$tr "$B/otap-s3pq" -c "$here/configs/edge-otap.yaml" > "$tmp/edge.log" 2>&1 &
+        PRODUCER=inbench HEARTBEAT=0s S3_URL=$S3/$PREFIX/inbench/$tr "$B/otap-s3pq" -c "$here/configs/edge-otap.yaml" > "$tmp/edge.log" 2>&1 &
       p=$!
       sleep 1.5
       all=$(files $sig)

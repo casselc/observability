@@ -94,6 +94,7 @@ module completeness {
   const LOW_META: bool
   const IDLE_AS_LIST: bool
   const PREFIX: bool
+  const PENDING: bool
   const BIRTH: bool
   const HEARTBEAT: bool
   const GATE: bool
@@ -156,10 +157,17 @@ module completeness {
     if (LOW_META) buffer.get(l).filter(x => x.id != q.id).fold(now, (m, x) => imin(m, x.r)) else q.r
 
   // The lane's watermark as source s can compute it.
+  // With PENDING (the implementation, ../FORMAT.md §3, otap-rs
+  // `plan::lane_wm`): the highest low over every ingested object, capped by
+  // the lowest received_at of the visible data objects not ingested yet; no
+  // order between objects is needed (several writer lanes share a custody).
   def laneWm(s: int, l: int): int = {
     val lo = objs.filter(o => o.lane == l)
     val done = ing.get(s)
     if (IDLE_AS_LIST and lo.forall(o => done.contains(o))) now
+    else if (PENDING)
+      imin(lo.filter(o => done.contains(o)).fold(-1, (m, o) => imax(m, o.low)),
+           lo.filter(o => not(done.contains(o)) and o.kind == Data).fold(NEVER, (m, o) => imin(m, o.r)))
     else
       lo.filter(o => done.contains(o) and (not(PREFIX) or lo.forall(p => before(p, o) implies done.contains(p))))
         .fold(-1, (m, o) => imax(m, o.low))
@@ -501,48 +509,53 @@ module completeness {
       .expect(and { wZombieLanded, wRegress, wm.get(CENTRAL) == 2, verdict.get(0) == Fire, safety })
 }
 
+// The rule as implemented (min of the ingested max low and the pending received_at).
+module completenessImpl {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true).*
+}
 // The design.
 module completenessDesign {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }
 // §5.4 as first written: an idle lane is caught up to the LIST time.
 module listTimeIdle {
-  import completeness(LOW_META = true, IDLE_AS_LIST = true, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = true, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }
 // The lane's watermark from received_at alone (no low in the metadata).
 module lastReceived {
-  import completeness(LOW_META = false, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = false, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }
 // The highest ingested object, not the ingested prefix.
 module maxNotPrefix {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = false, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = false, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }
 // The minimum over the lanes seen so far (lanes not registered before custody).
 module noBirth {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = false, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = false, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }
 // LS-7: the evaluator runs when the wall clock passes the window.
 module evalPastComplete {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = false, NODATA_OK = false, LABEL = true).*
 }
 // LS-8: no source reachable reads as no data, OK.
 module noDataOk {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = true, LABEL = true).*
 }
 // LS-6: the lake's results carry central's freshness.
 module unlabeledFallback {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = true,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
     GATE = true, NODATA_OK = false, LABEL = false).*
 }
 // No heartbeats: safe, but an idle lane stalls every window until it pages.
 module noHeartbeat {
-  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, BIRTH = true, HEARTBEAT = false,
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = false,
     GATE = true, NODATA_OK = false, LABEL = true).*
 }

@@ -47,6 +47,18 @@ type Config struct {
 	Series        parquetgo.SeriesOptions `mapstructure:"series"`
 	Parquet       ParquetConfig           `mapstructure:"parquet"`
 	S3            S3Config                `mapstructure:"s3"`
+	// Heartbeat slots and the births (../../FORMAT.md §2).
+	Heartbeat HeartbeatConfig `mapstructure:"heartbeat"`
+}
+
+// HeartbeatConfig: a birth heartbeat per registered lane at start, then one
+// per lane idle for Interval. Interval 0: none at all, births included
+// (benchmarks only: the consumer's complete_through cannot pass this
+// producer).
+type HeartbeatConfig struct {
+	Interval time.Duration `mapstructure:"interval"`
+	// BirthTimeout bounds how long Start waits for the births.
+	BirthTimeout time.Duration `mapstructure:"birth_timeout"`
 }
 
 // ParquetConfig tunes the trace, log and layout-A metric objects (layout B

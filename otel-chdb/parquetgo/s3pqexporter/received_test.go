@@ -3,6 +3,7 @@ package s3pqexporter
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/collector/component"
 	"strconv"
 	"testing"
 	"time"
@@ -41,7 +42,7 @@ func TestReceivedSurvivesTheQueue(t *testing.T) {
 	s := td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty()
 	s.SetName("x")
 	s.SetStartTimestamp(pcommon.Timestamp(1_700_000_000_000_000_000))
-	if err := (stampTraces{c, func() time.Time { return enq }}).ConsumeTraces(in, td); err != nil {
+	if err := (stampTraces{c, func() time.Time { return enq }, custodyFor(component.MustNewID("rcvtest"))}).ConsumeTraces(in, td); err != nil {
 		t.Fatal(err)
 	}
 	// The persistent queue's encoding (queuebatch tracesEncoding): request + context.

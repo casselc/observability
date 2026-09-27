@@ -47,6 +47,7 @@ func createDefaultConfig() component.Config {
 		MetricsLayout: edge.SeriesTable,
 		Series:        parquetgo.DefaultSeriesOptions(),
 		S3:            S3Config{Region: "us-east-1", PutTimeout: 10 * time.Second, HeadTimeout: 2 * time.Second},
+		Heartbeat:     HeartbeatConfig{Interval: 30 * time.Second, BirthTimeout: 30 * time.Second},
 	}
 }
 
@@ -64,9 +65,52 @@ type shared struct {
 	err  error
 	refs int
 	reg  metric.Registration // s3pq_commit_outcomes (telemetry.go)
+	stop context.CancelFunc  // the heartbeats
 }
 
-func acquire(id component.ID, cfg *Config, mp metric.MeterProvider) (*edge.Edge, error) {
+// heartbeats registers every lane the edge can write (birth heartbeats,
+// waiting up to BirthTimeout: exporters start before receivers, so nothing
+// is taken into custody before) and then keeps each idle lane alive: a
+// heartbeat per lane that has committed nothing for Interval
+// (../../FORMAT.md §2).
+func heartbeats(ctx context.Context, e *edge.Edge, hb HeartbeatConfig, log *zap.Logger) {
+	lanes := e.Registered()
+	born := map[string]bool{}
+	until := time.Now().Add(hb.BirthTimeout)
+	for len(born) < len(lanes) && time.Now().Before(until) {
+		for _, ns := range lanes {
+			if !born[ns] && e.Beat(ctx, ns) == nil {
+				born[ns] = true
+			}
+		}
+		if len(born) < len(lanes) {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+	if log != nil {
+		log.Info("s3pq births", zap.Int("registered", len(born)), zap.Int("lanes", len(lanes)))
+	}
+	go func() {
+		t := time.NewTicker(hb.Interval / 2)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			for _, ns := range lanes {
+				if e.IdleFor(ns) >= hb.Interval {
+					if err := e.Beat(ctx, ns); err != nil && log != nil && ctx.Err() == nil {
+						log.Warn("s3pq heartbeat", zap.String("lane", ns), zap.Error(err))
+					}
+				}
+			}
+		}
+	}()
+}
+
+func acquire(id component.ID, cfg *Config, mp metric.MeterProvider, log *zap.Logger) (*edge.Edge, error) {
 	edgesMu.Lock()
 	s := edges[id]
 	if s == nil {
@@ -76,8 +120,15 @@ func acquire(id component.ID, cfg *Config, mp metric.MeterProvider) (*edge.Edge,
 	s.refs++
 	edgesMu.Unlock()
 	s.once.Do(func() {
-		if s.e, s.err = edge.New(cfg.EdgeConfig()); s.err == nil && mp != nil {
+		ec := cfg.EdgeConfig()
+		ec.Custody = custodyFor(id).lowNow
+		if s.e, s.err = edge.New(ec); s.err == nil && mp != nil {
 			s.reg, s.err = registerOutcomes(mp, s.e.Stats())
+		}
+		if s.err == nil && cfg.Heartbeat.Interval > 0 {
+			var ctx context.Context
+			ctx, s.stop = context.WithCancel(context.Background())
+			heartbeats(ctx, s.e, cfg.Heartbeat, log)
 		}
 	})
 	return s.e, s.err
@@ -103,6 +154,9 @@ func release(id component.ID, log *zap.Logger) {
 		if s.reg != nil {
 			_ = s.reg.Unregister()
 		}
+		if s.stop != nil {
+			s.stop()
+		}
 		delete(edges, id)
 	}
 }
@@ -114,10 +168,11 @@ type exp struct {
 	cfg *Config
 	log *zap.Logger
 	e   *edge.Edge
+	c   *custody
 }
 
 func (x *exp) start(context.Context, component.Host) error {
-	e, err := acquire(x.id, x.cfg, x.mp)
+	e, err := acquire(x.id, x.cfg, x.mp, x.log)
 	x.e = e
 	return err
 }
@@ -144,13 +199,13 @@ func verdict(err error) error {
 }
 
 func (x *exp) traces(ctx context.Context, td ptrace.Traces) error {
-	return verdict(x.e.PushTraces(withReceived(ctx), td))
+	return x.c.push(ctx, "traces", func(ctx context.Context) error { return verdict(x.e.PushTraces(ctx, td)) })
 }
 func (x *exp) logs(ctx context.Context, ld plog.Logs) error {
-	return verdict(x.e.PushLogs(withReceived(ctx), ld))
+	return x.c.push(ctx, "logs", func(ctx context.Context) error { return verdict(x.e.PushLogs(ctx, ld)) })
 }
 func (x *exp) metrics(ctx context.Context, md pmetric.Metrics) error {
-	return verdict(x.e.PushMetrics(withReceived(ctx), md))
+	return x.c.push(ctx, "metrics", func(ctx context.Context) error { return verdict(x.e.PushMetrics(ctx, md)) })
 }
 
 func newExp(set exporter.Settings, cfg component.Config) (*exp, *Config, error) {
@@ -158,7 +213,7 @@ func newExp(set exporter.Settings, cfg component.Config) (*exp, *Config, error) 
 	if !ok {
 		return nil, nil, errors.New("s3pq: unexpected config type")
 	}
-	return &exp{id: set.ID, mp: set.MeterProvider, cfg: c, log: set.Logger}, c, nil
+	return &exp{id: set.ID, mp: set.MeterProvider, cfg: c, log: set.Logger, c: custodyFor(set.ID)}, c, nil
 }
 
 func options(x *exp, c *Config) []exporterhelper.Option {
@@ -181,7 +236,8 @@ func createTraces(ctx context.Context, set exporter.Settings, cfg component.Conf
 	if err != nil {
 		return nil, err
 	}
-	var out exporter.Traces = stampTraces{e, time.Now}
+	x.c.expect("traces")
+	var out exporter.Traces = stampTraces{e, time.Now, x.c}
 	if c.Batch.Enabled {
 		out = batchTraces{out, newBatcher(c.Batch, tracesKind, out.ConsumeTraces)}
 	}
@@ -197,7 +253,8 @@ func createLogs(ctx context.Context, set exporter.Settings, cfg component.Config
 	if err != nil {
 		return nil, err
 	}
-	var out exporter.Logs = stampLogs{e, time.Now}
+	x.c.expect("logs")
+	var out exporter.Logs = stampLogs{e, time.Now, x.c}
 	if c.Batch.Enabled {
 		out = batchLogs{out, newBatcher(c.Batch, logsKind, out.ConsumeLogs)}
 	}
@@ -213,7 +270,8 @@ func createMetrics(ctx context.Context, set exporter.Settings, cfg component.Con
 	if err != nil {
 		return nil, err
 	}
-	var out exporter.Metrics = stampMetrics{e, time.Now}
+	x.c.expect("metrics")
+	var out exporter.Metrics = stampMetrics{e, time.Now, x.c}
 	if c.Batch.Enabled {
 		out = batchMetrics{out, newBatcher(c.Batch, metricsKind, out.ConsumeMetrics)}
 	}

@@ -22,7 +22,7 @@ cpu_ms() { # utime+stime of a pid, ms
 pipeline() { # signal path
   local sig=$1 path=$2 port=14318
   env OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port-1)) OTLP_PATH=$path PRODUCER=bench-pipe \
-    S3_URL=$S3/otap-rs/bench/pipeline "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
+    HEARTBEAT=0s S3_URL=$S3/otap-rs/bench/pipeline "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
   local pid=$!
   sleep 1.5
   local rss0; rss0=$(awk '/VmRSS/{print $2/1024}' /proc/$pid/status)

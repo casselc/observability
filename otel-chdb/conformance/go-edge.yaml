@@ -17,6 +17,8 @@ exporters:
     cluster: ${env:CLUSTER:-local}
     producer_id: ${env:PRODUCER:-edge-go}
     lanes: ${env:LANES:-1}
+    heartbeat:                    # births and idle-lane heartbeats (../FORMAT.md §2)
+      interval: ${env:HEARTBEAT:-30s}
     metrics_layout: ${env:METRICS_LAYOUT:-series_table}
     s3:
       url: ${env:S3_URL}

@@ -32,6 +32,10 @@
 //!   were received more than the check's copy horizon after their original
 //!   (content keys in two partitions beyond the check's reach), off the
 //!   ingest path (`consume gc --audit-every`, `consume horizon-audit`).
+//! - `watermark`: `complete_through`: the minimum of the lanes' watermarks
+//!   (each lane's holder computes its own at every full listing), published
+//!   as a running max in `{ctl}/watermark.json` (`consume gc`, `consume
+//!   watermark`), with the lanes holding it back and the stale ones.
 //! - `metrics`: Prometheus text for the worker, GC and the audit, and a
 //!   minimal HTTP endpoint (`--metrics-addr`).
 //!
@@ -48,6 +52,7 @@ pub mod gc;
 pub mod metrics;
 pub mod plan;
 pub mod sql;
+pub mod watermark;
 pub mod worker;
 
 /// `{ctl}/format.json`: the on-disk format this bucket is in (`../../FORMAT.md` §5).

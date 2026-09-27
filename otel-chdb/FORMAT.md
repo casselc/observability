@@ -122,7 +122,8 @@ per-epoch positions:
 
 - `max_low_ns`: the highest `oscope-low` over the slots the checkpoint has
   passed (ingested and verified, or heartbeats);
-- `wm_ns`, `wm_wall_ms`: the lane's watermark and when it was computed.
+- `wm_ns`, `wm_wall_ms`: the lane's watermark and when it last moved
+  (a watermark that did not move is not written again).
 
 The lane's holder computes the watermark at each full listing of the lane
 (every `--full-list`, 30 s): with `M` = `max_low_ns` as it stood before the

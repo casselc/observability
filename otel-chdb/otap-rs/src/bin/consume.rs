@@ -15,6 +15,9 @@
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold <budget+slack+2s>]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
+//!           [--depth 3 --wm-skew 5s --wm-stale 5m | --no-watermark]
+//!   consume watermark --s3 ... [--ctl PREFIX] [--every 5s --run-for 10m] [--depth 3 --wm-skew 5s --wm-stale 5m]
+//!           (complete_through alone: {ctl}/watermark.json, ../../FORMAT.md §3)
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
 //!   consume --print-ddl SIGNAL | --print-rollups SIGNAL | --print-structure SIGNAL | --print-cols SIGNAL
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
@@ -107,6 +110,21 @@ struct Metrics {
     audit: AuditState,
     audit_m: AuditMetrics,
     horizon_ms: Option<u64>,
+    wm: Option<consumer::watermark::WmDoc>,
+    wm_err: u64,
+}
+
+/// `complete_through` as metrics (../../FORMAT.md §3).
+fn wm_families(p: &mut metrics::Prom, d: &consumer::watermark::WmDoc, errors: u64) {
+    p.gauge("consumer_complete_through_seconds", "The published complete_through (Unix s): every request received before it is ingested.", &[], d.complete_through_ns as f64 / 1e9);
+    p.gauge("consumer_complete_through_lag_seconds", "Wall clock minus complete_through at the last run.", &[], (d.wall_ms as f64 / 1e3 - d.complete_through_ns as f64 / 1e9).max(0.0));
+    p.gauge("consumer_watermark_lanes", "Lanes the last run saw.", &[], d.lanes as f64);
+    p.gauge("consumer_watermark_stale_lanes", "Lanes whose watermark lags the wall clock by more than --wm-stale.", &[], d.stale.len() as f64);
+    p.counter("consumer_watermark_errors_total", "Watermark runs that failed.", &[], errors as f64);
+    p.declare("consumer_lane_watermark_lag_seconds", metrics::Kind::Gauge, "A stale lane's watermark lag (only stale lanes are exported).");
+    for l in &d.stale {
+        p.gauge("consumer_lane_watermark_lag_seconds", "", &[("lane", l.lane.as_str())], l.lag_s);
+    }
 }
 
 #[derive(Default)]
@@ -259,7 +277,7 @@ async fn main() {
             std::process::exit(2);
         }
     }
-    if sub == Some("gc") || sub == Some("horizon-audit") {
+    if matches!(sub, Some("gc" | "horizon-audit" | "watermark")) {
         // GC (`gc`), and the horizon audit beside it (`gc --audit-every`) or
         // alone (`horizon-audit`). One task: GC and the audit interleave at
         // their awaits, and neither is on any worker's path.
@@ -275,12 +293,22 @@ async fn main() {
             if st.audit_on {
                 metrics::audit_families(&mut p, &st.audit, &st.audit_m, st.horizon_ms);
             }
+            if let Some(d) = &st.wm {
+                wm_families(&mut p, d, st.wm_err);
+            }
             metrics::publish(&prom, p.render());
         };
         let gc_loop = async {
-            if sub != Some("gc") {
+            if !matches!(sub, Some("gc" | "watermark")) {
                 return;
             }
+            // complete_through, after each GC run (`--no-watermark`: off), or alone (`watermark`).
+            let wm_cfg = (!flag(&args, "--no-watermark")).then(|| consumer::watermark::WmConfig {
+                depth: arg(&args, "--depth").map_or(3, |d| d.parse().expect("--depth")),
+                skew_ms: opt_ms(&args, "--wm-skew", "5s"),
+                stale_ms: opt_ms(&args, "--wm-stale", "5m"),
+                ..consumer::watermark::WmConfig::new(&root, &ctl)
+            });
             let cfg = GcConfig {
                 root: root.clone(),
                 ctl: ctl.clone(),
@@ -289,6 +317,30 @@ async fn main() {
                 dry_run: flag(&args, "--dry-run"),
             };
             loop {
+                if let Some(wc) = &wm_cfg {
+                    let r = consumer::watermark::watermark_step(&*bucket, wc, consumer::wall_ms()).await;
+                    let mut st = state.borrow_mut();
+                    match r {
+                        Ok(d) => {
+                            println!("{}", serde_json::json!({"watermark": d}));
+                            st.wm = Some(d);
+                        }
+                        Err(e) => {
+                            st.wm_err += 1;
+                            eprintln!("watermark: {e}");
+                        }
+                    }
+                    render(&st);
+                }
+                if sub == Some("watermark") {
+                    match every {
+                        Some(d) if consumer::mono_ms() - t0 < run_for => {
+                            tokio::time::sleep(Duration::from_millis(d)).await;
+                            continue;
+                        }
+                        _ => break,
+                    }
+                }
                 let before = bucket.counts().snap();
                 let r = gc_step(&*bucket, &cfg, consumer::wall_ms()).await;
                 {

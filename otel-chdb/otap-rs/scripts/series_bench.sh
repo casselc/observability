@@ -29,7 +29,7 @@ tg=$(ls "$D"/metrics-mixed-10000-b*.pb | paste -sd,)
 pipeline() { # layout
   local port=14718 layout=$1
   METRICS_LAYOUT=$layout OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port-1)) PRODUCER=bench-pipe \
-    S3_URL=$S3/$PREFIX/bench/pipeline-$layout "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
+    HEARTBEAT=0s S3_URL=$S3/$PREFIX/bench/pipeline-$layout "$B/otap-s3pq" -c "$here/configs/edge.yaml" > "$tmp/pipe.log" 2>&1 &
   local pid=$!
   sleep 1.5
   local all; all=$(ls "$FLEET"/*.pb)

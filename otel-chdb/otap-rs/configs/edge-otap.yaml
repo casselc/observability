@@ -54,6 +54,9 @@ groups:
             config:
               cluster: "${env:CLUSTER:-local}"
               producer_id: "${env:PRODUCER:-edge-1}"
+              # oscope-low and heartbeat slots (../../FORMAT.md §2); HEARTBEAT=0s: none (benchmarks only)
+              heartbeat:
+                interval: "${env:HEARTBEAT:-30s}"
               lanes: ${env:LANES:-1}
               otlp_path: "${env:OTLP_PATH:-direct}"
               format: "${env:FORMAT:-parquet}"

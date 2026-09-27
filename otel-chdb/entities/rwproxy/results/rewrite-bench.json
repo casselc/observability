@@ -1,0 +1,61 @@
+{
+ "note": "rwproxy bench -n 200: parse + rewrite per statement, in process, microseconds; loaded shared 4-vCPU box",
+ "captured": {
+  "all": {
+   "max": 24380.304,
+   "n": 159800,
+   "p50": 48.005,
+   "p90": 173.502,
+   "p99": 865.594
+  },
+  "alloc_bytes_per_rewrite": 33251.892315394245,
+  "cpu": 4,
+  "gomaxprocs": 4,
+  "passthrough": {
+   "max": 24380.304,
+   "n": 143400,
+   "p50": 44.256,
+   "p90": 113.836,
+   "p99": 556.231
+  },
+  "rewritten": {
+   "max": 14495.36,
+   "n": 16400,
+   "p50": 146.418,
+   "p90": 633.138,
+   "p99": 2148.441
+  },
+  "rounds": 200,
+  "statements": 799,
+  "wall_s": 15.567514162
+ },
+ "scenarios": {
+  "all": {
+   "max": 11023.029,
+   "n": 5400,
+   "p50": 84.599,
+   "p90": 249.978,
+   "p99": 856.305
+  },
+  "alloc_bytes_per_rewrite": 54656.306666666664,
+  "cpu": 4,
+  "gomaxprocs": 4,
+  "passthrough": {
+   "max": 3987.533,
+   "n": 3000,
+   "p50": 51.906,
+   "p90": 108.687,
+   "p99": 408.62
+  },
+  "rewritten": {
+   "max": 11023.029,
+   "n": 2400,
+   "p50": 144.572,
+   "p90": 392.978,
+   "p99": 1065.418
+  },
+  "rounds": 200,
+  "statements": 27,
+  "wall_s": 0.747456063
+ }
+}

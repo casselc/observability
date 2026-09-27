@@ -402,7 +402,9 @@ where the consumer would batch them:
     because TTL runs on the wall clock. It was stopped and redone; nothing
     from it is used.
 - `mgen/` is the metrics pool generator (fleet → seriesenc / parquetgo → S3).
-- `sql/otel_traces.sql` and `sql/otel_logs.sql` are the central DDL.
+- `sql/otel_traces.sql` and `sql/otel_logs.sql` are the central DDL: since the
+  ClickStack 2.39.1 alignment, the consumer's own (`../../otap-rs/sql/`); the
+  results here were measured on the earlier bloom-filter DDL (in git history).
 - `server-config.xml` is the private instance's config.
 
 Reproduce:

@@ -3,7 +3,8 @@
 reference, on the ClickHouse server, as ../parquetgo/compare/correctness_test.go
 does for chDB vs Go: count + sum(cityHash64(...)) with the explicit structure
 and with schema inference, the inferred schema, EXCEPT in both directions,
-and INSERT ... SELECT into central-typed otel_traces / otel_logs.
+and INSERT ... SELECT into the consumer's central otel_traces / otel_logs
+(sql/otel_*.sql: ClickStack 2.39.1's tables, rollup and materialized view).
 
 The envelope columns that identify the producer run (producer_id,
 producer_epoch, batch_id, received_at) differ by construction and are
@@ -33,22 +34,18 @@ LOG_ST = ("Timestamp DateTime64(9), TraceId String, SpanId String, TraceFlags UI
           "ServiceName String, Body String, ResourceSchemaUrl String, ResourceAttributes Map(String, String), ScopeSchemaUrl String, "
           "ScopeName String, ScopeVersion String, ScopeAttributes Map(String, String), LogAttributes Map(String, String), "
           "EventName String" + ENV_ST)
-CENTRAL_ENV = (", producer_id LowCardinality(String), producer_epoch LowCardinality(String), batch_id UInt64, row_ordinal UInt32, "
-               "received_at DateTime64(9), schema_version UInt16")
-CENTRAL = {
-    "traces": """(Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String,
-  SpanName LowCardinality(String), SpanKind LowCardinality(String), ServiceName LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeName String, ScopeVersion String,
-  SpanAttributes Map(LowCardinality(String), String), Duration UInt64, StatusCode LowCardinality(String), StatusMessage String,
-  Events Nested (Timestamp DateTime64(9), Name LowCardinality(String), Attributes Map(LowCardinality(String), String)),
-  Links Nested (TraceId String, SpanId String, TraceState String, Attributes Map(LowCardinality(String), String))"""
-    + CENTRAL_ENV + ") ENGINE = MergeTree ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))",
-    "logs": """(Timestamp DateTime64(9), TraceId String, SpanId String, TraceFlags UInt8, SeverityText LowCardinality(String),
-  SeverityNumber UInt8, ServiceName LowCardinality(String), Body String, ResourceSchemaUrl LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeSchemaUrl LowCardinality(String), ScopeName String,
-  ScopeVersion LowCardinality(String), ScopeAttributes Map(LowCardinality(String), String),
-  LogAttributes Map(LowCardinality(String), String), EventName String""" + CENTRAL_ENV + ") ENGINE = MergeTree ORDER BY (ServiceName, Timestamp)",
-}
+SQL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sql")
+
+
+def central_ddl(table, sig):
+    """The consumer's central DDL (src/central.rs clickstack_statements): the
+    ClickStack 2.39.1 table of sql/otel_<sig>.sql, then its rollup table and
+    materialized view, `{table}` filled in."""
+    src = open(os.path.join(SQL, f"otel_{sig}.sql")).read()
+    body = "\n".join(l for l in src.splitlines() if not l.lstrip().startswith("--"))
+    return [s.strip().rstrip(";").strip().replace("{table}", table) for s in body.split(";\n") if s.strip()]
+
+
 TRACE_COLS = ("Timestamp, TraceId, SpanId, ParentSpanId, TraceState, SpanName, SpanKind, ServiceName, ResourceAttributes, ScopeName, "
               "ScopeVersion, SpanAttributes, Duration, StatusCode, StatusMessage, `Events.Timestamp`, `Events.Name`, `Events.Attributes`, "
               "`Links.TraceId`, `Links.SpanId`, `Links.TraceState`, `Links.Attributes`")
@@ -122,12 +119,18 @@ def main():
                     h = {}
                     for w in ("rust", "ref"):
                         t = f"{db}.{sig}_{path}_{ds.replace('-', '_')}_{w}"
-                        ch(f"DROP TABLE IF EXISTS {t}")
-                        ch(f"CREATE TABLE {t} {CENTRAL[sig]}")
-                        ch(f"INSERT INTO {t} SELECT {cols}{ALL_ENV} FROM {src(w)}")
+                        for x in (f"{t}_kv_rollup_15m_mv", f"{t}_attr_kv_rollup_15m_mv", f"{t}_kv_rollup_15m", t):
+                            ch(f"DROP TABLE IF EXISTS {x}")
+                        for stmt in central_ddl(t, sig):
+                            ch(stmt)
+                        ch(f"INSERT INTO {t} ({cols}{ALL_ENV}, content_key) SELECT {cols}{ALL_ENV}, 'k' FROM {src(w)}")
                         cc = c.replace("`Events.", "`Events.").replace("`Links.", "`Links.")
                         h[w] = ch(f"SELECT count(), sum(cityHash64({cc})) FROM {t}")
                     check(f"{tag} central insert", h["rust"] == h["ref"], f"rust {h['rust']} ref {h['ref']}")
+                    n = {w: ch(f"SELECT sum(count) FROM {db}.{sig}_{path}_{ds.replace('-', '_')}_{w}_kv_rollup_15m") for w in ("rust", "ref")}
+                    nk = 6 if sig == "traces" else 14  # native columns the rollup's view counts, per row
+                    ok = n["rust"] == n["ref"] == str(nk * int(h["rust"].split()[0]))
+                    check(f"{tag} central rollup", ok, f"rust {n['rust']} ref {n['ref']}")
     finally:
         ch(f"DROP DATABASE IF EXISTS {db}")
     print(f"{fails} failed")

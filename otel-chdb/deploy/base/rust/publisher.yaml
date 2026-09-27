@@ -129,11 +129,25 @@ spec:
               containerPort: 4318
             - name: admin
               containerPort: 8080
+          # Not ready when the engine is (memory limiter at its hard limit),
+          # or when the buffer can't take writes: its volume has under 1 GiB
+          # free (a full filesystem wedged a publisher on kind until the
+          # volume grew and the pod restarted) or it is at 95% of
+          # BUFFER_CAP (S3 unreachable for long). The Service then stops
+          # routing to it, and kube_pod_status_ready alerts
+          # (../../alerts/edge-buffer.rules.yaml). Both are states, so the
+          # pod comes back once S3 drains the buffer or the volume grows.
+          # edgeprobe: ../../edgeprobe (in the image, README §Durable buffer).
           readinessProbe:
-            httpGet:
-              path: /api/v1/readyz
-              port: admin
+            exec:
+              command: ["/usr/local/bin/edgeprobe", "-ready", "http://127.0.0.1:8080/api/v1/readyz",
+                        "-dir", "/var/lib/otap-s3pq/buffer", "-min-free", "1Gi",
+                        "-metrics", "http://127.0.0.1:8080/api/v1/metrics",
+                        "-used", "storage_bytes_used_bytes", "-cap", "storage_bytes_cap_bytes",
+                        "-match", "otel_scope_name=processor.durable_buffer", "-max-fill", "0.95"]
             periodSeconds: 5
+            timeoutSeconds: 4
+            successThreshold: 3           # back in rotation only after 15 s of room
           livenessProbe:
             httpGet:
               path: /api/v1/livez

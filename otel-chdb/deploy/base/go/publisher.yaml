@@ -104,10 +104,20 @@ spec:
               containerPort: 4318
             - name: health
               containerPort: 13133
+          # Not ready when health_check is, or when the queue can't take
+          # writes: its volume has under 1 GiB free (bbolt needs room even to
+          # delete) or a signal's queue is at 95% of queue_size. See the Rust
+          # publisher's probe (../rust/publisher.yaml) and ../../edgeprobe.
           readinessProbe:
-            httpGet:
-              path: /
-              port: health
+            exec:
+              command: ["/usr/local/bin/edgeprobe", "-ready", "http://127.0.0.1:13133/",
+                        "-dir", "/var/lib/otelcol/queue", "-min-free", "1Gi",
+                        "-metrics", "http://127.0.0.1:8888/metrics",
+                        "-used", "otelcol_exporter_queue_size", "-cap", "otelcol_exporter_queue_capacity",
+                        "-match", "exporter=s3pq", "-max-fill", "0.95"]
+            periodSeconds: 5
+            timeoutSeconds: 4
+            successThreshold: 3
           livenessProbe:
             httpGet:
               path: /

@@ -1,0 +1,82 @@
+# Prometheus alerting rules for the publishers' durable buffers (README
+# §Durable buffer). A plain rules file (`rule_files:`); for the Prometheus
+# Operator, put the `groups:` under a PrometheusRule's `spec:`. Metric names
+# as the publishers expose them: the Rust engine's /api/v1/metrics (admin
+# port 8080), the Go collector's :8888/metrics; kube-state-metrics and the
+# kubelet for the pod and volume series. Namespace otel-edge as in base/.
+groups:
+  - name: otel-edge-buffer
+    rules:
+      # The readiness probe (edgeprobe) failing: the buffer can't take writes
+      # (volume nearly full, or the buffer at 95% of its cap), or the engine
+      # is at its memory hard limit. The Service has stopped routing to it.
+      - alert: EdgePublisherNotReady
+        expr: |
+          max by (namespace, pod) (kube_pod_status_ready{namespace="otel-edge", condition="false",
+            pod=~"otap-publisher-[0-9]+|otelcol-publisher-[0-9]+"}) == 1
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }} not ready for 5 min"
+          runbook: >-
+            kubectl describe pod: the probe's reason is in the events. "buffer
+            volume full": S3 unreachable long enough to fill the volume; fix S3,
+            then grow the PVC, then restart the pod (a segment whose flush
+            failed is replayed only on restart). "buffer at its cap": S3
+            unreachable or too slow; the agents hold the rest (their queues).
+      # Rust: the buffer filling while S3 does not drain it.
+      - alert: EdgeBufferFilling
+        expr: |
+          max by (namespace, pod) (storage_bytes_used_bytes{otel_scope_name="processor.durable_buffer"}
+            / storage_bytes_cap_bytes{otel_scope_name="processor.durable_buffer"}) > 0.5
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.pod }}: durable buffer {{ $value | humanizePercentage }} of its cap"
+      # Rust: writes refused (backpressure at the cap, or an I/O error such
+      # as ENOSPC); the senders retry elsewhere, nothing is lost.
+      - alert: EdgeBufferRefusingWrites
+        expr: |
+          sum by (namespace, pod, failure) (increase(failures_total{otel_scope_name="processor.durable_buffer.ingest"}[5m])) > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: durable buffer refused writes ({{ $labels.failure }})"
+      # Rust: a segment flush failed (ENOSPC on kind). Its data is in the WAL
+      # and is replayed only when the process restarts: once the volume has
+      # room again, restart the pod.
+      - alert: EdgeBufferFlushFailed
+        expr: |
+          sum by (namespace, pod) (increase(flush_failures_total{otel_scope_name="processor.durable_buffer"}[15m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: a buffer segment flush failed; restart the pod once its volume has room"
+      # Go: the persistent queue filling, and enqueues refused.
+      - alert: EdgeQueueFilling
+        expr: |
+          max by (namespace, pod, data_type) (otelcol_exporter_queue_size{exporter="s3pq"}
+            / otelcol_exporter_queue_capacity{exporter="s3pq"}) > 0.5
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.pod }}: s3pq {{ $labels.data_type }} queue {{ $value | humanizePercentage }} full"
+      - alert: EdgeQueueRefusingWrites
+        expr: |
+          sum by (namespace, pod) (
+              increase(otelcol_exporter_enqueue_failed_spans_total{exporter="s3pq"}[5m])
+            + increase(otelcol_exporter_enqueue_failed_log_records_total{exporter="s3pq"}[5m])
+            + increase(otelcol_exporter_enqueue_failed_metric_points_total{exporter="s3pq"}[5m])) > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.pod }}: s3pq queue refused writes (full queue or volume)"
+      # Both: the buffer volume itself, before either publisher notices.
+      - alert: EdgeBufferVolumeLow
+        expr: |
+          kubelet_volume_stats_available_bytes{namespace="otel-edge",
+              persistentvolumeclaim=~"buffer-otap-publisher-[0-9]+|queue-otelcol-publisher-[0-9]+"}
+            / kubelet_volume_stats_capacity_bytes < 0.1
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }}: under 10% free"

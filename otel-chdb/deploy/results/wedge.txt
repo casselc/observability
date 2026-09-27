@@ -1,0 +1,105 @@
+# Readiness on a wedged durable buffer (2026-09-27): scripts/wedge_test.sh,
+# one publisher per case with its buffer on a tmpfs, S3 (SeaweedFS 4.47)
+# cut and restored by kind/relay.py, the manifests' readiness command
+# (edgeprobe; -min-free scaled to 8 MiB for the small volume, -max-fill
+# 0.95) run every second. The sender streams distinct 10k-span requests and
+# resends each until 2xx; "acknowledged" is what it got a 2xx for, "S3
+# rows / distinct" is counted from the objects.
+#
+#   rust: otap-s3pq release build (this branch), otap-rs/configs/edge-publisher.yaml
+#   go:   otelcol-s3pq (ocb v0.161.0, this commit), deploy/base/go/publisher-config.yaml
+#   volume: 48 MiB tmpfs, cap above it (rust 1 GiB, go 16 GiB): the filesystem fills
+#   cap:    400 MiB tmpfs, rust BUFFER_CAP 192 MiB, go QUEUE_BYTES 150 MB
+#
+# probe transitions: rc=0 ready, rc=1 not ready, in order, one sample per
+# second (the first rc=1 samples are the start-up, before the publisher
+# listens).
+
+### rust-volume
+16:00:33.350 S3 down
+16:00:35.583 publisher up, probe rc=0
+16:00:36.602 probe NOT READY: not ready: buffer volume full: 0 bytes available < 8388608
+16:00:51.664 sender stopped: 4 requests acknowledged; probe rc=1; buffer volume 48M/48M
+16:00:51.668 S3 back
+16:02:22.145 still not ready 90 s after S3 came back: not ready: buffer volume full: 0 bytes available < 8388608
+16:02:22.150 volume grown to 160m
+16:02:23.162 probe READY after the volume grew
+16:02:23.249 S3 rows / distinct: 40000 40000 (acknowledged: 40000)
+== rust / volume: probe transitions
+  rc=1 x2
+  rc=0 x1
+  rc=1 x105
+  rc=0 x1
+== first not-ready reasons
+    105 not ready: buffer volume full: 0 bytes available < 8388608
+      1 not ready: statfs /mnt/ef-wedge/buffer: no such file or directory; scrape: no storage_bytes_used_bytes/storage_bytes_cap_bytes series pair
+      1 not ready: readiness: Get "http://127.0.0.1:14980/api/v1/readyz": dial tcp 127.0.0.1:14980: connect: connection refused; statfs /mnt/ef-wedge/buffer: no such fi
+
+### rust-cap
+16:02:27.303 S3 down
+16:02:29.531 publisher up, probe rc=0
+16:02:31.554 probe NOT READY: not ready: buffer at its cap: storage_bytes_used_bytes/storage_bytes_cap_bytes = 0.951 >= 0.950
+16:02:46.611 sender stopped: 21 requests acknowledged; probe rc=1; buffer volume 183M/400M
+16:02:46.615 S3 back
+16:02:52.659 probe READY again after S3 came back
+16:02:54.989 S3 rows / distinct: 210000 210000 (acknowledged: 210000)
+== rust / cap: probe transitions
+  rc=1 x2
+  rc=0 x2
+  rc=1 x20
+  rc=0 x4
+== first not-ready reasons
+     20 not ready: buffer at its cap: storage_bytes_used_bytes/storage_bytes_cap_bytes = 0.951 >= 0.950
+      1 not ready: statfs /mnt/ef-wedge/buffer: no such file or directory; scrape: no storage_bytes_used_bytes/storage_bytes_cap_bytes series pair
+      1 not ready: readiness: Get "http://127.0.0.1:14980/api/v1/readyz": dial tcp 127.0.0.1:14980: connect: connection refused; statfs /mnt/ef-wedge/buffer: no such fi
+
+### go-volume-b
+16:23:52.012 S3 down
+16:23:54.246 publisher up, probe rc=0
+16:23:55.263 probe NOT READY: not ready: buffer volume full: 7016448 bytes available < 8388608
+16:24:10.311 sender stopped: 5 requests acknowledged; probe rc=1; buffer volume 48M/48M
+16:24:10.314 S3 back
+16:25:40.878 still not ready 90 s after S3 came back: not ready: buffer volume full: 0 bytes available < 8388608
+16:25:40.885 volume grown to 160m
+16:25:41.899 probe READY after the volume grew
+16:27:45.097 S3 rows / distinct: 40000 40000 (acknowledged: 50000)
+16:27:50.330 publisher restarted (the runbook's second step)
+16:29:53.533 S3 rows / distinct after the restart: 40000 40000 (acknowledged: 50000); probe rc=0
+== go / volume: probe transitions
+  rc=1 x1
+  rc=0 x2
+  rc=1 x105
+  rc=0 x122
+  rc=1 x5
+  rc=0 x121
+== first not-ready reasons
+    104 not ready: buffer volume full: 0 bytes available < 8388608
+      5 not ready: readiness: Get "http://127.0.0.1:14833/": dial tcp 127.0.0.1:14833: connect: connection refused; scrape: Get "http://127.0.0.1:14888/metrics": dial t
+      1 not ready: readiness: Get "http://127.0.0.1:14833/": dial tcp 127.0.0.1:14833: connect: connection refused; statfs /mnt/ef-wedge/queue: no such file or director
+      1 not ready: buffer volume full: 7016448 bytes available < 8388608
+
+### go-cap-b
+16:23:18.855 S3 down
+16:23:21.098 publisher up, probe rc=0
+16:23:26.193 probe NOT READY: not ready: buffer at its cap: otelcol_exporter_queue_size/otelcol_exporter_queue_capacity = 0.988 >= 0.950
+16:23:41.240 sender stopped: 24 requests acknowledged; probe rc=1; buffer volume 213M/400M
+16:23:41.244 S3 back
+16:23:43.272 probe READY again after S3 came back
+16:23:47.905 S3 rows / distinct: 240000 240000 (acknowledged: 240000)
+== go / cap: probe transitions
+  rc=1 x1
+  rc=0 x5
+  rc=1 x17
+  rc=0 x5
+== first not-ready reasons
+     17 not ready: buffer at its cap: otelcol_exporter_queue_size/otelcol_exporter_queue_capacity = 0.988 >= 0.950
+      1 not ready: readiness: Get "http://127.0.0.1:14833/": dial tcp 127.0.0.1:14833: connect: connection refused; statfs /mnt/ef-wedge/queue: no such file or director
+
+### go-volume: the lost request (the same case with the collector's logs at debug, w-go-volume-dbg)
+2026-09-27T16:10:59.061Z	warn	queue/persistent_queue.go:532	Failed updating currently dispatched items, trying to delete the item first	error: "write /mnt/ef-wedge/queue/exporter_s3pq__traces: no space left on device"}
+2026-09-27T16:10:59.096Z	error	queue/persistent_queue.go:421	Error deleting item from queue	error: "failed deleting item from queue, got error from storage: write /mnt/ef-wedge/queue/exporter_s3pq__traces: no space left on device"}
+2026-09-27T16:10:59.110Z	debug	queue/persistent_queue.go:377	Failed to dispatch item	error: "write /mnt/ef-wedge/queue/exporter_s3pq__traces: no space left on device"}
+2026-09-27T16:10:59.226Z	warn	queue/persistent_queue.go:532	Failed updating currently dispatched items, trying to delete the item first	error: "write /mnt/ef-wedge/queue/exporter_s3pq__traces: no space left on device"}
+2026-09-27T16:10:59.240Z	error	queue/persistent_queue.go:421	Error deleting item from queue	error: "failed deleting item from queue, got error from storage: write /mnt/ef-wedge/queue/exporter_s3pq__traces: no space left on device"}
+2026-09-27T16:13:28.208Z	info	queue/persistent_queue.go:186	Loaded queue metadata	"readIndex": 30, "writeIndex": 30, "itemsSize": 0, "bytesSize": 0, "dispatchedItems": 0}
+(the same loss, 1 of 5 acknowledged requests, in all 4 go-volume runs: w-go-volume twice, -dbg, -b)

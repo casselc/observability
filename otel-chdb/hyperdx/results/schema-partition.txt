@@ -1,0 +1,18 @@
+logs: search, last 1 h           new            ms      7 rows    206854 marks    25 parts   1 cpu_us 8911
+logs: histogram, last 1 d        new            ms      8 rows    200000 marks    25 parts   1 cpu_us 9117
+logs: full text, last 1 h        new            ms      8 rows    206854 marks    25 parts   1 cpu_us 9302
+traces: search, last 1 h         new            ms      7 rows    207408 marks    27 parts   1 cpu_us 8511
+traces: one service, last 1 h    new            ms     12 rows   1473728 marks   198 parts   8 cpu_us 14740
+traces: histogram, last 1 d      new            ms      6 rows    200000 marks    27 parts   1 cpu_us 7676
+logs: search, last 1 h           new_stockpart  ms      6 rows    206854 marks    25 parts   1 cpu_us 7339
+logs: histogram, last 1 d        new_stockpart  ms      6 rows    200000 marks    25 parts   1 cpu_us 7864
+logs: full text, last 1 h        new_stockpart  ms      7 rows    206854 marks    25 parts   1 cpu_us 8663
+traces: search, last 1 h         new_stockpart  ms      6 rows    207408 marks    27 parts   1 cpu_us 8671
+traces: one service, last 1 h    new_stockpart  ms     11 rows   1473728 marks   198 parts   8 cpu_us 13469
+traces: histogram, last 1 d      new_stockpart  ms      7 rows    200000 marks    27 parts   1 cpu_us 8521
+logs: full text, last 1 h: toDate(received_at) / toDate(Timestamp) = ms 8 / 7, marks 25 / 25
+logs: histogram, last 1 d: toDate(received_at) / toDate(Timestamp) = ms 8 / 6, marks 25 / 25
+logs: search, last 1 h: toDate(received_at) / toDate(Timestamp) = ms 7 / 6, marks 25 / 25
+traces: histogram, last 1 d: toDate(received_at) / toDate(Timestamp) = ms 6 / 7, marks 27 / 27
+traces: one service, last 1 h: toDate(received_at) / toDate(Timestamp) = ms 12 / 11, marks 198 / 198
+traces: search, last 1 h: toDate(received_at) / toDate(Timestamp) = ms 7 / 6, marks 27 / 27

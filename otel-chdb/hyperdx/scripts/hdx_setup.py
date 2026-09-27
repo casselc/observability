@@ -6,6 +6,13 @@ register the first user, add the ClickHouse connection, and the sources:
   Metrics (layout B views)     hdx_b.otel_metrics_*  (views over the series table, D7)
   Metrics (stock)              hdx_stock.otel_metrics_* (ClickStack's own tables, same rows)
 
+With --schema OLD_DB,NEW_DB (the schema comparison, ../README.md §Schema), instead of the above:
+  Logs/Traces (pre-alignment)  OLD_DB: the consumer's DDL before the ClickStack alignment
+  Logs/Traces (ClickStack DDL) NEW_DB: ../../otap-rs/sql/otel_*.sql, with the key-value rollups
+                               declared as the sources' metadataMaterializedViews (what HyperDX's
+                               source form auto-detects from <table>_kv_rollup_15m)
+and the ids go to hdx_ids_old.json / hdx_ids_new.json (keys Logs, Traces, for hdx_ui.js).
+
 Idempotent: logs in if the team exists, and only adds what is missing.
 Prints the ids as JSON (also written to hdx_ids.json next to this script's cwd).
 
@@ -21,6 +28,7 @@ p.add_argument("--password", default="Hdx-eval-2026!")
 p.add_argument("--ch", default="http://127.0.0.1:18124", help="ClickHouse as HyperDX sees it: chproxy.py in front of :18123")
 p.add_argument("--b", default="hdx_b")
 p.add_argument("--stock", default="hdx_stock")
+p.add_argument("--schema", default="", help="OLD_DB,NEW_DB: the schema comparison's four sources only")
 a = p.parse_args()
 
 s = requests.Session()
@@ -63,27 +71,54 @@ def ensure(src):
 
 
 ids = {"connection": cid, "team": team.get("_id") or team.get("id"), "accessKey": me.get("accessKey")}
-ids["Logs"] = ensure({
-    "kind": "log", "name": "Logs", "connection": cid,
-    "from": {"databaseName": a.b, "tableName": "otel_logs"},
-    "timestampValueExpression": "Timestamp", "displayedTimestampValueExpression": "Timestamp",
-    "defaultTableSelectExpression": "Timestamp,ServiceName,SeverityText,Body",
-    "serviceNameExpression": "ServiceName", "severityTextExpression": "SeverityText", "bodyExpression": "Body",
-    "eventAttributesExpression": "LogAttributes", "resourceAttributesExpression": "ResourceAttributes",
-    "traceIdExpression": "TraceId", "spanIdExpression": "SpanId", "implicitColumnExpression": "Body",
-})
-ids["Traces"] = ensure({
-    "kind": "trace", "name": "Traces", "connection": cid,
-    "from": {"databaseName": a.b, "tableName": "otel_traces"},
-    "timestampValueExpression": "Timestamp", "displayedTimestampValueExpression": "Timestamp",
-    "defaultTableSelectExpression": "Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName",
-    "durationExpression": "Duration", "durationPrecision": 9, "traceIdExpression": "TraceId",
-    "spanIdExpression": "SpanId", "parentSpanIdExpression": "ParentSpanId", "spanNameExpression": "SpanName",
-    "spanKindExpression": "SpanKind", "statusCodeExpression": "StatusCode", "statusMessageExpression": "StatusMessage",
-    "serviceNameExpression": "ServiceName", "resourceAttributesExpression": "ResourceAttributes",
-    "eventAttributesExpression": "SpanAttributes", "spanEventsValueExpression": "Events",
-    "implicitColumnExpression": "SpanName", "logSourceId": ids["Logs"],
-})
+
+
+def logs_src(name, db, extra=None):
+    return {
+        "kind": "log", "name": name, "connection": cid,
+        "from": {"databaseName": db, "tableName": "otel_logs"},
+        "timestampValueExpression": "Timestamp", "displayedTimestampValueExpression": "Timestamp",
+        "defaultTableSelectExpression": "Timestamp,ServiceName,SeverityText,Body",
+        "serviceNameExpression": "ServiceName", "severityTextExpression": "SeverityText", "bodyExpression": "Body",
+        "eventAttributesExpression": "LogAttributes", "resourceAttributesExpression": "ResourceAttributes",
+        "traceIdExpression": "TraceId", "spanIdExpression": "SpanId", "implicitColumnExpression": "Body",
+        **(extra or {}),
+    }
+
+
+def traces_src(name, db, logs_id, extra=None):
+    return {
+        "kind": "trace", "name": name, "connection": cid,
+        "from": {"databaseName": db, "tableName": "otel_traces"},
+        "timestampValueExpression": "Timestamp", "displayedTimestampValueExpression": "Timestamp",
+        "defaultTableSelectExpression": "Timestamp,ServiceName,StatusCode,round(Duration/1e6),SpanName",
+        "durationExpression": "Duration", "durationPrecision": 9, "traceIdExpression": "TraceId",
+        "spanIdExpression": "SpanId", "parentSpanIdExpression": "ParentSpanId", "spanNameExpression": "SpanName",
+        "spanKindExpression": "SpanKind", "statusCodeExpression": "StatusCode", "statusMessageExpression": "StatusMessage",
+        "serviceNameExpression": "ServiceName", "resourceAttributesExpression": "ResourceAttributes",
+        "eventAttributesExpression": "SpanAttributes", "spanEventsValueExpression": "Events",
+        "implicitColumnExpression": "SpanName", "logSourceId": logs_id,
+        **(extra or {}),
+    }
+
+
+if a.schema:
+    old_db, new_db = a.schema.split(",")
+    for side, db, label, mv in (("old", old_db, "pre-alignment", False), ("new", new_db, "ClickStack DDL", True)):
+        rollup = lambda t: {"metadataMaterializedViews": {"kvRollupTable": f"{t}_kv_rollup_15m", "granularity": "15 minute"}} if mv else {}
+        side_ids = {"connection": cid}
+        side_ids["Logs"] = ensure(logs_src(f"Logs ({label})", db, rollup("otel_logs")))
+        side_ids["Traces"] = ensure(traces_src(f"Traces ({label})", db, side_ids["Logs"], rollup("otel_traces")))
+        cur = next(x for x in call("GET", "/sources") if x["id"] == side_ids["Logs"])
+        cur["traceSourceId"] = side_ids["Traces"]
+        call("PUT", f"/sources/{side_ids['Logs']}", json=cur)
+        json.dump(side_ids, open(f"hdx_ids_{side}.json", "w"), indent=1)
+        ids[side] = side_ids
+    print(json.dumps(ids, indent=1))
+    sys.exit(0)
+
+ids["Logs"] = ensure(logs_src("Logs", a.b))
+ids["Traces"] = ensure(traces_src("Traces", a.b, ids["Logs"]))
 tables = {"gauge": "otel_metrics_gauge", "sum": "otel_metrics_sum", "histogram": "otel_metrics_histogram",
           "exponential histogram": "otel_metrics_exponential_histogram", "summary": "otel_metrics_summary"}
 for name, db in (("Metrics (layout B views)", a.b), ("Metrics (stock)", a.stock)):

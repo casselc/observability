@@ -7,6 +7,9 @@
                               consumer has created B's tables
   setup_db.py picker DB       the (MetricName, ServiceName) helper table + MVs (../sql/metric_picker.sql)
   setup_db.py file DB SQL     any {db}-templated SQL file
+  setup_db.py consumer DB     the consumer's otel_traces / otel_logs with their key-value rollups
+                              (../../otap-rs/sql/otel_*.sql: ClickStack 2.39.1's DDL), before the
+                              consumer runs (it keeps existing tables)
 """
 import os, sys, time, urllib.request
 
@@ -62,6 +65,9 @@ def main():
         run(os.path.join(ROOT, "sql/metric_picker.sql"), db=db)
     elif cmd == "file":
         run(sys.argv[3], db=db)
+    elif cmd == "consumer":
+        for sig in ("traces", "logs"):
+            run(os.path.join(ROOT, f"../otap-rs/sql/otel_{sig}.sql"), table=f"{db}.otel_{sig}")
     print(q(f"SELECT name, engine FROM system.tables WHERE database = '{db}' ORDER BY name FORMAT TSV"))
 
 

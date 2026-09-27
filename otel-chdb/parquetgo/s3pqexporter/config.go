@@ -26,6 +26,10 @@ type Config struct {
 	exporterhelper.TimeoutConfig `mapstructure:",squash"`
 	QueueSettings                configoptional.Optional[exporterhelper.QueueBatchConfig] `mapstructure:"sending_queue"`
 	BackOffConfig                configretry.BackOffConfig                                `mapstructure:"retry_on_failure"`
+	// Batch merges requests BEFORE the sending queue and answers each
+	// caller once the merged request is in the queue (batch.go). Off by
+	// default: one object per request, as the conformance edge runs.
+	Batch BatchConfig `mapstructure:"batch"`
 
 	// ProducerID names this publisher (the envelope's producer_id and
 	// x-amz-meta-oscope-producer). It must be unique in the fleet and
@@ -112,7 +116,10 @@ func (c *Config) Validate() error {
 		errs = append(errs, errors.New("retry_on_failure.max_elapsed_time must be 0: an item is deleted from the queue after it (DECISIONS.md D4)"))
 	}
 	if q := c.QueueSettings.Get(); q != nil && q.Batch.HasValue() {
-		errs = append(errs, errors.New("sending_queue.batch re-cuts requests after the queue, which changes their content keys across restarts (DECISIONS.md risk #10): batch before the queue"))
+		errs = append(errs, errors.New("sending_queue.batch re-cuts requests after the queue, which changes their content keys across restarts (DECISIONS.md risk #10): batch before the queue (`batch`)"))
+	}
+	if err := c.Batch.validate(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }

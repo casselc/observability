@@ -41,6 +41,7 @@ func createDefaultConfig() component.Config {
 		TimeoutConfig: exporterhelper.TimeoutConfig{Timeout: 30 * time.Second},
 		QueueSettings: configoptional.Default(exporterhelper.NewDefaultQueueConfig()),
 		BackOffConfig: backoff,
+		Batch:         defaultBatchConfig(),
 		Lanes:         1,
 		MetricsLayout: edge.SeriesTable,
 		Series:        parquetgo.DefaultSeriesOptions(),
@@ -169,7 +170,11 @@ func createTraces(ctx context.Context, set exporter.Settings, cfg component.Conf
 	if err != nil {
 		return nil, err
 	}
-	return stampTraces{e, time.Now}, nil
+	var out exporter.Traces = stampTraces{e, time.Now}
+	if c.Batch.Enabled {
+		out = batchTraces{out, newBatcher(c.Batch, tracesKind, out.ConsumeTraces)}
+	}
+	return out, nil
 }
 
 func createLogs(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Logs, error) {
@@ -181,7 +186,11 @@ func createLogs(ctx context.Context, set exporter.Settings, cfg component.Config
 	if err != nil {
 		return nil, err
 	}
-	return stampLogs{e, time.Now}, nil
+	var out exporter.Logs = stampLogs{e, time.Now}
+	if c.Batch.Enabled {
+		out = batchLogs{out, newBatcher(c.Batch, logsKind, out.ConsumeLogs)}
+	}
+	return out, nil
 }
 
 func createMetrics(ctx context.Context, set exporter.Settings, cfg component.Config) (exporter.Metrics, error) {
@@ -193,5 +202,9 @@ func createMetrics(ctx context.Context, set exporter.Settings, cfg component.Con
 	if err != nil {
 		return nil, err
 	}
-	return stampMetrics{e, time.Now}, nil
+	var out exporter.Metrics = stampMetrics{e, time.Now}
+	if c.Batch.Enabled {
+		out = batchMetrics{out, newBatcher(c.Batch, metricsKind, out.ConsumeMetrics)}
+	}
+	return out, nil
 }

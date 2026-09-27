@@ -17,8 +17,9 @@ receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.161.0
 processors:
   # The deployed Go publisher (../../deploy/base/go) limits memory before
-  # its persistent queue; it does not batch (its senders do, before their
-  # own queue: DECISIONS.md risk #10).
+  # its persistent queue; it batches with the s3pq exporter's own `batch`,
+  # in front of that queue, not with the batch processor (which acks before
+  # the queue write: DECISIONS.md D4).
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.161.0
 exporters:
   - gomod: github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter v0.0.0

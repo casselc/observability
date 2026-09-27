@@ -1,0 +1,113 @@
+{
+ "name": "keeperOverrun",
+ "title": "A replicated commit outlives the lease margin (SLACK 2 > MARGIN 1) and lands after another worker took the lane and inserted the batch",
+ "source": "otel-chdb/model/s3InlineConsumer.qnt as committed in 955fa7f",
+ "instance": "keeperOverrun (SLACK = 2 > MARGIN = 1; TTL 3)",
+ "run": "keeperOverrunBreaksTest",
+ "itf": "keeperOverrun::s3InlineConsumer::keeperOverrunBreaksTest.itf.json (16 states)",
+ "timing": "model time is in ticks; a worker's fence = sent + TTL - MARGIN - BUDGET, its statement lands by fence + BUDGET + SLACK, another worker may take the lane at sent + TTL + MARGIN (MARGIN = BUDGET = 1 tick)",
+ "steps": [
+  {
+   "n": 1,
+   "itf": "1-3",
+   "actor": "edge writer (epoch 1)",
+   "action": "PUT e1/000 with request 1; S3 commits it",
+   "changes": {
+    "slot e1/0": "Data(payload 1)"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 2,
+   "itf": "4",
+   "actor": "consumer worker w1",
+   "action": "take the lane",
+   "changes": {
+    "lease": "owner w1, epoch 1, sent 0"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 3,
+   "itf": "5-6",
+   "actor": "consumer worker w1",
+   "action": "check (absent) and send INSERT S1 over e1/0 with fence 1",
+   "changes": {
+    "statements in flight": "S1 fence 1; lands by fence + BUDGET + SLACK = 1 + 1 + 2 = 4"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 4,
+   "itf": "-",
+   "actor": "ClickHouse (Keeper)",
+   "action": "S1 passes its fence, writes its part, and its Keeper commit request hangs (a frozen or partitioned Keeper node); the server retries up to the session timeout",
+   "changes": {},
+   "time": "t=0..4"
+  },
+  {
+   "n": 5,
+   "itf": "7-10",
+   "actor": "clock",
+   "action": "four ticks: w1 is silent (paused, or waiting on S1)",
+   "changes": {
+    "time": 4
+   },
+   "time": "t=4"
+  },
+  {
+   "n": 6,
+   "itf": "11",
+   "actor": "consumer worker w2",
+   "action": "takeover at the earliest: it has seen lease version (sent 0) for TTL + MARGIN = 4",
+   "changes": {
+    "lease": "owner w2, epoch 2, sent 4",
+    "ckpt": "version 2",
+    "events": "takeover"
+   },
+   "time": "t=4"
+  },
+  {
+   "n": 7,
+   "itf": "12-13",
+   "actor": "consumer worker w2",
+   "action": "count check: e1/0 absent (S1 not landed); send INSERT S2",
+   "changes": {
+    "statements in flight": "S1 (w1), S2 (w2) fence 5"
+   },
+   "time": "t=4"
+  },
+  {
+   "n": 8,
+   "itf": "14",
+   "actor": "ClickHouse",
+   "action": "S2 commits",
+   "changes": {
+    "central[payload 1]": 1
+   },
+   "time": "t=4"
+  },
+  {
+   "n": 9,
+   "itf": "15",
+   "actor": "ClickHouse (Keeper)",
+   "action": "FATAL: S1's commit lands at t=4 <= 4, past its fence (Keeper answered the retry loop)",
+   "changes": {
+    "central[payload 1]": 2,
+    "events": "lateLanding, zombieLanded"
+   },
+   "time": "t=4"
+  }
+ ],
+ "violated": {
+  "invariant": "atMostOnce",
+  "expression": "L::PAYLOADS.forall(p => central.get(p) <= 1)",
+  "state": "central = {1: 2, 2: 0}"
+ },
+ "design": {
+  "guard": "SLACK <= MARGIN: a statement lands by fence + BUDGET + SLACK = sent + TTL + SLACK - MARGIN, strictly before the earliest takeover at sent + TTL + MARGIN",
+  "effect": "with SLACK 1, S1 lands by 3 < 4; at the takeover cApply(S1) is disabled (keeperOverrunDesignTest), so w2's check sees whatever S1 wrote",
+  "code": "D9/D13: the worker refuses to start with a margin below --keeper-slack (20 s; the replicas' Keeper session timeout minus the budget); measured: a commit 19.0 s past a 10 s max_execution_time"
+ },
+ "dropped": "the writer's 200 and ack; the edge's three steps merged into step 1; step 4 is narrative only (the model's statement simply stays in flight)"
+}

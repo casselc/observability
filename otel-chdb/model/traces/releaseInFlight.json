@@ -1,0 +1,126 @@
+{
+ "name": "releaseInFlight",
+ "title": "A worker releases its lane while its statement can still land; the next holder inserts the same batch",
+ "source": "otel-chdb/model/s3InlineConsumer.qnt as committed in 955fa7f",
+ "instance": "releaseInFlight (RELEASE_GUARD = false; TTL 3, SLACK 1)",
+ "run": "releaseInFlightBreaksTest",
+ "itf": "releaseInFlight::s3InlineConsumer::releaseInFlightBreaksTest.itf.json (13 states)",
+ "timing": "model time is in ticks; a worker's fence = sent + TTL - MARGIN - BUDGET, its statement lands by fence + BUDGET + SLACK, another worker may take the lane at sent + TTL + MARGIN (MARGIN = BUDGET = 1 tick)",
+ "steps": [
+  {
+   "n": 1,
+   "itf": "1-3",
+   "actor": "edge writer (epoch 1)",
+   "action": "PUT e1/000 with request 1; S3 commits it",
+   "changes": {
+    "slot e1/0": "Data(payload 1)"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 2,
+   "itf": "4",
+   "actor": "consumer worker w1",
+   "action": "take the lane",
+   "changes": {
+    "lease": "owner w1, fencing epoch 1, sent 0",
+    "ckpt": "version 1"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 3,
+   "itf": "5",
+   "actor": "consumer worker w1",
+   "action": "count check: e1/0 absent",
+   "changes": {
+    "w1.pending": "{e1/0}"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 4,
+   "itf": "6",
+   "actor": "consumer worker w1",
+   "action": "send INSERT S1 over e1/0",
+   "changes": {
+    "statements in flight": "S1 (w1) fence 1, lands by 3"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 5,
+   "itf": "7",
+   "actor": "consumer worker w1",
+   "action": "FATAL: load balancing gives the lane back (lease CAS to no owner, fencing epoch 2) with S1 still in flight",
+   "changes": {
+    "lease": "owner none, epoch 2",
+    "w1.holds": false
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 6,
+   "itf": "8",
+   "actor": "consumer worker w2",
+   "action": "take the lane at once (a released lease needs no wait), rewrite the checkpoint",
+   "changes": {
+    "lease": "owner w2, epoch 3",
+    "ckpt": "version 2, next[e1] = 0"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 7,
+   "itf": "9",
+   "actor": "consumer worker w2",
+   "action": "count check: e1/0 still absent (S1 has not landed)",
+   "changes": {
+    "w2.pending": "{e1/0}"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 8,
+   "itf": "10",
+   "actor": "consumer worker w2",
+   "action": "send INSERT S2 over e1/0",
+   "changes": {
+    "statements in flight": "S1 (w1), S2 (w2)"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 9,
+   "itf": "11",
+   "actor": "ClickHouse",
+   "action": "S2 commits",
+   "changes": {
+    "central[payload 1]": 1
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 10,
+   "itf": "12",
+   "actor": "ClickHouse",
+   "action": "S1 lands too (a statement of a worker that no longer holds the lane)",
+   "changes": {
+    "central[payload 1]": 2,
+    "events": "zombieLanded"
+   },
+   "time": "t=0"
+  }
+ ],
+ "violated": {
+  "invariant": "atMostOnce",
+  "expression": "L::PAYLOADS.forall(p => central.get(p) <= 1)",
+  "state": "central = {1: 2, 2: 0}"
+ },
+ "design": {
+  "guard": "mayRelease(w) with RELEASE_GUARD: every statement of the worker's incarnation is past settledBy = fence + MARGIN + BUDGET + SLACK",
+  "effect": "step 5 is disabled until t > 4 (releaseInFlightDesignTest); by then S1 has landed or can no longer land, so w2's check sees it (releaseSettledDesignTest)",
+  "code": "D8/D9: a release is allowed only once none of the lane's statements can still land (worker.rs coord::may_act; code mutant release_in_flight)"
+ },
+ "dropped": "the writer's 200 and ack; the edge's startPush/send/apply merged into step 1"
+}

@@ -1,0 +1,114 @@
+{
+ "name": "restamp",
+ "title": "The old edge restamps a replay after a two-day outage: the consumer's check (received_at +- 1 day) misses the original, and central holds the request twice",
+ "source": "otel-chdb/model/s3Inline.qnt (module s3InlineReceived) as committed in 484f22f",
+ "instance": "restampOnReplay (STAMP_AT_CUSTODY = false; HORIZON 1, MAX_DAY 2)",
+ "run": "longGapReplayIngestedTwiceTest (longGapPrefix)",
+ "itf": "longGapReplayIngestedTwiceTest.itf.json (16 states)",
+ "timing": "day = the edge's wall clock in days; custody(p) = the day p entered the durable buffer (day 0)",
+ "steps": [
+  {
+   "n": 1,
+   "itf": "1-3",
+   "actor": "edge writer (epoch 1)",
+   "action": "take request 1 from the buffer (stamp: custody day 0), PUT e1/000; S3 commits it",
+   "changes": {
+    "stamp[e1][1]": 0,
+    "slot e1/0": "Data(payload 1)"
+   },
+   "time": "day 0"
+  },
+  {
+   "n": 2,
+   "itf": "4-6",
+   "actor": "consumer",
+   "action": "check (absent), insert, advance",
+   "changes": {
+    "central[1]": 1,
+    "crecv[1]": "{0}",
+    "ckpt[e1]": 1
+   },
+   "time": "day 0"
+  },
+  {
+   "n": 3,
+   "itf": "-",
+   "actor": "edge writer (epoch 1)",
+   "action": "the incarnation dies with the 200 in flight: request 1 is never acked and stays in the buffer",
+   "changes": {},
+   "time": "day 0"
+  },
+  {
+   "n": 4,
+   "itf": "7-8",
+   "actor": "clock",
+   "action": "the edge is down for HORIZON + 1 = 2 days",
+   "changes": {
+    "day": 2
+   },
+   "time": "day 2"
+  },
+  {
+   "n": 5,
+   "itf": "9",
+   "actor": "edge writer",
+   "action": "restart: new incarnation, epoch 2",
+   "changes": {
+    "lease": 2
+   },
+   "time": "day 2"
+  },
+  {
+   "n": 6,
+   "itf": "10",
+   "actor": "edge writer (epoch 2)",
+   "action": "FATAL: replay request 1, stamped with the exporter's clock (day 2), not its custody day",
+   "changes": {
+    "stamp[e2][1]": 2
+   },
+   "time": "day 2"
+  },
+  {
+   "n": 7,
+   "itf": "11-12",
+   "actor": "edge writer (epoch 2) / S3",
+   "action": "PUT e2/000; S3 commits the copy",
+   "changes": {
+    "slot e2/0": "Data(payload 1), received day 2"
+   },
+   "time": "day 2"
+  },
+  {
+   "n": 8,
+   "itf": "13",
+   "actor": "consumer",
+   "action": "check e2/0 over days 1..3: the original (day 0) is out of range",
+   "changes": {
+    "consumer.sawPresent": false
+   },
+   "time": "day 2"
+  },
+  {
+   "n": 9,
+   "itf": "14-15",
+   "actor": "consumer / ClickHouse",
+   "action": "insert the copy and advance",
+   "changes": {
+    "central[1]": 2,
+    "crecv[1]": "{0, 2}"
+   },
+   "time": "day 2"
+  }
+ ],
+ "violated": {
+  "invariant": "replayKeepsReceivedAt and atMostOnce (payloadIngestedAtMostOnce)",
+  "expression": "every committed copy's stamp == custody(p); central.get(p) <= 1",
+  "state": "stamp[e2][1] = 2 != custody 0; central[1] = 2"
+ },
+ "design": {
+  "guard": "STAMP_AT_CUSTODY: stamped(...) writes custody(p) for every incarnation",
+  "effect": "step 6 stamps day 0; the check at step 8 reads days -1..1, finds the day-0 copy (dedupHit) and skips it: central[1] = 1 at HORIZON 1 and at HORIZON 0 (receivedDesign, receivedDesignNoHorizon)",
+  "code": "D19 (2026-09-27): received_at is the Quiver WAL write (Rust, patch 0003) or the s3pq enqueue (Go, x-s3pq-received-at); replay_received.sh: 3/3 replays after a 4-day outage skipped"
+ },
+ "dropped": "the second ack attempt and anything after the duplicate; step 3 is narrative (the model's incarnation simply never receives the 200)"
+}

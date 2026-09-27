@@ -1,0 +1,133 @@
+{
+ "name": "noHorizon",
+ "title": "A replay stamped with its restart day is checked only against that day's partition, misses its original, and is inserted twice",
+ "source": "otel-chdb/model/s3InlineConsumer.qnt as committed in 955fa7f",
+ "instance": "noHorizon (HORIZON = 0 < MAX_DAY = 1; writer faults on; TTL 6)",
+ "run": "noHorizonBreaksTest",
+ "itf": "noHorizon::s3InlineConsumer::noHorizonBreaksTest.itf.json (17 states)",
+ "timing": "model time is in ticks; a worker's fence = sent + TTL - MARGIN - BUDGET, its statement lands by fence + BUDGET + SLACK, another worker may take the lane at sent + TTL + MARGIN (MARGIN = BUDGET = 1 tick); the day is a separate calendar clock; an epoch's objects carry the day its incarnation started (eDay)",
+ "steps": [
+  {
+   "n": 1,
+   "itf": "1-3",
+   "actor": "edge writer (epoch 1)",
+   "action": "PUT e1/000 with request 1 on day 0; S3 commits it; the 200 is lost (no ack)",
+   "changes": {
+    "slot e1/0": "Data(payload 1), received day 0"
+   },
+   "time": "day 0"
+  },
+  {
+   "n": 2,
+   "itf": "4",
+   "actor": "clock",
+   "action": "midnight",
+   "changes": {
+    "day": 1
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 3,
+   "itf": "5",
+   "actor": "edge writer",
+   "action": "the edge restarts: new incarnation, epoch 2, named on day 1",
+   "changes": {
+    "eDay[2]": 1
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 4,
+   "itf": "6-8",
+   "actor": "edge writer (epoch 2)",
+   "action": "replays request 1 (never acked) into e2/000, stamped day 1; S3 commits it",
+   "changes": {
+    "slot e2/0": "Data(payload 1), received day 1"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 5,
+   "itf": "9",
+   "actor": "consumer worker w1",
+   "action": "take the lane",
+   "changes": {
+    "lease": "owner w1"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 6,
+   "itf": "10-11",
+   "actor": "consumer worker w1",
+   "action": "check e1/0 over day 0 +- 0: absent; send INSERT S1",
+   "changes": {
+    "statements in flight": "S1 {e1/0}"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 7,
+   "itf": "12",
+   "actor": "ClickHouse",
+   "action": "S1 commits into partition day 0",
+   "changes": {
+    "crows[payload 1]": "{day 0: 1}"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 8,
+   "itf": "13",
+   "actor": "consumer worker w1",
+   "action": "verify, advance past e1/0",
+   "changes": {
+    "ckpt.next[e1]": 1
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 9,
+   "itf": "14",
+   "actor": "consumer worker w1",
+   "action": "FATAL: check e2/0 over day 1 +- 0 only: the original in day 0 is out of range, so the copy reads as absent",
+   "changes": {
+    "w1.pending": "{e2/0}"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 10,
+   "itf": "15",
+   "actor": "consumer worker w1",
+   "action": "send INSERT S2 over e2/0",
+   "changes": {
+    "statements in flight": "S2 {e2/0}"
+   },
+   "time": "day 1"
+  },
+  {
+   "n": 11,
+   "itf": "16",
+   "actor": "ClickHouse",
+   "action": "S2 commits into partition day 1",
+   "changes": {
+    "crows[payload 1]": "{day 0: 1, day 1: 1}",
+    "central[payload 1]": 2
+   },
+   "time": "day 1"
+  }
+ ],
+ "violated": {
+  "invariant": "atMostOnce (and the horizon audit's auditLate is raised: dupAudited holds)",
+  "expression": "L::PAYLOADS.forall(p => central.get(p) <= 1)",
+  "state": "central = {1: 2, 2: 0}; crows[1] = {0: 1, 1: 1}"
+ },
+ "design": {
+  "guard": "HORIZON >= MAX_DAY: the check reads the object's day +- HORIZON; and, since 2026-09-27, received_at is the custody time, so an edge replay carries day 0 anyway (see restamp.json)",
+  "effect": "at step 9 the check over days 0..2 sees the day-0 copy; the pending set is empty and no S2 is sent (noHorizonDesignTest on designCopies/designDays)",
+  "code": "D11: a 3-day copy horizon plus the horizon audit (consumer_late_copies_total); D19: the Quiver WAL write / s3pq enqueue time is received_at and a replay keeps it"
+ },
+ "dropped": "the edge's startPush/send/apply merged in steps 1 and 4; the lost 200 is implicit (the response is never received)"
+}

@@ -1,0 +1,124 @@
+{
+ "name": "gcReopens",
+ "title": "GC deletes the slot below the checkpoint; the writer, still unresolved there, re-creates it: committed and acked below the checkpoint, never ingested",
+ "source": "otel-chdb/model/s3InlineConsumer.qnt as committed in 955fa7f",
+ "instance": "gcReopens (GC_KEEP = false; writer faults on; TTL 3)",
+ "run": "gcReopensBreaksTest",
+ "itf": "gcReopens::s3InlineConsumer::gcReopensBreaksTest.itf.json (14 states)",
+ "timing": "model time is in ticks; a worker's fence = sent + TTL - MARGIN - BUDGET, its statement lands by fence + BUDGET + SLACK, another worker may take the lane at sent + TTL + MARGIN (MARGIN = BUDGET = 1 tick)",
+ "steps": [
+  {
+   "n": 1,
+   "itf": "1-2",
+   "actor": "edge writer (epoch 1)",
+   "action": "PUT e1/000 with request 2",
+   "changes": {
+    "in flight": "PUT e1/0 payload 2"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 2,
+   "itf": "3",
+   "actor": "edge writer (epoch 1)",
+   "action": "no answer in time: slot 0 is unresolved",
+   "changes": {
+    "writer": "Unresolved at e1/0"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 3,
+   "itf": "4",
+   "actor": "edge writer (epoch 1)",
+   "action": "the exporter gives up on request 2; the queue's next call brings request 1 to the same slot (create-only, not sent yet)",
+   "changes": {
+    "writer": "Ready, e1/0, payload 1"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 4,
+   "itf": "5",
+   "actor": "S3",
+   "action": "the late PUT of request 2 lands (its answer goes nowhere)",
+   "changes": {
+    "slot e1/0": "Data(payload 2)"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 5,
+   "itf": "6",
+   "actor": "consumer worker w1",
+   "action": "take the lane",
+   "changes": {
+    "lease": "owner w1, epoch 1",
+    "ckpt": "version 1"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 6,
+   "itf": "7-8",
+   "actor": "consumer worker w1",
+   "action": "check (absent) and send INSERT S1 over e1/0",
+   "changes": {
+    "statements in flight": "S1 {e1/0: payload 2}"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 7,
+   "itf": "9",
+   "actor": "ClickHouse",
+   "action": "S1 commits",
+   "changes": {
+    "central[payload 2]": 1
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 8,
+   "itf": "10",
+   "actor": "consumer worker w1",
+   "action": "verify, CAS the checkpoint past e1/0",
+   "changes": {
+    "ckpt.next[e1]": 1
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 9,
+   "itf": "11",
+   "actor": "GC",
+   "action": "FATAL: delete ingested data slots below the checkpoint, including e1/0 just below it (no PUT for it in flight)",
+   "changes": {
+    "slot e1/0": "Free (deleted)"
+   },
+   "time": "t=0"
+  },
+  {
+   "n": 10,
+   "itf": "12-13",
+   "actor": "edge writer (epoch 1) / S3",
+   "action": "send request 1 to e1/0; If-None-Match succeeds on the deleted key; S3 commits it and answers 200 (the queue acks request 1)",
+   "changes": {
+    "slot e1/0": "Data(payload 1)",
+    "committed below the checkpoint": "e1/0 < next[e1] = 1"
+   },
+   "time": "t=0"
+  }
+ ],
+ "violated": {
+  "invariant": "neverSkipsCommitted",
+  "expression": "every Data ever committed is in central, or at/after an open epoch's checkpoint",
+  "state": "everLog has (e1/0, payload 1); central[payload 1] = 0; ckpt.next[e1] = 1"
+ },
+ "design": {
+  "guard": "GC_KEEP: gc deletes data slots s < next - 1 only; the slot just below the position stays until the epoch retires",
+  "effect": "step 9 deletes nothing (gcReopensDesignTest: slot e1/0 still holds payload 2); in step 10 the writer gets 412, HEADs e1/0, sees another batch, and appends request 1 at e1/1, which the consumer ingests",
+  "code": "D12 (2026-09-26): GC keeps each epoch's slot below the position until the epoch retires (one object per open epoch)"
+ },
+ "dropped": "the writer's final 200/ack step (the violation needs only the commit); the PUT's send and apply are merged in steps 1 and 10; check and send are merged in step 6"
+}

@@ -1,0 +1,473 @@
+tonic 0.14.6 server: max_connection_age sends the GOAWAY, grace is counted
+after it, the age is jittered (gRFC A9)
+
+Applied by scripts/fetch-upstream.sh to the tonic-0.14.6 crate from crates.io
+(paths relative to the crate root; upstream it is tonic/src/...). otap-rs
+builds against it through `[patch.crates-io]`; patches/0004 relies on it.
+
+`Server::max_connection_age` / `max_connection_age_grace` in 0.14.6:
+
+1. With a grace, no GOAWAY is ever sent: connection_timeout_future sleeps
+   age + grace and then drops the connection, so clients keep starting RPCs
+   on it until it is cut under them.
+   Upstream: open PR grpc/grpc-rust#2877 (same approach as here).
+2. Without a grace, the completed connection_timeout_future is polled again
+   on the next loop iteration: panic "`async fn` resumed after completion",
+   which kills the connection task and its in-flight RPCs.
+   Upstream: issue #2522, fixed by #2780 (wrap it in Fuse), merged
+   2026-07-30, not in a release yet (0.14.6 is the latest).
+3. No per-connection jitter, which gRFC A9 requires (+/-10%), so
+   connections accepted together are recycled together. Not reported.
+
+Fix: two fused timers per connection. At the (jittered) age: debug log,
+hyper's graceful_shutdown (for HTTP/2, GOAWAY last-stream-id 2^31-1 + PING,
+then the real last id; in-flight streams continue), and start the grace
+timer; when that fires, drop the connection. Jitter: age x [0.9, 1.1) from
+std's RandomState (no new dependency); an age too large to scale is kept.
+
+Tests (src/transport/server/mod.rs, paused time, one HTTP/2 connection over
+tokio::io::duplex, no Channel reconnects): raw-frame two-step GOAWAY at the
+jittered age with and without a grace; in-flight call completes within the
+grace while a new one is refused with GOAWAY/NO_ERROR, and the connection
+closes as soon as it is done; a call longer than the grace is cut at age +
+grace; no grace + busy connection does not panic; no age keeps the
+connection (grace alone is inert); jitter bounds. On unpatched 0.14.6 three
+of them fail (no GOAWAY with a grace; new call accepted after the age;
+`async fn` resumed after completion).
+
+Not proposed upstream: draft in patches/tonic-UPSTREAM-DRAFT.md, awaiting
+owner review.
+
+diff --git a/src/transport/server/mod.rs b/src/transport/server/mod.rs
+index af89c2f..bc53c9b 100644
+--- a/src/transport/server/mod.rs
++++ b/src/transport/server/mod.rs
+@@ -267,10 +267,19 @@ impl<L> Server<L> {
+         }
+     }
+ 
+-    /// Sets the maximum time option in milliseconds that a connection may exist
++    /// Sets the maximum time a connection may exist before the server starts
++    /// to shut it down gracefully (gRPC's `MAX_CONNECTION_AGE`).
++    ///
++    /// When a connection reaches its age, the server sends an HTTP/2 GOAWAY:
++    /// the client starts new RPCs on a new connection, while the RPCs already
++    /// in flight may finish (see [`Server::max_connection_age_grace`]). As
++    /// specified by [gRFC A9], each connection's age is jittered by a random
++    /// +/-10%, so that connections opened together are not all closed together.
+     ///
+     /// Default is no limit (`None`).
+     ///
++    /// [gRFC A9]: https://github.com/grpc/proposal/blob/master/A9-server-side-conn-mgt.md
++    ///
+     /// # Example
+     ///
+     /// ```
+@@ -289,13 +298,13 @@ impl<L> Server<L> {
+     }
+ 
+     /// Sets the maximum duration that a connection may continue to exist
+-    /// **after** the graceful shutdown period (`max_connection_age`) has elapsed.
++    /// **after** it has reached `max_connection_age` and was sent a GOAWAY.
+     ///
+     /// This timeout only takes effect *after* a connection has exceeded its
+     /// configured `max_connection_age`. Once that happens, the server will begin
+     /// graceful shutdown for the connection. If the connection does not close
+     /// gracefully within the `max_connection_age_grace` duration, the server will then
+-    /// forcefully terminate it.
++    /// forcefully terminate it, failing any RPCs still in flight.
+     ///
+     /// If no `max_connection_age` is configured, this forced shutdown timeout will
+     /// **never trigger**, because the server will not know when to begin the
+@@ -880,27 +889,28 @@ impl<L> Server<L> {
+     }
+ }
+ 
+-enum TimeoutAction {
+-    GracefulShutdown,
+-    ForcefulShutdown,
++/// Scales `max_connection_age` by a random factor in `[0.9, 1.1)`, the
++/// per-connection jitter of gRFC A9.
++fn jittered_connection_age(max_connection_age: Duration) -> Duration {
++    jitter_connection_age(max_connection_age, random_unit())
+ }
+ 
+-async fn connection_timeout_future(
+-    max_connection_age: Option<Duration>,
+-    max_connection_age_grace: Option<Duration>,
+-) -> TimeoutAction {
+-    if let Some(age) = max_connection_age {
+-        tokio::time::sleep(age).await;
++/// Scales `age` by `0.9 + 0.2 * unit`, for `unit` in `[0, 1)`. Ages too large to
++/// scale are returned unchanged.
++fn jitter_connection_age(age: Duration, unit: f64) -> Duration {
++    Duration::try_from_secs_f64(age.as_secs_f64() * (0.9 + 0.2 * unit)).unwrap_or(age)
++}
+ 
+-        if let Some(grace) = max_connection_age_grace {
+-            tokio::time::sleep(grace).await;
+-            TimeoutAction::ForcefulShutdown
+-        } else {
+-            TimeoutAction::GracefulShutdown
+-        }
+-    } else {
+-        future::pending().await
+-    }
++/// A uniformly distributed value in `[0, 1)`. Only has to decorrelate
++/// connections, so it uses std's randomly keyed hasher instead of a dependency.
++fn random_unit() -> f64 {
++    use std::hash::{BuildHasher, Hasher, RandomState};
++    use std::sync::atomic::{AtomicU64, Ordering};
++
++    static COUNTER: AtomicU64 = AtomicU64::new(0);
++    let mut hasher = RandomState::new().build_hasher();
++    hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
++    (hasher.finish() >> 11) as f64 / (1u64 << 53) as f64
+ }
+ 
+ // This is moved to its own function as a way to get around
+@@ -930,10 +940,16 @@ fn serve_connection<B, IO, S, E>(
+ 
+             let mut conn = pin!(builder.serve_connection(hyper_io, hyper_svc));
+ 
+-            let mut connection_timeout = pin!(connection_timeout_future(
+-                max_connection_age,
+-                max_connection_age_grace,
+-            ));
++            // At the connection's age, start a graceful shutdown (GOAWAY) and
++            // then, if a grace is set, a timer for the forced close. Both are
++            // fused: a completed timer must not be polled again.
++            let mut age_timeout = pin!(Fuse {
++                inner: max_connection_age
++                    .map(|age| tokio::time::sleep(jittered_connection_age(age))),
++            });
++            let mut grace_timeout = pin!(Fuse {
++                inner: None::<tokio::time::Sleep>,
++            });
+ 
+             loop {
+                 tokio::select! {
+@@ -943,16 +959,16 @@ fn serve_connection<B, IO, S, E>(
+                         }
+                         break;
+                     },
+-                    timeout_action = &mut connection_timeout => {
+-                        match timeout_action {
+-                            TimeoutAction::GracefulShutdown => {
+-                                conn.as_mut().graceful_shutdown();
+-                            },
+-                            TimeoutAction::ForcefulShutdown => {
+-                                debug!("forcefully closed connection");
+-                                break;
+-                            }
+-                        }
++                    _ = &mut age_timeout => {
++                        debug!("connection reached max_connection_age, shutting it down gracefully");
++                        conn.as_mut().graceful_shutdown();
++                        grace_timeout.set(Fuse {
++                            inner: max_connection_age_grace.map(tokio::time::sleep),
++                        });
++                    },
++                    _ = &mut grace_timeout => {
++                        debug!("forcefully closed connection after max_connection_age_grace");
++                        break;
+                     },
+                     _ = &mut sig => {
+                         conn.as_mut().graceful_shutdown();
+@@ -1282,50 +1298,263 @@ mod tests {
+     use crate::transport::Server;
+     use std::time::Duration;
+ 
+-    #[tokio::test(start_paused = true)]
+-    async fn test_connection_timeout_no_max_age() {
+-        let future = connection_timeout_future(None, None);
+-
+-        tokio::select! {
+-            _ = future => {
+-                panic!("timeout future should never complete when max_connection_age is None");
+-            }
+-            _ = tokio::time::sleep(Duration::from_secs(1000)) => {
+-            }
++    /// Scenario: per-connection ages drawn for a 100 s `max_connection_age`,
++    /// and ages too large to scale.
++    /// Guarantees: every age is within +/-10% (gRFC A9), the draws spread over
++    /// that range, and no age panics.
++    #[test]
++    fn max_connection_age_jitter_bounds() {
++        let age = Duration::from_secs(100);
++        assert_eq!(jitter_connection_age(age, 0.0), Duration::from_secs(90));
++        assert_eq!(jitter_connection_age(age, 0.5), Duration::from_secs(100));
++        assert!(jitter_connection_age(age, 0.999_999) < Duration::from_secs(110));
++        let ages: Vec<Duration> = (0..1000).map(|_| jittered_connection_age(age)).collect();
++        assert!(
++            ages.iter()
++                .all(|a| (Duration::from_secs(90)..Duration::from_secs(110)).contains(a))
++        );
++        let shorter = ages.iter().filter(|a| **a < age).count();
++        assert!(
++            (350..=650).contains(&shorter),
++            "skewed jitter: {shorter}/1000"
++        );
++        for _ in 0..100 {
++            let _ = jittered_connection_age(Duration::MAX);
+         }
++        assert_eq!(jitter_connection_age(Duration::MAX, 0.999), Duration::MAX);
++        assert_eq!(jittered_connection_age(Duration::ZERO), Duration::ZERO);
+     }
+ 
+-    #[tokio::test(start_paused = true)]
+-    async fn test_connection_timeout_with_max_connection_age() {
+-        let future = connection_timeout_future(Some(Duration::from_secs(10)), None);
++    mod max_connection_age {
++        use super::super::*;
++        use h2::client::{ResponseFuture, SendRequest};
++        use http_body_util::Full;
++        use std::{convert::Infallible, time::Duration};
++        use tokio::{
++            io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex},
++            sync::watch,
++            time::{Instant, sleep, timeout},
++        };
+ 
+-        let action = future.await;
+-        assert!(matches!(action, TimeoutAction::GracefulShutdown));
+-    }
++        const AGE: Duration = Duration::from_secs(10);
++        const GRACE: Duration = Duration::from_secs(5);
++        // `max_connection_age` is jittered by +/-10% per connection.
++        const AGE_MIN: Duration = Duration::from_secs(9);
++        const AGE_MAX: Duration = Duration::from_secs(11);
++
++        const FRAME_SETTINGS: u8 = 0x4;
++        const FRAME_PING: u8 = 0x6;
++        const FRAME_GOAWAY: u8 = 0x7;
++        const FLAG_ACK: u8 = 0x1;
++
++        /// Serves one connection with `serve_connection`, answering every
++        /// request after `delay`. Returns the client end of the connection and
++        /// a sender whose `closed()` resolves once the connection task has
++        /// ended.
++        fn serve(
++            age: Option<Duration>,
++            grace: Option<Duration>,
++            delay: Duration,
++        ) -> (DuplexStream, watch::Sender<()>) {
++            let (server_io, client_io) = duplex(64 * 1024);
++            let service = hyper::service::service_fn(move |_: Request<Incoming>| async move {
++                sleep(delay).await;
++                Ok::<_, Infallible>(Response::new(Full::new(Bytes::from_static(b"ok"))))
++            });
++            let mut builder = ConnectionBuilder::new(TokioExecutor::new()).http2_only();
++            builder.http2().timer(TokioTimer::new());
++            let (task_alive, watcher) = watch::channel(());
++            serve_connection(
++                TokioIo::new(server_io),
++                service,
++                builder,
++                Some(watcher),
++                age,
++                grace,
++            );
++            (client_io, task_alive)
++        }
+ 
+-    #[tokio::test(start_paused = true)]
+-    async fn test_connection_timeout_with_max_connection_age_grace() {
+-        let mut future = pin!(connection_timeout_future(
+-            Some(Duration::from_secs(10)),
+-            Some(Duration::from_secs(5)),
+-        ));
++        /// A single HTTP/2 client connection: unlike a `Channel`, it never
++        /// reconnects, so a missing GOAWAY cannot go unnoticed.
++        async fn h2_client(io: DuplexStream) -> SendRequest<Bytes> {
++            let (client, connection) = h2::client::handshake(io).await.unwrap();
++            tokio::spawn(connection);
++            client
++        }
+ 
+-        tokio::select! {
+-            _ = &mut future => {
+-                panic!("should not complete before max_connection_age");
+-            }
+-            _ = tokio::time::sleep(Duration::from_secs(9)) => {}
++        async fn start_call(client: &SendRequest<Bytes>) -> Result<ResponseFuture, h2::Error> {
++            let mut client = client.clone().ready().await?;
++            let request = Request::builder()
++                .uri("http://localhost/test")
++                .body(())
++                .unwrap();
++            let (response, _) = client.send_request(request, true)?;
++            Ok(response)
+         }
+ 
+-        tokio::select! {
+-            _ = &mut future => {
+-                panic!("should not complete before max_connection_age_grace");
++        async fn read_frame(io: &mut DuplexStream) -> Option<(u8, u8, Vec<u8>)> {
++            let mut head = [0u8; 9];
++            io.read_exact(&mut head).await.ok()?;
++            let len =
++                (usize::from(head[0]) << 16) | (usize::from(head[1]) << 8) | usize::from(head[2]);
++            let mut payload = vec![0u8; len];
++            io.read_exact(&mut payload).await.ok()?;
++            Some((head[3], head[4], payload))
++        }
++
++        async fn write_frame(io: &mut DuplexStream, kind: u8, flags: u8, payload: &[u8]) {
++            let len = payload.len();
++            let mut frame = vec![(len >> 16) as u8, (len >> 8) as u8, len as u8, kind, flags];
++            frame.extend_from_slice(&[0; 4]);
++            frame.extend_from_slice(payload);
++            io.write_all(&frame).await.unwrap();
++        }
++
++        /// Scenario: an idle connection, spoken to in raw HTTP/2 frames,
++        /// reaches `max_connection_age`, with and without a grace.
++        /// Guarantees: at the (jittered) age the server starts the graceful
++        /// shutdown of RFC 9113 section 6.8: a GOAWAY with last stream id
++        /// 2^31-1 and NO_ERROR plus a PING, then after the PING ack a second
++        /// GOAWAY with the real last stream id, then it closes the connection.
++        #[tokio::test(start_paused = true)]
++        async fn sends_two_step_goaway_at_age() {
++            for grace in [Some(GRACE), None] {
++                let (mut io, task_alive) = serve(Some(AGE), grace, Duration::ZERO);
++                let started = Instant::now();
++                io.write_all(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
++                    .await
++                    .unwrap();
++                write_frame(&mut io, FRAME_SETTINGS, 0, &[]).await;
++                let mut goaways = Vec::new();
++                while let Some((kind, flags, payload)) = read_frame(&mut io).await {
++                    match kind {
++                        FRAME_SETTINGS if flags & FLAG_ACK == 0 => {
++                            write_frame(&mut io, FRAME_SETTINGS, FLAG_ACK, &[]).await
++                        }
++                        FRAME_PING if flags & FLAG_ACK == 0 => {
++                            write_frame(&mut io, FRAME_PING, FLAG_ACK, &payload).await
++                        }
++                        FRAME_GOAWAY => {
++                            let last_stream_id =
++                                u32::from_be_bytes(payload[0..4].try_into().unwrap()) & 0x7fff_ffff;
++                            let code = u32::from_be_bytes(payload[4..8].try_into().unwrap());
++                            goaways.push((started.elapsed(), last_stream_id, code));
++                        }
++                        _ => {}
++                    }
++                }
++                assert_eq!(
++                    goaways.len(),
++                    2,
++                    "grace {grace:?}: GOAWAY frames {goaways:?}"
++                );
++                let (first_at, first_last, first_code) = goaways[0];
++                assert!(
++                    (AGE_MIN..AGE_MAX).contains(&first_at),
++                    "grace {grace:?}: first GOAWAY after {first_at:?}"
++                );
++                assert_eq!((first_last, first_code), (0x7fff_ffff, 0));
++                assert_eq!((goaways[1].1, goaways[1].2), (0, 0));
++                timeout(Duration::from_secs(1), task_alive.closed())
++                    .await
++                    .expect("connection task did not end");
+             }
+-            _ = tokio::time::sleep(Duration::from_secs(4)) => {}
+         }
+ 
+-        let action = future.await;
+-        assert!(matches!(action, TimeoutAction::ForcefulShutdown));
++        /// Scenario: a call starts at 5 s and takes 8 s on a connection with a
++        /// 10 s age and a 5 s grace; another call is tried at 11.5 s.
++        /// Guarantees: the new call is refused with a GOAWAY, the call in
++        /// flight completes normally, and the connection closes as soon as it
++        /// has, without waiting for the grace to run out.
++        #[tokio::test(start_paused = true)]
++        async fn in_flight_call_completes_within_grace() {
++            let (io, task_alive) = serve(Some(AGE), Some(GRACE), Duration::from_secs(8));
++            let client = h2_client(io).await;
++            let started = Instant::now();
++            sleep(Duration::from_secs(5)).await;
++            let in_flight = start_call(&client).await.unwrap();
++            sleep(Duration::from_millis(6500)).await;
++            let refused = start_call(&client)
++                .await
++                .expect_err("new call accepted after the age");
++            assert!(refused.is_go_away(), "expected GOAWAY, got {refused:?}");
++            assert_eq!(refused.reason(), Some(h2::Reason::NO_ERROR));
++            let response = in_flight
++                .await
++                .expect("in-flight call failed during the grace");
++            let body = response.into_body().data().await.unwrap().unwrap();
++            assert_eq!(body, "ok");
++            drop(client);
++            timeout(Duration::from_secs(1), task_alive.closed())
++                .await
++                .expect("drained connection waited for the grace to run out");
++            assert!(started.elapsed() < Duration::from_secs(14));
++        }
++
++        /// Scenario: a call that takes 30 s on a connection with a 10 s age
++        /// and a 5 s grace.
++        /// Guarantees: the connection is closed at age + grace and the call
++        /// fails there instead of running on.
++        #[tokio::test(start_paused = true)]
++        async fn call_longer_than_grace_is_cut() {
++            let (io, task_alive) = serve(Some(AGE), Some(GRACE), Duration::from_secs(30));
++            let client = h2_client(io).await;
++            let started = Instant::now();
++            let in_flight = start_call(&client).await.unwrap();
++            assert!(in_flight.await.is_err(), "call outlived age + grace");
++            let cut_at = started.elapsed();
++            assert!(
++                (AGE_MIN + GRACE..AGE_MAX + GRACE).contains(&cut_at),
++                "call cut after {cut_at:?}"
++            );
++            timeout(Duration::from_secs(1), task_alive.closed())
++                .await
++                .expect("connection task did not end");
++        }
++
++        /// Scenario: a call is in flight when a connection with a 10 s age and
++        /// no grace reaches its age.
++        /// Guarantees: the connection task survives the age (no poll of a
++        /// completed timer) and the call completes; the connection then
++        /// closes.
++        #[tokio::test(start_paused = true)]
++        async fn no_grace_waits_for_in_flight_call() {
++            let (io, task_alive) = serve(Some(AGE), None, Duration::from_secs(20));
++            let client = h2_client(io).await;
++            let started = Instant::now();
++            sleep(Duration::from_secs(5)).await;
++            let in_flight = start_call(&client).await.unwrap();
++            let response = in_flight
++                .await
++                .expect("in-flight call failed after the age");
++            assert!(started.elapsed() >= Duration::from_secs(25));
++            let body = response.into_body().data().await.unwrap().unwrap();
++            assert_eq!(body, "ok");
++            drop(client);
++            timeout(Duration::from_secs(1), task_alive.closed())
++                .await
++                .expect("connection task did not end");
++        }
++
++        /// Scenario: no `max_connection_age`, with and without a grace; the
++        /// connection is used again after a long idle period.
++        /// Guarantees: the connection is kept (a grace alone does nothing).
++        #[tokio::test(start_paused = true)]
++        async fn no_age_keeps_connection() {
++            for grace in [None, Some(GRACE), Some(Duration::ZERO)] {
++                let (io, task_alive) = serve(None, grace, Duration::from_secs(1));
++                let client = h2_client(io).await;
++                sleep(AGE_MAX + GRACE).await;
++                let response = start_call(&client)
++                    .await
++                    .expect("idle connection was closed")
++                    .await
++                    .expect("call failed");
++                assert_eq!(response.status(), http::StatusCode::OK);
++                assert!(!task_alive.is_closed());
++            }
++        }
+     }
+ 
+     #[test]

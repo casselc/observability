@@ -641,42 +641,65 @@ alert on the volume.
 
 ## U23. otap-dataflow gRPC receivers: no max connection age (and tonic's is broken)
 
-- **Status:** patched here, **not proposed yet**:
-  `otap-rs/patches/0004-grpc-receivers-max-connection-age.patch`.
+- **Status:** patched here, **not proposed — awaiting owner review**:
+  `otap-rs/patches/tonic-0001-server-max-connection-age-goaway-grace-jitter.patch`
+  (tonic) and `otap-rs/patches/0004-grpc-receivers-max-connection-age.patch`
+  (otap-dataflow config wiring over it). Draft tonic PR text:
+  `otap-rs/patches/tonic-UPSTREAM-DRAFT.md`. Nothing has been posted
+  upstream.
 - **Project / version:** otel-arrow `rust/otap-dataflow` at `otap-rs/UPSTREAM`
-  (OTLP and OTAP receivers); tonic 0.14.6.
+  (OTLP and OTAP receivers); tonic 0.14.6 (latest release, 2026-05-07; the
+  repository is now `grpc/grpc-rust`, `hyperium/tonic` redirects there).
 - **Source here:** [`deploy/results/k8s-sim.md`](deploy/results/k8s-sim.md)
   §8 ("Scale-up gets no traffic"), `otap-rs/scripts/goaway_e2e.sh`,
   `otap-rs/results/goaway/`, [otap-rs README §Connection age](otap-rs/README.md#connection-age-patches0004-m).
 
 **Gap (otap-dataflow).** `GrpcServerSettings` has no `max_connection_age` /
-`max_connection_age_grace` (grpc-go's `keepalive.ServerParameters`). Agents
-using `dns:///` + round_robin re-resolve only when a connection closes, so a
-receiver added by a scale-up gets no traffic until the agents restart. The
-patch adds both settings (off by default, +/-10% jitter per connection),
-wired into the OTLP and OTAP receivers, with a `receiver.otlp.connections`
-metric set (`aged_out`, `force_closed`).
+`max_connection_age_grace` (gRPC's MAX_CONNECTION_AGE / _GRACE, gRFC A9).
+Agents using `dns:///` + round_robin re-resolve only when a connection
+closes, so a receiver added by a scale-up gets no traffic until the agents
+restart. 0004 adds both settings (off by default) and passes them to tonic's
+`Server::max_connection_age(_grace)` in the OTLP and OTAP receivers: config
+wiring only, given a fixed tonic.
 
-**Bugs (tonic 0.14.6, `transport/server/mod.rs`), why the patch doesn't use
-`Server::max_connection_age`:**
+**Bugs (tonic 0.14.6, `tonic/src/transport/server/mod.rs`),** each
+reproduced by a test of the tonic patch that fails on 0.14.6:
 
 1. With `max_connection_age_grace` set, `connection_timeout_future` sleeps
-   age + grace and returns `ForcefulShutdown`: the connection never gets a
-   GOAWAY, it is dropped with its in-flight RPCs.
+   age + grace and returns `ForcefulShutdown`: no GOAWAY at the age; clients
+   keep starting RPCs on the connection until it is dropped under them.
+   Upstream: open PR [grpc/grpc-rust#2877](https://github.com/grpc/grpc-rust/pull/2877)
+   (2026-09-18, "drain connections before the grace timeout"; a reviewer:
+   "connection_timeout_future() was clearly broken"), not merged. Same
+   approach as the local fix.
 2. Without a grace it returns `GracefulShutdown`, and the `serve_connection`
-   loop calls `graceful_shutdown()` and polls the same finished `async fn`
-   future again: "`async fn` resumed after completion" panics the
-   connection's task, killing the RPCs in flight. Repro: a tonic server with
-   `max_connection_age(1s)`, one RPC that takes 1.5 s started at 0.5 s; the
-   client gets `Unknown: connection error ... BrokenPipe`.
-3. The age is not jittered, so connections opened together recycle together.
+   loop polls the finished `async fn` future again: "`async fn` resumed after
+   completion" panics the connection task, killing the RPCs in flight.
+   Upstream: [#2522](https://github.com/grpc/grpc-rust/issues/2522), fixed by
+   [#2780](https://github.com/grpc/grpc-rust/pull/2780) (merged 2026-07-30,
+   wraps the future in `Fuse`), after 0.14.6 and not released yet.
+3. The age is not jittered (gRFC A9: +/-10% per connection), so connections
+   opened together recycle together. Not reported upstream; no PR.
 
-**Expected:** GOAWAY at a jittered age, then a hard close only after the
-grace (grpc-go); fuse the timer.
+**Local fix (tonic-0001):** two fused timers per connection (as #2877): at
+the age, a debug log, hyper's `graceful_shutdown()` (h2: GOAWAY with
+last-stream-id 2^31-1 + PING, then the real last id) and the grace timer
+starts; when it fires the connection is dropped. The age is scaled by a
+random factor in [0.9, 1.1) (std `RandomState`, no new dependency). Tests in
+tonic's style (`serve_connection` over a duplex pipe, paused time): raw-frame
+two-step GOAWAY at the jittered age, an in-flight call completes within the
+grace while a new one gets GOAWAY, a call longer than the grace is cut at
+age + grace, no grace + busy connection does not panic, no age keeps the
+connection, jitter bounds. `otap-rs/scripts/fetch-upstream.sh` vendors the
+checksum-verified crate with the patch; `otap-rs/Cargo.toml` points
+`[patch.crates-io]` at it.
 
-**What upstream would likely push back on in the patch:** it serves each
-connection with its own clone of the tonic `Server` (shutdown signal = the
-connection's age) to reuse tonic's graceful path, and enforces the grace by
-failing the connection's I/O. Fixing tonic (1-3) and calling its builder
-would be the smaller upstream change; the patch is the workaround that works
-on the pinned tonic.
+**What a tonic PR would be:** #2780 and #2877 already cover 1 and 2, so the
+draft is the jitter alone on top of them, plus the raw-frame GOAWAY test.
+Open question for the owner: default-on +/-10% (gRFC A9, grpc-go,
+grpc-java) or an opt-in builder option.
+
+**Lost vs the previous 0004** (a per-connection clone of the tonic server):
+the `receiver.otlp.connections` `aged_out` / `force_closed` counters and the
+`grpc.server.connection_age.force_close` warning. tonic reports neither
+event (it logs both at debug).

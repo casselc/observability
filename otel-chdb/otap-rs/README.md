@@ -205,15 +205,18 @@ encbench: the in-process edge benchmark (pubbench's accounting)
 ## Upstream: what was changed, what was found
 
 Upstream is used at a pinned commit (`UPSTREAM`), prepared by
-`scripts/fetch-upstream.sh`: a shallow clone, plus `patches/*.patch`, linked
-at `.upstream`. The crate's `Cargo.lock` started as upstream's, so shared
+`scripts/fetch-upstream.sh`: a shallow clone, plus `patches/[0-9]*.patch`,
+linked at `.upstream`. The same script vendors tonic 0.14.6 (the crates.io
+crate, checksum-verified) plus `patches/tonic-*.patch` into
+`.upstream/.otap-rs/tonic`, which `Cargo.toml`'s `[patch.crates-io]` uses. The crate's `Cargo.lock` started as upstream's, so shared
 dependencies resolve to what upstream tests.
 
 | Patch | Why |
 |---|---|
 | `0001-pdata-depend-on-datafusion-leaf-crates.patch` | `pdata` depends on the whole `datafusion` 53 crate for two types, `ScalarValue` and `ColumnarValue`, and there is no feature to turn it off. The patch depends on `datafusion-common` and `datafusion-expr-common` instead. This build's graph shrinks from 424 to 395 crates, and datafusion from 25 crates to 2. Behaviour is unchanged. |
 | `0002-otap-views-u32-parent-id-dictionary16.patch` | **Bug:** `views/otap/common.rs` `build_attribute_index_u32` accepts `UInt32` and `Dictionary(UInt8, UInt32)` parent ids, but upstream's own OTLP→OTAP encoder writes `Dictionary(UInt16, UInt32)` for span event and link attributes. `OtapTracesView` then returns **no attributes for any event or link**. It showed as 750 of 3,000 testgen spans differing, in `Events.Attributes` and `Links.Attributes` [M]. The patch uses `MaybeDictArrayAccessor`, as the u16 variant does. `tests/otap_view.rs` prints the encodings. |
-| `0004-grpc-receivers-max-connection-age.patch` | **Gap:** the OTLP/OTAP gRPC receivers have no `max_connection_age`, so agents never see a scaled-up publisher (../deploy/results/k8s-sim.md §8), and tonic 0.14's own is unusable (U23). The patch adds `max_connection_age` / `max_connection_age_grace` (+/-10% jitter, graceful two-step GOAWAY) and the `receiver.otlp.connections` metrics. Off by default; set in `configs/edge-publisher.yaml`. [Connection age](#connection-age-patches0004-m). Not proposed upstream. |
+| `0004-grpc-receivers-max-connection-age.patch` | **Gap:** the OTLP/OTAP gRPC receivers have no `max_connection_age`, so agents never see a scaled-up publisher (../deploy/results/k8s-sim.md §8), and tonic 0.14's own is unusable (U23). The patch adds `max_connection_age` / `max_connection_age_grace` and passes them to tonic's builder (needs `tonic-0001`). Off by default; set in `configs/edge-publisher.yaml`. [Connection age](#connection-age-patches0004-m). Not proposed upstream. |
+| `tonic-0001-server-max-connection-age-goaway-grace-jitter.patch` (tonic 0.14.6) | **Bugs** (U23): with a grace, `Server::max_connection_age` sends no GOAWAY and just drops the connection at age + grace; without one it re-polls a finished future and panics the connection task; no jitter. The patch sends the graceful GOAWAY at the age, starts the grace then, and jitters the age +/-10% (gRFC A9). Upstream has #2780 (panic, unreleased) and open PR #2877 (GOAWAY); the jitter is drafted in `patches/tonic-UPSTREAM-DRAFT.md`, not proposed. |
 
 Found upstream, not patched here:
 
@@ -1333,7 +1336,7 @@ under load stays exactly once.**
   when a connection closes, and a healthy publisher never closes one. After
   3 → 4 the fourth publisher got nothing until `kubectl rollout restart
   ds/otel-agent`.
-- **The fix:** grpc-go's `MaxConnectionAge` on upstream's receivers
+- **The fix:** gRPC's MAX_CONNECTION_AGE (gRFC A9) on upstream's receivers
   (`patches/0004`, both settings under the receiver's `protocols.grpc`):
   - `max_connection_age`: each connection (age jittered +/-10%) is sent a
     graceful GOAWAY: last-stream-id 2^31-1 plus a PING, then the real last
@@ -1344,26 +1347,39 @@ under load stays exactly once.**
     `timeout`: a request cut after its WAL write is resent by the agent, and
     this publisher batches, so the resend is a duplicate (below). The
     receiver warns at startup otherwise.
-  - `receiver.otlp.connections`: `aged_out` and `force_closed` counters;
-    a forced close is also logged (`grpc.server.connection_age.force_close`).
   - `configs/edge-publisher.yaml` and `edge-durable.yaml` set 5 m / 45 s
     (`OTLP_MAX_CONN_AGE`, `OTLP_MAX_CONN_AGE_GRACE`; `timeout` is 30 s).
     With 5 m, a new publisher takes traffic within ~5.5 m; an agent restart
     is still the faster way.
-- **How:** tonic 0.14's `Server::max_connection_age` has one age for every
-  connection, sends no GOAWAY when a grace is set, and panics the
-  connection's task when the connection is busy at the age (U23). So each
-  accepted connection is served by its own clone of the tonic server, whose
-  shutdown signal fires at that connection's age: tonic's own graceful path
-  sends the GOAWAY and drains. The grace is a deadline on the connection's
-  I/O. Without `max_connection_age` the receiver is served exactly as before.
-  About 490 added lines of Rust (half of them comments) and 420 of tests;
-  the patch is 1,355 lines with its docs.
-- **Unit tests** (`connection_age.rs`, 7): a raw HTTP/2 client sees the two
-  GOAWAYs at 0.9-1.1 × the age and then the close; an RPC in flight at the
-  GOAWAY completes while a new one on that connection is refused; an RPC
-  longer than the grace is cut at age + grace and counted; no age, no
-  change; shutdown still drains.
+- **How:** 0004 is config wiring: it validates the two settings and passes
+  them to tonic's `Server::max_connection_age(_grace)` (`apply_server_tuning`
+  for OTLP, the OTAP receiver's builder). That works because tonic itself is
+  patched (`patches/tonic-0001`, U23): 0.14.6 sends no GOAWAY when a grace is
+  set, panics the connection's task when there is none and the connection is
+  busy, and has no jitter. The fix is two fused timers per connection, the
+  GOAWAY at the jittered age and the forced close one grace later.
+  `scripts/fetch-upstream.sh` vendors the checksum-verified tonic crate with
+  the patch into `.upstream/.otap-rs/tonic`, and `Cargo.toml`'s
+  `[patch.crates-io]` builds against it; later builds need no network.
+  Upstream tonic has the panic fix (#2780, unreleased) and an open PR for the
+  GOAWAY (#2877); the jitter is drafted in `patches/tonic-UPSTREAM-DRAFT.md`,
+  not proposed.
+  The patch shrank from 1,355 lines (a per-connection clone of the tonic
+  server, the grace as an I/O deadline) to 568, plus tonic-0001 (473, half
+  of it tests).
+- **Lost with the rewrite:** the `receiver.otlp.connections` counters
+  (`aged_out`, `force_closed`) and the `force_close` warning. tonic reports
+  neither event to the application; it logs both at `debug`. The e2e
+  timeline's aged_out/force_closed columns now read 0/0.
+- **Tests:** tonic-0001 (tonic's style, over an in-memory connection with
+  paused time): raw-frame two-step GOAWAY at the jittered age with and
+  without a grace; an in-flight call completes within the grace while a new
+  one gets GOAWAY; a call longer than the grace is cut at age + grace; no
+  grace and a busy connection does not panic; no age keeps the connection;
+  jitter bounds (three fail on unpatched 0.14.6). 0004: validation, and
+  through `apply_server_tuning` on a real listener, the two GOAWAYs at
+  0.9-1.1 × a 1 s age (none without an age), an RPC in flight completing
+  within the grace and one longer than it cut at age + grace.
 
 **End to end** (`scripts/goaway_e2e.sh`, `results/goaway/`): two publishers
 behind one DNS name (`scripts/tinydns.py` standing in for the headless
@@ -1371,23 +1387,29 @@ Service), the stock agent config (`../deploy/base/rust/agent-rust.yaml`,
 otelcol v0.161.0) resolving it, telemetrygen into the agent (~400 spans/s,
 ~4 requests/s, each held ~1 s by the publisher's batch, so most GOAWAYs meet
 a request in flight). At 41 s a third publisher starts and joins the DNS
-answer; the agent keeps running. Age 20 s, timeout 10 s, 150 s of load:
+answer; the agent keeps running. Age 20 s, timeout 10 s, 150 s of load.
+`tonic-*.txt` are the runs with the patched tonic, the others with the
+previous 0004:
 
 | run | 3rd publisher's first request | rows per publisher | GOAWAYs / forced closes | agent export failures | rows / distinct / missing |
 |---|---|---|---|---|---|
 | no age (control) | never (113 s watched) | 29,980 / 30,000 / 0 | 0 / 0 | 0 | 59,980 / 59,980 / 0 |
 | age 20 s, grace 15 s | ~61 s (20 s after it joined) | 23,880 / 24,300 / 11,800 | 54 / 0 | 0 | 59,980 / 59,980 / 0 |
 | age 20 s, grace 0 s | ~61 s | 24,500 / 24,800 / 12,600 | 53 / 54 | 19 (resent) | 61,900 / 60,000 / 0 |
+| tonic: no age | never (113 s watched) | 29,980 / 30,000 / 0 | – | 0 | 59,980 / 59,980 / 0 |
+| tonic: age 20 s, grace 15 s | ~62 s (21 s after it joined) | 23,800 / 24,200 / 11,940 | – | 0 | 59,940 / 59,940 / 0 |
+| tonic: age 20 s, grace 0 s | ~61 s | 24,600 / 24,800 / 12,100 | – | 15 (resent) | 61,500 / 60,000 / 0 |
 
 - From its first request on, the third publisher took an equal share
   (requests per 5 s: 6-7 each).
 - With a grace, every request in flight at a GOAWAY was answered: no export
-  failed, no row is missing or duplicated. The grace-0 run shows what the
-  grace prevents: 19 requests were cut after reaching the WAL and resent,
-  1,900 duplicate rows (never a loss). The counters (at 153 s) include all
-  three of the agent's connections per publisher (one per signal); with no
-  grace an idle connection is closed at the deadline too, so nearly every
-  GOAWAY is also a forced close.
+  failed, no row is missing or duplicated. The grace-0 runs show what the
+  grace prevents: requests cut after reaching the WAL and resent (19 and
+  15), 1,900 and 1,500 duplicate rows (never a loss). "–": no counters since
+  the rewrite. The old counters (at 153 s) include all three of the agent's
+  connections per publisher (one per signal); with no grace an idle
+  connection is closed at the deadline too, so nearly every GOAWAY was also
+  a forced close.
 
 ## Consumer
 

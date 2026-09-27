@@ -1,0 +1,44 @@
+t  pub0 pub1 pub2  (accepted requests; aged_out/force_closed per publisher)
+0 0 0 0  | 0/0 0/0 0/0
+5 9 10 0  | 0/0 0/0 0/0
+10 19 19 0  | 0/0 0/0 0/0
+15 29 29 0  | 0/0 0/0 0/0
+20 39 39 0  | 0/0 0/0 0/0
+25 52 50 0  | 0/0 0/0 0/0
+30 64 60 0  | 0/0 0/0 0/0
+35 74 72 0  | 0/0 0/0 0/0
+41 pub2 started, DNS now 3 addresses
+41 81 82 0  | 0/0 0/0 0/0
+46 95 95 0  | 0/0 0/0 0/0
+51 105 105 0  | 0/0 0/0 0/0
+56 115 115 0  | 0/0 0/0 0/0
+61 125 125 1  | 0/0 0/0 0/0
+66 132 132 8  | 0/0 0/0 0/0
+71 139 139 15  | 0/0 0/0 0/0
+76 147 145 21  | 0/0 0/0 0/0
+81 154 153 28  | 0/0 0/0 0/0
+86 161 160 37  | 0/0 0/0 0/0
+92 168 167 43  | 0/0 0/0 0/0
+97 174 174 50  | 0/0 0/0 0/0
+102 181 182 57  | 0/0 0/0 0/0
+107 188 188 63  | 0/0 0/0 0/0
+112 194 195 70  | 0/0 0/0 0/0
+117 201 202 77  | 0/0 0/0 0/0
+122 207 208 84  | 0/0 0/0 0/0
+127 214 215 91  | 0/0 0/0 0/0
+132 222 222 98  | 0/0 0/0 0/0
+137 228 231 104  | 0/0 0/0 0/0
+142 235 238 112  | 0/0 0/0 0/0
+148 242 245 119  | 0/0 0/0 0/0
+153 246 248 121  | 0/0 0/0 0/0
+RUN=cut AGE=20s GRACE=0s TIMEOUT=10s T_ADD=40 T_TOTAL=150
+agent: accepted_spans=60000 sent_spans=60000 send_failed_spans(retried)=0 queue=0
+S3 rows, distinct (TraceId,SpanId), duplicates, missing vs agent-accepted:
+61500	60000	1500	0
+S3 rows per publisher:
+pub-0	24600
+pub-1	24800
+pub-2	12100
+agent export failures (each retried): 15
+publisher force-close warnings: 0
+DNS queries answered during the run: 45

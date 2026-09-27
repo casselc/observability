@@ -49,6 +49,12 @@ xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
 # SigV4 for STS AssumeRole (src/creds.rs); already in the graph via rustls/object_store.
 ring = "0.17"
 
+# tonic 0.14.6 plus patches/tonic-*.patch (Server::max_connection_age: a
+# GOAWAY at the age, the grace after it, +/-10% jitter), which patches/0004
+# relies on; prepared by scripts/fetch-upstream.sh inside the upstream clone.
+[patch.crates-io]
+tonic = { path = ".upstream/.otap-rs/tonic" }
+
 [features]
 default = ["jemalloc", "durable-buffer"]
 jemalloc = ["dep:tikv-jemallocator"]

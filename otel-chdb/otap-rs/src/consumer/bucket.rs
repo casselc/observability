@@ -266,6 +266,10 @@ pub struct MemFaults {
     pub ambiguous_every: u64,
     /// Every n-th matching PUT is dropped, and answered as Unknown.
     pub drop_every: u64,
+    /// Every n-th matching conditional PUT is applied, but answered as
+    /// Conflict: the store answered an error (5xx, or 409 on AWS) after it
+    /// applied, and object_store's retry met our own write (412).
+    pub own_conflict_every: u64,
 }
 
 #[derive(Default)]
@@ -330,6 +334,9 @@ impl Bucket for MemBucket {
         let _ = self.objs.borrow_mut().insert(key.to_string(), MemObj { body, meta: meta.clone(), etag: e.clone(), modified_ms: self.clock.get() });
         if faulty && f.ambiguous_every > 0 && n % f.ambiguous_every == 0 {
             return Put::Unknown("answer lost (injected)".into());
+        }
+        if faulty && f.own_conflict_every > 0 && n % f.own_conflict_every == 0 && !matches!(cond, Cond::None) {
+            return Put::Conflict;
         }
         Put::Ok(e)
     }
@@ -403,7 +410,7 @@ mod tests {
         b.insert("c/y/b/1", Bytes::new(), m.clone());
         assert_eq!(b.list_dirs("c/y").await.unwrap(), vec!["a", "b"]);
         assert_eq!(b.list("c/y", Some("c/y/a/1")).await.unwrap().len(), 1);
-        *b.faults.borrow_mut() = MemFaults { matching: "z".into(), ambiguous_every: 1, drop_every: 0 };
+        *b.faults.borrow_mut() = MemFaults { matching: "z".into(), ambiguous_every: 1, drop_every: 0, ..Default::default() };
         assert!(matches!(b.put("z", Bytes::new(), Cond::Create, &m).await, Put::Unknown(_)));
         assert!(b.get("z").await.unwrap().is_some(), "applied, answer lost");
         assert_eq!(b.counts.snap().put_create, 3);

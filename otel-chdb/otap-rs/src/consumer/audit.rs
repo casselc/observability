@@ -460,7 +460,7 @@ async fn audit_table(ch: &ClickHouse, db: &str, t: &Target, cfg: &AuditConfig, s
     }
     let threads = cfg.max_threads.max(1).to_string();
     let st = [("optimize_use_projections", "1"), ("max_threads", threads.as_str())];
-    let c = parse_candidates(&ch.query(&candidates_sql(&fq, since_ns, cfg.sample_hex, cfg.max_candidates), &st).await?)?;
+    let c = parse_candidates(&ch.query(&candidates_sql(&fq, since_ns, cfg.sample_hex, cfg.max_candidates), &super::sql::no_partial_results(&st)).await?)?;
     rep.candidates += c.len();
     if c.len() >= cfg.max_candidates {
         rep.truncated.push(t.table.clone());
@@ -470,8 +470,8 @@ async fn audit_table(ch: &ClickHouse, db: &str, t: &Target, cfg: &AuditConfig, s
     }
     let keys: Vec<String> = c.iter().map(|(k, _)| k.clone()).collect();
     let days: BTreeSet<u64> = c.iter().flat_map(|(_, d)| d.iter().copied()).collect();
-    let dups = parse_dups(&ch.query(&dups_sql(&fq, &keys, &days), &st).await?)?;
-    let groups = parse_groups(&ch.query(&groups_sql(&fq, &keys, &days), &st).await?)?;
+    let dups = parse_dups(&ch.query(&dups_sql(&fq, &keys, &days), &super::sql::no_partial_results(&st)).await?)?;
+    let groups = parse_groups(&ch.query(&groups_sql(&fq, &keys, &days), &super::sql::no_partial_results(&st)).await?)?;
     Ok(findings(&t.signal, &t.table, &dups, &groups, h))
 }
 

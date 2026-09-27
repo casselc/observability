@@ -157,6 +157,36 @@ pub const SETTLING_CODES: &[u32] = &[
     516, // AUTHENTICATION_FAILED
 ];
 
+/// Limits whose `break` (or `any`) mode answers a query with part of its
+/// result, HTTP 200 and no error: a server or user profile that sets one
+/// (with `max_rows_to_read`, `max_execution_time`, `max_rows_to_group_by`,
+/// `max_rows_in_set`, ...) would make a count check short and the worker
+/// re-insert rows central already holds (AMBIGUITY.md, hazard H-2). Every
+/// consumer query pins them to `throw`: a limit hit is an error, which the
+/// worker already handles (the check fails and is retried).
+pub const NO_PARTIAL_RESULTS: &[(&str, &str)] = &[
+    ("timeout_overflow_mode", "throw"),
+    ("timeout_overflow_mode_leaf", "throw"),
+    ("read_overflow_mode", "throw"),
+    ("read_overflow_mode_leaf", "throw"),
+    ("result_overflow_mode", "throw"),
+    ("group_by_overflow_mode", "throw"),
+    ("set_overflow_mode", "throw"),
+    ("join_overflow_mode", "throw"),
+    ("sort_overflow_mode", "throw"),
+    ("distinct_overflow_mode", "throw"),
+    ("transfer_overflow_mode", "throw"),
+];
+
+/// `settings` with [`NO_PARTIAL_RESULTS`] pinned: any value given for one of
+/// those names (an `--insert-setting`, say) is replaced by `throw`.
+pub fn no_partial_results<'a>(settings: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut v: Vec<(&str, &str)> =
+        settings.iter().filter(|(k, _)| !NO_PARTIAL_RESULTS.iter().any(|(p, _)| p == k)).copied().collect();
+    v.extend_from_slice(NO_PARTIAL_RESULTS);
+    v
+}
+
 /// The `Code: N` of a ClickHouse error answer.
 pub fn error_code(msg: &str) -> Option<u32> {
     let i = msg.find("Code: ")? + 6;
@@ -344,7 +374,7 @@ impl<B: Bucket> ClickHouseCentral<B> {
     async fn q(&self, sql: &str, settings: &[(&str, &str)]) -> Result<String, String> {
         let i = self.cur.get();
         let ch = self.replicas.get(i).unwrap_or(&self.ch);
-        let r = ch.query(sql, settings).await;
+        let r = ch.query(sql, &no_partial_results(settings)).await;
         if let Err(e) = &r {
             if self.replicas.len() > 1 && !e.starts_with("clickhouse ") && self.cur.get() == i {
                 self.cur.set((i + 1) % self.replicas.len());
@@ -768,6 +798,74 @@ mod tests {
             }
         }
         !open
+    }
+
+    #[test]
+    fn every_query_pins_the_overflow_modes_to_throw() {
+        let st = no_partial_results(&[("read_overflow_mode", "break"), ("max_rows_to_read", "10"), ("optimize_use_projections", "1")]);
+        assert!(st.contains(&("read_overflow_mode", "throw")) && !st.contains(&("read_overflow_mode", "break")), "{st:?}");
+        assert!(st.contains(&("max_rows_to_read", "10")) && st.contains(&("optimize_use_projections", "1")));
+        for (k, _) in NO_PARTIAL_RESULTS {
+            assert_eq!(st.iter().filter(|(x, _)| x == k).count(), 1, "{k}");
+        }
+    }
+
+    /// Hazard H-2 on a real server: a user profile with `read_overflow_mode =
+    /// 'break'` and `max_rows_to_read`, and a table whose projection was added
+    /// after its parts were written (so the check reads the table). Unpinned,
+    /// the consumer's count query answers HTTP 200 with short counts; pinned,
+    /// it fails. Skipped without a ClickHouse that allows CREATE USER.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_profile_with_break_modes_cannot_shorten_the_count_check() {
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let admin = otap_s3pq::central::ClickHouse::new(&url);
+        if admin.query("SELECT 1", &[]).await.is_err() {
+            eprintln!("no ClickHouse at {url}: skipped");
+            return;
+        }
+        let id = format!("{:08x}", rand::random::<u32>());
+        let (db, user, prof) = (format!("am_h2_{id}"), format!("am_h2_u_{id}"), format!("am_h2_p_{id}"));
+        let setup = [
+            format!("CREATE SETTINGS PROFILE {prof} SETTINGS read_overflow_mode = 'break', max_rows_to_read = 100000"),
+            format!("CREATE USER {user} IDENTIFIED WITH plaintext_password BY 'pw' SETTINGS PROFILE {prof}"),
+            format!("CREATE DATABASE {db}"),
+            format!("GRANT ALL ON {db}.* TO {user}"),
+        ];
+        for q in &setup {
+            if let Err(e) = admin.query(q, &[]).await {
+                eprintln!("{q}: {e}: skipped");
+                let _ = admin.query(&format!("DROP USER IF EXISTS {user}"), &[]).await;
+                let _ = admin.query(&format!("DROP SETTINGS PROFILE IF EXISTS {prof}"), &[]).await;
+                return;
+            }
+        }
+        let t = format!("{db}.otel_logs");
+        for q in [
+            format!("CREATE TABLE {t} (received_at DateTime64(9), content_key LowCardinality(String), row_ordinal UInt32) ENGINE MergeTree PARTITION BY toDate(received_at) ORDER BY row_ordinal"),
+            format!("INSERT INTO {t} SELECT now64(9), concat('k', toString(number % 50)), number FROM numbers(400000)"),
+            format!("ALTER TABLE {t} ADD PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)"),
+        ] {
+            admin.query(&q, &[]).await.unwrap();
+        }
+        let count = format!("SELECT content_key, count() FROM {t} WHERE content_key IN ('k1', 'k2') GROUP BY content_key ORDER BY 1 FORMAT TSV");
+        let mut raw = otap_s3pq::central::ClickHouse::new(&url);
+        raw.user = Some((user.clone(), "pw".into()));
+        let short = raw.query(&count, &[("optimize_use_projections", "1")]).await;
+        let mut c = ClickHouseCentral::new(&url, &db, Rc::new(MemBucket::default()), "k", "s", 10_000);
+        for r in c.replicas.iter_mut().chain(std::iter::once(&mut c.ch)) {
+            r.user = Some((user.clone(), "pw".into()));
+        }
+        let lk = LaneKind::for_signal("logs").unwrap();
+        let pinned = c.counts(&lk, &["k1", "k2"], None).await;
+        for q in [format!("DROP DATABASE {db} SYNC"), format!("DROP USER {user}"), format!("DROP SETTINGS PROFILE {prof}")] {
+            let _ = admin.query(&q, &[]).await;
+        }
+        eprintln!("unpinned: {short:?}\npinned: {pinned:?}");
+        let short = short.expect("unpinned: HTTP 200");
+        let n: Vec<u64> = short.lines().filter_map(|l| l.split_once('\t')?.1.parse().ok()).collect();
+        assert!(!n.is_empty() && n.iter().all(|&x| x < 8000), "the hazard: 200 with short counts (8,000 each): {short:?}");
+        let e = pinned.expect_err("pinned: the limit is an error, not a short count");
+        assert!(e.contains("Code: 158"), "{e}");
     }
 
     /// The generated statements parse on a real server (skipped when none is up).

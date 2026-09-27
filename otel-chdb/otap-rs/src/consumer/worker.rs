@@ -566,11 +566,21 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let body = Bytes::from(serde_json::to_vec(doc).expect("lease json"));
         let (sent_ms, sent_wall_ms) = (self.clock.mono(), self.clock.wall());
         let cond = etag.map_or(Cond::Create, Cond::IfMatch);
+        // A 412 is not proof that someone else wrote: when a PUT applied and
+        // its answer was an error (a 5xx, a 409 on AWS), object_store retries
+        // it with the old ETag and meets our own new one (AMBIGUITY.md, S3
+        // conditional PUT). Both a 412 and no answer are resolved by reading
+        // the lease back: a doc equal to ours (our worker, epoch, beat and
+        // wall time) was written by us.
         let etag = match self.bucket.put(&key, body, cond, &BTreeMap::new()).await {
             Put::Ok(e) => e,
-            Put::Conflict => return None,
-            Put::Unknown(_) => match self.bucket.get(&key).await {
-                Ok(Some((b, e))) if serde_json::from_slice::<LeaseDoc>(&b).ok().as_ref() == Some(doc) => e,
+            r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(&key).await {
+                Ok(Some((b, e))) if serde_json::from_slice::<LeaseDoc>(&b).ok().as_ref() == Some(doc) => {
+                    if r == Put::Conflict {
+                        log(&self.cfg, &format!("lease {}: 412, but the lease is ours (our earlier attempt applied)", lane.id()));
+                    }
+                    e
+                }
                 _ => return None,
             },
         };
@@ -880,11 +890,17 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
 
     async fn write_ckpt(&self, key: &str, doc: &CkptDoc, etag: Option<&str>) -> Option<String> {
         let body = Bytes::from(serde_json::to_vec(doc).expect("ckpt json"));
+        // As write_lease: a 412 may be our own write behind an error answer.
+        // A checkpoint equal to ours (our lease epoch, its version) is ours.
         match self.bucket.put(key, body, etag.map_or(Cond::Create, Cond::IfMatch), &BTreeMap::new()).await {
             Put::Ok(e) => Some(e),
-            Put::Conflict => None,
-            Put::Unknown(_) => match self.bucket.get(key).await {
-                Ok(Some((b, e))) if serde_json::from_slice::<CkptDoc>(&b).ok().as_ref() == Some(doc) => Some(e),
+            r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(key).await {
+                Ok(Some((b, e))) if serde_json::from_slice::<CkptDoc>(&b).ok().as_ref() == Some(doc) => {
+                    if r == Put::Conflict {
+                        log(&self.cfg, &format!("{key}: 412, but the checkpoint is ours (our earlier attempt applied)"));
+                    }
+                    Some(e)
+                }
                 _ => None,
             },
         }

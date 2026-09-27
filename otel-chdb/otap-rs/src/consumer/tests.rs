@@ -178,6 +178,35 @@ async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
     assert_eq!(ep, "E0006", "halted and moved on");
 }
 
+/// A lease or checkpoint CAS that applied but was answered 412 (an error
+/// answer after the write, then object_store's retry met our own new ETag;
+/// `tests/ambig_s3.rs` shows the 412 against SeaweedFS). The worker reads the
+/// object back and keeps the lane: before the fix every such answer dropped
+/// the lane as "lost to another worker" and left it unheld until our own
+/// lease expired (TTL + margin).
+#[tokio::test(flavor = "current_thread")]
+async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
+    let (b, c, clk) = setup();
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), own_conflict_every: 2, ..Default::default() };
+    let mut e = Edge::new("p1", "traces");
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    for r in 0..6 {
+        for i in 0..3 {
+            e.commit(&b, &format!("h{r}-{i}"), 3).await;
+        }
+        run(&mut ws, &clk, 40, 100).await;
+    }
+    for r in 0..6 {
+        for i in 0..3 {
+            assert_eq!(c.count("otel_traces", &format!("h{r}-{i}")), 3, "h{r}-{i}");
+        }
+    }
+    let s = &ws[0].stats;
+    assert!(s.renewals >= 3 && s.ckpt_writes >= 3, "renewals {} ckpt writes {}", s.renewals, s.ckpt_writes);
+    assert_eq!(s.lanes_lost_cas, 0, "a 412 for our own write taken as a lost lane: {s:?}");
+    assert_eq!(s.lanes_taken, 1, "{s:?}");
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn gaps_are_never_skipped_nor_tombstoned() {
     let (b, c, clk) = setup();
@@ -519,7 +548,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
         // three minutes before midnight (UTC day 20,000)
         clk.0.set(20_000 * 86_400_000 - 180_000);
     }
-    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11 };
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13 };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
     c.late_every.set(11);

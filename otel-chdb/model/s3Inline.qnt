@@ -535,3 +535,188 @@ module idealEnv {
     COND_PUT = true, ATOMIC_COND = true, RESOLVE_BY_HEAD = true, HALT_ON_TOMB = true, TOMB_GAPS = true,
     CHECK_CENTRAL = true).*
 }
+
+// ---- received_at across replays -------------------------------------------------------------------
+/**
+ * s3InlineReceived: s3Inline with the time a request is stamped with
+ * (received_at) and a consumer whose check only looks near it.
+ *
+ * The consumer's tables are partitioned by day of received_at, and its
+ * content-key check reads only the partitions within HORIZON days of the
+ * object's own received_at (otap-rs consumer/plan.rs). s3Inline's consumer
+ * checks all of central, so it cannot tell when the stamp is taken. Here:
+ *  - `day` is the wall clock, which may run on (an outage) at any point,
+ *    between a commit and its ACK included;
+ *  - a request enters the edge's durable custody (its persistent queue: the
+ *    WAL, or the collector's file_storage queue) on day `custody(p)`: day 0,
+ *    since the PAYLOADS are queued from the start;
+ *  - the incarnation that hands p to its lane stamps it (`stamp(e)(p)`, once
+ *    per incarnation) with custody(p) (STAMP_AT_CUSTODY, the design: the
+ *    buffer persists the time with the request) or with the day it takes it
+ *    (the mutant: the exporter's clock when the request reaches it). Every
+ *    copy of p committed in epoch e carries stamp(e)(p);
+ *  - central remembers the received day of each copy it holds (crecv), and
+ *    the check finds p only within HORIZON days.
+ * s3Inline's writer, S3 and the rest of its consumer are unchanged (the
+ * consumer's check and insert are replaced, with the same guards).
+ *
+ * Design: every copy of a request carries its custody day
+ * (replayKeepsReceivedAt), so a replay after any outage is checked against
+ * its original's own partition and skipped: payloadIngestedAtMostOnce holds
+ * for any HORIZON >= 0. Mutant restampOnReplay: a restart more than HORIZON
+ * days after the original committed stamps the replay with the later day,
+ * the check misses the original, and central holds the request twice.
+ */
+module s3InlineReceived {
+  const STAMP_AT_CUSTODY: bool   // design: received_at is the custody time, kept across replays
+  const HORIZON: int             // the check reads received_at +- HORIZON days
+  const MAX_DAY: int             // the clock runs days 0..MAX_DAY
+
+  import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 3, MAX_SLOT = 4,
+    AMBIGUOUS = true, ZOMBIES = false, CONSUMER_CRASH = true,
+    COND_PUT = true, ATOMIC_COND = true, RESOLVE_BY_HEAD = true, HALT_ON_TOMB = true, TOMB_GAPS = true,
+    CHECK_CENTRAL = true) as L
+
+  pure val UNSET: int = -1
+
+  var day: int                     // the edge's wall clock, in days
+  var custody: int -> int          // payload -> day it entered the edge's persistent queue
+  var stamp: int -> (int -> int)   // epoch -> payload -> the received_at that incarnation writes
+  var crecv: int -> Set[int]       // payload -> received days of the copies central holds
+
+  def epochs: Set[int] = 1.to(3)
+  // The received_at of the object in slot (e, s).
+  def recvAt(e: int, p: int): int = stamp.get(e).get(p)
+  pure def dist(a: int, b: int): int = if (a >= b) a - b else b - a
+
+  action keepR = all { day' = day, custody' = custody, stamp' = stamp, crecv' = crecv }
+  action keepL = all {
+    L::queue' = L::queue, L::acked' = L::acked, L::lease' = L::lease, L::writers' = L::writers,
+    L::log' = L::log, L::inflight' = L::inflight, L::responses' = L::responses, L::everLog' = L::everLog,
+    L::ckpt' = L::ckpt, L::closed' = L::closed, L::consumer' = L::consumer, L::central' = L::central,
+    L::events' = L::events,
+  }
+
+  // The clock runs on: an outage, or just time passing.
+  action tick: bool = all { day < MAX_DAY, day' = day + 1, custody' = custody, stamp' = stamp, crecv' = crecv, keepL }
+
+  // Incarnation e takes p from the queue: the stamp is the custody day
+  // (design) or today (mutant), taken once per incarnation.
+  pure def stamped(st: int -> (int -> int), e: int, p: int, d: int, c: int): int -> (int -> int) =
+    if (st.get(e).get(p) != UNSET) st
+    else st.set(e, st.get(e).set(p, if (STAMP_AT_CUSTODY) c else d))
+  action startPush(e: int, p: int): bool = all {
+    L::startPush(e, p),
+    stamp' = stamped(stamp, e, p, day, custody.get(p)), day' = day, custody' = custody, crecv' = crecv,
+  }
+  action switchPayload(e: int, p: int): bool = all {
+    L::switchPayload(e, p),
+    stamp' = stamped(stamp, e, p, day, custody.get(p)), day' = day, custody' = custody, crecv' = crecv,
+  }
+
+  // The consumer's check (L::cCheck's guards): p is found only if central
+  // holds a copy received within HORIZON days of this object's received_at.
+  // (crecv and stamp are parameters: quint 0.32 resolves a state variable
+  // read on the right of `L::x' = ...` in L's namespace; see s3InlineMetrics.)
+  action cCheck(e: int): bool = cCheckWith(e, crecv, stamp)
+  action cCheckWith(e: int, cr: int -> Set[int], st: int -> (int -> int)): bool = {
+    val x = L::at(e, L::ckpt.get(e))
+    all {
+      L::consumer.phase == L::CIdle, e <= L::lease, not(L::closed.get(e)), L::ckpt.get(e) < 4, x.kind == L::Data,
+      L::consumer' = { phase: L::CChecked, epoch: e, slot: L::ckpt.get(e),
+                       sawPresent: cr.get(x.payload).exists(r => dist(r, st.get(e).get(x.payload)) <= HORIZON) },
+      L::ckpt' = L::ckpt, L::closed' = L::closed, L::central' = L::central, L::events' = L::events,
+      L::queue' = L::queue, L::acked' = L::acked, L::lease' = L::lease, L::writers' = L::writers,
+      L::log' = L::log, L::inflight' = L::inflight, L::responses' = L::responses, L::everLog' = L::everLog,
+      keepR,
+    }
+  }
+  // The insert: central records the copy's received day.
+  action cInsert: bool = {
+    val x = L::at(L::consumer.epoch, L::consumer.slot)
+    val dup = L::consumer.sawPresent or x.kind != L::Data
+    all {
+      L::cInsert,
+      crecv' = if (dup) crecv else crecv.setBy(x.payload, s => s.union(Set(recvAt(L::consumer.epoch, x.payload)))),
+      day' = day, custody' = custody, stamp' = stamp,
+    }
+  }
+
+  action init = all {
+    L::init,
+    day' = 0,
+    custody' = L::PAYLOADS.mapBy(_ => 0),
+    stamp' = epochs.mapBy(_ => L::PAYLOADS.mapBy(_ => UNSET)),
+    crecv' = L::PAYLOADS.mapBy(_ => Set()),
+  }
+
+  action step = {
+    nondet e = epochs.oneOf()
+    nondet p = L::PAYLOADS.oneOf()
+    any {
+      tick,
+      startPush(e, p), switchPayload(e, p),
+      all { L::send(e), keepR }, all { L::timeout(e), keepR }, all { L::resolve(e), keepR },
+      all { L::responses != Set(), nondet r = L::responses.oneOf() any { all { L::receive(e, r), keepR }, all { L::cTombReceive(r), keepR } } },
+      all { L::newIncarnation(false), keepR },
+      all { L::inflight != Set(), nondet q = L::inflight.oneOf() any { all { L::apply(q), keepR }, all { L::lose(q), keepR } } },
+      cCheck(e), cInsert,
+      all { L::cAdvance, keepR }, all { L::cSeeTomb(e), keepR }, all { L::cTomb(e), keepR },
+      all { L::cTombTimeout, keepR }, all { L::cTombResolve, keepR }, all { L::cCrash, keepR },
+    }
+  }
+
+  // ---- properties ----
+  // Every committed copy of a request, the original and every replay in a
+  // later epoch, carries the day the request entered custody.
+  val replayKeepsReceivedAt: bool =
+    L::everLog.forall(x => x.entry.kind == L::Data implies recvAt(x.epoch, x.entry.payload) == custody.get(x.entry.payload))
+  // Each request's rows land in central at most once (s3Inline's property,
+  // now under a check bounded by the horizon).
+  val atMostOnce: bool = L::payloadIngestedAtMostOnce
+  val safety: bool = and { replayKeepsReceivedAt, L::safety }
+
+  // ---- witnesses ----
+  // a request committed in two epochs, the second more than HORIZON days
+  // after it entered custody (a replay after a long outage)
+  val wLongGapReplay: bool = L::PAYLOADS.exists(p =>
+    epochs.exists(e1 => epochs.exists(e2 => e1 < e2 and L::slotsOf(e1, p).size() > 0 and L::slotsOf(e2, p).size() > 0))) and day > HORIZON
+  val wDedupHit: bool = L::events.contains("dedupHit")
+  val wLongGapDedup: bool = wLongGapReplay and wDedupHit and L::PAYLOADS.forall(p => L::central.get(p) <= 1)
+  // central's copies of payload 1 (the scenario's)
+  val central1: int = L::central.get(1)
+
+  // ---- the scenario: payload 1 commits on day 0 and is ingested; its ACK
+  // is lost (the incarnation dies with the response in flight); the edge is
+  // down for HORIZON + 1 days; the next incarnation replays it.
+  def req(e: int, s: int, p: int): L::Req = { epoch: e, slot: s, entry: L::dataE(e, p), sawFree: true }
+  run longGapPrefix =
+    init
+      .then(startPush(1, 1)).then(all { L::send(1), keepR }).then(all { L::apply(req(1, 0, 1)), keepR })
+      .then(cCheck(1)).then(cInsert).then(all { L::cAdvance, keepR })
+      .then((HORIZON + 1).reps(_ => tick))
+      .then(all { L::newIncarnation(false), keepR })
+      .then(startPush(2, 1)).then(all { L::send(2), keepR }).then(all { L::apply(req(2, 0, 1)), keepR })
+      .then(cCheck(2)).then(cInsert).then(all { L::cAdvance, keepR })
+}
+
+// The design: received_at is the custody time (the durable buffer's WAL
+// write, the collector queue's enqueue), kept across replays.
+module receivedDesign {
+  import s3InlineReceived(STAMP_AT_CUSTODY = true, HORIZON = 1, MAX_DAY = 2).*
+  run longGapReplaySkippedTest = longGapPrefix.expect(and { safety, central1 == 1, wDedupHit })
+}
+
+// The design needs no horizon at all: every copy is in its original's partition.
+module receivedDesignNoHorizon {
+  import s3InlineReceived(STAMP_AT_CUSTODY = true, HORIZON = 0, MAX_DAY = 2).*
+  run longGapReplaySkippedTest = longGapPrefix.expect(and { safety, central1 == 1, wDedupHit })
+}
+
+// Mutation: the exporter stamps received_at when the request reaches it, so
+// a replay carries the restart's clock.
+module restampOnReplay {
+  import s3InlineReceived(STAMP_AT_CUSTODY = false, HORIZON = 1, MAX_DAY = 2).*
+  run longGapReplayIngestedTwiceTest =
+    longGapPrefix.expect(and { not(replayKeepsReceivedAt), not(atMostOnce), central1 == 2 })
+}

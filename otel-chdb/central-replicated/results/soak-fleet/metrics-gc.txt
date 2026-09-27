@@ -1,0 +1,45 @@
+# HELP consumer_gc_runs_total GC runs, by result.
+# TYPE consumer_gc_runs_total counter
+consumer_gc_runs_total{result="ok"} 149
+consumer_gc_runs_total{result="error"} 28
+# HELP consumer_gc_deleted_objects_total Objects GC deleted (data slots and retired epochs' objects).
+# TYPE consumer_gc_deleted_objects_total counter
+consumer_gc_deleted_objects_total 23601
+# HELP consumer_gc_last_success_timestamp_seconds Unix time of the last GC run with no error.
+# TYPE consumer_gc_last_success_timestamp_seconds gauge
+consumer_gc_last_success_timestamp_seconds 1790466023.975
+# HELP consumer_late_copies_total Copies ingested twice because they were received more than the check horizon after their original (horizon audit).
+# TYPE consumer_late_copies_total counter
+consumer_late_copies_total{signal="logs",table="otel_logs"} 0
+consumer_late_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0
+consumer_late_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0
+consumer_late_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0
+consumer_late_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0
+consumer_late_copies_total{signal="traces",table="otel_traces"} 0
+# HELP consumer_audit_unexplained_copies_total Copies ingested twice within the check horizon (the check should have skipped them).
+# TYPE consumer_audit_unexplained_copies_total counter
+consumer_audit_unexplained_copies_total{signal="logs",table="otel_logs"} 0
+consumer_audit_unexplained_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0
+consumer_audit_unexplained_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0
+consumer_audit_unexplained_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0
+consumer_audit_unexplained_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0
+consumer_audit_unexplained_copies_total{signal="traces",table="otel_traces"} 0
+# HELP consumer_audit_runs_total Horizon audit runs, by result (error: any table failed).
+# TYPE consumer_audit_runs_total counter
+consumer_audit_runs_total{result="ok"} 14
+consumer_audit_runs_total{result="error"} 2
+# HELP consumer_audit_last_success_timestamp_seconds Unix time of the last audit run with no error.
+# TYPE consumer_audit_last_success_timestamp_seconds gauge
+consumer_audit_last_success_timestamp_seconds 1790466012.573
+# HELP consumer_audit_duration_seconds Wall time of the last audit run.
+# TYPE consumer_audit_duration_seconds gauge
+consumer_audit_duration_seconds 0.305
+# HELP consumer_audit_candidates Keys in more than one partition, last run (before confirmation).
+# TYPE consumer_audit_candidates gauge
+consumer_audit_candidates 0
+# HELP consumer_audit_tables Tables the last run audited.
+# TYPE consumer_audit_tables gauge
+consumer_audit_tables 6
+# HELP consumer_check_horizon_seconds The count check's copy horizon (-1: every partition).
+# TYPE consumer_check_horizon_seconds gauge
+consumer_check_horizon_seconds 259200

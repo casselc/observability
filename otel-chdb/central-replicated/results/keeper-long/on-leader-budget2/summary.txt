@@ -1,0 +1,16 @@
+D s | query | answer after | rows r1/r2 | first on a replica, s after start (past max_execution_time) | quorum back, s after start
+8 | long-8-2-22131 | 7.7 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 7638.152 ms, maxim | 100/100 | 7.6 (+5.6) | 7.6
+8 | long-8-1-16572 | 8.0 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 7934.949 ms, maxim | 100/100 | 7.9 (+5.9) | 7.9
+8 | long-8-3-183 | 7.3 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 7333.327 ms, maxim | 100/100 | 7.3 (+5.3) | 7.3
+12 | long-12-2-10694 | 18.1 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 18078.043 ms, maxi | 0/0 | never | 11.7
+12 | long-12-1-19560 | 18.4 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 18364.658 ms, maxi | 0/0 | never | 12.0
+12 | long-12-3-21642 | 17.8 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 17773.346 ms, maxi | 0/0 | never | 11.4
+16 | long-16-1-9704 | 21.0 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 20947.343 ms, maxi | 0/0 | never | 15.9
+16 | long-16-3-27426 | 20.4 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 20350.789 ms, maxi | 0/0 | never | 15.3
+16 | long-16-2-29318 | 20.7 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 20659.479 ms, maxi | 0/0 | never | 15.6
+20 | long-20-2-30742 | 22.7 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 22670.088 ms, maxi | 0/0 | never | 19.6
+20 | long-20-3-22567 | 22.4 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 22365.227 ms, maxi | 0/0 | never | 19.3
+20 | long-20-1-1740 | 23.0 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 22966.551 ms, maxi | 0/0 | never | 19.9
+30 | long-30-1-24974 | 28.0 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 27959.127 ms, maxi | 0/0 | never | 29.9
+30 | long-30-3-22380 | 27.4 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 27365.224 ms, maxi | 0/0 | never | 29.3
+30 | long-30-2-26745 | 27.7 s: Code: 159. DB::Exception: Timeout exceeded: elapsed 27670.392 ms, maxi | 0/0 | never | 29.6

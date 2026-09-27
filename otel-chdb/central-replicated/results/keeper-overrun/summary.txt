@@ -1,0 +1,10 @@
+inserts 2363: ExceptionWhileProcessing code 159: 84, QueryFinish: 2279
+committed 2297; commit - start - max_execution_time: p50 -1.98 s, p90 -1.96, p99 -0.71, p99.9 11.30, max 11.60
+  committed more than N s past max_execution_time: >0 s: 18, >1 s: 18, >2 s: 18, >5 s: 14, >8 s: 14, >10 s: 14, >12 s: 0, >15 s: 0
+committed although the statement ended in an error: 18 {'159': 18}
+statement end - start - max_execution_time: p99 10.92 s, max 20.95 s; ended more than 10 s past: 26
+  worst: ovr-r2l2-419-1605 r2 ExceptionWhileProcessing code 159: committed 11.20 s past max_execution_time 2 s
+  worst: ovr-r1l1-482-21394 r1 ExceptionWhileProcessing code 159: committed 11.24 s past max_execution_time 2 s
+  worst: ovr-r1l2-496-19957 r1 ExceptionWhileProcessing code 159: committed 11.30 s past max_execution_time 2 s
+  worst: ovr-r2l2-69-3369 r2 ExceptionWhileProcessing code 159: committed 11.47 s past max_execution_time 2 s
+  worst: ovr-r2l1-79-7573 r2 ExceptionWhileProcessing code 159: committed 11.60 s past max_execution_time 2 s

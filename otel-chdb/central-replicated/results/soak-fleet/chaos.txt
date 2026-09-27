@@ -1,0 +1,40 @@
+23:20:08.599 run rsoak1790464807: db repl_rsoak1790464807, prefix repl-soak/rsoak1790464807/edges, duration 900s, timing prod, policy tiered_own, sync 1, workers w1,w3 -> r1 first, w2 -> r2 first
+23:20:28.147 partition keeper k2 (leader k3) for 9s
+23:20:37.218 healed keeper k2
+23:20:54.233 SIGSTOP worker w2 for 85s (past its lease)
+23:22:19.238 SIGCONT w2
+23:22:27.337 SIGSTOP keeper leader k3 for 7s
+23:22:34.386 SIGCONT keeper k3
+23:22:54.498 partition keeper k3 (leader k2) for 14s
+23:23:08.587 healed keeper k3
+23:23:22.668 partition keeper k3 (leader k2) for 9s
+23:23:31.755 healed keeper k3
+23:23:39.767 SIGSTOP worker w3 for 83s (past its lease)
+23:25:02.774 SIGCONT w3
+23:25:20.829 SIGSTOP worker w1 for 85s (past its lease)
+23:26:45.863 SIGCONT w1
+23:26:59.913 SIGSTOP keeper leader k2 for 11s
+23:27:10.933 SIGCONT keeper k2
+23:27:29.956 SIGKILL keeper k3 for 5s
+23:27:35.085 restarted keeper k3
+23:27:54.105 SIGKILL keepers k2 and k3 (quorum lost) for 9s
+23:28:03.163 restarted keepers k2 k3
+23:28:18.197 SIGSTOP keeper leader k1 for 15s
+23:28:33.221 SIGCONT keeper k1
+23:28:50.246 SIGKILL keeper k2 for 4s
+23:28:54.312 restarted keeper k2
+23:29:05.332 partition replica r2 (HTTP and interserver ports) for 11s
+23:29:16.428 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:29:29.458 SIGSTOP keeper leader k1 for 5s
+23:29:34.509 SIGCONT keeper k1
+23:29:50.546 partition replica r1 (HTTP and interserver ports) for 13s
+23:30:03.633 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:30:14.652 SIGKILL keepers k2 and k3 (quorum lost) for 14s
+23:30:28.840 restarted keepers k2 k3
+23:30:37.865 SIGSTOP keeper leader k1 for 5s
+23:30:42.883 SIGCONT keeper k1
+23:31:02.937 SIGKILL replica r2 (pid 27603) for 12s
+23:38:06.737 restarted replica r2
+23:38:06.746 chaos over: worker kills 0, worker pauses 3, edge kills 0, replica kills 1, keeper node kills 2, keeper quorum losses 2, keeper leader stops 5, replica partitions 2, keeper partitions 3
+23:38:12.922 senders done: 10487 requests acked
+23:40:24.925 central (r1) stable: 3940 788000 3303 660600 3244 129760 3244 64880 3244 64880 3244 64880 

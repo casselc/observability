@@ -1,0 +1,4 @@
+     Running tests/mbt_s3inline.rs (/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otap-rs-target/release/deps/mbt_s3inline-e8df07e220c95fce)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 23.23s
+     Running tests/mbt_s3inline_consumer.rs (/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otap-rs-target/release/deps/mbt_s3inline_consumer-09899847691d1e72)
+test result: ok. 61 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 356.58s

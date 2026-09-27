@@ -1,0 +1,25 @@
+db repl_range_1790468414, table repl_range_1790468414.otel_logs, 10 daily partitions, policy tiered_own (move after 1 day)
+parts per disk: r1: "default",4 "s3_own",10 r2: "default",4 "s3_own",10 
+r1 ranged (today +- 3 days): k0-0=20 k0-9=20 k2-3=20 k3-1=20 late=7 near=10 
+r1 every partition:          k0-0=20 k0-9=20 k2-3=20 k3-1=20 k4-0=20 k5-5=20 k9-9=20 late=14 near=10 
+r1 EXPLAIN ranged: ReadFromMergeTree (by_content) 
+r2 ranged (today +- 3 days): k0-0=20 k0-9=20 k2-3=20 k3-1=20 late=7 near=10 
+r2 every partition:          k0-0=20 k0-9=20 k2-3=20 k3-1=20 k4-0=20 k5-5=20 k9-9=20 late=14 near=10 
+r2 EXPLAIN ranged: ReadFromMergeTree (by_content) 
+r1 query_log: full-1790468415-1 10 22 13 ['repl_range_1790468414.otel_logs.by_content'];ra-1790468415-1 6 24 17.7 ['repl_range_1790468414.otel_logs.by_content'];
+r2 query_log: full-1790468415-2 10 36 17 ['repl_range_1790468414.otel_logs.by_content'];ra-1790468415-2 6 30 19.5 ['repl_range_1790468414.otel_logs.by_content'];
+expected rows in range (r1, no projection): 97
+r2, fetches stopped, ranged check: [] (r1: [new-old=4 new-today=3 ])
+r2 SYNC LIGHTWEIGHT with fetches stopped: 3030 ms: Code: 159. DB::Exception: SYNC REPLICA repl_range_1790468414.otel_logs (f5750de1-2eb1-4303-9998-56e0fdf70480): command timed out. See the 'receive_timeout' setting. (TIMEOUT_EXCEEDED) (version 26.10.1
+r2 SYNC LIGHTWEIGHT after START FETCHES: 173 ms: ok
+r2 ranged check after the sync: [new-old=4 new-today=3 ]
+audit r1: {"replica": "http://127.0.0.1:28123", "tables": 1, "candidates": 2, "late": [["late", "Ecopy-late", "Eorig-late", 7]], "unexplained": [["near", "Ecopy-near", "Eorig-near", 5]], "errors": []}
+audit r2: {"replica": "http://127.0.0.1:38123", "tables": 1, "candidates": 2, "late": [["late", "Ecopy-late", "Eorig-late", 7]], "unexplained": [["near", "Ecopy-near", "Eorig-near", 5]], "errors": []}
+audit r1 = r2 (but the replica read): yes
+r2 lagging (fetches stopped), a new late copy on r1:
+  audit r1: {"replica": "http://127.0.0.1:28123", "tables": 1, "candidates": 3, "late": [["late", "Ecopy-late", "Eorig-late", 7], ["late2", "Ecopy-late2", "Eorig-late2", 3]], "unexplained": [["near", "Ecopy-near", "Eorig-near", 5]], "errors": []}
+  audit r2 (no sync): {"replica": "http://127.0.0.1:38123", "tables": 1, "candidates": 2, "late": [["late", "Ecopy-late", "Eorig-late", 7]], "unexplained": [["near", "Ecopy-near", "Eorig-near", 5]], "errors": []}
+  audit r2 --sync-replica: {"replica": "http://127.0.0.1:38123", "tables": 1, "candidates": 0, "late": [], "unexplained": [], "errors": ["otel_logs: sync replica: clickhouse 408 Request Timeout: Code: 159. DB::Exception: SYNC REPLICA repl_range_1790468414.ot"]}
+  audit --ch dead,r2 --sync-replica (fails over): {"replica": "http://127.0.0.1:38123", "tables": 1, "candidates": 0, "late": [], "unexplained": [], "errors": ["otel_logs: sync replica: clickhouse 408 Request Timeout: Code: 159. DB::Exception: SYNC REPLICA repl_range_1790468414.ot"]}
+  after START FETCHES, audit r2 --sync-replica: {"replica": "http://127.0.0.1:38123", "tables": 1, "candidates": 3, "late": [["late", "Ecopy-late", "Eorig-late", 7], ["late2", "Ecopy-late2", "Eorig-late2", 3]], "unexplained": [["near", "Ecopy-near", "Eorig-near", 5]], "errors": []}
+dropped repl_range_1790468414 on both replicas

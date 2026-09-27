@@ -67,12 +67,16 @@
           <hot><disk>default</disk></hot>
           <cold><disk>s3_zc</disk></cold>
         </volumes>
+        <!-- the box's disk is ~97% full: the default move_factor (0.1) would move every new part to S3 at once -->
+        <move_factor>0</move_factor>
       </tiered_zc>
       <tiered_own>
         <volumes>
           <hot><disk>default</disk></hot>
           <cold><disk>s3_own</disk></cold>
         </volumes>
+        <!-- the box's disk is ~97% full: the default move_factor (0.1) would move every new part to S3 at once -->
+        <move_factor>0</move_factor>
       </tiered_own>
     </policies>
   </storage_configuration>

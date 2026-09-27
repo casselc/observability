@@ -1,0 +1,33 @@
+22:38:07.617 SIGSTOP keepers k1 k2 (quorum lost) for 13s
+22:38:20.633 SIGCONT k1 k2
+22:38:29.649 partition keeper k1 (leader k2) for 13s
+22:38:42.735 healed k1
+22:38:47.776 SIGSTOP keepers k3 k1 (quorum lost) for 18s
+22:39:05.797 SIGCONT k3 k1
+22:39:11.853 partition keeper k1 (leader k3) for 14s
+22:39:25.990 healed k1
+22:39:34.020 SIGSTOP keepers k2 k3 (quorum lost) for 16s
+22:39:50.034 SIGCONT k2 k3
+22:39:55.066 partition keeper k2 (leader k2) for 15s
+22:40:10.134 healed k2
+22:40:15.155 SIGSTOP keeper leader k2 for 13s
+22:40:28.165 SIGCONT k2
+22:40:36.187 SIGKILL keeper leader k3 for 8s
+22:40:44.262 restarted k3
+22:40:51.345 partition keeper k3 (leader k2) for 12s
+22:41:03.435 healed k3
+22:41:13.452 SIGSTOP keepers k2 k3 (quorum lost) for 13s
+22:41:26.465 SIGCONT k2 k3
+22:41:36.484 SIGSTOP keepers k3 k1 (quorum lost) for 17s
+22:41:53.499 SIGCONT k3 k1
+22:41:57.520 SIGKILL keeper leader k3 for 3s
+22:42:00.585 restarted k3
+22:42:08.621 partition keeper k2 (leader k2) for 12s
+22:42:20.699 healed k2
+22:42:26.732 partition keeper k3 (leader k2) for 5s
+22:42:31.820 healed k3
+22:42:39.839 SIGKILL keeper leader k2 for 8s
+22:42:47.909 restarted k2
+22:42:56.936 SIGKILL keeper leader k1 for 5s
+22:43:01.973 restarted k1
+22:43:01.976 faults over: leader stops 1, keeper partitions 6, quorum stops 5, leader kills 4

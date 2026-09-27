@@ -1,0 +1,23 @@
+insert statements' own CPU per row (query_log ProfileEvents, summed over reps; the server that ran them):
+  replicated otel_logs                                     statements    69 rows    432600 rows/statement     6270   15.90 us/row
+  replicated otel_metrics_exponential_histogram_points     statements    69 rows     43260 rows/statement      627  152.96 us/row
+  replicated otel_metrics_histogram_points                 statements    69 rows     43260 rows/statement      627  150.23 us/row
+  replicated otel_metrics_number_points                    statements    69 rows     86520 rows/statement     1254   72.98 us/row
+  replicated otel_metrics_series                           statements    69 rows     77868 rows/statement     1129   75.56 us/row
+  replicated otel_metrics_summary_points                   statements    69 rows     43260 rows/statement      627  138.19 us/row
+  replicated otel_traces                                   statements    69 rows    432600 rows/statement     6270   17.09 us/row
+  single     otel_logs                                     statements    69 rows    432600 rows/statement     6270   14.35 us/row
+  single     otel_metrics_exponential_histogram_points     statements    69 rows     43260 rows/statement      627  142.74 us/row
+  single     otel_metrics_histogram_points                 statements    69 rows     43260 rows/statement      627  132.64 us/row
+  single     otel_metrics_number_points                    statements    69 rows     86520 rows/statement     1254   67.49 us/row
+  single     otel_metrics_series                           statements    69 rows     77868 rows/statement     1129   69.60 us/row
+  single     otel_metrics_summary_points                   statements    69 rows     43260 rows/statement      627  124.94 us/row
+  single     otel_traces                                   statements    69 rows    432600 rows/statement     6270   16.38 us/row
+  single     all tables: 36.11 us/row over 1159368 rows, 483 statements
+  replicated all tables: 39.30 us/row over 1159368 rows, 483 statements
+  run single     rep 1: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 17368 ms = 48.2 us/row; load 2.04 1.63 3.39 -> 2.95 1.87 3.43
+  run replicated rep 1: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 20815 ms = 57.7 us/row; load 2.72 1.84 3.41 -> 5.25 2.49 3.58
+  run single     rep 2: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 17682 ms = 49.0 us/row; load 5.47 2.58 3.60 -> 4.49 2.54 3.56
+  run replicated rep 2: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 21878 ms = 60.7 us/row; load 4.37 2.55 3.56 -> 5.90 3.06 3.70
+  run single     rep 3: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 17658 ms = 49.0 us/row; load 5.43 3.01 3.68 -> 4.86 3.08 3.68
+  run replicated rep 3: 5047 objects in 161 statements (31.3/statement), server CPU (system.events, all servers) 21157 ms = 58.7 us/row; load 4.47 3.02 3.66 -> 4.44 3.14 3.68

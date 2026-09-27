@@ -1,0 +1,64 @@
+23:41:16.234 run rsoak1790466074: db repl_rsoak1790466074, prefix repl-soak/rsoak1790466074/edges, duration 900s, timing prod, policy tiered_own, sync 1, workers w1,w3 -> r1 first, w2 -> r2 first
+23:41:34.771 partition replica r1 (HTTP and interserver ports) for 14s
+23:41:48.846 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:42:05.863 SIGKILL replica r1 (pid 27597) for 16s
+23:42:21.903 restarted replica r1
+23:42:37.975 partition keeper k2 (leader k3) for 11s
+23:42:49.051 healed keeper k2
+23:43:07.074 SIGKILL replica r1 (pid 31742) for 18s
+23:43:25.142 restarted replica r1
+23:43:35.180 SIGSTOP keeper leader k3 for 13s
+23:43:48.189 SIGCONT keeper k3
+23:44:02.224 SIGSTOP keeper leader k2 for 15s
+23:44:17.236 SIGCONT keeper k2
+23:44:26.247 SIGKILL replica r2 (pid 29991) for 10s
+23:44:36.299 restarted replica r2
+23:44:51.309 partition replica r2 (HTTP and interserver ports) for 28s
+23:45:19.419 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:45:31.449 SIGSTOP keeper leader k1 for 9s
+23:45:40.468 SIGCONT keeper k1
+23:45:53.500 partition keeper k2 (leader k3) for 12s
+23:46:05.580 healed keeper k2
+23:46:18.590 partition replica r2 (HTTP and interserver ports) for 13s
+23:46:31.671 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:46:41.686 partition replica r1 (HTTP and interserver ports) for 33s
+23:47:14.779 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:47:23.807 SIGSTOP keeper leader k3 for 14s
+23:47:37.818 SIGCONT keeper k3
+23:47:53.840 SIGSTOP keeper leader k1 for 14s
+23:48:07.854 SIGCONT keeper k1
+23:48:20.868 partition replica r1 (HTTP and interserver ports) for 33s
+23:48:53.947 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:49:08.963 partition replica r2 (HTTP and interserver ports) for 11s
+23:49:20.050 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:49:33.061 SIGKILL keepers k2 and k3 (quorum lost) for 15s
+23:49:48.109 restarted keepers k2 k3
+23:50:01.119 SIGKILL edge-1
+23:50:01.931 restarted edge-1
+23:50:09.946 SIGKILL keepers k2 and k3 (quorum lost) for 15s
+23:50:24.986 restarted keepers k2 k3
+23:50:33.996 partition replica r1 (HTTP and interserver ports) for 34s
+23:51:08.139 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:51:18.179 partition replica r2 (HTTP and interserver ports) for 31s
+23:51:49.247 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:52:08.259 partition replica r1 (HTTP and interserver ports) for 35s
+23:52:43.339 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:52:52.355 partition replica r1 (HTTP and interserver ports) for 19s
+23:53:11.462 healed replica r-i lo -p tcp --sport 29009 -j DROP
+23:53:19.524 partition replica r2 (HTTP and interserver ports) for 31s
+23:53:50.594 healed replica r-i lo -p tcp --sport 39009 -j DROP
+23:54:09.618 partition keeper k3 (leader k1) for 15s
+23:54:24.845 healed keeper k3
+23:54:36.881 SIGSTOP keeper leader k1 for 13s
+23:54:49.895 SIGCONT keeper k1
+23:55:06.930 SIGSTOP keeper leader k2 for 12s
+23:55:18.941 SIGCONT keeper k2
+23:55:37.955 SIGKILL worker w2
+23:55:40.962 restarted w2 (incarnation 2)
+23:55:55.036 SIGSTOP keeper leader k3 for 8s
+23:56:03.050 SIGCONT keeper k3
+23:56:12.065 SIGKILL keeper k2 for 8s
+23:56:20.116 restarted keeper k2
+23:56:20.124 chaos over: worker kills 1, worker pauses 0, edge kills 1, replica kills 3, keeper node kills 1, keeper quorum losses 2, keeper leader stops 8, replica partitions 11, keeper partitions 3
+23:56:21.306 senders done: 14255 requests acked
+23:59:28.860 central (r1) stable: 4468 893600 5357 1071400 4430 177200 4430 88600 4430 88600 4430 88600 

@@ -1,0 +1,49 @@
+=== replica r1
+committed objects: 23463 ({'logs': 3303, 'metrics_exponential_histogram_points': 3244, 'metrics_histogram_points': 3244, 'metrics_number_points': 3244, 'metrics_series': 3244, 'metrics_summary_points': 3244, 'traces': 3940}); tombstones 179; epochs 200; cross-epoch copies 0 ({})
+PASS traces: committed batches 3940, central batches 3940, rows 788000 (committed 788000); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 3303, central batches 3303, rows 660600 (committed 660600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 3244, central batches 3244, rows 129760 (committed 129760); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 3940: rows exactly once for 3940
+PASS logs requests acked 3303: rows exactly once for 3303
+PASS metrics requests acked 3244: points exactly once per request through its series for 3244; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 10487 (dropped as permanent: 0), attempts 10816
+workers: 3 incarnations; objects_inserted 20217, series_objects_inserted 3355, rows_inserted 1772600, dedup_skipped 9, statements 4868, statement_objects 23644, insert_errors 14, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 0, tombstones_won 179, tombstones_lost_to_data 0, epochs_closed 179, gaps_seen 0, head_missing 0, lanes_taken 90, lanes_released 28, lanes_lapsed 32, lanes_lost_cas 9, renewals 522, ckpt_writes 7931, errors 1667, cpu_ms 54674.4, elapsed_ms 3639766
+worker S3 requests: {'delete': 0, 'get': 2756, 'head': 23625, 'list': 53342, 'put_cas': 8626, 'put_create': 256, 'put_plain': 1615}
+gc: 149 runs, deleted data 23432, tombstones 169, epochs retired 169, CAS conflicts 0
+VERDICT: PASS
+=== replica r2
+committed objects: 23463 ({'logs': 3303, 'metrics_exponential_histogram_points': 3244, 'metrics_histogram_points': 3244, 'metrics_number_points': 3244, 'metrics_series': 3244, 'metrics_summary_points': 3244, 'traces': 3940}); tombstones 179; epochs 200; cross-epoch copies 0 ({})
+PASS traces: committed batches 3940, central batches 3940, rows 788000 (committed 788000); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 3303, central batches 3303, rows 660600 (committed 660600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 3244, central batches 3244, rows 129760 (committed 129760); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 3244, central batches 3244, rows 64880 (committed 64880); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 3940: rows exactly once for 3940
+PASS logs requests acked 3303: rows exactly once for 3303
+PASS metrics requests acked 3244: points exactly once per request through its series for 3244; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 10487 (dropped as permanent: 0), attempts 10816
+workers: 3 incarnations; objects_inserted 20217, series_objects_inserted 3355, rows_inserted 1772600, dedup_skipped 9, statements 4868, statement_objects 23644, insert_errors 14, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 0, tombstones_won 179, tombstones_lost_to_data 0, epochs_closed 179, gaps_seen 0, head_missing 0, lanes_taken 90, lanes_released 28, lanes_lapsed 32, lanes_lost_cas 9, renewals 522, ckpt_writes 7931, errors 1667, cpu_ms 54674.4, elapsed_ms 3639766
+worker S3 requests: {'delete': 0, 'get': 2756, 'head': 23625, 'list': 53342, 'put_cas': 8626, 'put_create': 256, 'put_plain': 1615}
+gc: 149 runs, deleted data 23432, tombstones 169, epochs retired 169, CAS conflicts 0
+VERDICT: PASS
+horizon audit: 16 runs beside GC (14 clean, 2 with errors), replicas read {'http://127.0.0.1:28123': 16}
+  errors beside GC (first 3): ['otel_traces: sync replica: clickhouse 500 Internal Server Error: Code: 999. Coordination::Exception: Session expired. (KEEPER_EXCEPTION) (version 26.10.1.618 (official build))', 'otel_logs: sync replica: clickhouse 500 Internal Server Error: Code: 242. DB::Exception: Table is in readonly mode (replica path: /clickhouse/tables/01/repl_rsoak1790464807/otel_logs/replicas/r1). (TABLE_IS_READ_ONLY) (version 26.10.1.618 (official build))', 'otel_metrics_number_points: sync replica: clickhouse 500 Internal Server Error: Code: 242. DB::Exception: Table is in readonly mode (replica path: /clickhouse/tables/01/repl_rsoak1790464807/otel_metrics_number_points/replicas/r1). (TABLE_IS_READ_ONLY) (version 26.10.1.618 (official build))']
+  final on r1: tables 6, candidates 0, late 0, unexplained 0, errors []
+  final on r2: tables 6, candidates 0, late 0, unexplained 0, errors []
+  late 0, unexplained 0 -> PASS
+metrics at the end (workers' last incarnations + gc): consumer_audit_runs_total{result="error"} 2; consumer_audit_runs_total{result="ok"} 14; consumer_audit_unexplained_copies_total{signal="logs",table="otel_logs"} 0; consumer_audit_unexplained_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0; consumer_audit_unexplained_copies_total{signal="traces",table="otel_traces"} 0; consumer_check_recounts_total 0; consumer_checks_total{range="all"} 0; consumer_checks_total{range="ranged"} 9264; consumer_copies_skipped_total 9; consumer_gc_runs_total{result="error"} 28; consumer_gc_runs_total{result="ok"} 149; consumer_insert_errors_total 14; consumer_lane_changes_total{event="lapsed"} 32; consumer_lane_changes_total{event="lost_cas"} 9; consumer_lane_changes_total{event="released"} 28; consumer_lane_changes_total{event="taken"} 90; consumer_late_copies_total{signal="logs",table="otel_logs"} 0; consumer_late_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0; consumer_late_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0; consumer_late_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0; consumer_late_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0; consumer_late_copies_total{signal="traces",table="otel_traces"} 0; consumer_objects_ingested_total{kind="data"} 20217; consumer_objects_ingested_total{kind="series"} 3355; consumer_over_count_total 0; consumer_range_guard_failures_total 0; consumer_repairs_total{kind="missing"} 0; consumer_repairs_total{kind="partial"} 0; consumer_statements_total 4868; consumer_unsettled_statements_total 10
+=== workers' inserts: commit past max_execution_time (10 s; the margin must cover it)
+inserts 4868: ExceptionWhileProcessing code 159: 13, QueryFinish: 4855
+committed 4855; commit - start - max_execution_time: p50 -9.95 s, p90 -9.86, p99 -9.61, p99.9 -4.59, max -2.28
+  committed more than N s past max_execution_time: >0 s: 0, >1 s: 0, >2 s: 0, >5 s: 0, >8 s: 0, >10 s: 0, >12 s: 0, >15 s: 0
+committed although the statement ended in an error: 0 {}
+statement end - start - max_execution_time: p99 -9.59 s, max 10.05 s; ended more than 10 s past: 1
+  worst: otaprs-consumer-258823b6fd8aa0aad9b987cb0c7ed734-00179c57 r2 QueryFinish code 0: committed -4.59 s past max_execution_time 10 s
+  worst: otaprs-consumer-0c7447f6907daf61f47e29874eb97567-fe3765b9 r1 QueryFinish code 0: committed -3.56 s past max_execution_time 10 s
+  worst: otaprs-consumer-c72a81ad7699d69e80827a7aec605b3c-e16ddb6f r1 QueryFinish code 0: committed -3.49 s past max_execution_time 10 s
+  worst: otaprs-consumer-694eb77afcb8f80438fdb382720f77b3-ae39016b r1 QueryFinish code 0: committed -2.72 s past max_execution_time 10 s
+  worst: otaprs-consumer-5ca79c8fa8b9094e7380c75274ff22c8-f8086bb1 r2 QueryFinish code 0: committed -2.28 s past max_execution_time 10 s

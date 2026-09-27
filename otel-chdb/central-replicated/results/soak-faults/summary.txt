@@ -1,0 +1,49 @@
+=== replica r1
+committed objects: 31977 ({'logs': 5358, 'metrics_exponential_histogram_points': 4430, 'metrics_histogram_points': 4430, 'metrics_number_points': 4430, 'metrics_series': 4430, 'metrics_summary_points': 4430, 'traces': 4469}); tombstones 161; epochs 182; cross-epoch copies 2 ({'logs': 1, 'traces': 1})
+PASS traces: committed batches 4468, central batches 4468, rows 893600 (committed 893600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 5357, central batches 5357, rows 1071400 (committed 1071400); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 4430, central batches 4430, rows 177200 (committed 177200); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 4468: rows exactly once for 4468
+PASS logs requests acked 5357: rows exactly once for 5357
+PASS metrics requests acked 4430: points exactly once per request through its series for 4430; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 14255 (dropped as permanent: 0), attempts 14264
+workers: 4 incarnations; objects_inserted 27454, series_objects_inserted 4430, rows_inserted 2405020, dedup_skipped 93, statements 7087, statement_objects 32085, insert_errors 31, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 157, tombstones_won 161, tombstones_lost_to_data 0, epochs_closed 161, gaps_seen 0, head_missing 0, lanes_taken 58, lanes_released 28, lanes_lapsed 0, lanes_lost_cas 0, renewals 775, ckpt_writes 7481, errors 16409, cpu_ms 52304.4, elapsed_ms 3266128
+worker S3 requests: {'delete': 0, 'get': 2736, 'head': 32800, 'list': 70197, 'put_cas': 8358, 'put_create': 205, 'put_plain': 2158}
+gc: 205 runs, deleted data 31949, tombstones 154, epochs retired 154, CAS conflicts 0
+VERDICT: PASS
+=== replica r2
+committed objects: 31977 ({'logs': 5358, 'metrics_exponential_histogram_points': 4430, 'metrics_histogram_points': 4430, 'metrics_number_points': 4430, 'metrics_series': 4430, 'metrics_summary_points': 4430, 'traces': 4469}); tombstones 161; epochs 182; cross-epoch copies 2 ({'logs': 1, 'traces': 1})
+PASS traces: committed batches 4468, central batches 4468, rows 893600 (committed 893600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 5357, central batches 5357, rows 1071400 (committed 1071400); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 4430, central batches 4430, rows 177200 (committed 177200); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 4430, central batches 4430, rows 88600 (committed 88600); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 4468: rows exactly once for 4468
+PASS logs requests acked 5357: rows exactly once for 5357
+PASS metrics requests acked 4430: points exactly once per request through its series for 4430; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points': 0}
+requests acked 14255 (dropped as permanent: 0), attempts 14264
+workers: 4 incarnations; objects_inserted 27454, series_objects_inserted 4430, rows_inserted 2405020, dedup_skipped 93, statements 7087, statement_objects 32085, insert_errors 31, retried_missing 0, repaired_partial 0, over_count 0, fenced_by_server 0, deferred_by_lease 157, tombstones_won 161, tombstones_lost_to_data 0, epochs_closed 161, gaps_seen 0, head_missing 0, lanes_taken 58, lanes_released 28, lanes_lapsed 0, lanes_lost_cas 0, renewals 775, ckpt_writes 7481, errors 16409, cpu_ms 52304.4, elapsed_ms 3266128
+worker S3 requests: {'delete': 0, 'get': 2736, 'head': 32800, 'list': 70197, 'put_cas': 8358, 'put_create': 205, 'put_plain': 2158}
+gc: 205 runs, deleted data 31949, tombstones 154, epochs retired 154, CAS conflicts 0
+VERDICT: PASS
+horizon audit: 18 runs beside GC (18 clean, 0 with errors), replicas read {'http://127.0.0.1:28123': 5, 'http://127.0.0.1:38123': 13}
+  errors beside GC (first 3): []
+  final on r1: tables 6, candidates 0, late 0, unexplained 0, errors []
+  final on r2: tables 6, candidates 0, late 0, unexplained 0, errors []
+  late 0, unexplained 0 -> PASS
+metrics at the end (workers' last incarnations + gc): consumer_audit_runs_total{result="error"} 0; consumer_audit_runs_total{result="ok"} 18; consumer_audit_unexplained_copies_total{signal="logs",table="otel_logs"} 0; consumer_audit_unexplained_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0; consumer_audit_unexplained_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0; consumer_audit_unexplained_copies_total{signal="traces",table="otel_traces"} 0; consumer_check_recounts_total 0; consumer_checks_total{range="all"} 0; consumer_checks_total{range="ranged"} 18427; consumer_copies_skipped_total 59; consumer_gc_runs_total{result="error"} 0; consumer_gc_runs_total{result="ok"} 205; consumer_insert_errors_total 20; consumer_lane_changes_total{event="lapsed"} 0; consumer_lane_changes_total{event="lost_cas"} 0; consumer_lane_changes_total{event="released"} 23; consumer_lane_changes_total{event="taken"} 44; consumer_late_copies_total{signal="logs",table="otel_logs"} 0; consumer_late_copies_total{signal="metrics_exponential_histogram_points",table="otel_metrics_exponential_histogram_points"} 0; consumer_late_copies_total{signal="metrics_histogram_points",table="otel_metrics_histogram_points"} 0; consumer_late_copies_total{signal="metrics_number_points",table="otel_metrics_number_points"} 0; consumer_late_copies_total{signal="metrics_summary_points",table="otel_metrics_summary_points"} 0; consumer_late_copies_total{signal="traces",table="otel_traces"} 0; consumer_objects_ingested_total{kind="data"} 17266; consumer_objects_ingested_total{kind="series"} 2777; consumer_over_count_total 0; consumer_range_guard_failures_total 0; consumer_repairs_total{kind="missing"} 0; consumer_repairs_total{kind="partial"} 0; consumer_statements_total 4821; consumer_unsettled_statements_total 9
+=== workers' inserts: commit past max_execution_time (10 s; the margin must cover it)
+inserts 7071: ExceptionWhileProcessing code 159: 25, QueryFinish: 7046
+committed 7024; commit - start - max_execution_time: p50 -9.95 s, p90 -9.88, p99 -9.70, p99.9 -3.59, max 4.06
+  committed more than N s past max_execution_time: >0 s: 3, >1 s: 3, >2 s: 3, >5 s: 0, >8 s: 0, >10 s: 0, >12 s: 0, >15 s: 0
+committed although the statement ended in an error: 3 {'159': 3}
+statement end - start - max_execution_time: p99 -9.68 s, max 8.04 s; ended more than 10 s past: 0
+  worst: otaprs-consumer-061c30073327114caa9ae4ab61397596-1cba8ccb r2 QueryFinish code 0: committed -3.57 s past max_execution_time 10 s
+  worst: otaprs-consumer-8aed138b1833b41d84989d832e287152-689b8cca r1 QueryFinish code 0: committed -3.16 s past max_execution_time 10 s
+  worst: otaprs-consumer-bbf89f7ce16b3daf602b64499c9e8e9b-9f76984d r1 ExceptionWhileProcessing code 159: committed 3.06 s past max_execution_time 10 s
+  worst: otaprs-consumer-e97322a5357230d7b1ac4ab7f19a6eb2-40ce630c r2 ExceptionWhileProcessing code 159: committed 3.49 s past max_execution_time 10 s
+  worst: otaprs-consumer-49bbdebf43ab01aeec49f0dd2e45305c-5a7d2df6 r1 ExceptionWhileProcessing code 159: committed 4.06 s past max_execution_time 10 s

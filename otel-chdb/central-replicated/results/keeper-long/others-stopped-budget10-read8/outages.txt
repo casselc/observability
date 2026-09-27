@@ -1,0 +1,10 @@
+22:51:12.157 outage 10 s (stop): r1's session is on k1; stopping k2,k3,k
+22:51:29.795 quorum back after 10 s
+22:51:54.848 outage 14 s (stop): r1's session is on k3; stopping k1,k2,k
+22:52:16.481 quorum back after 14 s
+22:52:37.932 outage 18 s (stop): r1's session is on k3; stopping k1,k2,k
+22:53:03.564 quorum back after 18 s
+22:53:25.367 outage 22 s (stop): r1's session is on k1; stopping k2,k3,k
+22:53:55.010 quorum back after 22 s
+22:54:15.033 outage 26 s (stop): r1's session is on k1; stopping k2,k3,k
+22:54:48.663 quorum back after 26 s

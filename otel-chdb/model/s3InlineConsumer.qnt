@@ -46,20 +46,29 @@
  *    ends a statement only if it was raised before anything was written;
  *    otherwise the worker waits for the statement's SLACK to pass. The model
  *    has no answers: a worker advances only once its statement is gone.
- *  - Partitions and the check's range. Every object of epoch e was
- *    received on day eDay(e) (an epoch's day is the calendar day when its
- *    incarnation started; a copy of a request, resent into a later epoch,
- *    carries that later day). Central keeps rows per payload and day; a
+ *  - Partitions and the check's range. An object's rows carry its
+ *    received_at, and central keeps rows per payload and received day; a
  *    check or verify of objects of day d reads only days d - HORIZON ..
  *    d + HORIZON (the code: the objects' own received time, widened by the
- *    horizon). The environment makes every copy within MAX_DAY days of its
+ *    horizon). The received day (2026-09-27, the edge's 8efc34f / 1fa3651,
+ *    modelled edge-side by s3Inline.qnt's s3InlineReceived) is the day the
+ *    request entered the edge's durable custody (the WAL write, the
+ *    persistent queue's enqueue): `pDay(p)`, day 0 for the queued PAYLOADS.
+ *    The incarnation that takes p stamps its objects with it, once
+ *    (`oDay(e)(p)`, s3InlineReceived's `stamp`), so an edge replay in a later
+ *    epoch, on a later day, lands in its original's partition. What still
+ *    moves a copy to a later day is new custody of the same bytes: a sender
+ *    that resends the request after its own outage (`senderResend`, the
+ *    environment's RESENDS), which the edge receives and stamps anew.
+ *    The environment makes every such copy within MAX_DAY days of its
  *    original; the design takes HORIZON >= MAX_DAY. That is an assumption
  *    about the senders, not something the consumer can enforce (the code's
- *    default horizon is 3 days; a durable buffer replaying after a longer
- *    outage breaks it), so the code watches for its violation: the horizon
- *    audit reports a payload in central on two days more than HORIZON apart
- *    (`auditLate`). The design never raises it (`auditSilent`), and under
- *    noHorizon every duplicate raises it (`dupAudited`).
+ *    default horizon is 3 days), so the code watches for its violation: the
+ *    horizon audit reports a payload in central on two days more than
+ *    HORIZON apart (`auditLate`). The design never raises it
+ *    (`auditSilent`), and under noHorizon every duplicate raises it
+ *    (`dupAudited`). With edge replays only (no resends), HORIZON 0 is
+ *    enough (`noHorizonReplays`).
  *
  * Mutations (design flags):
  *  - TIME_BOUND = false: workers ignore their windows and statements carry
@@ -82,8 +91,12 @@
  *    statement (the code before 2026-09-26): it verifies while the statement
  *    is still in flight, finds its objects missing, inserts them again, and
  *    the first statement lands too.
- *  - HORIZON < MAX_DAY: the check misses the original of a copy received on
- *    a later day, and ingests the copy too.
+ *  - HORIZON < MAX_DAY (noHorizon): the check misses the original of a
+ *    sender's resend received on a later day, and ingests the copy too.
+ *  - RESTAMP: the edge before 8efc34f: an incarnation stamps its objects
+ *    with the day it started (eDay), so an edge replay after midnight is on
+ *    a later day than its original; with HORIZON < MAX_DAY it is ingested
+ *    twice without any resend (`restamp`).
  *  - GC_KEEP = false: GC also deletes the slot below the checkpoint; a
  *    writer still unresolved there re-creates it with its next batch, below
  *    the checkpoint: committed, acked, never ingested (neverSkipsCommitted).
@@ -109,6 +122,8 @@ module s3InlineConsumer {
   const MAX_DAY: int           // the environment: the calendar runs days 0..MAX_DAY
   const GC_KEEP: bool          // GC keeps the slot below the position until retirement (the design)
   const ERROR_SETTLES: bool    // mutation: an error answer ends a statement that may still land
+  const RESTAMP: bool          // mutation: an object's received day is its incarnation's start day, not its custody day
+  const RESENDS: bool          // the environment: senders resend a request (new custody, a later day)
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -121,6 +136,7 @@ module s3InlineConsumer {
   pure val MAX_TIME: int = 24
   pure val NEVER: int = 1000
   pure val REQS: Set[int] = Set(1, 2)
+  pure val UNSET: int = -1
 
   type WPhase = WIdle | WChecked | WSent
   type Obj = { epoch: int, slot: int, payload: int }
@@ -145,7 +161,9 @@ module s3InlineConsumer {
   var central: int -> int          // inserts per payload
   var crows: int -> (int -> int)   // inserts per payload and day (the partitions)
   var day: int                     // the calendar (the workers' and the edges' clocks agree)
-  var eDay: int -> int             // the day each epoch's objects were received
+  var eDay: int -> int             // the day each epoch's incarnation started (RESTAMP: its objects' received day)
+  var pDay: int -> int             // the day each payload entered the edge's custody (a resend: again, later)
+  var oDay: int -> (int -> int)    // epoch -> payload -> the received day its objects carry (UNSET: none yet)
   var stmts: Set[Stmt]             // statements in flight
   var cevents: Set[str]
   // the series lane (edge side)
@@ -175,12 +193,19 @@ module s3InlineConsumer {
   def current(w: int): bool =
     lease == { owner: w, epoch: workers.get(w).leaseEpoch, sent: workers.get(w).sent }
 
-  // The check's range for objects of epoch e (plan.rs: check_range), and
-  // what central shows of payload p there.
-  def rangeLo(e: int): int = if (WALL_RANGE) day else eDay.get(e) - HORIZON
-  def rangeHi(e: int): int = if (WALL_RANGE) MAX_DAY else eDay.get(e) + HORIZON
-  def visible(p: int, e: int): int =
-    DAYS.filter(d => rangeLo(e) <= d and d <= rangeHi(e)).fold(0, (acc, d) => acc + crows.get(p).get(d))
+  // An object's received day: what its incarnation stamped it with.
+  def dayOf(o: Obj): int = oDay.get(o.epoch).get(o.payload)
+  // Incarnation e takes p: it stamps p's objects once, with p's custody day
+  // (the design) or the day it started (RESTAMP). (s3InlineReceived's `stamped`.)
+  def stamped(e: int, p: int): int -> (int -> int) =
+    if (oDay.get(e).get(p) != UNSET) oDay
+    else oDay.set(e, oDay.get(e).set(p, if (RESTAMP) eDay.get(e) else pDay.get(p)))
+  // The check's range for an object received on day d0 (plan.rs:
+  // check_range), and what central shows of payload p there.
+  def rangeLo(d0: int): int = if (WALL_RANGE) day else d0 - HORIZON
+  def rangeHi(d0: int): int = if (WALL_RANGE) MAX_DAY else d0 + HORIZON
+  def visible(p: int, d0: int): int =
+    DAYS.filter(d => rangeLo(d0) <= d and d <= rangeHi(d0)).fold(0, (acc, d) => acc + crows.get(p).get(d))
   // A statement's objects can land until fence + BUDGET + SLACK; the worker
   // treats it as settled from fence + MARGIN + BUDGET + SLACK on (coord.rs:
   // Held::settled_by = sent + TTL + SLACK, the server clock allowed MARGIN behind).
@@ -218,27 +243,42 @@ module s3InlineConsumer {
   action keepSeries = all {
     sEpoch' = sEpoch, sCache' = sCache, sInflight' = sInflight, sCommitted' = sCommitted, sPoints' = sPoints,
   }
-  action keepC = all {
+  action keepCore = all {
     time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
-    cevents' = cevents, keepDays, crows' = crows,
+    cevents' = cevents, crows' = crows,
   }
-  action keepDays = all { day' = day, eDay' = eDay }
+  action keepC = all { keepCore, keepDays }
+  action keepDays = all { day' = day, eDay' = eDay, pDay' = pDay, oDay' = oDay }
 
   // ---- the log: s3Inline's writer, S3 and network ---------------------------------------
-  action lStartPush(e: int, p: int): bool = all { L::startPush(e, p), keepC, keepSeries }
+  // Taking p stamps its objects in this incarnation (once).
+  action lStartPush(e: int, p: int): bool = all {
+    L::startPush(e, p), oDay' = stamped(e, p), day' = day, eDay' = eDay, pDay' = pDay, keepCore, keepSeries,
+  }
   action lSend(e: int): bool = all { L::send(e), keepC, keepSeries }
   action lTimeout(e: int): bool = all { L::timeout(e), keepC, keepSeries }
   action lResolve(e: int): bool = all { L::resolve(e), keepC, keepSeries }
-  action lSwitchPayload(e: int, p: int): bool = all { L::switchPayload(e, p), keepC, keepSeries }
+  action lSwitchPayload(e: int, p: int): bool = all {
+    L::switchPayload(e, p), oDay' = stamped(e, p), day' = day, eDay' = eDay, pDay' = pDay, keepCore, keepSeries,
+  }
   action lReceive(e: int, r: L::Resp): bool = all { L::receive(e, r), keepC, keepSeries }
-  // A new incarnation's epoch is named (and its objects received) today.
+  // A new incarnation's epoch is named today (RESTAMP: and its objects received today).
   action lNewIncarnation(z: bool): bool = all {
-    L::newIncarnation(z), eDay' = eDay.set(L::lease + 1, day), day' = day,
+    L::newIncarnation(z), eDay' = eDay.set(L::lease + 1, day), day' = day, pDay' = pDay, oDay' = oDay,
     time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
     cevents' = cevents, crows' = crows, keepSeries,
   }
   action lApply(q: L::Req): bool = all { L::apply(q), keepC, keepSeries }
   action lLose(q: L::Req): bool = all { L::lose(q), keepC, keepSeries }
+  // A sender resends p (its own outage or timeout): the edge takes the same
+  // bytes into custody again, today. An incarnation that takes p from now on
+  // stamps it with today; objects already stamped keep their day.
+  action senderResend(p: int): bool = all {
+    L::queue.contains(p), day > pDay.get(p),
+    pDay' = pDay.set(p, day), day' = day, eDay' = eDay, oDay' = oDay,
+    time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
+    cevents' = cevents.union(Set("resend")), crows' = crows, keepL, keepSeries,
+  }
 
   // ---- time ---------------------------------------------------------------------------------
   action tick: bool = all {
@@ -249,7 +289,7 @@ module s3InlineConsumer {
 
   // Midnight.
   action newDay: bool = all {
-    day < MAX_DAY, day' = day + 1, eDay' = eDay,
+    day < MAX_DAY, day' = day + 1, eDay' = eDay, pDay' = pDay, oDay' = oDay,
     time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
     cevents' = cevents.union(Set("midnight")), crows' = crows, keepL, keepSeries,
   }
@@ -315,7 +355,7 @@ module s3InlineConsumer {
       wk.holds, wk.phase == WIdle, mayStart(wk), e <= L::lease, not(wk.view.closed.get(e)),
       s0 + k - 1 < L::MAX_SLOT, s0.to(s0 + k - 1).forall(s => L::at(e, s).kind == L::Data),
       // absent ones only (in the check's range), one object per payload (a copy rides on it)
-      val absent = objs.filter(o => visible(o.payload, e) == 0)
+      val absent = objs.filter(o => visible(o.payload, dayOf(o)) == 0)
       val pending = absent.filter(o => absent.forall(x => x.payload == o.payload implies x.slot >= o.slot))
       workers' = workers.set(w, { ...wk, phase: WChecked, epoch: e, objs: objs, pending: pending }),
       time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents,
@@ -337,12 +377,12 @@ module s3InlineConsumer {
 
   // Central runs a statement: it starts only by its fence, and its commit
   // lands by fence + BUDGET + SLACK; any part of it may land. Rows go to
-  // the partition of the day their object was received.
+  // the partition of the day their object was received (its stamp).
   action cApply(q: Stmt, sub: Set[Obj]): bool = all {
     stmts.contains(q), time <= landBy(q), sub.subseteq(q.objs), sub != Set(),
     central' = central.keys().mapBy(p => central.get(p) + (if (sub.exists(o => o.payload == p)) 1 else 0)),
     crows' = crows.keys().mapBy(p => crows.get(p).keys().mapBy(d =>
-      crows.get(p).get(d) + (if (sub.exists(o => o.payload == p and eDay.get(o.epoch) == d)) 1 else 0))),
+      crows.get(p).get(d) + (if (sub.exists(o => o.payload == p and dayOf(o) == d)) 1 else 0))),
     keepDays,
     stmts' = stmts.exclude(Set(q)),
     cevents' = cevents.union(
@@ -364,7 +404,7 @@ module s3InlineConsumer {
   // Once its statement is gone: count what landed and CAS the checkpoint past the done prefix.
   action wAdvance(w: int): bool = {
     val wk = workers.get(w)
-    val done = if (VERIFY) wk.objs.filter(o => visible(o.payload, o.epoch) >= 1) else wk.objs
+    val done = if (VERIFY) wk.objs.filter(o => visible(o.payload, dayOf(o)) >= 1) else wk.objs
     val n = advanceTo(wk.view.next.get(wk.epoch), wk.objs, done)
     val nc = { ...ckpt, version: ckpt.version + 1, next: ckpt.next.set(wk.epoch, n) }
     all {
@@ -501,6 +541,8 @@ module s3InlineConsumer {
     crows' = L::PAYLOADS.mapBy(_ => DAYS.mapBy(_ => 0)),
     day' = 0,
     eDay' = 1.to(2).mapBy(_ => 0),
+    pDay' = L::PAYLOADS.mapBy(_ => 0),
+    oDay' = 1.to(2).mapBy(_ => L::PAYLOADS.mapBy(_ => UNSET)),
     stmts' = Set(),
     cevents' = Set(),
     sEpoch' = 1, sCache' = Set(), sInflight' = Set(), sCommitted' = Set(), sPoints' = Set(),
@@ -530,6 +572,7 @@ module s3InlineConsumer {
           (s < n - (if (GC_KEEP) 1 else 0) and L::at(e, s).kind == L::Data) or (GC_TOMBS and c and s == n and L::at(e, s).kind == L::Tomb)))
       },
       sPush(r), sResend(r), sAnnounce(r), sRestart,
+      all { RESENDS, senderResend(p) },
       all { sInflight != Set(), nondet q = sInflight.oneOf() any { sLand(q), sLose(q) } },
     }
   }
@@ -594,7 +637,14 @@ module s3InlineConsumer {
   // A copy on a later day than its original, both ingested once.
   val wCopyAcrossDays: bool = L::PAYLOADS.exists(p => central.get(p) == 1 and
     L::everLog.exists(x => x.entry.kind == L::Data and x.entry.payload == p and
-      L::everLog.exists(y => y.entry.kind == L::Data and y.entry.payload == p and eDay.get(y.epoch) > eDay.get(x.epoch))))
+      L::everLog.exists(y => y.entry.kind == L::Data and y.entry.payload == p and
+        dayOf({ epoch: y.epoch, slot: y.slot, payload: p }) > dayOf({ epoch: x.epoch, slot: x.slot, payload: p }))))
+  // An edge replay in a later epoch, on a later calendar day, that kept its
+  // original's received day, both committed; the payload in central once.
+  val wReplayKeepsDay: bool = L::PAYLOADS.exists(p => central.get(p) == 1 and
+    L::everLog.exists(x => x.entry.kind == L::Data and x.entry.payload == p and
+      L::everLog.exists(y => y.entry.kind == L::Data and y.entry.payload == p and
+        eDay.get(y.epoch) > eDay.get(x.epoch) and oDay.get(y.epoch).get(p) == oDay.get(x.epoch).get(p))))
   // A statement landed after its fence (inside the slack).
   val wLateLanding: bool = cevents.contains("lateLanding")
 
@@ -632,13 +682,24 @@ module s3InlineConsumer {
   run keeperOverrunDesignTest = slackPrefix.expect(stmts.forall(q => q.worker == 1 implies time > landBy(q)))
   run keeperOverrunBreaksTest = slackPrefix.then(cLand(1)).expect(not(atMostOnce))
 
-  // The copy horizon: payload 1 is committed on day 0 (epoch 1) and, not
-  // acked, again on day 1 (epoch 2, after a restart); the day-0 copy is ingested first.
-  run horizonPrefix =
+  // An edge replay: payload 1 is committed on day 0 (epoch 1) and, not
+  // acked, again on day 1 (epoch 2, after a restart: the buffer replays
+  // it); the day-0 copy is ingested first. The replay keeps its custody day
+  // (0): the check finds the original with any horizon. RESTAMP: the replay
+  // is stamped day 1, and a check limited to its own day misses the original.
+  run replayPrefix =
     init.then(lCommit(1, 1)).then(newDay).then(lNewIncarnation(false)).then(lCommit(2, 1))
       .then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wAdvance(1))
       .then(wCheck(1, 2, 1)).then(wSend(1))
-  run noHorizonDesignTest = horizonPrefix.expect(and { stmts == Set(), atMostOnce })
+  run restampDesignTest = replayPrefix.expect(and { stmts == Set(), atMostOnce, oDay.get(2).get(1) == 0 })
+  run restampBreaksTest = replayPrefix.then(cLand(1)).expect(and { not(atMostOnce), auditLate })
+  // The copy horizon: the same, but on day 1 the sender resends payload 1
+  // (new custody) before the restart, so the copy carries day 1.
+  run horizonPrefix =
+    init.then(lCommit(1, 1)).then(newDay).then(senderResend(1)).then(lNewIncarnation(false)).then(lCommit(2, 1))
+      .then(wAcquire(1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(wAdvance(1))
+      .then(wCheck(1, 2, 1)).then(wSend(1))
+  run noHorizonDesignTest = horizonPrefix.expect(and { stmts == Set(), atMostOnce, oDay.get(2).get(1) == 1 })
   run noHorizonBreaksTest = horizonPrefix.then(cLand(1)).expect(and { not(atMostOnce), auditLate })
 
   // The range from the data, not the clock: payload 1 (day 0) lands, its
@@ -680,19 +741,22 @@ module s3InlineConsumer {
 module s3InlineConsumerDesign {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = true, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // The design in the mutants' narrower environment (must pass too).
 module designQuiet {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // ... and with the mutants' short lease.
 module designShortLease {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // ... and with writer faults (copies of a request in a later epoch, on a
 // later day), the short lease, and no series lane. (Before GC_KEEP this
@@ -700,72 +764,102 @@ module designShortLease {
 module designCopies {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // The same at the MBT's lease (TTL 6: tests/mbt_s3inline_consumer.rs has one timing).
 module designDays {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
   import s3InlineConsumer(TIME_BOUND = false, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = false, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = true, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = true,
     WRITER_FAULTS = false, SERIES = true, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: a worker releases its lane while its statement may still land.
 module releaseInFlight {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = false, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: a commit outlives the margin (SLACK 2 > MARGIN 1).
 module keeperOverrun {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 2, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
-// Mutation: the check reads only the objects' own day (no copy horizon).
+// Mutation: the check reads only the objects' own day (no copy horizon),
+// and senders resend requests (new custody, a later day).
 module noHorizon {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = true).*
 }
 // Mutation: the check reads today's partition by the worker's clock.
 module wallRange {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = true,
-    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false).*
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: GC deletes the slot below the checkpoint (as before 2026-09-26).
 module gcReopens {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = true, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = false, ERROR_SETTLES = false).*
+    MAX_DAY = 0, GC_KEEP = false, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
 }
 // Mutation: an error answer ends a statement that may still land (the code
 // before 2026-09-26 took any error answer for the end of its statement).
 module errorSettles {
   import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
     WRITER_FAULTS = false, SERIES = false, TTL = 3, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
-    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = true).*
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = true,
+    RESTAMP = false, RESENDS = false).*
+}
+// The design needs no horizon for edge replays: without sender resends every
+// copy of a request carries its custody day, the original's partition.
+module noHorizonReplays {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false).*
+}
+// Mutation: the edge before 8efc34f: a replay is stamped with its
+// incarnation's day, and with no copy horizon it is ingested twice (no
+// resend needed).
+module restamp {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = true, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 0, WALL_RANGE = false,
+    MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = true, RESENDS = false).*
 }

@@ -1,0 +1,52 @@
+quint 0.32.0, seed 0x5eed
+sim   s3InlineConsumer.qnt             s3InlineConsumerDesign     safety                         5000 x 60  ok       (expect ok) 37.0s
+sim   s3InlineConsumer.qnt             designQuiet                safety                         5000 x 60  ok       (expect ok) 95.3s
+sim   s3InlineConsumer.qnt             designShortLease           safety                         5000 x 60  ok       (expect ok) 111.2s
+sim   s3InlineConsumer.qnt             designCopies               safety                         5000 x 60  ok       (expect ok) 65.5s
+sim   s3InlineConsumer.qnt             designDays                 safety                         5000 x 60  ok       (expect ok) 79.7s
+sim   s3InlineConsumer.qnt             noHorizonReplays           safety                         5000 x 60  ok       (expect ok) 87.9s
+sim   s3InlineConsumer.qnt             designCopies               auditSilent                    5000 x 60  ok       (expect ok) 53.4s
+sim   s3InlineConsumer.qnt             designDays                 auditSilent                    5000 x 60  ok       (expect ok) 76.0s
+sim   s3InlineConsumer.qnt             noHorizonReplays           auditSilent                    5000 x 60  ok       (expect ok) 79.7s
+sim   s3InlineConsumer.qnt             noHorizon                  dupAudited                    20000 x 60  ok       (expect ok) 247.4s
+sim   s3InlineConsumer.qnt             restamp                    dupAudited                    20000 x 60  ok       (expect ok) 293.3s
+sim   s3InlineConsumer.qnt             designCopies               not(wReleasedIngest)          20000 x 60  VIOLATED (expect VIOLATED) 11.7s
+sim   s3InlineConsumer.qnt             designCopies               not(wCopyAcrossDays)          20000 x 60  VIOLATED (expect VIOLATED) 9.4s
+sim   s3InlineConsumer.qnt             designCopies               not(wReplayKeepsDay)          20000 x 60  VIOLATED (expect VIOLATED) 20.7s
+sim   s3InlineConsumer.qnt             designCopies               not(wLateLanding)             20000 x 60  VIOLATED (expect VIOLATED) 9.5s
+sim   s3InlineConsumer.qnt             designCopies               not(wMidnight)                20000 x 60  VIOLATED (expect VIOLATED) 4.7s
+sim   s3InlineConsumer.qnt             designCopies               not(wTakeoverIngest)          20000 x 60  VIOLATED (expect VIOLATED) 11.8s
+sim   s3InlineConsumer.qnt             designCopies               not(wPartial)                 20000 x 60  VIOLATED (expect VIOLATED) 9.9s
+sim   s3InlineConsumer.qnt             designCopies               not(wFenced)                  20000 x 60  VIOLATED (expect VIOLATED) 5.2s
+sim   s3InlineConsumer.qnt             designCopies               not(wCasLost)                 20000 x 60  VIOLATED (expect VIOLATED) 13.0s
+sim   s3InlineConsumer.qnt             noTimeBound                atMostOnce                    20000 x 60  VIOLATED (expect VIOLATED) 312.4s
+sim   s3InlineConsumer.qnt             noVerify                   neverSkipsCommitted           20000 x 60  VIOLATED (expect VIOLATED) 6.7s
+sim   s3InlineConsumer.qnt             gcTombs                    safety                        20000 x 60  VIOLATED (expect VIOLATED) 5.1s
+sim   s3InlineConsumer.qnt             announceEarly              announcedOnlyAfterCommit      20000 x 60  VIOLATED (expect VIOLATED) 4.9s
+sim   s3InlineConsumer.qnt             wallRange                  atMostOnce                    20000 x 60  VIOLATED (expect VIOLATED) 17.5s
+sim   s3InlineConsumer.qnt             releaseInFlight            atMostOnce                    20000 x 60  ok       (expect VIOLATED) 368.9s
+sim   s3InlineConsumer.qnt             keeperOverrun              atMostOnce                    20000 x 60  ok       (expect VIOLATED) 360.3s
+sim   s3InlineConsumer.qnt             errorSettles               atMostOnce                    20000 x 60  ok       (expect VIOLATED) 341.8s
+sim   s3InlineConsumer.qnt             noHorizon                  atMostOnce                    20000 x 60  ok       (expect VIOLATED) 254.0s
+sim   s3InlineConsumer.qnt             restamp                    atMostOnce                    20000 x 60  ok       (expect VIOLATED) 292.9s
+sim   s3InlineConsumer.qnt             noHorizonReplays           not(wReplayKeepsDay)          20000 x 60  VIOLATED (expect VIOLATED) 14.1s
+sim   s3InlineConsumer.qnt             gcReopens                  neverSkipsCommitted           20000 x 60  ok       (expect VIOLATED) 249.5s
+runs  s3InlineConsumerDesign     DesignTest                 passed 8 failed 0 (expect all-pass)
+runs  designCopies               DesignTest                 passed 8 failed 0 (expect all-pass)
+runs  designDays                 DesignTest                 passed 8 failed 0 (expect all-pass)
+runs  designQuiet                (releaseInFlight|releaseSettled|keeperOverrun|noHorizon|restamp|wallRange|errorSettles)DesignTest passed 7 failed 0 (expect all-pass)
+runs  designShortLease           (releaseInFlight|releaseSettled|keeperOverrun|noHorizon|restamp|wallRange|errorSettles)DesignTest passed 7 failed 0 (expect all-pass)
+runs  noHorizonReplays           (restamp|releaseInFlight|keeperOverrun|errorSettles|gcReopens)DesignTest passed 5 failed 0 (expect all-pass)
+runs  noHorizon                  restampDesignTest          passed 1 failed 0 (expect all-pass)
+runs  releaseInFlight            releaseInFlightBreaksTest  passed 1 failed 0 (expect all-pass)
+runs  keeperOverrun              keeperOverrunBreaksTest    passed 1 failed 0 (expect all-pass)
+runs  noHorizon                  noHorizonBreaksTest        passed 1 failed 0 (expect all-pass)
+runs  restamp                    restampBreaksTest          passed 1 failed 0 (expect all-pass)
+runs  wallRange                  wallRangeBreaksTest        passed 1 failed 0 (expect all-pass)
+runs  gcReopens                  gcReopensBreaksTest        passed 1 failed 0 (expect all-pass)
+runs  errorSettles               errorSettlesBreaksTest     passed 1 failed 0 (expect all-pass)
+sim   s3InlineConsumerCompact.qnt      compactDesign              compactSafety                  5000 x 60  ok       (expect ok) 33.8s
+sim   s3InlineConsumerCompact.qnt      compactQuiet               compactSafety                  5000 x 60  ok       (expect ok) 87.1s
+sim   s3InlineConsumerCompact.qnt      compactQuiet               not(wReleased)                20000 x 60  VIOLATED (expect VIOLATED) 3.6s
+sim   s3InlineConsumerCompact.qnt      earlyCompact               neverSkipsCommittedCompact    20000 x 60  VIOLATED (expect VIOLATED) 3.7s
+sim   s3InlineConsumerCompact.qnt      floorOnly                  bounded                       20000 x 150 VIOLATED (expect VIOLATED) 3.7s

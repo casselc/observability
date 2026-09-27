@@ -23,11 +23,13 @@ runs() { # main match expect
   printf "runs  %-26s %-26s passed %d failed %d (expect %s)\n" "$1" "$2" "$n" "$f" "$3" | tee -a "$OUT"
 }
 C=s3InlineConsumer.qnt K=s3InlineConsumerCompact.qnt
-for m in s3InlineConsumerDesign designQuiet designShortLease designCopies designDays; do sim $C $m safety 5000 60 ok; done
+for m in s3InlineConsumerDesign designQuiet designShortLease designCopies designDays noHorizonReplays; do sim $C $m safety 5000 60 ok; done
 # The horizon audit: silent on the designs; under noHorizon every duplicate is one it reports.
-for m in designCopies designDays; do sim $C $m auditSilent 5000 60 ok; done
+# Edge replays keep their custody day: with no sender resends, even HORIZON 0 raises nothing.
+for m in designCopies designDays noHorizonReplays; do sim $C $m auditSilent 5000 60 ok; done
 sim $C noHorizon dupAudited 20000 60 ok
-for w in wReleasedIngest wCopyAcrossDays wLateLanding wMidnight wTakeoverIngest wPartial wFenced wCasLost; do
+sim $C restamp dupAudited 20000 60 ok
+for w in wReleasedIngest wCopyAcrossDays wReplayKeepsDay wLateLanding wMidnight wTakeoverIngest wPartial wFenced wCasLost; do
   sim $C designCopies "not($w)" 20000 60 VIOLATED
 done
 sim $C noTimeBound atMostOnce 20000 60 VIOLATED
@@ -39,11 +41,16 @@ sim $C releaseInFlight atMostOnce 20000 60 VIOLATED
 sim $C keeperOverrun atMostOnce 20000 60 VIOLATED
 sim $C errorSettles atMostOnce 20000 60 VIOLATED
 sim $C noHorizon atMostOnce 20000 60 VIOLATED
+sim $C restamp atMostOnce 20000 60 VIOLATED
+sim $C noHorizonReplays "not(wReplayKeepsDay)" 20000 60 VIOLATED
 sim $C gcReopens neverSkipsCommitted 20000 60 VIOLATED
 # (gcReopensDesignTest needs writer faults: a lost answer)
 for m in s3InlineConsumerDesign designCopies designDays; do runs $m DesignTest all-pass; done
-for m in designQuiet designShortLease; do runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|wallRange|errorSettles)DesignTest" all-pass; done
-for m in releaseInFlight keeperOverrun noHorizon wallRange gcReopens errorSettles; do runs $m "${m}BreaksTest" all-pass; done
+for m in designQuiet designShortLease; do runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|restamp|wallRange|errorSettles)DesignTest" all-pass; done
+# HORIZON 0: an edge replay is skipped (restampDesignTest); a sender's resend on a later day is not.
+runs noHorizonReplays "(restamp|releaseInFlight|keeperOverrun|errorSettles|gcReopens)DesignTest" all-pass
+runs noHorizon restampDesignTest all-pass
+for m in releaseInFlight keeperOverrun noHorizon restamp wallRange gcReopens errorSettles; do runs $m "${m}BreaksTest" all-pass; done
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

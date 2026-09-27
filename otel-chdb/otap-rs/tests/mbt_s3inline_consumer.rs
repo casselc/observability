@@ -18,7 +18,7 @@
 //! | `gc` | `gc::doomed` must pick exactly the model's slots (the one below the position stays) |
 //! | `wCrash` | the process's state (held lease, observer) is gone |
 //! | `wRelease` | `coord::may_act` must allow it (no statement of the worker can still land: `Held::settled_by`); `coord::release` |
-//! | `newDay`, the partitions | the objects' received time is their epoch's day; the check and the verify read the partitions `plan::check_range` / `plan::own_range` give (the verify's recount over the horizon included) |
+//! | `newDay`, `senderResend`, the partitions | an object's received time is its request's custody day, stamped once per incarnation (an edge replay keeps it; a sender's resend is new custody, a later day); the check and the verify read the partitions `plan::check_range` / `plan::own_range` give (the verify's recount over the horizon included) |
 //! | series actions | not driven (the edge's cache is `series.rs`; see the model) |
 //!
 //! After every step the implementation's state is projected onto the
@@ -344,9 +344,12 @@ pub struct ConsumerDriver {
     central: BTreeMap<i64, i64>,
     /// Rows per (payload, day).
     crows: BTreeMap<(i64, i64), i64>,
-    /// The calendar, and each epoch's day.
+    /// The calendar.
     day: i64,
-    eday: BTreeMap<i64, i64>,
+    /// Each payload's custody day, and the received day each incarnation
+    /// stamped a payload's objects with (the model's pDay, oDay).
+    pday: BTreeMap<i64, i64>,
+    oday: BTreeMap<(i64, i64), i64>,
     stmts: Vec<StmtM>,
     /// Per statement in flight (same order): the code's `Held::settled_by`.
     settle: Vec<u64>,
@@ -381,13 +384,26 @@ impl ConsumerDriver {
         self.central = PAYLOADS.into_iter().map(|p| (p, 0)).collect();
         self.crows.clear();
         self.day = 0;
-        self.eday = [(1, 0), (2, 0)].into_iter().collect();
+        self.pday = PAYLOADS.into_iter().map(|p| (p, 0)).collect();
+        self.oday.clear();
         self.stmts.clear();
         self.settle.clear();
         self.retired.clear();
     }
 
-    /// An object of the model as the code sees it: received on its epoch's day.
+    /// Incarnation e takes payload p: its objects carry p's custody day
+    /// (the edge keeps received_at across replays), stamped once.
+    fn stamp(&mut self, e: i64, p: i64) {
+        let d = self.pday[&p];
+        let _ = self.oday.entry((e, p)).or_insert(d);
+    }
+
+    /// The received day of an object of the model.
+    fn day_of(&self, o: &ObjM) -> i64 {
+        *self.oday.get(&(o.epoch, o.payload)).expect("a stamped object")
+    }
+
+    /// An object of the model as the code sees it: received on its stamped day.
     fn obj(&self, o: &ObjM) -> plan::Obj {
         plan::Obj {
             lane: LANE.into(),
@@ -397,7 +413,7 @@ impl ConsumerDriver {
             size: 1,
             content: format!("p{}", o.payload),
             rows: 1,
-            received_ns: day_ns(self.eday[&o.epoch]),
+            received_ns: day_ns(self.day_of(o)),
             seen_ms: 0,
         }
     }
@@ -628,7 +644,7 @@ impl ConsumerDriver {
             *self.central.get_mut(&p).expect("payload") += 1;
         }
         for o in &sub {
-            *self.crows.entry((o.payload, self.eday[&o.epoch])).or_default() += 1;
+            *self.crows.entry((o.payload, self.day_of(o))).or_default() += 1;
         }
     }
 
@@ -734,20 +750,24 @@ impl Driver for ConsumerDriver {
         switch!(step {
             init => self.init(),
             step => self.init(), // the Rust evaluator's state-0 label (see mbt_s3inline.rs)
-            lStartPush(e: i64, p: i64) => self.l.start_push(e, p),
+            lStartPush(e: i64, p: i64) => {
+                self.l.start_push(e, p);
+                self.stamp(e, p);
+            },
             lSend(e: i64) => self.l.send(e),
             lTimeout(e: i64) => self.l.timeout(e),
             lResolve(e: i64) => self.l.resolve(e),
-            lSwitchPayload(e: i64, p: i64) => self.l.switch_payload(e, p),
-            lReceive(e: i64, q: Resp) => self.l.receive(e, q),
-            lNewIncarnation(z: bool) => {
-                self.l.new_incarnation(z);
-                let _ = self.eday.insert(self.l.lease, self.day);
+            lSwitchPayload(e: i64, p: i64) => {
+                self.l.switch_payload(e, p);
+                self.stamp(e, p);
             },
+            lReceive(e: i64, q: Resp) => self.l.receive(e, q),
+            lNewIncarnation(z: bool) => self.l.new_incarnation(z),
             lApply(q: Req) => self.l.apply(q),
             lLose(q: Req) => self.l.lose(q),
             tick => self.time += 1,
             newDay => self.day += 1,
+            senderResend(p: i64) => { let _ = self.pday.insert(p, self.day); },
             wRelease(w: i64) => self.release(w),
             wAcquire(w: i64) => self.acquire(w),
             wRenew(w: i64) => self.renew(w),

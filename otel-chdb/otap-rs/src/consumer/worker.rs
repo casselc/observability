@@ -446,6 +446,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let mut objs = Vec::new();
         let mut work = Vec::new();
         for id in &ids {
+            // Renew between lanes: a long scan (a backlog, slow HEADs) must
+            // not outlast the leases (tests/dst_consumer.rs `a_backlog…`).
+            self.maintain().await;
             let now = self.clock.mono();
             let due = self.held.get(id).is_some_and(|l| now >= l.next_list_at);
             if !due {
@@ -662,6 +665,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let read_loads = self.cfg.balance.mode == BalanceMode::Load
             && self.last_loads.is_none_or(|x| now >= x + self.cfg.balance.loads_every_ms);
         if let Ok(items) = b.list(&wprefix, None).await {
+            // Observed now, not when the round started: a new ETag must not
+            // be backdated by however long the requests (or a pause) took.
+            let now = self.clock.mono();
             let mut live = 0;
             let mut dead = Vec::new();
             let mut peers = Vec::new();
@@ -710,6 +716,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // leases
         let lprefix = join(&self.cfg.ctl, "lease");
         if let Ok(items) = b.list(&lprefix, None).await {
+            // As above, and here it is safety: a renewal first listed now but
+            // recorded as seen at the round's start would look unchanged for
+            // longer than it was, and `try_take` would take a live lease
+            // (tests/dst_consumer.rs `a_slow_discovery_round…`).
+            let now = self.clock.mono();
             let mut m = HashMap::new();
             for it in items {
                 if let Some(l) = Lane::from_ctl_key(&lprefix, &it.key) {
@@ -823,7 +834,6 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     /// Takes a lane if its lease is free, released, or expired by our
     /// observation; then fences its checkpoint. Returns whether it did.
     async fn try_take(&mut self, id: &str) -> bool {
-        let now = self.clock.mono();
         let t = self.cfg.timing;
         let Some(lane) = self.lanes.get(id).cloned() else { return false };
         let prev = match self.lease_etags.get(id) {
@@ -832,6 +842,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 // Read it (it may be released, or expired by our observation of its ETag).
                 match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
                     Ok(Some((body, etag))) => {
+                        // When the answer came, not when we asked (as in heartbeat_and_leases).
+                        let now = self.clock.mono();
                         self.obs.observe(id, Some(&etag), now);
                         let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { return false };
                         // (A lease this worker let lapse still names it as
@@ -1027,6 +1039,12 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             let mut w = EpochWork { lane: id.to_string(), epoch: e.clone(), next, data: Vec::new(), tomb: None };
             for (seq, key, size) in &sc.run {
                 if heads >= cfg.max_heads {
+                    break;
+                }
+                // Once the renewal is due, leave the rest for the next step
+                // (the HEADs so far are kept): the lease is renewed before
+                // the next lane or the insert, not after it has lapsed.
+                if !ls.heads.contains_key(&(e.clone(), *seq)) && ls.held.renew_due(self.clock.mono()) {
                     break;
                 }
                 heads += 1;

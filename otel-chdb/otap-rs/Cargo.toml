@@ -75,4 +75,4 @@ path = "src/main.rs"
 quint-connect = "0.1.2"
 itf = "0.4"
 anyhow = "1"
-tokio = { version = "1.48.0", features = ["rt", "macros", "time"] }
+tokio = { version = "1.48.0", features = ["rt", "macros", "time", "test-util"] }

@@ -149,9 +149,23 @@ impl Signal {
     }
 }
 
+thread_local! {
+    static LOG_SINK: std::cell::RefCell<Option<Box<dyn Fn(&str)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Sends this thread's `log` lines to `sink` instead of stderr (`None`:
+/// back to stderr). The deterministic simulation tests (tests/dst_*.rs) put
+/// the lines into their trace, stamped with simulated time.
+pub fn set_log_sink(sink: Option<Box<dyn Fn(&str)>>) {
+    LOG_SINK.with(|s| *s.borrow_mut() = sink);
+}
+
 /// Minimal stderr logging (the engine's own telemetry macros need its
 /// component scope; this crate keeps to plain lines).
 pub fn log(msg: &str) {
+    if LOG_SINK.try_with(|s| s.borrow().as_ref().map(|f| f(msg)).is_some()).unwrap_or(false) {
+        return;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();

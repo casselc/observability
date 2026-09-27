@@ -146,6 +146,8 @@ jobs:
         run: ../../ci/gen-data.sh "$OTAPRS_DATA"
       - name: Integration tests (determinism, otap_view, metrics, series corr)
         run: cargo test --release --locked --test determinism --test otap_view --test metrics --test series
+      - name: Deterministic simulation (otap-rs/DST.md; fixed seeds, the emulators against the services)
+        run: cargo test --release --locked --test dst_consumer --test dst_net
       - name: Service logs
         if: failure()
         run: |

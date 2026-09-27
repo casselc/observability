@@ -13,7 +13,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 |---|---|
 | `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`) |
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
-| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series` |
+| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`) |
 
 **`nightly.yml`: 03:17 UTC daily and on demand** (`workflow_dispatch`, with
 the soak's length as an input). `build` runs first; the others run beside it
@@ -25,6 +25,7 @@ or after it.
 | `conformance` | `conformance/run.sh` for layout B and for the ClickStack metrics tables, then `conformance/go_faults.sh` |
 | `faults-soak` | `otap-rs/scripts/faults.sh`, then `otap-rs/scripts/consumer_soak.sh` for 300 s |
 | `rust-integration` | `tests/series.rs` with the Go prototype's fleet objects, `tests/creds.rs` against credstubs |
+| `dst` | the deterministic simulation (`otap-rs/DST.md`): 10,000 new level-1 seeds and 200 new turmoil seeds a night (base = run number × 100,000), the meta tests with 20 seeds, the emulators against the services; failing seeds' traces as the `dst-traces` artifact |
 | `rust-mbt` (x3) | the quint-connect model-based tests, one runner per test binary (`mbt_s3inline`, `mbt_s3inline_metrics`, `mbt_s3inline_consumer`), `--test-threads=1`, `QUINT_SEED=0x5eed` |
 | `model` | `otap-rs/scripts/consumer_model.sh` through `ci/model-check.sh`; `parquetgo/modelcheck` |
 | `kani` | Kani 0.68.0 (cached); `cargo kani` in `otap-rs/verify`: the proof harnesses for the consumer's lease window and check range (`otap-rs/VERIFY.md`), ~20 min |

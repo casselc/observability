@@ -39,6 +39,10 @@ thread_local! {
     /// the wall ns it maps to). Set only while inside the paused runtime.
     static SIM_CLOCK: Cell<Option<(tokio::time::Instant, i64, i64)>> = const { Cell::new(None) };
     static IN_CLOCK: Cell<bool> = const { Cell::new(false) };
+    /// A turmoil simulation: (monotonic ns, wall ns) at its start; time is
+    /// `turmoil::sim_elapsed()` inside a host, else the driver's last step.
+    static TURMOIL: Cell<Option<(i64, i64)>> = const { Cell::new(None) };
+    static TURMOIL_NOW: Cell<u64> = const { Cell::new(0) };
     static TRACE: RefCell<Trace> = RefCell::new(Trace::default());
 }
 
@@ -120,6 +124,18 @@ unsafe extern "C" fn clock_gettime(clockid: libc::clockid_t, tp: *mut libc::time
 }
 
 fn sim_clock_ns(clockid: libc::clockid_t) -> Option<i64> {
+    if let Some((mono0, wall0)) = TURMOIL.try_with(|c| c.get()).ok().flatten() {
+        if IN_CLOCK.try_with(|f| f.replace(true)).unwrap_or(true) {
+            return None;
+        }
+        let el = turmoil_elapsed_ns();
+        IN_CLOCK.with(|f| f.set(false));
+        return match clockid {
+            libc::CLOCK_REALTIME | libc::CLOCK_REALTIME_COARSE => Some(wall0 + el),
+            libc::CLOCK_MONOTONIC | libc::CLOCK_MONOTONIC_RAW | libc::CLOCK_MONOTONIC_COARSE | libc::CLOCK_BOOTTIME => Some(mono0 + el),
+            _ => None,
+        };
+    }
     let (start, mono0, wall0) = SIM_CLOCK.try_with(|c| c.get()).ok().flatten()?;
     // tokio::time::Instant::now() reads the paused clock without calling back
     // here; the flag makes sure a fallback to std can't recurse.
@@ -191,9 +207,24 @@ pub fn trace(line: impl AsRef<str>) {
 
 /// Simulated ms since the run started (0 outside a run).
 pub fn now_ms() -> u64 {
+    if TURMOIL.with(|c| c.get()).is_some() {
+        return (turmoil_elapsed_ns() / 1_000_000) as u64;
+    }
     SIM_CLOCK
         .with(|c| c.get())
         .map_or(0, |(start, _, _)| tokio::time::Instant::now().saturating_duration_since(start).as_millis() as u64)
+}
+
+fn turmoil_elapsed_ns() -> i64 {
+    match turmoil::sim_elapsed() {
+        Some(d) => d.as_nanos() as i64,
+        None => TURMOIL_NOW.with(|c| c.get()) as i64 * 1_000_000,
+    }
+}
+
+/// The turmoil driver's clock, for trace lines written between steps.
+pub fn set_turmoil_now(ms: u64) {
+    TURMOIL_NOW.with(|c| c.set(ms));
 }
 
 pub async fn sleep_ms(ms: u64) {
@@ -255,6 +286,52 @@ where
     F: FnOnce(Rc<Sim>) -> Fut + Send + 'static,
     Fut: Future<Output = String> + 'static,
 {
+    on_thread(seed, keep, move || {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().expect("runtime");
+        let local = tokio::task::LocalSet::new();
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            local.block_on(&rt, async move {
+                let start = tokio::time::Instant::now();
+                SIM_CLOCK.with(|c| c.set(Some((start, 1_000_000_000_000, wall0_ms as i64 * 1_000_000))));
+                let sim = Rc::new(Sim { seed, rng: RefCell::new(Rng::new(seed)), wall0_ms });
+                let s = scenario(sim).await;
+                SIM_CLOCK.with(|c| c.set(None));
+                s
+            })
+        }));
+        SIM_CLOCK.with(|c| c.set(None));
+        drop(local);
+        drop(rt);
+        match res {
+            Ok(s) => s,
+            Err(p) => std::panic::resume_unwind(p),
+        }
+    })
+}
+
+/// As `run`, for a turmoil simulation: `scenario` builds and drives the
+/// `turmoil::Sim` itself (seeded with `seed`); std's clocks read turmoil's
+/// simulated time inside its hosts.
+pub fn run_turmoil<F>(seed: u64, wall0_ms: u64, keep: bool, scenario: F) -> Outcome
+where
+    F: FnOnce(Rc<Sim>) -> String + Send + 'static,
+{
+    on_thread(seed, keep, move || {
+        TURMOIL.with(|c| c.set(Some((1_000_000_000_000, wall0_ms as i64 * 1_000_000))));
+        TURMOIL_NOW.with(|c| c.set(0));
+        let sim = Rc::new(Sim { seed, rng: RefCell::new(Rng::new(seed)), wall0_ms });
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| scenario(sim)));
+        TURMOIL.with(|c| c.set(None));
+        match res {
+            Ok(s) => s,
+            Err(p) => std::panic::resume_unwind(p),
+        }
+    })
+}
+
+/// A fresh thread with seeded OS randomness and the trace; `body`'s panic
+/// is the failure.
+fn on_thread(seed: u64, keep: bool, body: impl FnOnce() -> String + Send + 'static) -> Outcome {
     // A failing seed's panic is reported by `sweep` (with its repro line), not
     // by the default hook's message and backtrace on every run.
     static QUIET: std::sync::Once = std::sync::Once::new();
@@ -275,21 +352,7 @@ where
             OS_RNG.with(|c| c.set(Some(splitmix(&mut s))));
             TRACE.with(|t| *t.borrow_mut() = Trace { keep, hasher: Some(blake3::Hasher::new()), ..Default::default() });
             otap_s3pq::set_log_sink(Some(Box::new(|m: &str| trace(format!("LOG {m}")))));
-            let rt = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().expect("runtime");
-            let local = tokio::task::LocalSet::new();
-            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                local.block_on(&rt, async move {
-                    let start = tokio::time::Instant::now();
-                    SIM_CLOCK.with(|c| c.set(Some((start, 1_000_000_000_000, wall0_ms as i64 * 1_000_000))));
-                    let sim = Rc::new(Sim { seed, rng: RefCell::new(Rng::new(seed)), wall0_ms });
-                    let s = scenario(sim).await;
-                    SIM_CLOCK.with(|c| c.set(None));
-                    s
-                })
-            }));
-            SIM_CLOCK.with(|c| c.set(None));
-            drop(local);
-            drop(rt);
+            let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
             otap_s3pq::set_log_sink(None);
             OS_RNG.with(|c| c.set(None));
             let tr = TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()));
@@ -327,20 +390,17 @@ pub fn trace_dir() -> std::path::PathBuf {
     std::env::var_os("DST_TRACE_DIR").map(Into::into).unwrap_or_else(std::env::temp_dir)
 }
 
-/// Runs every seed; on a failure, reruns it keeping the trace, writes the
-/// trace, and panics with the seed and a one-line repro.
-pub fn sweep<F, Fut>(name: &str, test: &str, seeds: &[u64], wall0: impl Fn(u64) -> u64, mk: impl Fn() -> F) -> Vec<Outcome>
-where
-    F: FnOnce(Rc<Sim>) -> Fut + Send + 'static,
-    Fut: Future<Output = String> + 'static,
-{
+/// Runs every seed (`run(seed, keep_trace)`); on a failure, reruns it
+/// keeping the trace, writes the trace, and panics with the seed and a
+/// one-line repro.
+pub fn sweep(name: &str, test: &str, seeds: &[u64], run: impl Fn(u64, bool) -> Outcome) -> Vec<Outcome> {
     let keep = std::env::var_os("DST_TRACE").is_some();
     let mut out = Vec::new();
     let mut failed = Vec::new();
     for &seed in seeds {
-        let o = run(seed, wall0(seed), keep, mk());
+        let o = run(seed, keep);
         if let Some(f) = &o.failure {
-            let o2 = if keep { o.trace.clone() } else { run(seed, wall0(seed), true, mk()).trace };
+            let o2 = if keep { o.trace.clone() } else { run(seed, true).trace };
             let path = trace_dir().join(format!("dst-{name}-{seed}.trace"));
             let _ = std::fs::write(&path, &o2);
             eprintln!(

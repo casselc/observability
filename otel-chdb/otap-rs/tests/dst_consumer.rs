@@ -1082,9 +1082,17 @@ async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
     w.healed.set(true);
     trace("QUIESCE (healed: no new faults)");
     let complete = |w: &World| w.rows_of.borrow().iter().all(|((t, c), r)| w.count(t, c) >= *r);
+    // Liveness: healed, the fleet must keep making progress until it is
+    // done. A backlog may take a while (one worker, slow S3); a minute with
+    // no new rows while something is missing is a failure.
     let q0 = now_ms();
-    while !complete(&w) && now_ms() < q0 + 300_000 {
+    let total = |w: &World| w.ch.borrow().rows.values().sum::<u64>();
+    let (mut last, mut last_at) = (total(&w), q0);
+    while !complete(&w) && now_ms() < q0 + 3_600_000 && now_ms() < last_at + 60_000 {
         sleep_ms(1_000).await;
+        if total(&w) != last {
+            (last, last_at) = (total(&w), now_ms());
+        }
     }
     let quiesce_ms = now_ms() - q0;
     // Late statements can still land: wait them out, then stop everyone.
@@ -1135,7 +1143,7 @@ async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
     assert!(v.is_empty(), "invariant violations: {v:#?}\n{summary}");
     assert!(dup.is_empty(), "atMostOnce: ingested more than once: {dup:?}\n{summary}");
     assert!(extra.is_empty(), "onlyCommittedIngested: {extra:?}\n{summary}");
-    assert!(missing.is_empty(), "not ingested after {quiesce_ms} ms of quiet (neverSkipsCommitted / liveness): {missing:?}\n{summary}");
+    assert!(missing.is_empty(), "not ingested, no progress for 60 s after {quiesce_ms} ms healed (neverSkipsCommitted / liveness): {missing:?}\n{summary}");
     summary
 }
 
@@ -1183,7 +1191,7 @@ fn sim_self_test() {
 fn fleet_seeds() {
     let seeds = sim::seeds(40);
     let t0 = std::time::Instant::now();
-    let out = sim::sweep("fleet_seeds", "dst_consumer", &seeds, wall0, || fleet);
+    let out = sim::sweep("fleet_seeds", "dst_consumer", &seeds, |seed, keep| sim::run(seed, wall0(seed), keep, fleet));
     let lines: u64 = out.iter().map(|o| o.lines).sum();
     eprintln!("DST fleet: {} seeds passed, {lines} trace lines, {:.1} s", out.len(), t0.elapsed().as_secs_f64());
 }

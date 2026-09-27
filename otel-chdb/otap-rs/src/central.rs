@@ -208,19 +208,45 @@ pub fn sq(s: &str) -> String {
     format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
+/// An HTTP round trip in place of `ClickHouse::http`: the request (URL with
+/// the settings as its query string, basic auth, the SQL as the body) to the
+/// answer's status and body, or a transport error (no answer). The
+/// deterministic simulation tests (tests/dst_net.rs) run the consumer's
+/// statements over a simulated network with it; reqwest can't take another
+/// connector.
+pub type Transport =
+    std::sync::Arc<dyn Fn(http::Request<String>) -> futures::future::BoxFuture<'static, Result<(u16, String), String>> + Send + Sync>;
+
 /// A minimal ClickHouse HTTP client.
 pub struct ClickHouse {
     pub url: String,
     pub http: reqwest::Client,
     pub user: Option<(String, String)>,
+    /// Set: requests go through it instead of `http`.
+    pub transport: Option<Transport>,
 }
 
 impl ClickHouse {
     pub fn new(url: &str) -> Self {
-        Self { url: url.trim_end_matches('/').to_string(), http: reqwest::Client::new(), user: None }
+        Self { url: url.trim_end_matches('/').to_string(), http: reqwest::Client::new(), user: None, transport: None }
     }
 
     pub async fn query(&self, sql: &str, settings: &[(&str, &str)]) -> Result<String, String> {
+        if let Some(t) = &self.transport {
+            let q = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(settings).finish();
+            let mut b = http::Request::post(format!("{}/?{q}", self.url));
+            if let Some((u, p)) = &self.user {
+                use base64::Engine;
+                b = b.header("authorization", format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{u}:{p}"))));
+            }
+            let req = b.body(sql.to_string()).map_err(|e| format!("clickhouse: {e}"))?;
+            let (status, text) = t(req).await.map_err(|e| format!("clickhouse: {e}"))?;
+            let status = http::StatusCode::from_u16(status).map_err(|e| format!("clickhouse: {e}"))?;
+            if !status.is_success() {
+                return Err(format!("clickhouse {status}: {}", text.trim()));
+            }
+            return Ok(text.trim().to_string());
+        }
         let mut r = self.http.post(format!("{}/", self.url)).query(settings).body(sql.to_string());
         if let Some((u, p)) = &self.user {
             r = r.basic_auth(u, Some(p));

@@ -306,6 +306,63 @@ jobs:
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
 
+  # Deterministic simulation of the consumer fleet (otap-rs/DST.md): new
+  # seeds every night (the base follows the run number), 10,000 at level 1
+  # and 200 over the simulated network, plus the emulators against the
+  # services. A failing seed's trace is uploaded; the log has its repro line.
+  dst:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: otel-chdb/otap-rs
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+      DST_TRACE_DIR: ${{ github.workspace }}/.ci/dst
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Start SeaweedFS and ClickHouse
+        run: ../../ci/services.sh start
+      - name: Build the simulation tests
+        run: cargo test --release --locked --test dst_consumer --test dst_net --no-run
+      - name: Level 1, 10,000 new seeds
+        run: |
+          mkdir -p "$DST_TRACE_DIR"
+          DST_SEEDS=10000 DST_SEED_BASE=$(( GITHUB_RUN_NUMBER * 100000 )) \
+            cargo test --release --locked --test dst_consumer -- fleet_seeds --nocapture
+      - name: Level 2 (turmoil), 200 new seeds
+        run: |
+          DST_SEEDS=200 DST_SEED_BASE=$(( GITHUB_RUN_NUMBER * 100000 )) \
+            cargo test --release --locked --test dst_net -- net_seeds --nocapture
+      - name: Determinism, mutants, regressions, the emulators against the services
+        run: DST_META_SEEDS=20 cargo test --release --locked --test dst_consumer --test dst_net
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: dst-traces
+          path: ${{ github.workspace }}/.ci/dst
+          if-no-files-found: ignore
+
   # The quint-connect model-based tests: quint drives the protocol and the
   # consumer through traces of ../model/*.qnt (the Rust evaluator). One test
   # binary per runner, one test at a time: each quint run takes 2.5-4 GB

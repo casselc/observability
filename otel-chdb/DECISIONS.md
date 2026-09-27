@@ -49,11 +49,11 @@ disagreed with each other, and how each was resolved.
 | [D6](#d6-no-edge-to-central-fast-path) | No edge-to-central fast path | accepted |
 | [D7](#d7-metrics-series-table-layout-b-not-the-clickstack-tables) | Metrics: series-table layout B; wire-size ordinal rejected | accepted; built in both edges (Go: 2026-09-26) |
 | [D8](#d8-consumer-leases-and-checkpoints-on-s3) | Consumer: leases and checkpoints on S3 | accepted; idle-lane LIST backoff, load-based balancing (2026-09-26); event notifications designed, not built |
-| [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted; margin ≥ 10 s enforced, unanswered statements waited out (2026-09-26) |
+| [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline) | Consumer: time bound plus a server-side deadline | accepted; margin ≥ 20 s (TTL 75 s) enforced, unanswered statements and error answers that may still commit waited out (2026-09-26, after the replicated run measured commits 19 s past the time limit) |
 | [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted; linger built, off by default (2026-09-26) |
 | [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted; the check reads the batch's partitions ± a copy horizon (2026-09-26), 3 days, with a horizon audit reporting late copies |
 | [D12](#d12-consumer-gc-and-checkpoint-compaction) | Consumer: GC and checkpoint compaction | accepted; GC keeps the slot below the position (2026-09-26) |
-| [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted |
+| [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted; the fleet-scale consumer run on it (2026-09-26/27): exactly once, margin raised to 20 s, audit syncs |
 | [D14](#d14-storage-tiers) | Storage tiers: hot 1–7 days, then cold | accepted; cold medium open |
 | [D15](#d15-metrics-downsampling) | Metrics downsampling: 5-minute rollups | proposed; not built |
 | [D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8) | Edge sorting off; service-affine routing at N ≥ 8 | accepted; routing built as `deploy/components/routing`, measured locally, not deployed |
@@ -115,7 +115,7 @@ quint-connect or quintgo test replays model traces through the implementation.
 | `model/partLifetime.qnt` (native parts; now moot) | `noReadOfDeleted`, `noLeakAfterExit`, `noDoubleCount`; the rule **`old_parts_lifetime` > max query + refresh interval** | Apalache ≤ 10–12 steps | server test `TestOldPartsLifetimeProtectsServerQueries` (`2f1f3c2`) |
 | `model/s3Inline.qnt` (**the commit protocol in use**) | `payloadIngestedAtMostOnce`, `epochNoDuplicatePayload`, `onlyCommittedIngested`, `noCommitLost`, `ackedImpliesCommitted`, `noPayloadLost`, `gapNeverTakenForLoss`, `consumerNeverSkipsCommitted`, `noCommitAfterClose` | 3,000 × 80 steps, two seeds; Apalache ≤ 6 steps (8 partial); 6 mutations caught ([`awss3/README.md`](awss3/README.md), `0855334`) | `tests/mbt_s3inline.rs`: 300 traces, 16,981 steps; 3 code mutants caught ([`otap-rs/README.md`](otap-rs/README.md), `060e963`) |
 | `model/s3InlineMetrics.qnt` | `reqAckedImpliesAllCommitted`, `noObjectLost` (a request is acked only when all its objects commit) | 3,000 × 60; mutant `ackOnAny` caught | `tests/mbt_s3inline_metrics.rs`: 300 traces, 23,968 steps |
-| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit`; since 2026-09-26 over release, the commit slack, daily partitions and the check's range; the horizon audit's `auditSilent` (designs) and `dupAudited` (`noHorizon`) | 5,000 × 60 on five design instances; mutants by simulation `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly`, `releaseInFlight`; by scripted counterexample runs `releaseInFlight`, `keeperOverrun`, `noHorizon`, `wallRange`, `gcReopens` ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale) | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`), `release_in_flight`, `wall_range` |
+| `model/s3InlineConsumer.qnt` | `atMostOnce`, `onlyCommittedIngested`, `neverSkipsCommitted`, `noCommitAfterClose`, `announcedOnlyAfterCommit`; since 2026-09-26 over release, the commit slack, daily partitions and the check's range; the horizon audit's `auditSilent` (designs) and `dupAudited` (`noHorizon`) | 5,000 × 60 on five design instances; mutants by simulation `noTimeBound`, `noVerify`, `gcTombs`, `announceEarly`, `releaseInFlight`, `errorSettles`; by scripted counterexample runs `releaseInFlight`, `keeperOverrun`, `noHorizon`, `wallRange`, `gcReopens`, `errorSettles` ([`otap-rs/README.md`](otap-rs/README.md) §Consumer at fleet scale) | `tests/mbt_s3inline_consumer.rs`; code mutants `no_time_bound`, `no_verify` (`1b5ce6c`), `release_in_flight`, `wall_range` |
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
@@ -134,7 +134,12 @@ Assumptions every model makes, and which the code must therefore guarantee:
 - **A commit lands by fence + budget + slack, and the margin covers the
   slack** (`SLACK ≤ MARGIN`; the worker refuses to start otherwise, [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
 - **A worker acts on a lane only once its statements are gone:** verify,
-  retry and release wait out an unanswered statement ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+  retry and release wait out an unanswered statement, and (2026-09-26) an
+  error answer that may come with a commit still resolving: "answered" is
+  not "gone" on a replicated central ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+- **The slack is real:** on a replicated central a commit landed 19.0 s
+  past a 10 s time limit [M], so slack and margin are 20 s (the Keeper
+  session timeout minus the budget; [D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
 - **A copy of a request is received within the check's horizon of its
   original** (3 days; `HORIZON ≥ MAX_DAY` in the model, [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)).
   The consumer can't enforce it, so it watches for it: the horizon audit
@@ -621,8 +626,9 @@ coordination store. S3 cost: one LIST per busy lane per poll and one per
 idle lane per 30 s; per worker, two LISTs per `--discover` and one per
 producer every 30 s; one checkpoint CAS per lane that advanced; **and one
 lease renewal (CAS) per lane every TTL/3, now the largest cost of an idle
-lane: 173 k PUTs a month at a 45 s TTL, about $0.86** [E] (the LIST at the
-cap is about $0.43).
+lane: 104 k PUTs a month at the 75 s TTL, about $0.52 (173 k, $0.86, at the
+45 s TTL before the replicated run)** [E] (the LIST at the cap is about
+$0.43).
 
 **Open risks.**
 
@@ -640,7 +646,9 @@ cap is about $0.43).
 ### D9. Consumer: time bound on inserts plus a server-side deadline
 
 **Status:** accepted (`1b5ce6c`); margin ≥ 10 s enforced, unanswered
-statements waited out (`f923fa8`, 2026-09-26).
+statements waited out (`f923fa8`, 2026-09-26); **margin ≥ 20 s and error
+answers that may still commit waited out** after the replicated run
+measured commits 19 s past the time limit (2026-09-26).
 
 **Decision.** A statement starts only if `now + budget ≤ safe_until` for every
 lane in it, and runs with `max_execution_time = budget`. The holder's window
@@ -667,32 +675,53 @@ duplicates. The code mutant `no_time_bound` is caught at trace 3, step 35.
 
 - The server-side half needs the worker's and ClickHouse's **wall clocks
   within the margin**.
-- **On a replicated central, one Keeper request can outlive the time limit by
-  `operation_timeout_ms` (10 s)** ([`central-replicated/README.md`](central-replicated/README.md) §A time-bound caveat).
-  **Enforced since 2026-09-26:** the worker refuses to start with a margin
-  below 10 s, or below `--keeper-slack` (10 s), naming the reason and the
-  fix; `--allow-short-margin` is for tests. A statement lands by
+- **On a replicated central a commit can outlive the time limit by far
+  more than one Keeper request** ([`central-replicated/README.md`](central-replicated/README.md)
+  §Keeper overrun). The assumption until 2026-09-26 was
+  `operation_timeout_ms` (10 s). Measured [M]: when the Keeper node a
+  replica's session is on freezes or is partitioned, or the quorum is lost,
+  the server's retry loop around the commit runs up to the session timeout
+  (30 s) after the statement started, and the part lands when Keeper
+  answers: **19.0 s past a 10 s `max_execution_time`** in a directed run,
+  11.6 s past a 2 s one (14 of 2,363 statements) in a random mix of Keeper
+  faults; every statement had answered within 29.0 s of its start. **Such
+  a statement answers `TIMEOUT_EXCEEDED`** and lands all the same.
+- **Enforced:** the worker refuses to start with a margin below 20 s (it was
+  10 s), or below `--keeper-slack` (20 s), and on a replicated central with a
+  slack below the replicas' Keeper session timeout minus the budget (read
+  from `system.zookeeper_connection`), naming the reason and the fix;
+  `--allow-short-margin` is for tests. A statement lands by
   `sent + ttl + slack` on the worker's clock (fence, the server clock up to
   a margin behind, budget, slack), and nobody takes over before
   `sent + ttl + margin`, hence `margin ≥ slack`. The model's commit slack
   (`cApply` by fence + BUDGET + SLACK) and its mutant `keeperOverrun`
   (SLACK > MARGIN breaks `atMostOnce`) record it.
-- **The earlier production figures were inconsistent:** "a TTL of 30 s and
-  a margin of at least 10 s" fails the existing check with a 10 s budget
-  (budget + 2 × margin + TTL/3 ≤ TTL needs a TTL of 45 s), and the code's
-  defaults were a TTL of 30 s and a margin of 2 s. **Defaults now: TTL
-  45 s, margin 10 s, budget 10 s, slack 10 s**, `consume gc --delay` 75 s.
-  A crashed worker's lanes are taken over after 55 s.
+- **Defaults now: TTL 75 s, margin 20 s, budget 10 s, slack 20 s**
+  (budget + 2 × margin + TTL/3 ≤ TTL), `consume gc --delay` 115 s. A crashed
+  worker's lanes are taken over after 95 s. History: TTL 30 s / margin 2 s
+  (the code), "TTL 30 s and margin ≥ 10 s" (this section, which never fit a
+  10 s budget), TTL 45 s / margin 10 s (the fleet-scale round). A shorter
+  Keeper session timeout on the replicas would allow a shorter slack.
 - **Unanswered statements (a gap, fixed 2026-09-26):** after an insert with
   no answer the worker killed it and verified at once, re-inserting what
   was missing. The KILL can reach the server before the statement, and a
   replicated commit can outlive the worker's HTTP timeout, so the first
   statement could land after the retry. Now its lanes are left alone
-  (no check, verify, retry or release) until `sent + ttl + slack`; a
-  server's error answer still settles at once. The model always required
-  this (a worker verifies only once its statement is gone); the code
-  didn't. Tested with statements that land as late as fence + budget +
-  slack (`MemCentral`), and by the code mutant `release_in_flight`.
+  (no check, verify, retry or release) until `sent + ttl + slack`. The
+  model always required this (a worker verifies only once its statement is
+  gone); the code didn't. Tested with statements that land as late as
+  fence + budget + slack (`MemCentral`), and by the code mutant
+  `release_in_flight`.
+- **Error answers (a gap found on the replicated central, fixed
+  2026-09-26):** a server's error answer settled a statement at once, but
+  `TIMEOUT_EXCEEDED` (and `KEEPER_EXCEPTION`, `TABLE_IS_READ_ONLY` from the
+  commit's retry loop) can come with a part that lands anyway, so the
+  verify re-inserted it. Now only errors raised before anything is written
+  settle at once (parse, analysis, access, admission, `TOO_MANY_PARTS`, the
+  range assertion); every other error waits like an unanswered statement.
+  Tested (`MemCentral::late_error_every`; the code mutant `ErrorSettles`
+  duplicates) and modelled (the mutant `errorSettles` breaks `atMostOnce`
+  by simulation and by a scripted run).
 - The soak used a TTL of 6 s and a margin of 1 s (`--allow-short-margin`).
 
 ---
@@ -926,7 +955,8 @@ scripted run; the design instance at TTL 3 with faults passes 5,000 × 60
 
 ### D13. Replicated central: plain ReplicatedMergeTree, no zero-copy
 
-**Status:** accepted (`1a88da1`). **Zero-copy is rejected.** That commit's
+**Status:** accepted (`1a88da1`); the fleet-scale consumer validated on
+it on 2026-09-26/27 (below). **Zero-copy is rejected.** That commit's
 title, "replicated central with zero-copy replication on S3", names the
 experiment, not the decision; the verdict in
 [`central-replicated/README.md`](central-replicated/README.md) (which now
@@ -969,13 +999,41 @@ says so under its title) rejects it.
 - Replicated dedup works across replicas: the hashes live in Keeper.
 - Replicated insert CPU measured **58.6–66.7 µs/row** under a load average of
   26–35, at 7.9 objects per statement. Treat that as an upper bound; the
-  single-node figure is about 12 µs/row.
+  single-node figure is about 12 µs/row. **Re-measured 2026-09-27 at 31.3
+  objects per statement (loaded box, load 2–6): replication adds 9% to an
+  insert statement** (39.3 against 36.1 µs/row on the same server, all
+  tables; traces 17.1 against 16.4, logs 15.9 against 14.4) and 2.1 Keeper
+  transactions; +20% counting both replicas' whole CPU (checks, fetches,
+  merges).
+
+**Second run, the fleet-scale consumer (2026-09-26/27)** [M]
+([`central-replicated/README.md`](central-replicated/README.md) §4): plain
+replication (`tiered_own`), every fleet-scale feature on (the check's
+partition range, load balancing, backoff, linger, the horizon audit beside
+GC, metrics), production lease timing.
+
+| | Result |
+|---|---|
+| two 15-min soaks: 4 replica kills, 13 replica network partitions, 13 Keeper leader stops, 6 Keeper node partitions, 3 node kills, 4 quorum losses, 3 worker pauses past the lease, worker and edge kills | **exactly once on both replicas**: 55,440 committed objects, 4.2 M rows; missing, partial, duplicated, uncommitted 0; every acked request once |
+| the check's partition range on a replica | same counts on r1 and r2, answered from `by_content`; the sync waits for the whole table, so it covers every partition the check reads |
+| the horizon audit on a replicated table | the same copies on both replicas when synced; **a lagging replica missed a late copy** → the audit now syncs (`--sync-replica`) and fails over between `--ch` replicas |
+| Keeper overrun | **commits up to 19.0 s past a 10 s `max_execution_time`** (11.6 s past 2 s in a random fault mix), under Keeper faults, with the statement answering `TIMEOUT_EXCEEDED`; 3 such commits in the soaks. The 10 s margin was short by 9 s → **margin 20 s, TTL 75 s**, error answers that may come with a commit waited out ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)) |
+| metrics | late and unexplained copies 0; lanes lapsed exactly for the paused workers; unsettled statements at the Keeper faults and partitions |
 
 **Consequences.**
 
 - Cold S3 bytes and PUTs double, and each replica merges its own S3 parts.
-- The lease margin must be at least the Keeper operation timeout
+- The lease margin must cover how late a replicated commit can land: up to
+  the Keeper session timeout after the statement started (19.0 s past a
+  10 s budget measured), not the operation timeout as first assumed; the
+  worker checks its slack against the replicas' session timeout at start
   ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)).
+- On a replicated central an error answer to an insert does not end it:
+  only errors raised before anything is written settle a statement.
+- The horizon audit runs with `--sync-replica` (and `--ch` listing the
+  replicas) on a replicated central.
+- A replica lost for good with parts nobody fetched stalls those tables'
+  checks until the operator drops it (`SYSTEM DROP REPLICA`).
 - `insert_quorum` is a **durability** choice, not an exactly-once one. With 2
   replicas, an acked batch sits on one replica's local disk until the other
   fetches it. **Open:** use quorum 2 of 3 replicas, or accept that window.
@@ -1353,11 +1411,11 @@ how likely it is.
 | 2 | **Real per-pod rates and data shape** | Every rate in §1.2 is an estimate. `bSpan` and `bLog` (80 / 60 B) drive about 88% of stored bytes. Synthetic compression is ±50%. Real fleets carry 20+ resource attributes; the synthetic data carries 12–21. Series churn is untested. | Sample a real cluster's spans/s, logs/s and series per pod, and the stored bytes per row after merges. |
 | 3 | **Real AWS behaviour** | Everything ran on SeaweedFS on localhost: no latency, and no 409 `ConditionalRequestConflict`, which object_store retries. Per-prefix request limits (3,500 PUT/s per prefix), real STS and session tokens were not exercised. LIST and renewal *counts* at fleet scale were measured locally (an idle lane: one LIST per 30 s, one renewal per 15 s; [D8](#d8-consumer-leases-and-checkpoints-on-s3)), not billed. Lane throughput is 1 / (encode + PUT): about 20 batches/s locally, lower with real latency. | A soak on a real bucket under IRSA and Pod Identity: commit latency, 409 rates, LIST cost per lane. |
 | 4 | **HyperDX compatibility with the series layout** | HyperDX was never run live. Its SQL came from its own test snapshots at `hyperdx@885d30c`. Known degradations: the metric picker scans (1.26 s against 0.08 s); map filters cost 1.6–2.1× A; no rollup acceleration; no writes through the views. HyperDX changes can break the views silently. | Run HyperDX against the views; add the proposed `(MetricName, ServiceName)` helper MergeTree; pin the HyperDX version. |
-| 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a Keeper operation can run 10 s past `max_execution_time`, so margin ≥ 10 s: **retired 2026-09-26**, the worker refuses a smaller margin and waits out unanswered statements ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)). (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
+| 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a commit can land after `max_execution_time`. Assumed 10 s (one Keeper operation) and "retired" on 2026-09-26 with a 10 s margin; **the replicated run the same day measured 19.0 s** (a commit resolved by the server's retry loop when Keeper came back, up to the session timeout after the start, answering `TIMEOUT_EXCEEDED`), so the 10 s margin did not hold. **Retired again (2026-09-26/27):** margin and slack 20 s (TTL 75 s), a start-up check against the replicas' Keeper session timeout, and error answers that may come with a commit waited out ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)); the bound is measured (≤ 29.0 s after the start, under the 30 s session timeout), not proven. (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
 | 6 | **GC dependence** | GC is what bounds S3 storage, checkpoint size and `gc.json`. If it stops, compaction stops and checkpoints grow. Its safety rests on two bounds: the PUT lifetime (`--delay`) and the zombie lifetime (`--zombie`). A writer that outlives the zombie bound can re-create a deleted slot; such a batch is never ingested (not duplicated). (A live, unresolved writer could do the same below the checkpoint; fixed 2026-09-26: GC keeps the slot below the position, [D12](#d12-consumer-gc-and-checkpoint-compaction).) `gc.json` is one object sized marks × lanes × entries. | An alert on GC lag; shard `gc.json` per lane; enforce the zombie bound (pod termination grace plus kill). |
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
-| 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check reads the batch's own days ± 3 days (1 day until the audit round): 116 GETs and 25 ms CPU cold against 2,320 and 516 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than 3 days after its original (a durable buffer replaying after a long outage) is ingested twice. **It is no longer silent:** the horizon audit counts every such copy (`consumer_late_copies_total`, a WARN per copy) after the fact, daily by default; it doesn't prevent the duplicate, and a same-day duplicate is outside what it sees. | Measure the resend delay of real senders and durable buffers, and alert on the counter; stamp `received_at` before the durable buffer so a replay keeps its partition (not built); a deletion tool for reported copies (not built). |
-| 9 | **Replicated insert cost** | 58.6–66.7 µs/row measured on replicas (loaded box, 7.9 objects per statement), against about 12 on one node. If even part of that is real, the calculator is low. | Re-measure replicated inserts on an idle box at 32 objects per statement. |
+| 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**) | The check reads the batch's own days ± 3 days (1 day until the audit round): 116 GETs and 25 ms CPU cold against 2,320 and 516 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than 3 days after its original (a durable buffer replaying after a long outage) is ingested twice. **It is no longer silent:** the horizon audit counts every such copy (`consumer_late_copies_total`, a WARN per copy) after the fact, daily by default; it doesn't prevent the duplicate, and a same-day duplicate is outside what it sees. On a replicated central it must run with `--sync-replica`: unsynced, a lagging replica missed a late copy [M] (fixed 2026-09-26, `central-replicated/README.md` §4). | Measure the resend delay of real senders and durable buffers, and alert on the counter; stamp `received_at` before the durable buffer so a replay keeps its partition (not built); a deletion tool for reported copies (not built). |
+| 9 | **Replicated insert cost** (mostly retired 2026-09-27) | 58.6–66.7 µs/row was measured on replicas at 7.9 objects per statement under a load average of 26–35. **Re-measured at 31.3 objects per statement on the same server (load 2–6): replication adds 9% to an insert statement** (39.3 against 36.1 µs/row, all tables; traces 17.1 against 16.4) and 2.1 Keeper transactions, **+20% counting both replicas' whole CPU** (checks, the other replica's fetches, merges) [M] ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)). The earlier figure was the small statements and the box. What remains: the plain baseline here (14–16 µs/row for traces and logs) is above the idle single-node 12, so the calculator's constants should be checked on an idle box. | Re-measure both on an idle box; put the replication factor (+9% per statement, +20% per replica pair) in the calculator. |
 | 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |

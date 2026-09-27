@@ -15,6 +15,8 @@
 
   <!-- Shared 4-vCPU / 15 GB box: about 3 GB per replica, small caches and pools. -->
   <max_server_memory_usage_to_ram_ratio>0.2</max_server_memory_usage_to_ram_ratio>
+  <!-- Since 2026-09-27 (after the §4 runs): a hard 2 GB cap, the box is shared by several agents. -->
+  <max_server_memory_usage>2000000000</max_server_memory_usage>
   <mark_cache_size>134217728</mark_cache_size>
   <index_mark_cache_size>67108864</index_mark_cache_size>
   <uncompressed_cache_size>0</uncompressed_cache_size>

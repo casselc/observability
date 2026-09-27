@@ -198,8 +198,9 @@ encbench: the in-process edge benchmark (pubbench's accounting)
   time with one statement per object and a local state file; its flags
   still work.) At fleet scale (2026-09-26): idle lanes back off their LIST,
   lanes are balanced by load, statements may linger, the check reads only
-  the batch's partitions, and the lease margin is at least 10 s: see
-  [Consumer at fleet scale](#consumer-at-fleet-scale-m).
+  the batch's partitions, and the lease margin is at least 20 s (10 s
+  until the replicated central measured commits 19 s past their time
+  limit): see [Consumer at fleet scale](#consumer-at-fleet-scale-m).
 
 ## Upstream: what was changed, what was found
 
@@ -1773,11 +1774,15 @@ covers the edge change.
 lanes (2026-09-26): idle lanes back off their LIST, with a seam for S3
 event notifications; lanes are balanced by load, with hysteresis; a
 statement may linger to fill; the count check reads only the partitions
-the batch's rows can be in; and the lease margin is at least 10 s. Doing
-it found two real gaps, both fixed: a statement whose answer was lost
-could be verified, retried or released while it could still land, and GC
-could delete a slot its writer had not resolved, so the writer's next
-batch landed below the checkpoint and was never ingested.** Code:
+the batch's rows can be in; and the lease margin is at least 20 s (10 s
+until the replicated run). Doing it found two real gaps, both fixed: a
+statement whose answer was lost could be verified, retried or released
+while it could still land, and GC could delete a slot its writer had not
+resolved, so the writer's next batch landed below the checkpoint and was
+never ingested. Running it on the replicated central (2026-09-26, the
+same day) found a third and fixed it: an error answer (`TIMEOUT_EXCEEDED`)
+can come with a commit that lands anyway, up to 19 s past the time limit,
+beyond the 10 s margin.** Code:
 `src/consumer/discovery.rs` (new), `coord.rs`, `plan.rs`, `sql.rs`,
 `worker.rs`, `gc.rs`; scripts: `scripts/consumer_scale.sh`,
 `scripts/consumer_check_range.sh`, `scripts/consumer_model.sh`; results:
@@ -1792,7 +1797,7 @@ batch landed below the checkpoint and was never ingested.** Code:
 | Check range | the check reads `_partition_value` in the objects' own received day ± a copy horizon; the insert asserts every row's `received_at` | `--check-horizon 3d` (was 1d; `all`: off), `--no-check-range` | 90 daily partitions on S3: **2,320 → 116 GETs and 516 → 25 ms CPU** per check, cold, at 3 days (56 GETs, 13 ms at 1 day) |
 | Horizon audit | finds copies ingested twice because they were received more than the horizon after their original: keys in two partitions beyond the check's reach, confirmed by repeated rows; a WARN per copy, `consumer_late_copies_total` | `consume gc --db D` (every `--audit-every 24h`), or `consume horizon-audit`; `--audit-lookback 2d`, `--audit-sample-hex 0` | same table: **1,716 GETs, 426 ms CPU** per run cold (about one unranged check); 18 M keys: 3.8 s CPU, 0.78 s at a 1/16 sample |
 | Metrics | Prometheus text on `/metrics` (tokio's listener, no framework) | `--metrics-addr` (off) | format and endpoint tested; scraped in the soak |
-| Lease margin | refuses to start with a margin below 10 s or below the commit slack | `--ttl 45s --margin 10s --budget 10s --keeper-slack 10s`, `--allow-short-margin` | unit tests (the old defaults and D9's "30 s / 10 s" are refused) |
+| Lease margin | refuses to start with a margin below 20 s (10 s until the replicated run) or below the commit slack, and on a replicated central a slack below the Keeper session timeout minus the budget | `--ttl 75s --margin 20s --budget 10s --keeper-slack 20s`, `--allow-short-margin` | unit tests (the old defaults, 45 s / 10 s and D9's "30 s / 10 s" are refused); commits measured 19.0 s past `max_execution_time` on the replicated central |
 
 #### Idle-lane backoff and event-driven discovery
 
@@ -1831,7 +1836,8 @@ batch landed below the checkpoint and was never ingested.** Code:
   $0.005 per 1,000 LISTs an idle lane went from about $13 to $0.43 a month
   [E from M]. **What an idle lane costs now is its
   lease renewal:** a CAS every TTL/3 = 15 s, 173 k PUTs a month, about
-  $0.86 [E]; the TTL is the knob.
+  $0.86 [E]; the TTL is the knob. (At the 75 s TTL adopted after the
+  replicated run: every 25 s, 104 k PUTs, about $0.52 [E].)
 - **Event-driven discovery (designed; the seam is built, the SQS client
   is not).** `s3:ObjectCreated:*` on the data prefix → SQS (or
   EventBridge → SQS), one queue per region, long-polled by each worker.
@@ -2082,7 +2088,16 @@ failure (central down, a table unreadable) is logged and counted
 (`consumer_audit_runs_total{result="error"}`, the last success time stops
 moving), never fatal, and the next run covers the same window again.
 Tables whose partition key isn't `toDate(received_at)` are skipped (their
-checks read every partition already). `--audit-sample-hex k` audits only
+checks read every partition already). **On a replicated central**
+(2026-09-26, [`../central-replicated/README.md`](../central-replicated/README.md)):
+`--ch r1,r2` makes a run read the first replica that answers (and stick to
+it), and `--sync-replica` runs `SYSTEM SYNC REPLICA … LIGHTWEIGHT` on each
+table first (`--audit-sync-timeout`, 60 s). Without the sync a replica that
+hasn't fetched a copy's part reports a clean table: measured, with fetches
+stopped on r2 a late copy inserted on r1 was reported by r1's audit and not
+by r2's. With it the run fails instead (counted as an error; the next run
+covers the window), and synced, both replicas report the same copies
+(`a_lagging_replica_is_synced_or_the_run_fails`). `--audit-sample-hex k` audits only
 keys starting with k zeros (1/16^k: the projection is ordered by key, so
 this reads that fraction of each part's projection); keys are hashes, so a
 sample estimates the rate without bias, and a replay after an outage copies
@@ -2170,36 +2185,62 @@ publisher would still get a new time.
 
 #### The lease margin, and statements whose answer was lost
 
-- **Margin ≥ 10 s** (`Timing::check_production`). On a replicated central
-  one Keeper request can outlive `max_execution_time` by
-  `operation_timeout_ms`, 10 s (DECISIONS risk 5c). A statement sent under
-  a lease version written at `sent` starts by the fence (`sent + ttl −
-  margin − budget`, the server's clock, up to a margin behind ours), runs
-  at most `budget`, commits at most `slack` later: it has landed by
-  `sent + ttl + slack`; nobody may take the lane before `sent + ttl +
-  margin`. So `margin ≥ slack` (`--keeper-slack`, 10 s), and the worker
-  refuses to start below 10 s with the reason and the fix, unless
-  `--allow-short-margin` (the soak's 1 s). **The defaults were wrong:** ttl
-  30 s / margin 2 s; and DECISIONS D9's "TTL 30 s, margin ≥ 10 s" fails
-  the existing check with a 10 s budget (budget + 2 × margin + ttl/3 ≤
-  ttl needs ttl ≥ 45 s). The defaults are now ttl 45 s, margin 10 s,
-  budget 10 s, slack 10 s, and `consume gc --delay` 75 s (ttl + margin +
-  a PUT's lifetime). Takeover after a crash is now 55 s.
+- **Margin ≥ 20 s** (`Timing::check_production`; 10 s until the replicated
+  run below). A statement sent under a lease version written at `sent`
+  starts by the fence (`sent + ttl − margin − budget`, the server's clock,
+  up to a margin behind ours), runs at most `budget`, commits at most
+  `slack` later: it has landed by `sent + ttl + slack`; nobody may take
+  the lane before `sent + ttl + margin`. So `margin ≥ slack`
+  (`--keeper-slack`), and the worker refuses to start below the floor with
+  the reason and the fix, unless `--allow-short-margin` (the soak's 1 s).
+  - **What the slack must cover (measured 2026-09-26 on the replicated
+    central, [`../central-replicated/README.md`](../central-replicated/README.md)
+    §Keeper overrun):** not one Keeper request (`operation_timeout_ms`,
+    10 s, as assumed before), but the server's retry loop around a commit
+    whose Keeper request hung (the node it was on frozen or partitioned,
+    or the quorum lost). The part lands when Keeper answers, up to the
+    session timeout (30 s) after the statement started: **19.0 s past a
+    10 s `max_execution_time`** in one directed run, 11.6 s past 2 s in the
+    random fault mix; every statement had its answer within 29.0 s of its
+    start. The 10 s margin was short by 9 s.
+  - **Defaults now: ttl 75 s, margin 20 s, budget 10 s, slack 20 s**
+    (75 = 1.5 × (10 + 2 × 20)); `consume gc --delay` 115 s (ttl + margin +
+    a PUT's lifetime); `--switch-hold` budget + slack + 2 s. Takeover after
+    a crash is 95 s (55 s before). They were ttl 30 s / margin 2 s before the
+    fleet-scale round, and ttl 45 s / margin 10 s during it; D9's "TTL 30 s,
+    margin ≥ 10 s" never fit a 10 s budget.
+  - **On a replicated central** (`--sync-replica` or several `--ch`) the
+    worker also reads `system.zookeeper_connection.session_timeout_ms` from
+    the replicas at start and refuses a slack below it minus the budget
+    (the operator's other knob: a shorter Keeper session timeout).
 - **Unsettled statements (a gap found, fixed).** When an insert got no
   answer (a timeout, a reset, a replica switch), the worker killed it and
   verified at once: anything missing was re-inserted. But the KILL can
   reach the server before the statement does, and on a replicated table
-  the commit can outlive `max_execution_time` by a Keeper request (10 s),
-  far beyond the worker's HTTP timeout (budget + 5 s). Either way the
-  first statement could land after the retry: a duplicate. The model never
-  allowed this (its worker verifies only once its statement is gone), the
-  code did. Now an unanswered statement leaves its lanes alone until
-  `Held::settled_by` (`sent + ttl + slack`, never after the earliest
-  takeover): no check, verify, retry or release, and a graceful stop
-  leaves such a lease to expire. A server's error answer still settles at
-  once. `MemCentral` gained late-landing statements (no answer; land as
+  the commit can outlive `max_execution_time` far beyond the worker's HTTP
+  timeout (budget + 5 s). Either way the first statement could land after
+  the retry: a duplicate. The model never allowed this (its worker
+  verifies only once its statement is gone), the code did. Now an
+  unanswered statement leaves its lanes alone until `Held::settled_by`
+  (`sent + ttl + slack`, never after the earliest takeover): no check,
+  verify, retry or release, and a graceful stop leaves such a lease to
+  expire. `MemCentral` gained late-landing statements (no answer; land as
   late as fence + budget + slack), and `an_unanswered_statement_is_waited_out`
   fails with the `ReleaseInFlight` mutant.
+- **Error answers (a second gap, found on the replicated central and
+  fixed).** The worker took any error answer from the server for the end of
+  the statement. On a replicated table a statement whose commit's Keeper
+  request hung answers `TIMEOUT_EXCEEDED` (or `KEEPER_EXCEPTION`,
+  `TABLE_IS_READ_ONLY` from the retry loop) and its part lands all the
+  same, at that moment or just after (seen on the other replica 0.1 s after
+  the answer). A verify then finds the objects missing and inserts them
+  again. Now only errors raised before anything is written settle at once
+  (`sql::SETTLING_CODES`: parse and analysis errors, access, admission,
+  `TOO_MANY_PARTS`, the range assertion); every other error is treated as
+  an unanswered statement. `MemCentral::late_error_every` answers
+  TIMEOUT_EXCEEDED and lands later; `an_error_answer_whose_commit_is_still_resolving_is_waited_out`
+  passes, and fails with the code mutant `ErrorSettles` (the old rule). The
+  model gained the matching mutant `errorSettles` (below).
 
 #### GC keeps the slot below the checkpoint (a gap found, fixed)
 
@@ -2259,6 +2300,14 @@ scripted run.
     (`*DesignTest`, all five design instances, 28 runs) shows the step the
     counterexample needs disabled there (or, for the release, harmless once
     the statement has settled).
+  - **(2026-09-26, the replicated run) `errorSettles`:** the constant
+    `ERROR_SETTLES` lets a worker verify while its statement is still in
+    flight (it took an error answer for the end of it; the model has no
+    answers, so "gone" is the only end). Simulation breaks `atMostOnce`
+    (20,000 × 60, found in 118 s), `errorSettlesBreaksTest` does by a
+    scripted run (the retry is a new statement: a tick and a renewal give it
+    a new fence), and `errorSettlesDesignTest` passes on the five design
+    instances (the step is disabled). `consumer_model.sh` runs all three.
 - **quint-connect** (`tests/mbt_s3inline_consumer.rs`): `wRelease` goes
   through `coord::may_act` and `coord::release`; `newDay` and each epoch's
   day map to received times, and the check and the verify count only the
@@ -2303,11 +2352,20 @@ scripted run.
   errors 0, no candidate key (every copy here is resent within seconds and
   was skipped). Every check was restricted to a range
   (`consumer_checks_total{range="all"} 0` on every worker).
+- **On the replicated central** (2026-09-26/27,
+  [`../central-replicated/README.md`](../central-replicated/README.md) §4):
+  two 15-minute soaks at the production lease timing with every feature on,
+  replica kills and network partitions, Keeper leader stops, node kills,
+  partitions and quorum losses, worker pauses and kills: **exactly once on
+  both replicas** (55,440 committed objects, 4.2 M rows), every check
+  ranged, the audit silent on both replicas, and 3 statements that
+  answered `TIMEOUT_EXCEEDED` and committed anyway, waited out.
 - **Faults** (`scripts/faults.sh`, the prototype's five scenarios with the
   prototype's flags, now at the 45 s / 10 s / 10 s defaults): all PASS
-  (`results/consumer/scale/faults-compat.txt`).
+  (`results/consumer/scale/faults-compat.txt`). Re-run at the 75 s / 20 s / 10 s defaults after the replicated
+  run: all five PASS (`results/consumer/scale/faults-compat-75s.txt`).
 - **Unit tests** (`cargo test --release --bin consume`, 42, all passing;
-  53 since the audit round, and the whole crate's `cargo test --release`
+  53 since the audit round, 56 since the replicated run; and the whole crate's `cargo test --release`
   passes, the model-based test's five instances included,
   `results/consumer/horizon/cargo-test.txt`):
   the new ones are named above, plus the timing checks, the backoff and
@@ -2327,7 +2385,8 @@ scripted run.
   (S3 → SQS/EventBridge) would take the idle LIST to near zero: designed,
   the `Hints` seam and the event parsing built, the SQS client not.
 - **Lease renewals** are now the largest cost of an idle lane: a CAS every
-  TTL/3 (173 k a month at 45 s, about $0.86 [E]). A longer TTL, or one
+  TTL/3 (104 k a month at the 75 s default, about $0.52; 173 k at 45 s
+  [E]). A longer TTL, or one
   lease per worker instead of per lane, would cut it; neither is built.
 - **Balancing** weighs rows/s plus a base per lane; objects/s (the fixed
   cost per statement) isn't in the weight. It was tested in unit tests and
@@ -2350,8 +2409,16 @@ scripted run.
   nothing without quorum inserts; the consumer's `--sync-replica` runs
   `SYSTEM SYNC REPLICA … LIGHTWEIGHT` before the check:
   [`../central-replicated/README.md`](../central-replicated/README.md).
-  SharedMergeTree is still untested.) The 10 s margin and the unanswered-
-  statement wait were built for it, but not run against it this round.
+  SharedMergeTree is still untested.) **The fleet-scale consumer was run
+  on the replicated central the same day** (two 15-minute soaks with
+  replica kills and network partitions, Keeper node kills, stops,
+  partitions and quorum losses, worker pauses and kills: exactly once on
+  both replicas). It found that a commit can land 19 s past the time limit
+  and after a `TIMEOUT_EXCEEDED` answer; the margin is now 20 s and such
+  answers are waited out (above). Still open there: a replica lost for
+  good with parts nobody fetched stalls those tables' lanes (the sync
+  fails) until the operator drops it from Keeper, and those batches are
+  lost (`insert_quorum` is the durability knob, DECISIONS D13).
 - **Compaction's assumptions:**
   - the zombie bound, which GC already needed;
   - no producer clock steps back by more than about the zombie bound.

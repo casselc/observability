@@ -90,23 +90,60 @@ the new `--sync-replica` flag.
   replicas killed, duplicated 7 batches in 5 minutes. The workers could not
   see the duplicates, since they arrived later by replication.
 
+**Second run, the fleet-scale consumer (2026-09-26/27) [M]:**
+[§4](#4-the-fleet-scale-consumer-on-the-replicated-central-2026-09-26).
+Plain replication (`tiered_own`), the consumer with every fleet-scale
+feature on (the check's partition range, load balancing, idle backoff,
+linger, the horizon audit beside GC, `/metrics` scraped every 15 s), at the
+production lease timing.
+
+- **Exactly once on both replicas** in two 15-minute soaks (4.2 M rows,
+  55,440 committed objects): missing, partial, duplicated and uncommitted 0
+  in every table, every acked request once. Faults: 4 replica kills, 13
+  network partitions of a replica, 6 of a Keeper node, 13 Keeper leader
+  stops, 3 Keeper node kills, 4 quorum losses, 3 worker pauses past the
+  lease, a worker kill, an edge kill, and one 7-minute stall of the whole box.
+- **The 10 s lease margin did not hold.** A commit whose Keeper request
+  hangs is resolved by the server's retry loop, up to the Keeper session
+  timeout after the statement started, and lands then: **19.0 s past a 10 s
+  `max_execution_time`** (directed), 11.6 s past a 2 s one (random Keeper
+  faults, 14 of 2,363 statements beyond 10 s). **And it answers
+  `TIMEOUT_EXCEEDED`:** 3 of the soak's statements did so and committed
+  anyway. **Fixed** in the consumer: margin 20 s (TTL 75 s), a start-up
+  check against the replicas' Keeper session timeout, and error answers
+  that may come with a commit are waited out like unanswered statements
+  (a unit test, a code mutant, and the model's `errorSettles`).
+- **The check's partition range is right on a replica,** and the sync
+  covers every partition it reads (a table-wide wait).
+- **The horizon audit gave the same answer on both replicas when synced;
+  a lagging replica missed a late copy.** Fixed: the audit syncs each table
+  (`--sync-replica`) and fails over between `--ch` replicas.
+- **Insert cost at 32 objects per statement (loaded box): replication adds
+  about 9% to an insert statement** (39.3 against 36.1 µs/row on the same
+  server, all tables; traces 17.1 against 16.4), 20% counting both
+  replicas' whole CPU. The first run's 58.6–66.7 µs/row was small
+  statements on a heavily loaded box ([§4](#insert-cost-per-row)).
+
 ## Setup
 
 | | |
 |---|---|
 | Keeper | 3 nodes: `clickhouse keeper`, client ports 29181–29183, raft 29231–29233, `configs/keeper{1,2,3}.xml` |
-| replicas | `r1`: HTTP 28123, TCP 29000, interserver 29009; `r2`: 38123 / 39000 / 39009. Configs in `configs/replica{1,2}.xml`, macros `{cluster}=central {shard}=01 {replica}=rN`. Each replica has `max_server_memory_usage_to_ram_ratio = 0.2`, small caches, and `part_log`, `query_log` and `zookeeper_log` on |
+| replicas | `r1`: HTTP 28123, TCP 29000, interserver 29009; `r2`: 38123 / 39000 / 39009. Configs in `configs/replica{1,2}.xml`, macros `{cluster}=central {shard}=01 {replica}=rN`. Each replica has `max_server_memory_usage_to_ram_ratio = 0.2`, small caches, and `part_log`, `query_log` and `zookeeper_log` on; since 2026-09-27 (after the §4 runs, when the shared box ran out of memory) also a hard `max_server_memory_usage` of 2 GB and `max_threads` 2 |
 | disks | `default` (local, the hot volume); `s3_zc` → `http://127.0.0.1:18333/central-zc/zc/`, the **same prefix on both replicas**; `s3_own` → `central-zc/own-r1/` and `own-r2/`, one prefix per replica (the plain-replication baseline) |
-| policies | `tiered_zc` = hot `default` + cold `s3_zc`; `tiered_own` = hot `default` + cold `s3_own` |
+| policies | `tiered_zc` = hot `default` + cold `s3_zc`; `tiered_own` = hot `default` + cold `s3_own`; both with `move_factor` 0 since the second run (the box's disk is 97% full, and the default 0.1 moved every new part to S3 at once) |
 | tables | `scripts/ddl.py` takes the consumer's own DDL (`consume --print-ddl`: `otel_traces` and `otel_logs` with the envelope columns, the layout-B tables from `otap-rs/sql/series_tables.sql`, plus `content_key` and the `by_content` projection) and rewrites it to `ReplicatedMergeTree('/clickhouse/tables/{shard}/<db>/<table>', '{replica}')` (Replicated**Aggregating**MergeTree for `otel_metrics_series`), with `TTL toDateTime(received_at) + INTERVAL <move> TO VOLUME 'cold', … + INTERVAL <delete> DELETE` (`LastSeen` for the series table) and `SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1`. The soak used a 3-minute move and a 1-day delete; `sql/central_zc.sql` is an example |
 | restart | `scratchpad/start-replicas.sh` starts whatever is down (`stop` stops the replicas and Keeper by pid file). It creates bucket `central-zc` and never touches the shared server on 18123/19000 |
 
-**Left running:** Keeper k1–k3 and replicas r1 and r2 are still up, and
-start-replicas.sh restarts them after a container restart. They hold the
-main soak's database `rsoak_rsoak1790373757` (2.5 M rows, one copy on S3)
-and `zexp`. The leaked objects are still in `central-zc/zc/`, as evidence.
-The whole footprint is about 1 GB under `scratchpad/crep` plus about 140 MB
-in the bucket.
+**Left running:** nothing of these runs. The first run's databases and
+the zero-copy experiment's `zexp` were wiped with `scratchpad/crep` (the
+replicas' and Keeper's data) on 2026-09-26 before the second run, and the
+bucket objects they referenced (`central-zc/zc/`, `own-r1/`, `own-r2/`,
+including the first run's leaked objects) deleted at the end of it. The
+second run's databases (`repl_*`) were dropped on both replicas, their
+Keeper paths removed, and its buckets (`repl-soak`, `repl-range`,
+`repl-bench`, `repl-faults`) deleted. Keeper and the replicas are still
+started by start-replicas.sh.
 
 ## 1. The consumer on the replicated tables
 
@@ -232,7 +269,10 @@ insert. What it does need is a sync whenever that may not hold.
 - **A SIGSTOPped worker** (a pause past its lease) also switched replicas,
   because its HTTP request timed out. That is harmless.
 
-**A time-bound caveat [D].** The lease design assumes a statement cannot
+**A time-bound caveat [D].** (Superseded 2026-09-26 by a measurement: a
+commit lands up to 19 s past `max_execution_time`, not 10 s, and the
+margin is now 20 s: [§4 Keeper overrun](#c-keeper-overrun-against-the-margin).)
+The lease design assumes a statement cannot
 commit after `fence + budget` (`max_execution_time`).
 
 - The replicated sink retries Keeper operations and checks the time limit
@@ -268,12 +308,15 @@ commit after `fence + budget` (`max_execution_time`).
   total, every check would touch the whole cold tier. **Add a partition
   predicate** to the check (`toDate(received_at) >= <oldest pending
   object's day − 1>`), so cold partitions are pruned. Not implemented here.
+  (Since built: the check reads the batch's received days ± 3, and was run
+  on the replicas in [§4](#a-the-range-restricted-check-and-the-sync).)
 - **Insert CPU on the replicated tables** was 58.6 µs per row on r1 and
   66.7 on r2 (1,452 and 2,515 statements) [M]. That is well above the
   single-node figure (2.4 ms per 200-row object, 12 µs per row [M, otap-rs
   README]). Two causes: the box was heavily loaded, and a statement here
   averaged 7.9 objects against 32. Treat it as an upper bound. Replication
-  added about 2 Keeper transactions per insert [M].
+  added about 2 Keeper transactions per insert [M]. (Re-measured at 32
+  objects per statement in [§4](#insert-cost-per-row).)
 
 ## 2. Zero-copy behaviour
 
@@ -436,6 +479,281 @@ At `$0.023/GB-month` S3 storage is usually small next to the hot tier and
 compute. The calculator's "S3 per replica" against "S3, one copy" setting
 shows the difference for a given fleet.
 
+## 4. The fleet-scale consumer on the replicated central (2026-09-26)
+
+The consumer as rebuilt for fleet scale (otap-rs README, "Consumer at
+fleet scale") had not run against replicas. This run did, on plain
+replication (`tiered_own`, the D13 design; TTL move to S3 after 5 minutes,
+so checks read S3 parts too), and fixed what it found. **[M]** throughout,
+on a box shared with another agent's Docker workload ("loaded box"; load
+averages are given with each measurement).
+
+### What ran
+
+- **Soaks** (`scripts/soak_replicated.sh`, rewritten): 3 edges behind the 3
+  fault proxies, 2 requests/s per signal each; 3 workers split across the
+  replicas (w1, w3: `--ch r1,r2`; w2: `--ch r2,r1`) with `--sync-replica
+  --no-ddl`, the check's range (3-day horizon), load balancing (`--min-hold
+  5s --loads-every 2s`), idle backoff (`500ms..5s` after 2 s), linger 300 ms
+  and `--metrics-addr`; `consume gc --ch r1,r2 --db --sync-replica` with the
+  horizon audit every 60 s; every process's `/metrics` scraped every 15 s
+  (`metrics-scrape.tsv.gz`). **Lease timing: the production defaults**
+  (after the fix below: TTL 75 s, margin 20 s, budget 10 s, slack 20 s; GC
+  `--delay 115s`), so a pause past the lease is 80–92 s. New fault kinds
+  beside the first run's: a Keeper leader SIGSTOP (5–15 s: its sessions'
+  requests hang), a **network partition of a replica** (its HTTP and
+  interserver ports DROPped both ways by iptables, 10–40 s: in-flight
+  statements lose their answer, the other replica can't fetch from it, it
+  keeps its Keeper session) and of a Keeper node (client and raft ports,
+  5–15 s). At the end: drain, `SYSTEM SYNC REPLICA` on both, the
+  exactly-once check against each replica, a final horizon audit on each
+  replica, and the overrun of every worker insert (`scripts/overrun.py`).
+- **Directed:** `scripts/range_audit_replicated.sh` (the check's range and
+  the audit on a replicated table), `scripts/keeper_overrun.sh` and
+  `scripts/keeper_long_outage.sh` (how late a commit lands),
+  `scripts/bench_insert.sh` (insert cost).
+
+### Soaks
+
+| | `results/soak-fleet/` | `results/soak-faults/` |
+|---|---|---|
+| duration, kinds | 15 min, all kinds | 15 min, no pauses: replica and Keeper faults dense |
+| faults | 3 worker pauses past the lease; 1 replica kill (7 min: the whole box stalled for 7 minutes when a parallel test run exhausted memory, so the restart waited); 2 replica partitions; 5 Keeper leader stops, 2 node kills, 3 node partitions, 2 quorum losses | 3 replica kills, **11 replica partitions**; 8 Keeper leader stops, 1 node kill, 3 node partitions, 2 quorum losses; 1 worker kill, 1 edge kill |
+| acked requests / committed objects | 10,487 / 23,463 | 14,255 / 31,977 (2 cross-epoch copies: 4,469 traces objects for 4,468 batches, 5,358 logs for 5,357) |
+| **r1 and r2** | **PASS, identical:** traces 3,940 batches / 788,000 rows, logs 3,303 / 660,600, each points table 3,244; missing, partial, duplicated, uncommitted 0; every acked request once | **PASS, identical:** traces 4,468 batches / 893,600 rows, logs 5,357 / 1,071,400, each points table 4,430; all 0; every acked request once |
+| statements | 4,868 (4.9 objects each) | 7,087 (4.5) |
+| checks | 9,264, **all ranged**, 0 recounts, 0 range-guard failures | 18,427 (last incarnations; 26,823 in all), all ranged, 0 recounts |
+| syncs / failed / replica switches | 3,866 / 180 / 5 | 5,255 / 228 / 21 |
+| insert errors / unsettled | 14 / 10 | 31 / 15 |
+| `TIMEOUT_EXCEEDED` answers / of them committed | 13 / 0 | 25 / **3** (3.1–4.1 s past the budget, committed the moment of the answer; waited out, none re-inserted) |
+| `retried_missing`, `over_count`, repairs | 0, 0, 0 | 0, 0, 0 |
+| lanes taken / released / lapsed / CAS lost | 90 / 28 / 32 / 9 | 58 / 28 / 0 / 0 |
+| horizon audit | 16 runs beside GC (2 failed: the sync failed while the table was read-only in a Keeper fault), final on r1 and r2: 6 tables, 0 candidates, late 0, unexplained 0 | 18 runs, all clean, read r1 5 times and r2 13 (failover), final: 0 / 0 / 0 on both |
+| GC | 149 runs (28 failed: S3 timeouts in the stall), 23,432 slots deleted | 205 runs, 31,949 deleted, 0 CAS conflicts |
+
+### (a) The range-restricted check and the sync
+
+`scripts/range_audit_replicated.sh`, `results/range-audit/`: a replicated
+logs table, 10 daily partitions inserted on r1 (8 of them moved to each
+replica's own S3 prefix by TTL), read on r2 after `SYSTEM SYNC REPLICA …
+LIGHTWEIGHT`.
+
+- **The ranged check reads the right thing on either replica:** the
+  consumer's SQL (`_partition_value.1 BETWEEN …`, today ± 3 days) gave the
+  same counts on r1 and r2, equal to a count without the projection over
+  those days (97 rows), and the unranged check gave the full counts; EXPLAIN
+  shows `ReadFromMergeTree (by_content)` on both replicas, and query_log
+  shows 6 parts read against 10 for the unranged check.
+- **The sync covers every partition the check reads:** `SYNC REPLICA …
+  LIGHTWEIGHT` waits for the table's whole replication queue, not a
+  partition. With fetches stopped on r2 and a batch inserted on r1 into
+  today and one into 2 days back, r2's ranged check saw neither; the sync
+  timed out (`TIMEOUT_EXCEEDED` after `receive_timeout` 3 s) instead of
+  answering; after START FETCHES it returned in 169 ms and the check saw
+  both partitions. So a failed sync defers the check, as in the first run.
+- A move to S3 happens per replica (not coordinated), so the same partition
+  can be hot on one replica and cold on the other; the check reads the
+  projection either way.
+
+### (b) The horizon audit on a replicated table
+
+- **It runs on one replica per run** (the first `--ch` URL that answers).
+  Planted copies (one 5 days after its original: late; one 2 days after:
+  unexplained) were reported identically by r1 and by r2.
+- **A lagging replica gave a different answer (a gap, fixed):** with
+  fetches stopped on r2 and a new late copy on r1, r1's audit reported it,
+  r2's didn't, and `--ch r2,r1` read r2. The next run after the fetch would
+  have caught it (the lookback is 2 days), but only if the lag ends in
+  time. **Now** `consume gc|horizon-audit … --sync-replica` syncs each table
+  first (`--audit-sync-timeout 60s`): on the lagging replica the run fails
+  (an error, counted, `consumer_audit_runs_total{result="error"}`) instead of
+  reporting a clean table, and once synced both replicas report the same
+  copies; a dead first URL fails over to the next and sticks
+  (`audit::run_replicas`; unit test `a_lagging_replica_is_synced_or_the_run_fails`,
+  against these replicas). In the soaks: 34 runs, 2 failed on a read-only
+  table during a Keeper fault, the rest clean; the final audits on r1 and
+  r2 agreed (0 candidates).
+
+### (c) Keeper overrun against the margin
+
+**The assumption was one Keeper request: a commit outlives
+`max_execution_time` by at most `operation_timeout_ms` (10 s), so a 10 s
+margin covers it. Measured, it doesn't.**
+
+- **`scripts/keeper_overrun.sh`** (`results/keeper-overrun/`): 4 insert
+  loops (2 per replica) with the consumer's statement settings and
+  `max_execution_time` 2 s, for 5 minutes, under a random Keeper fault every
+  4–10 s (leader SIGSTOP, node partition, quorum lost by SIGSTOP of two
+  nodes, leader SIGKILL; 16 faults). Per statement, the commit time from
+  part_log: 2,363 statements; p99 0.7 s *before* the time limit, but **18
+  committed past it, 14 of them more than 10 s past (max 11.6 s, i.e.
+  13.6 s after the start)**, all while the statement was answering
+  `TIMEOUT_EXCEEDED` (code 159) — the part was committed in the same
+  millisecond as the error.
+- **`scripts/keeper_long_outage.sh`** (`results/keeper-long/`), one fault
+  at a time: the quorum lost around the node r1's session is on (or with
+  `ON_LEADER=1` on the leader, where the request is proposed and waits for
+  followers), for 6–70 s, starting before the insert or (`READ_S=8
+  OFFSET=7`) while an insert that reads for 8 s is about to commit:
+
+  | outage | budget | committed | when |
+  |---|---|---|---|
+  | session on a follower, quorum lost 20–70 s | 2 s | never | answers at 19.4–21.5 s |
+  | session on a follower, 10–26 s, during the commit | 10 s | never | answers at 22.3–28.1 s |
+  | session on the leader, 8 s | 2 s | 3 of 3 | when the quorum returned, 5.3–5.9 s past the budget |
+  | session on the leader, 12–30 s | 2 s | never | answers at 17.8–28.0 s |
+  | session on the leader, 6 s, during the commit | 10 s | 2 of 2 | 3.4–3.7 s past the budget |
+  | session on the leader, **20 s, during the commit** | 10 s | **1 of 2** | **29.0 s after the start, 19.0 s past the budget**; the answer was `TIMEOUT_EXCEEDED` ("Insert of part … failed when committing to keeper (Connection loss)"), the part was committed in Keeper when the quorum returned, kept on r1 and fetched by r2 0.1 s after the answer |
+
+- **What bounds it:** not the operation timeout. The sink retries the
+  commit (reconnecting, checking whether the part got in) and gives up
+  only when the Keeper session is gone; every statement in these runs had
+  answered **within 29.0 s of its start**, just under the session timeout
+  (`session_timeout_ms` 30 s), and no commit was ever seen after its
+  statement's answer (on the inserting replica; the other replica fetched
+  it 0.1 s later). The session timeout as the bound is **[E]** from these
+  measurements; a proposal that stays in a Keeper leader's log past the
+  client's session could in principle commit later still, but then no
+  replica has the part's data and it is lost, not duplicated.
+- **So: the margin needed ≥ 19 s at a 10 s budget; the 10 s margin was short
+  by 9 s.** And the answer can be an error while the commit lands.
+  In the soaks (production timing, 2 × 15 min) the worst commit was 4.1 s
+  past the budget, and 3 statements committed with a `TIMEOUT_EXCEEDED`
+  answer.
+- **Fixed in the consumer** (`fc7322f`, otap-rs README "The
+  lease margin, and statements whose answer was lost"):
+  1. slack = Keeper session timeout − budget = **20 s**, margin ≥ slack =
+     **20 s**, so **TTL 75 s** (budget + 2 × margin + TTL/3 ≤ TTL);
+     `consume gc --delay` 115 s; `--switch-hold` budget + slack + 2 s;
+     takeover after a crash 95 s;
+  2. on a replicated central the worker reads the replicas'
+     `system.zookeeper_connection.session_timeout_ms` at start and refuses
+     a slack below it minus the budget (lowering the Keeper session timeout
+     is the other way to shorten the margin);
+  3. an error answer settles a statement only for errors raised before
+     anything is written (`sql::SETTLING_CODES`); `TIMEOUT_EXCEEDED`,
+     `KEEPER_EXCEPTION`, `TABLE_IS_READ_ONLY`, `UNKNOWN_STATUS_OF_INSERT` and
+     anything else leave the lanes alone until `sent + ttl + slack`, as for
+     a lost answer. Before, the worker verified at once, found the part not
+     yet there, and inserted it again.
+
+### (d) Unanswered statements when a replica dies or is cut off mid-insert
+
+- **Replica SIGKILL mid-insert:** the worker's request fails at transport
+  level, it switches replica, and the statement is unsettled: its lanes
+  wait until `sent + ttl + slack` (the KILL it sends goes to the new
+  replica, where the statement isn't: harmless, and not relied on). Then
+  the sync on the surviving replica fails while the dead one holds parts it
+  hasn't fetched, so the check defers until the dead replica is back. A
+  statement that died with the process either never committed or committed
+  before it died (then the restarted replica serves the part) [E]; the soaks'
+  4 replica kills left nothing missing or doubled.
+- **Replica partition** (the new fault): statements in flight lose their
+  answer (HTTP timeout at budget + 5 s) while they keep running and can
+  commit; the other replica can't fetch from the partitioned one. 11 such
+  partitions in `soak-faults` (10–40 s), with 21 replica switches, 228
+  failed syncs (deferred checks) and 15 unsettled statements, and no
+  duplicate: every one was waited out (`retried_missing` 0).
+- The 3 `TIMEOUT_EXCEEDED` answers that committed (above) are the case the
+  old code got wrong: each would have been verified at once.
+
+### (e) Metrics
+
+Scraped every 15 s from the 3 workers and GC (`metrics-scrape.tsv.gz`) and
+at the end (`metrics-*.txt`):
+
+- `consumer_late_copies_total` and `consumer_audit_unexplained_copies_total`
+  **0 for every table** in both soaks; `consumer_audit_runs_total` 14 ok / 2
+  error and 18 / 0; `consumer_checks_total{range="all"}` 0 (every check
+  ranged); `consumer_over_count_total`, `consumer_repairs_total{kind}` and
+  `consumer_range_guard_failures_total` 0 (no partial statement or foreign
+  rows was injected, and none happened).
+- **Lease changes match the faults** (`soak-fleet`): each pause past the
+  lease shows as the paused worker's lanes lapsing on SIGCONT (w2 7 lanes,
+  w3 7, w1 6, at the SIGCONT times) and the others taking them; the 7-minute
+  stall lapsed 12 more lanes on all three workers and lost 9 checkpoint
+  CASes; the balancer released 28 lanes. In `soak-faults` no lane lapsed
+  (no pauses), the killed worker's lanes were taken 95 s later, and
+  `consumer_unsettled_statements_total` steps line up with the Keeper
+  faults and partitions.
+
+### Insert cost per row
+
+`scripts/bench_insert.sh`, `results/bench-insert/` (**loaded box**: load
+average 2.0–5.9 on 4 vCPUs during the runs, another agent's Docker
+workload beside it). 2,163 requests from one edge (5,047 objects: traces
+and logs of 200 rows, points of 20, and series) ingested by `consume --once
+--max-batch 32` into a fresh database, 3 times each: **replicated**
+(`ddl.py` tables on both replicas, `--ch r1,r2 --sync-replica --no-ddl`)
+against **plain MergeTree on r1 itself** (the consumer's own DDL: the same
+server, config and disk; the shared single node has no query_log). 161
+statements a run, **31.3 objects per statement**. The statements' own CPU
+(query_log ProfileEvents, user + system), summed over the 3 runs:
+
+| table | rows per statement | plain | replicated | + |
+|---|---|---|---|---|
+| otel_traces | 6,270 | 16.4 µs/row | **17.1** | 4% |
+| otel_logs | 6,270 | 14.4 | **15.9** | 11% |
+| number points | 1,254 | 67.5 | 73.0 | 8% |
+| histogram / exp. histogram / summary points | 627 | 132.6 / 142.7 / 124.9 | 150.2 / 153.0 / 138.2 | 13% / 7% / 11% |
+| series | 1,129 | 69.6 | 75.6 | 9% |
+| **all** | | **36.1** | **39.3** | **9%** |
+
+- **Replication adds about 9% to an insert statement** at 32 objects per
+  statement (4–13% by table), and 2.1 Keeper transactions per statement
+  (1,029 over 483). Counting everything
+  on both servers (`system.events`: the checks, the other replica's
+  fetches, merges), replicated runs cost 58–61 µs per row against 48–49
+  plain, **+20%**; the second replica's share was 1.6–2.0 s of 19–21 s.
+- **So the first run's 58.6–66.7 µs/row was the batching and the box, not
+  replication:** 7.9 objects per statement under a load average of 26–35.
+  The per-row figures here are for 200-row objects; the points tables'
+  objects are 20 rows, so their fixed cost per statement shows as a high
+  per-row figure.
+- Against the otap-rs README's single-node figure (2.4 ms per 200-row
+  object, 12 µs/row, at 32 objects per statement, an idle box) traces and
+  logs here cost 14–16 µs/row plain: the box, and the range assertion and
+  fence the statement now carries.
+
+### Fixes made (and what was run after them)
+
+- **Consumer** (`otap-rs/src/consumer/`): `coord.rs` (defaults 75 / 20 / 10
+  / 20, floor 20 s, mutation `ErrorSettles`), `sql.rs` (`SETTLING_CODES`,
+  `InsertErr::answered`, `keeper_session_timeout_ms`,
+  `MemCentral::late_error_every`), `worker.rs` (`settled`), `audit.rs`
+  (`sync_replica`, `run_replicas`), `bin/consume.rs` (the session-timeout
+  check, audit `--sync-replica`/`--audit-sync-timeout`, `--ch` list for the
+  audit, gc `--delay` 115 s, switch hold). Tests:
+  `an_error_answer_whose_commit_is_still_resolving_is_waited_out` (fails
+  with `ErrorSettles`), `error_answers_that_settle`,
+  `a_lagging_replica_is_synced_or_the_run_fails`, the timing checks; the
+  56 consumer unit tests pass, and the model-based tests
+  (`tests/mbt_s3inline_consumer.rs`, the five instances, and
+  `tests/mbt_s3inline.rs`) pass after the change (`results/mbt-after-fix.txt`).
+- **Model** (`model/s3InlineConsumer.qnt`): mutant `errorSettles` (a worker
+  verifies while its statement is still in flight, having taken an error
+  answer for its end): `atMostOnce` broken by simulation (found in 118 s)
+  and by the scripted `errorSettlesBreaksTest`; `errorSettlesDesignTest`
+  shows the step disabled on the five design instances.
+- **Configs:** `move_factor` 0 on both policies.
+- Both soaks ran with the fixed consumer. The directed Keeper runs are
+  ClickHouse's behaviour, independent of the consumer.
+
+### What remains
+
+- **The Keeper bound is measured, not proven:** 29.0 s after the start at
+  the most, under the 30 s session timeout. A production Keeper under real
+  network faults, and a longer session timeout, need the same measurement;
+  the worker's start-up check ties the slack to the configured timeout.
+- **A replica lost for good with parts nobody fetched** stalls those
+  tables' checks (the sync fails) until the operator drops it from Keeper
+  (`SYSTEM DROP REPLICA`); its unfetched batches are lost. `insert_quorum`
+  (2 of 3 replicas) closes that window (D13).
+- **Takeover is slower:** 95 s after a crash (55 s at the 10 s margin);
+  lease renewals every 25 s.
+- The first run's zero-copy questions are unchanged; this run used plain
+  replication only.
+
 ## Alternatives
 
 - **Plain ReplicatedMergeTree, each replica its own S3 copy
@@ -472,7 +790,17 @@ OUT=$PWD/results/soak DURATION=900 scripts/soak_replicated.sh            # SYNC=
 OUT=$PWD/results/soak-nosync SYNC=0 DURATION=300 KINDS="0 1 3 3" scripts/soak_replicated.sh
 scripts/bench_s3.sh zc; scripts/bench_s3.sh own
 python3 scripts/blobcheck.py s3_zc zc; python3 scripts/blobcheck.py s3_own 'own-{r}'
+# §4, the fleet-scale consumer (plain replication; AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret)
+OUT=$PWD/results/range-audit scripts/range_audit_replicated.sh
+OUT=$PWD/results/keeper-overrun DURATION=300 scripts/keeper_overrun.sh
+OUT=$PWD/results/keeper-long/on-leader-budget10-read8 ON_LEADER=1 BUDGET=10 READ_S=8 OFFSET=7 INSERTS=2 DURS="6 10 14 20 30" scripts/keeper_long_outage.sh
+OUT=$PWD/results/soak-fleet DURATION=900 scripts/soak_replicated.sh
+OUT=$PWD/results/soak-faults DURATION=900 KINDS="0 2 3 3 3 7 7 7 4 5 6 6 8" scripts/soak_replicated.sh
+OUT=$PWD/results/bench-insert REPS=3 GEN_S=120 RATE=6 scripts/bench_insert.sh
 ```
+
+Copy a script elsewhere before running it if you may edit it meanwhile:
+bash reads a script as it runs.
 
 ## Files
 
@@ -496,3 +824,11 @@ python3 scripts/blobcheck.py s3_zc zc; python3 scripts/blobcheck.py s3_own 'own-
   `drop-ttl.txt`, `replica-drop.txt`, `drop-detached.txt`, `bench_s3.txt`,
   `keeper-locks*.txt`, `blobcheck-final.json`
 - Consumer: `otap-rs/src/consumer/sql.rs`, `otap-rs/src/bin/consume.rs`
+- §4: `scripts/soak_replicated.sh` (now plain replication by default,
+  `TIMING=prod|short`, fault kinds 0–8), `scripts/range_audit_replicated.sh`,
+  `scripts/keeper_overrun.sh`, `scripts/keeper_long_outage.sh`,
+  `scripts/overrun.py` (commit past `max_execution_time`, from query_log and
+  part_log), `scripts/bench_insert.sh`; results `results/soak-fleet/`,
+  `results/soak-faults/` (summary, chaos, metrics at the end and scraped,
+  stats, audits, the inserts' overrun table), `results/range-audit/`,
+  `results/keeper-overrun/`, `results/keeper-long/`, `results/bench-insert/`

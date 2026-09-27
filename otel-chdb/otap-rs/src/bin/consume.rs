@@ -16,6 +16,7 @@
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
+//!   consume --print-ddl SIGNAL | --print-rollups SIGNAL | --print-structure SIGNAL | --print-cols SIGNAL
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
 //!           audit flags: [--check-horizon 3d | all] [--audit-lookback 2d] [--audit-sample-hex 0]
 //!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2]
@@ -190,11 +191,16 @@ async fn audit(args: &[String], b: &S3Bucket, root: &str) {
 async fn main() {
     otel_arrow_dfe_otap::crypto::install_crypto_provider().expect("crypto provider");
     let args: Vec<String> = std::env::args().collect();
-    // For scripts: a lane kind's s3() structure / target columns / DDL.
-    for (f, what) in [("--print-structure", 0), ("--print-cols", 1), ("--print-ddl", 2)] {
+    // For scripts: a lane kind's s3() structure / target columns / table DDL
+    // (one statement, no ';') / the statements `ensure` runs after the table
+    // (the key-value rollup table and its materialized view for traces and
+    // logs, each ending in ';'; nothing for metrics). Table names are `db.<table>…`.
+    for (f, what) in [("--print-structure", 0), ("--print-cols", 1), ("--print-ddl", 2), ("--print-rollups", 3)] {
         if let Some(s) = arg(&args, f) {
             let k = consumer::sql::LaneKind::for_signal(&s).expect("a known signal");
-            println!("{}", [k.structure.clone(), k.cols.clone(), k.create_table(&format!("db.{}", k.table))][what]);
+            let fq = format!("db.{}", k.table);
+            let rollups = k.create_rollups(&fq).iter().map(|st| format!("{st};\n")).collect::<Vec<_>>().join("\n");
+            print!("{}", [k.structure.clone() + "\n", k.cols.clone() + "\n", k.create_table(&fq) + "\n", rollups][what]);
             return;
         }
     }

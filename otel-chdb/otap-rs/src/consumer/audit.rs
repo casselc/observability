@@ -476,7 +476,7 @@ async fn audit_table(ch: &ClickHouse, db: &str, t: &Target, cfg: &AuditConfig, s
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const D: u64 = DAY_NS;
@@ -742,7 +742,7 @@ mod tests {
     }
 
     /// A minimal OTLP ExportLogsServiceRequest with `n` records (protobuf by hand).
-    fn otlp_logs(n: usize, tag: &str) -> Vec<u8> {
+    pub(crate) fn otlp_logs(n: usize, tag: &str) -> Vec<u8> {
         fn len(buf: &mut Vec<u8>, field: u8, body: &[u8]) {
             buf.push(field << 3 | 2);
             let mut l = body.len();
@@ -777,8 +777,9 @@ mod tests {
     /// End to end, the way it happens: an edge's objects on S3, the worker
     /// ingesting them with the default 3-day horizon, and the audit. Two
     /// requests were received 5 days and 2 days ago and ingested; each is
-    /// then resent (a durable buffer's replay after an outage: a new epoch, a
-    /// new received time). The worker's check skips the copy within the
+    /// then resent with new custody (a sender's resend after its own outage:
+    /// a new epoch, a new received time; an edge buffer's replay keeps its
+    /// received_at since 8efc34f and stays in the original's partition). The worker's check skips the copy within the
     /// horizon and ingests the other one again; the audit reports exactly
     /// that one, as late.
     #[tokio::test(flavor = "current_thread")]

@@ -89,6 +89,25 @@ impl LaneKind {
         }
         central::create_table(fq, s)
     }
+
+    /// What runs after `create_table`, one statement each: for traces and
+    /// logs ClickStack's key-value rollup table (`<fq>_kv_rollup_15m`) and
+    /// the materialized view that fills it (`central::create_rollups`); for
+    /// metrics nothing.
+    pub fn create_rollups(&self, fq: &str) -> Vec<String> {
+        let s = Signal::from_name(&self.signal).expect("a known signal");
+        if s.is_series_layout() {
+            return Vec::new();
+        }
+        central::create_rollups(fq, s)
+    }
+}
+
+/// The object a `CREATE TABLE` / `CREATE MATERIALIZED VIEW … IF NOT EXISTS`
+/// statement creates (fully qualified as written).
+pub fn created_name(ddl: &str) -> Option<&str> {
+    let rest = ddl.split_once(" IF NOT EXISTS ")?.1;
+    rest.split(|c: char| c.is_whitespace() || c == '(').next().filter(|n| !n.is_empty())
 }
 
 /// Why a statement failed.
@@ -470,14 +489,31 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
             let e = self
                 .q(&format!("SELECT engine FROM system.tables WHERE database = {} AND name = {}", sq(db), sq(t)), &[])
                 .await?;
-            return match e.trim() {
-                "" => Err(format!("{fq} does not exist (--no-ddl: create it with the replicated DDL)")),
-                _ => self.learn_partition_key(&fq).await,
-            };
+            if e.trim().is_empty() {
+                return Err(format!("{fq} does not exist (--no-ddl: create it with the replicated DDL)"));
+            }
+            // The rollup is HyperDX's, not the consumer's: a missing one is
+            // said, not fatal (ingestion is exactly-once without it).
+            for st in k.create_rollups(&fq) {
+                let Some(name) = created_name(&st) else { continue };
+                let (rdb, rt) = name.split_once('.').unwrap_or((db, name));
+                let r = self.q(&format!("SELECT count() FROM system.tables WHERE database = {} AND name = {}", sq(rdb), sq(rt)), &[]).await?;
+                if r.trim() == "0" {
+                    eprintln!("consume: {name} does not exist (--no-ddl): {fq}'s key-value rollup is not maintained");
+                }
+            }
+            return self.learn_partition_key(&fq).await;
         }
+        let fq = self.fq(k);
         self.q(&format!("CREATE DATABASE IF NOT EXISTS {}", self.db), &[]).await?;
-        self.q(&k.create_table(&self.fq(k)), &[]).await?;
-        self.learn_partition_key(&self.fq(k)).await
+        self.q(&k.create_table(&fq), &[]).await?;
+        // Then the rollup table and its view (traces, logs), each IF NOT
+        // EXISTS: a table created by an earlier consumer gets them now, and
+        // its rows from before are not in the rollup.
+        for st in k.create_rollups(&fq) {
+            self.q(&st, &[]).await?;
+        }
+        self.learn_partition_key(&fq).await
     }
 
     fn ranged(&self, k: &LaneKind) -> bool {
@@ -803,5 +839,115 @@ mod tests {
         }
         assert!(LaneKind::for_signal("metrics_gauge").unwrap().counted);
         assert!(LaneKind::for_signal("nope").is_none());
+    }
+
+    /// Traces and logs get ClickStack's rollup table and view after the
+    /// table, named after the (possibly overridden) table; metrics get none.
+    #[test]
+    fn rollups_follow_the_table() {
+        for (sig, mv) in [("traces", "db.t_kv_rollup_15m_mv"), ("logs", "db.t_attr_kv_rollup_15m_mv")] {
+            let k = LaneKind::for_signal(sig).unwrap();
+            let r = k.create_rollups("db.t");
+            assert_eq!(r.len(), 2, "{r:?}");
+            assert_eq!(r, central::create_rollups("db.t", Signal::from_name(sig).unwrap()));
+            assert_eq!(r.iter().map(|s| created_name(s).unwrap()).collect::<Vec<_>>(), vec!["db.t_kv_rollup_15m", mv]);
+            assert!(r[1].contains(" TO db.t_kv_rollup_15m\n") && r[1].contains("FROM db.t\n"), "{}", r[1]);
+        }
+        for sig in ["metrics_gauge", "metrics_sum", "metrics_series", "metrics_number_points", "metrics_summary_points"] {
+            assert!(LaneKind::for_signal(sig).unwrap().create_rollups("db.t").is_empty(), "{sig}");
+        }
+        assert_eq!(created_name("CREATE TABLE IF NOT EXISTS db.x (a UInt8)"), Some("db.x"));
+        assert_eq!(created_name("CREATE TABLE IF NOT EXISTS db.x\n("), Some("db.x"));
+        assert_eq!(created_name("SELECT 1"), None);
+    }
+
+    /// Against ClickHouse and SeaweedFS (skipped when either is down;
+    /// `OTAPRS_CH`, `OTAPRS_S3=http://host/bucket`): `ensure` creates the
+    /// logs and traces tables with their rollup tables and views, and is
+    /// idempotent; an insert through the consumer's statement fills the
+    /// rollup with one count per row and key; the exact retry of that
+    /// statement (same dedup token) adds nothing to the table AND nothing to
+    /// the rollup (the rollup target's dedup window).
+    #[tokio::test(flavor = "current_thread")]
+    async fn ensure_creates_the_rollup_and_an_insert_fills_it() {
+        use crate::consumer::audit::tests::otlp_logs;
+        use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
+        use otap_s3pq::batch::{Encoder, Format, Input};
+        use otap_s3pq::encode::ParquetOptions;
+        use otap_s3pq::flatten::Envelope;
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let ch = ClickHouse::new(&url);
+        if ch.query("SELECT 1", &[]).await.is_err() {
+            eprintln!("no ClickHouse at {url}: skipped");
+            return;
+        }
+        let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
+        let id = format!("{:08x}", rand::random::<u32>());
+        let store = otap_s3pq::store::S3Config {
+            url: format!("{s3}/rollup-it-{id}/edges"),
+            access_key_id: Some("otel".into()),
+            secret_access_key: Some("otelsecret".into()),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        let root = store.prefix.clone();
+        let bucket = Rc::new(S3Bucket::new(store));
+        if bucket.list(&root, None).await.is_err() {
+            eprintln!("no S3 at {s3}: skipped");
+            return;
+        }
+        let db = format!("rollup_it_{id}");
+        let c = ClickHouseCentral::new(&url, &db, bucket.clone(), "otel", "otelsecret", 20_000);
+        let (lk, tk) = (LaneKind::for_signal("logs").unwrap(), LaneKind::for_signal("traces").unwrap());
+        for _ in 0..2 {
+            c.ensure(&lk).await.unwrap();
+            c.ensure(&tk).await.unwrap();
+        }
+        let tables = ch.query(&format!("SELECT name, engine FROM system.tables WHERE database = {} ORDER BY name FORMAT TSV", sq(&db)), &[]).await.unwrap();
+        assert_eq!(
+            tables,
+            "otel_logs\tMergeTree\notel_logs_attr_kv_rollup_15m_mv\tMaterializedView\notel_logs_kv_rollup_15m\tSummingMergeTree\n\
+             otel_traces\tMergeTree\notel_traces_kv_rollup_15m\tSummingMergeTree\notel_traces_kv_rollup_15m_mv\tMaterializedView"
+        );
+        // Two logs objects on S3, as an edge writes them.
+        let now = crate::consumer::wall_ms() * 1_000_000;
+        let lane = format!("{root}/p1/logs");
+        let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet);
+        let mut objs = Vec::new();
+        for (seq, (n, tag)) in [(7, "a"), (5, "b")].into_iter().enumerate() {
+            let f = enc.flatten(&Input::Otlp(Signal::Logs, &otlp_logs(n, tag))).unwrap();
+            let o = enc.encode(&f, &Envelope { producer: "p1".into(), epoch: "E1".into(), batch: seq as u64, received_ns: now }).unwrap();
+            let key = format!("{lane}/E1/{seq}.parquet");
+            assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0 });
+        }
+        let refs: Vec<&Obj> = objs.iter().collect();
+        let rollup = || {
+            let q = format!("SELECT Key, sum(count) FROM {db}.otel_logs_kv_rollup_15m GROUP BY Key ORDER BY Key FORMAT TSV");
+            let ch = &ch;
+            async move { ch.query(&q, &[]).await.unwrap() }
+        };
+        let rows = || {
+            let q = format!("SELECT count() FROM {db}.otel_logs");
+            let ch = &ch;
+            async move { ch.query(&q, &[]).await.unwrap() }
+        };
+        let fence = || Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
+        c.insert(&lk, &refs, fence(), "tok-1", true).await.unwrap();
+        assert_eq!(rows().await, "12");
+        let first = rollup().await;
+        assert!(!first.is_empty() && first.lines().all(|l| l.ends_with("\t12")), "one count per row and key: {first}");
+        assert!(first.lines().any(|l| l.starts_with("ServiceName\t")), "{first}");
+        // The exact retry: deduplicated in the table and in the rollup.
+        c.insert(&lk, &refs, fence(), "tok-1", true).await.unwrap();
+        assert_eq!(rows().await, "12");
+        assert_eq!(rollup().await, first, "an exact retry counts nothing twice");
+        // Counts by the projection, as the check reads them.
+        let n = c.counts(&lk, &[&objs[0].content, &objs[1].content], None).await.unwrap();
+        assert_eq!((n[&objs[0].content], n[&objs[1].content]), (7, 5));
+        ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+        let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
+        let _ = bucket.delete(&keys).await;
     }
 }

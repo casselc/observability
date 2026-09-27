@@ -313,10 +313,11 @@ consumer reads both with `--depth 2`.
   nothing, `results/k8s-sim.md` §8 row 6). Without a max connection age a
   running agent never resolves the new pod (its `dns:///` round robin
   re-resolves only when a connection closes; on kind the fourth publisher
-  got no traffic for as long as we watched, §8), which is still the case
-  for the Go publisher unless its OTLP receiver sets
-  `keepalive.server_parameters.max_connection_age`: restart the agents
-  there. With `components/routing` the gateways watch EndpointSlices; the
+  got no traffic for as long as we watched, §8). The Go publisher gets the
+  same behaviour from grpc-go's native
+  `keepalive.server_parameters.max_connection_age` (5m, grace 45s in
+  `base/go/publisher-config.yaml`, 2026-09-27; configured, not yet tested
+  end to end). With `components/routing` the gateways watch EndpointSlices; the
   agents' metrics go straight to the publishers and are covered by the
   connection age.
 - **Scale down** only while S3 is healthy, and keep the removed ordinal's

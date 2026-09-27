@@ -27,6 +27,16 @@ receivers:
       grpc:
         endpoint: 0.0.0.0:4317
         max_recv_msg_size_mib: 128
+        # Recycle connections so agents re-resolve DNS and a scaled-up
+        # publisher gets traffic without an agent restart (the Rust
+        # publisher does the same with patches/0004). grpc-go sends GOAWAY at
+        # the (jittered) age; the grace lets in-flight exports finish and must
+        # stay above the agents' export timeout, or a cut request is resent
+        # and duplicated.
+        keepalive:
+          server_parameters:
+            max_connection_age: 5m
+            max_connection_age_grace: 45s
       http:
         endpoint: 0.0.0.0:4318
 extensions:

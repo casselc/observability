@@ -363,6 +363,81 @@ jobs:
           path: ${{ github.workspace }}/.ci/dst
           if-no-files-found: ignore
 
+  # Property, stateful and concurrent tests with Hegel (otap-rs/HEGEL.md),
+  # under hegel.toml's nightly profile: 3,000 cases per test from a fresh
+  # seed, and a database of failing examples that the next night replays
+  # first (the Actions cache; also uploaded as `hegel-db`). Then the planted
+  # bugs the stateful machine must find (up to 20,000 cases each), and the
+  # concurrent machine: real thread races on conditional writes against the
+  # S3 emulator and SeaweedFS, plus its racy-store mutant.
+  hegel:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: otel-chdb/otap-rs
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+      HEGEL_DEFAULT_PROFILE: nightly
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      # The failing examples found so far: a new entry every night (the key
+      # holds the run id), restored from the newest one.
+      - uses: actions/cache@v6
+        with:
+          path: otel-chdb/otap-rs/.hegel
+          key: hegel-db-${{ github.run_id }}
+          restore-keys: hegel-db-
+      - name: Start SeaweedFS and ClickHouse
+        run: ../../ci/services.sh start
+      - name: Build the Hegel tests
+        run: cargo test --release --locked --test hegel_props --test hegel_dst --test hegel_race --no-run
+      - name: Properties (3,000 cases each, SQL against ClickHouse)
+        env:
+          HEGEL_CH: "1"
+        run: cargo test --release --locked --test hegel_props
+      - name: Stateful and swarm testing of the consumer fleet (3,000 cases)
+        run: cargo test --release --locked --test hegel_dst -- hegel_dst_fleet --nocapture
+      - name: The planted bugs, each found and shrunk (coord::Mutation)
+        env:
+          HEGEL_DST_MUTANTS: "1"
+          HEGEL_DST_MUTANT_CASES: "20000"
+        run: cargo test --release --locked --test hegel_dst -- hegel_dst_finds_mutants --nocapture
+      - name: Concurrent races on conditional writes (emulator, then SeaweedFS; the racy-store mutant)
+        env:
+          HEGEL_RACE_MUTANTS: "1"
+        run: |
+          cargo test --release --locked --test hegel_race -- --nocapture
+          HEGEL_TEST_CASES=300 HEGEL_RACE_S3=http://127.0.0.1:18333/otel HEGEL_RACE_RUN="ci-$GITHUB_RUN_ID" \
+            cargo test --release --locked --test hegel_race -- race_conditional_writes --nocapture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: hegel-db
+          path: otel-chdb/otap-rs/.hegel
+          include-hidden-files: true
+          if-no-files-found: ignore
+
   # The quint-connect model-based tests: quint drives the protocol and the
   # consumer through traces of ../model/*.qnt (the Rust evaluator). One test
   # binary per runner, one test at a time: each quint run takes 2.5-4 GB

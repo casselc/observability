@@ -13,7 +13,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 |---|---|
 | `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`) |
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
-| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`) |
+| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
 
 **`nightly.yml`: 03:17 UTC daily and on demand** (`workflow_dispatch`, with
 the soak's length as an input). `build` runs first; the others run beside it
@@ -26,6 +26,7 @@ or after it.
 | `faults-soak` | `otap-rs/scripts/faults.sh`, then `otap-rs/scripts/consumer_soak.sh` for 300 s |
 | `rust-integration` | `tests/series.rs` with the Go prototype's fleet objects, `tests/creds.rs` against credstubs |
 | `dst` | the deterministic simulation (`otap-rs/DST.md`): 10,000 new level-1 seeds and 200 new turmoil seeds a night (base = run number × 100,000), the meta tests with 20 seeds, the emulators against the services; failing seeds' traces as the `dst-traces` artifact |
+| `hegel` | Hegel (`otap-rs/HEGEL.md`) under `hegel.toml`'s `nightly` profile (`HEGEL_DEFAULT_PROFILE=nightly`: 3,000 cases per test, a fresh seed): the properties, the stateful and swarm machine over the consumer fleet, the eight planted bugs it must find and shrink (`HEGEL_DST_MUTANTS=1`, up to 20,000 cases each), and the concurrent machine (thread races on conditional writes) against the S3 emulator, its racy-store mutant, and SeaweedFS; the database of failing examples is kept in the Actions cache (replayed first the next night) and uploaded as `hegel-db` |
 | `rust-mbt` (x3) | the quint-connect model-based tests, one runner per test binary (`mbt_s3inline`, `mbt_s3inline_metrics`, `mbt_s3inline_consumer`), `--test-threads=1`, `QUINT_SEED=0x5eed` |
 | `model` | `otap-rs/scripts/consumer_model.sh` through `ci/model-check.sh`; `parquetgo/modelcheck` |
 | `kani` | Kani 0.68.0 (cached); `cargo kani` in `otap-rs/verify`: the proof harnesses for the consumer's lease window and check range (`otap-rs/VERIFY.md`), ~20 min |
@@ -65,6 +66,7 @@ cargo test --release --locked --lib --bins
 SERIES=1 ../../ci/gen-data.sh /tmp/otaprs-data
 OTAPRS_DATA=/tmp/otaprs-data OTAPRS_SERIES_GO=/tmp/otaprs-data/series/go \
   cargo test --release --locked --test determinism --test otap_view --test metrics --test series
+HEGEL_CH=1 cargo test --release --locked --test hegel_props --test hegel_dst   # HEGEL_DEFAULT_PROFILE=nightly for the nightly budget
 for t in mbt_s3inline mbt_s3inline_metrics mbt_s3inline_consumer; do   # one at a time: 2.5-4 GB each
   QUINT_SEED=0x5eed cargo test --release --locked --test $t -- --test-threads=1
 done
@@ -106,7 +108,15 @@ PBT_QUINT=1 ci/go-modules.sh test chdb` for the libchdb tests.
   `NODE_OPTIONS=--max-old-space-size=5120`. Without it quint dies with
   "JavaScript heap out of memory", which quint-connect reports only as
   "Quint returned non-zero code." (it drops quint's stderr).
+- **Hegel.** `hegel.toml` (in `otel-chdb/otap-rs`, where cargo runs the
+  tests) holds the profiles; the shipped `ci` profile is selected on CI
+  automatically. The concurrent machine (`tests/hegel_race.rs`) is
+  nondeterministic (the OS schedules its threads; Hegel neither shrinks nor
+  replays it), so it runs nightly only. The stateful machine's case is a
+  deterministic simulation, so its failures shrink and replay; a failure
+  prints a `#[hegel::reproduce_failure("…")]` line.
 - **Caches.** Cargo (registry and `target/`) is keyed on the toolchain,
   `Cargo.lock`, `UPSTREAM` and the patches; the upstream checkout on
   `UPSTREAM` and the patches; Go per job on the `go.sum` files; libchdb on
-  `update_libchdb.sh`, which holds the pin.
+  `update_libchdb.sh`, which holds the pin; Hegel's database per nightly run,
+  restored from the newest.

@@ -148,6 +148,10 @@ jobs:
         run: cargo test --release --locked --test determinism --test otap_view --test metrics --test series
       - name: Deterministic simulation (otap-rs/DST.md; fixed seeds, the emulators against the services)
         run: cargo test --release --locked --test dst_consumer --test dst_net
+      - name: Property and stateful tests (otap-rs/HEGEL.md; hegel.toml's ci profile, 100 derandomized cases each)
+        env:
+          HEGEL_CH: "1"
+        run: cargo test --release --locked --test hegel_props --test hegel_dst
       - name: Service logs
         if: failure()
         run: |

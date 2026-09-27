@@ -1,0 +1,1 @@
+WARN horizon-audit: late copy in otel_traces: lane edge/traces epoch 20261001T015447.439Z-ba270c44 received 2026-10-01T01:54:47Z, 96.0h after its original (lane edge/traces epoch 20260927T015438.022Z-80115c8f received 2026-09-27T01:54:38Z); content_key 2aa717f4c1bd104b2b51f0fb54144499, 10000 rows, 10000 rows duplicated; check horizon 72.0h

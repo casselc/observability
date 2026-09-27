@@ -1,0 +1,15 @@
+received_at stamp overhead, edge-durable.yaml, 30 x 10k-span requests per run
+(otap-s3pq.old: before patch 0003 / the exporter change; new: after).
+cpu_ms/req: edge process utime+stime; disk_write_KB/req: /proc/<pid>/io write_bytes (WAL + segments).
+old rep1 cpu_ms/req=30 disk_write_KB/req=6234
+new rep1 cpu_ms/req=28 disk_write_KB/req=6235
+old rep2 cpu_ms/req=25 disk_write_KB/req=6236
+new rep2 cpu_ms/req=26 disk_write_KB/req=6234
+old rep3 cpu_ms/req=30 disk_write_KB/req=6234
+new rep3 cpu_ms/req=28 disk_write_KB/req=6234
+By construction: WAL bytes unchanged (the WAL already recorded each entry's
+ingestion time); the segment manifest gains one nullable Int64 per bundle
+(8 B + validity) and one field in its schema; per request the exporter reads
+one Option<SystemTime> from the pdata context.
+Go (parquetgo/s3pqexporter BenchmarkReceivedStamp): 1.5 us, 624 B, 10 allocs
+per request to stamp and read back; +45 B per request in the file_storage record.

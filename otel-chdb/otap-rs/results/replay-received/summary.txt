@@ -1,0 +1,8 @@
+design: SIGKILL with 3 of 4 objects landed, none acked
+design: 7 objects, 4 requests, 3 replayed in a second epoch; metadata == rows' received_at in every object: True; replays with the original's received_at: 3/3
+  central: 40000 rows (expected 40000), 4 requests, 4 epochs; horizon-audit WARN lines: 0
+  PASS (the design's claim: every replay keeps received_at, central holds each request once, the audit is silent)
+control: SIGKILL with 3 of 4 objects landed, none acked
+control: 7 objects, 4 requests, 3 replayed in a second epoch; metadata == rows' received_at in every object: True; replays with the original's received_at: 0/3 (others 4.0 days later)
+  central: 70000 rows (expected 40000), 4 requests, 6 epochs; horizon-audit WARN lines: 3
+  mutant caught (the design: every replay keeps received_at, central holds each request once, the audit is silent)

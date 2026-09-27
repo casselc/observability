@@ -13,8 +13,9 @@
 # (LANES=4, so several commit at once); SIGKILL once objects have landed;
 # restart on the same buffer with the wall clock 4 days ahead (GAP_S,
 # LD_PRELOAD shim; S3 then goes to an unauthenticated gateway on the same
-# filer, since a 4-day skew fails SigV4); then the consumer (default check
-# horizon, 3 days) and its horizon audit.
+# filer, unsigned, since a 4-day skew fails SigV4). The consumer (default
+# check horizon, 3 days) runs once during the outage (it ingests the
+# originals) and once after the restart, then its horizon audit.
 #
 #   design   the edge under test ($B/otap-s3pq): every replayed copy has the
 #            original's received_at, in metadata and rows; central holds each
@@ -63,12 +64,14 @@ int clock_gettime(clockid_t c, struct timespec *ts) {
 EOF
 cc -O2 -shared -fPIC -o "$tmp/clockshift.so" "$tmp/clockshift.c" -ldl || exit 1
 echo "s3.bucket.create -name $BUCKET" | "$WEED" shell -master=$MASTER > /dev/null 2>&1
-"$WEED" s3 -filer=$FILER -ip.bind=127.0.0.1 -port=$NOAUTH_PORT -port.grpc=$((NOAUTH_PORT + 10000)) -port.iceberg=0 -port.lance=0 > "$tmp/noauth.log" 2>&1 &
+# An anonymous gateway (a 4-day skew fails SigV4): the restarted edge sends unsigned requests.
+echo '{"identities":[{"name":"anonymous","actions":["Admin","Read","Write","List","Tagging"]}]}' > "$tmp/anon.json"
+"$WEED" s3 -config="$tmp/anon.json" -filer=$FILER -ip.bind=127.0.0.1 -port=$NOAUTH_PORT -port.grpc=$((NOAUTH_PORT + 10000)) -port.iceberg=0 -port.lance=0 > "$tmp/noauth.log" 2>&1 &
 noauth=$!
 for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$NOAUTH_PORT/" && break; sleep 0.2; done
 
 edge() { # bin s3url buffer-dir log [shift_s]  (background; prints the pid)
-  env ${5:+LD_PRELOAD=$tmp/clockshift.so CLOCK_SHIFT_S=$5} BUFFER_DIR=$3 VERBOSE=true LANES=4 \
+  env ${5:+LD_PRELOAD=$tmp/clockshift.so CLOCK_SHIFT_S=$5 AWS_SKIP_SIGNATURE=true} BUFFER_DIR=$3 VERBOSE=true LANES=4 \
     OTLP_HTTP=127.0.0.1:$port OTLP_GRPC=127.0.0.1:$((port - 1)) ADMIN_HTTP=127.0.0.1:$admin \
     PRODUCER=edge PUT_TIMEOUT=2s S3_URL=$2 "$1" -c "$here/configs/edge-durable.yaml" >> "$4" 2>&1 &
   echo $!
@@ -84,6 +87,10 @@ head_meta() { # path-in-bucket name -> x-amz-meta-oscope-<name> (HEAD through th
 }
 count() { q "SELECT count() FROM s3('$S3/$BUCKET/$1/**.parquet', '$AWS_ACCESS_KEY_ID', '$AWS_SECRET_ACCESS_KEY', 'One') WHERE _size > 0 SETTINGS s3_skip_empty_files = 1" 2>/dev/null || echo 0; }
 
+consume() { # the consumer, once over the scenario's root (uses $root, $db)
+  "$B/consume" --s3 "$S3/$BUCKET/$root" --ch "$CH" --db "$db" --signals traces --exit-after-idle 5s --poll 300ms \
+    --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY"
+}
 scenario() { # name edge-binary
   local name=$1 bin=$2 root=$RUN/$1 buf=$tmp/buf-$1 log=$OUT/$1.edge.log
   local db=$DBP$(echo "${RUN}_$1" | tr -c 'a-zA-Z0-9_\n' _)
@@ -101,6 +108,11 @@ scenario() { # name edge-binary
   kill $fp; wait $fp 2>/dev/null
   local before; before=$(count "$root")
   echo "$name: SIGKILL with $before of $N objects landed, none acked" | tee -a "$OUT/summary.txt"
+  # the consumer ingests the originals during the outage (as it would: the
+  # replay comes days later); one run per phase, so nothing but the check
+  # can tell a later copy from its original
+  q "DROP DATABASE IF EXISTS $db"
+  consume > "$OUT/$name.consume.log" 2>&1
   sleep 2
   p=$(edge "$bin" "http://127.0.0.1:$NOAUTH_PORT/$BUCKET/$root/edge" "$buf" "$log" "$GAP_S"); ready
   for _ in $(seq 100); do [ "$(count "$root")" -ge $((N + before)) ] && break; sleep 0.2; done
@@ -111,9 +123,7 @@ scenario() { # name edge-binary
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$key" "$(head_meta "$key" content)" "$(head_meta "$key" received)" "$lo" "$hi" "$rows"
   done > "$OUT/$name.objects.tsv"
   # central: the consumer (default check horizon), then the horizon audit
-  q "DROP DATABASE IF EXISTS $db"
-  "$B/consume" --s3 "$S3/$BUCKET/$root" --ch "$CH" --db "$db" --signals traces --exit-after-idle 5s --poll 300ms \
-    --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY" > "$OUT/$name.consume.log" 2>&1
+  consume >> "$OUT/$name.consume.log" 2>&1
   "$B/consume" horizon-audit --s3 "$S3/$BUCKET/$root" --ch "$CH" --db "$db" --audit-no-state \
     --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY" > "$OUT/$name.audit.log" 2>&1
   q "SELECT count(), uniqExact(content_key), uniqExact(producer_epoch), uniqExact(received_at) FROM $db.otel_traces FORMAT TSV" > "$tmp/central"
@@ -138,7 +148,8 @@ print(f"{name}: {len(rows)} objects, {len(by)} requests, {len(copies)} replayed 
 print(f"  central: {c_rows} rows (expected {n * 10000}), {c_keys} requests, {c_epochs} epochs; "
       f"horizon-audit WARN lines: {warns}")
 ok = agree and len(copies) > 0 and int(c_rows) == n * 10000 and len(kept) == len(copies) and warns == 0
-print(f"  {'PASS' if ok else 'FAIL'} (design: every replay keeps received_at, central exactly once, audit silent)")
+verdict = ("PASS" if ok else "FAIL") if name == "design" else ("mutant caught" if not ok else "mutant NOT caught")
+print(f"  {verdict} (the design's claim: every replay keeps received_at, central holds each request once, the audit is silent)")
 EOF
   q "DROP DATABASE IF EXISTS $db"
 }

@@ -79,3 +79,19 @@ func TestReceivedSurvivesTheQueue(t *testing.T) {
 		t.Fatal("unstamped context changed")
 	}
 }
+
+// The stamp's cost per request: stamping as the request is taken, reading
+// it back before publishing, and the bytes it adds to the queue's record.
+func BenchmarkReceivedStamp(b *testing.B) {
+	td := ptrace.NewTraces()
+	td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans().AppendEmpty().SetName("x")
+	base := client.NewContext(context.Background(), client.Info{Metadata: client.NewMetadata(map[string][]string{"x-tenant": {"a"}})})
+	plain, _ := pdatareq.MarshalTraces(base, td)
+	stamped, _ := pdatareq.MarshalTraces(stampReceived(base, time.Now()), td)
+	now := time.Now()
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = withReceived(stampReceived(base, now))
+	}
+	b.ReportMetric(float64(len(stamped)-len(plain)), "queue-bytes/req")
+}

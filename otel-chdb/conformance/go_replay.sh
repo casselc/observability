@@ -13,8 +13,9 @@
 # The publisher is ../deploy/base/go/publisher-config.yaml (file_storage
 # queue, 2 lanes) on otelcol-s3pq, behind faultproxy2 holding every PUT's
 # answer 5 s; 4 traces requests; SIGKILL once objects have landed; GAP
-# seconds later a restart on the same queue, straight to S3; then the
-# consumer (default check horizon) and its horizon audit. The check: every
+# seconds later a restart on the same queue, straight to S3. The consumer
+# (default check horizon) runs during the outage and after the restart,
+# then its horizon audit. The check: every
 # replayed copy has its original's received_at in metadata and rows (the
 # restart's clock is >= GAP s later), central holds each request once, the
 # audit is silent. (The Go runtime reads the clock through the vDSO, so the
@@ -62,6 +63,12 @@ sleep 0.5
 kill -KILL "$(cat "$tmp/pub.pid")"; kill $fp; wait $fp 2>/dev/null
 before=$(count)
 echo "SIGKILL with $before of $N objects landed, none removed from the queue; restart in ${GAP}s" | tee "$OUT/summary.txt"
+consume() {
+  "$B/consume" --s3 "$S3/$BUCKET/$RUN" --ch "$CH" --db "$db" --signals traces --exit-after-idle 5s --poll 300ms \
+    --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY"
+}
+q "DROP DATABASE IF EXISTS $db"
+consume > "$OUT/consume.log" 2>&1   # the originals, during the outage
 sleep "$GAP"
 restart_ns=$(date +%s%N)
 pub "$S3/$BUCKET/$RUN"
@@ -76,9 +83,7 @@ q "SELECT _path, toUnixTimestamp64Nano(min(received_at)), toUnixTimestamp64Nano(
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${path#"$BUCKET/"}" "$(m content)" "$(m received)" "$lo" "$hi" "$rows"
 done > "$OUT/objects.tsv"
 
-q "DROP DATABASE IF EXISTS $db"
-"$B/consume" --s3 "$S3/$BUCKET/$RUN" --ch "$CH" --db "$db" --signals traces --exit-after-idle 5s --poll 300ms \
-  --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY" > "$OUT/consume.log" 2>&1
+consume >> "$OUT/consume.log" 2>&1  # the replays
 "$B/consume" horizon-audit --s3 "$S3/$BUCKET/$RUN" --ch "$CH" --db "$db" --audit-no-state \
   --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY" > "$OUT/audit.log" 2>&1
 q "SELECT count(), uniqExact(content_key), uniqExact(producer_epoch), uniqExact(received_at) FROM $db.otel_traces FORMAT TSV" > "$tmp/central"

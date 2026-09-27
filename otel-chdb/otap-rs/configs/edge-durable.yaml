@@ -11,6 +11,11 @@ version: otel_dataflow/v1
 #   the exporter ACKs it (after the create-only commit), and replays what is
 #   left after a restart. A replay is the same OTLP bytes, so the same
 #   content key: central drops a copy whose first commit had landed.
+# - received_at is the WAL write (patches/0003: Quiver keeps each bundle's
+#   ingestion time in its segment and hands it to the exporter), so a
+#   replay after any outage lands in its original's toDate(received_at)
+#   partition and the consumer's count check finds it; the exporter's own
+#   clock only without a buffer (edge.yaml). scripts/replay_received.sh.
 # - retries never give up: a retryable NACK (S3 down, 403 on an expired
 #   credential, timeouts) is retried with backoff (1 s .. 30 s) with no
 #   deadline; `max_age` is deliberately unset (an age limit would delete

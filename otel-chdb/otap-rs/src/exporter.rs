@@ -163,6 +163,42 @@ fn now_ns() -> u64 {
     SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64
 }
 
+/// A request's `received_at`: when it entered the edge's durable custody.
+///
+/// Behind a durable buffer (configs/edge-durable.yaml, edge-publisher.yaml)
+/// that is the ingestion time of the request's WAL entry, which Quiver
+/// persists with the bundle (patches/0003) and hands over as the pdata's
+/// `ingestion_time`: every delivery of the bundle carries the same value, a
+/// NACK's retry and a replay after a restart included. A replay of a request
+/// whose commit landed but whose ACK was lost therefore lands in the
+/// original's `toDate(received_at)` partition, where the consumer's count
+/// check finds the original, however long the edge was down.
+///
+/// Without a buffer (configs/edge.yaml) custody passes only with the commit
+/// (the client gets its answer after it), so the exporter's own receive
+/// time is the custody time: `now`.
+///
+/// - The content key is not affected: it hashes the request's bytes, and the
+///   time travels beside them, in the pdata's context.
+/// - A batch processor in front of the buffer (edge-publisher.yaml) makes a
+///   request of several senders' requests: its time is the WAL write of the
+///   batch, when custody of all of them began (each sender's answer follows
+///   that write).
+/// - It is the edge's wall clock at the WAL write, as trusted as `now` was;
+///   nothing re-reads the clock later, so a clock step after the write
+///   changes neither the value nor a replay's copy of it. A pre-1970 or
+///   missing time falls back to `now`.
+/// - Every object of the request (metrics: one per type, and the series
+///   object) and every row of each carries this one value, in the rows and
+///   in the object's metadata, as the consumer's range guard requires.
+fn received_ns(ingestion_time: Option<SystemTime>, now: impl FnOnce() -> u64) -> u64 {
+    ingestion_time
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as u64)
+        .filter(|&ns| ns > 0)
+        .unwrap_or_else(now)
+}
+
 /// Content hash + flattened columns for each of a request's objects.
 fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
     let signal = signal_of(pdata.signal_type());
@@ -387,7 +423,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         effect_handler.notify_ack(AckMsg::new(pdata)).await?;
                         continue;
                     }
-                    let received_ns = now_ns();
+                    let received_ns = received_ns(pdata.ingestion_time(), now_ns);
                     let t_prep = Instant::now();
                     let prepared = prepare(&sh, &pdata, cfg.otlp_path);
                     if sh.verbose {
@@ -411,5 +447,45 @@ impl Exporter<OtapPdata> for S3pqExporter {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn received_at_is_the_custody_time_when_the_buffer_has_one() {
+        let at = SystemTime::UNIX_EPOCH + Duration::from_nanos(1_700_000_000_123_456_789);
+        // A replay days later reports the WAL write, not the redelivery.
+        assert_eq!(received_ns(Some(at), || 1_800_000_000_000_000_000), 1_700_000_000_123_456_789);
+    }
+
+    #[test]
+    fn received_at_falls_back_to_now_without_a_buffer() {
+        assert_eq!(received_ns(None, || 42), 42);
+        assert_eq!(received_ns(Some(SystemTime::UNIX_EPOCH), || 42), 42);
+    }
+
+    #[test]
+    fn received_at_rides_beside_the_bytes() {
+        // The time is context, not payload: the same request with and without
+        // it has the same content key.
+        let bytes = b"\x0a\x02\x0a\x00".to_vec();
+        let mut a = OtapPdata::new_todo_context(
+            OtlpProtoBytes::ExportTracesRequest(bytes::Bytes::from(bytes.clone())).into(),
+        );
+        let b = a.clone();
+        a.set_ingestion_time(SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+        let key = |p: &OtapPdata| match p.payload_ref().data() {
+            PayloadData::OtlpBytes(OtlpProtoBytes::ExportTracesRequest(x)) => {
+                crate::batch::content_hash_otlp(Signal::Traces, x)
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(key(&a), key(&b));
+        assert_eq!(a.ingestion_time(), Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1)));
+        assert_eq!(b.ingestion_time(), None);
     }
 }

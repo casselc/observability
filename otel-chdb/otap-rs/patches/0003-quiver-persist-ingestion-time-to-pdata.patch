@@ -1,0 +1,556 @@
+Quiver: persist each bundle's ingestion time in the segment manifest and hand
+it to the pipeline as the pdata's `ingestion_time`.
+
+The WAL already records a bundle's ingestion time (and WAL replay preserves
+it), but a finalized segment dropped it, and the durable buffer delivered
+every bundle with a default context. An exporter behind the buffer could only
+use its own receive time, which changes on every redelivery: a NACK's retry,
+and a replay after a restart. This keeps the first ingestion time:
+
+- quiver: `ManifestEntry` gains an optional `ingestion_time_ns`, written as a
+  nullable Int64 manifest column `ingestion_time_ns` when any bundle has one
+  (the `byte_count` pattern: legacy segments read back as `None`, and older
+  readers ignore the column); `ReconstructedBundle::ingestion_time()`.
+- otap: `Context` / `OtapPdata` gain `ingestion_time()` /
+  `set_ingestion_time()`, kept by `clone_detached`.
+- core-nodes durable buffer: `convert_bundle_to_pdata` sets it from the
+  bundle.
+
+The payload bytes are unchanged. Upstreamable as is.
+
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/bundle_adapter.rs b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/bundle_adapter.rs
+index d1f0dff..894da41 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/bundle_adapter.rs
++++ b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/bundle_adapter.rs
+@@ -654,8 +654,22 @@ pub fn recover_byte_count(bundle: &dyn RecordBundle) -> Option<u64> {
+ ///
+ /// This reconstructs the original OTAP telemetry data from Quiver's storage format.
+ /// It handles both Arrow-format bundles and OTLP opaque bundles.
++///
++/// The pdata carries the bundle's ingestion time (when it was written to the
++/// WAL, as the segment recorded it) as [`OtapPdata::ingestion_time`]: the
++/// same on every delivery of the bundle, including after a restart.
+ pub fn convert_bundle_to_pdata(
+     bundle: &ReconstructedBundle,
++) -> Result<OtapPdata, BundleConversionError> {
++    let mut pdata = convert_payloads_to_pdata(bundle)?;
++    if let Some(at) = bundle.ingestion_time() {
++        pdata.set_ingestion_time(at);
++    }
++    Ok(pdata)
++}
++
++fn convert_payloads_to_pdata(
++    bundle: &ReconstructedBundle,
+ ) -> Result<OtapPdata, BundleConversionError> {
+     let payloads = bundle.payloads();
+ 
+@@ -1037,6 +1051,35 @@ mod tests {
+         assert!(adapter.payload(wrong_slot).is_none());
+     }
+ 
++    /// Scenario: an OTLP bundle is written to a segment and read back, as the
++    /// buffer delivers it (on every delivery, and after a restart).
++    /// Guarantees: the pdata carries the bundle's ingestion time, not the
++    /// time of the read.
++    #[tokio::test]
++    async fn test_converted_pdata_carries_ingestion_time() {
++        use otel_arrow_dfe_quiver::segment::{
++            OpenSegment, SegmentReader, SegmentSeq, SegmentWriter,
++        };
++
++        let otlp = OtlpProtoBytes::new_from_bytes(SignalType::Logs, b"logs request".to_vec());
++        let adapter = OtlpBytesAdapter::new(otlp).map_err(|(e, _)| e).unwrap();
++        let ingested = adapter.ingestion_time();
++        let mut open = OpenSegment::new();
++        let _ = open.append(&adapter).expect("append");
++        let dir = tempfile::tempdir().expect("tempdir");
++        let path = dir.path().join("one.qseg");
++        let _ = SegmentWriter::new(SegmentSeq::new(1), false)
++            .write_segment(&path, open)
++            .await
++            .expect("write");
++        std::thread::sleep(std::time::Duration::from_millis(5));
++
++        let reader = SegmentReader::open(&path).expect("open");
++        let bundle = reader.read_bundle(&reader.manifest()[0]).expect("read");
++        let pdata = convert_bundle_to_pdata(&bundle).expect("convert");
++        assert_eq!(pdata.ingestion_time(), Some(ingested));
++    }
++
+     #[test]
+     fn test_otlp_bytes_adapter_zero_copy() {
+         let test_bytes = b"zero-copy verification payload".to_vec();
+diff --git a/rust/otap-dataflow/crates/otap/src/pdata.rs b/rust/otap-dataflow/crates/otap/src/pdata.rs
+index 4babd9c..d5654c7 100644
+--- a/rust/otap-dataflow/crates/otap/src/pdata.rs
++++ b/rust/otap-dataflow/crates/otap/src/pdata.rs
+@@ -17,6 +17,7 @@ use std::fmt;
+ use std::net::SocketAddr;
+ use std::num::NonZeroU64;
+ use std::sync::Arc;
++use std::time::SystemTime;
+ 
+ use async_trait::async_trait;
+ use otel_arrow_dfe_config::authorized_identity_policy::AuthorizedIdentityPolicy;
+@@ -410,6 +411,11 @@ pub struct Context {
+     /// while the payload is live whenever node message metrics are enabled and
+     /// survives payload drop, so it stays readable throughout unwinding.
+     signal: Option<SignalType>,
++    /// When the request entered durable custody: the ingestion time of its
++    /// durable-buffer (Quiver) WAL entry, persisted with the bundle, so it is
++    /// the same on every delivery of the bundle, including after a restart.
++    /// `None` when the request did not pass a durable buffer.
++    ingestion_time: Option<SystemTime>,
+ }
+ 
+ impl Context {
+@@ -424,6 +430,7 @@ impl Context {
+             peer_addr: None,
+             flow_compute_ns: None,
+             signal: None,
++            ingestion_time: None,
+         }
+     }
+ 
+@@ -785,6 +792,18 @@ impl Context {
+         self.peer_addr = Some(addr);
+     }
+ 
++    /// Returns when the request entered durable custody, if it passed a
++    /// durable buffer (see [`OtapPdata::ingestion_time`]).
++    #[must_use]
++    pub const fn ingestion_time(&self) -> Option<SystemTime> {
++        self.ingestion_time
++    }
++
++    /// Set when the request entered durable custody.
++    pub fn set_ingestion_time(&mut self, at: SystemTime) {
++        self.ingestion_time = Some(at);
++    }
++
+     /// Merge peer addresses from a set of contributing inputs.
+     ///
+     /// Returns `Some(addr)` only when every contributing input observed the
+@@ -842,6 +861,7 @@ impl Context {
+             peer_addr: self.peer_addr,
+             flow_compute_ns: None,
+             signal: None,
++            ingestion_time: self.ingestion_time,
+         }
+     }
+ }
+@@ -1248,6 +1268,21 @@ impl OtapPdata {
+         self.context.set_peer_addr(addr);
+         self
+     }
++
++    /// Returns when this request entered durable custody: the ingestion time
++    /// of its durable buffer's WAL entry. The buffer persists it with the
++    /// bundle, so a redelivery (a NACK's retry, or a replay after a restart)
++    /// carries the time of the first write, not of the redelivery. `None`
++    /// when the request did not pass a durable buffer.
++    #[must_use]
++    pub const fn ingestion_time(&self) -> Option<SystemTime> {
++        self.context.ingestion_time()
++    }
++
++    /// Set when this request entered durable custody.
++    pub fn set_ingestion_time(&mut self, at: SystemTime) {
++        self.context.set_ingestion_time(at);
++    }
+ }
+ 
+ /* -------- Producer effect handler extensions (shared, local) -------- */
+@@ -3712,6 +3747,17 @@ mod test {
+         assert_eq!(pdata.peer_addr(), Some(addr));
+     }
+ 
++    #[test]
++    fn ingestion_time_round_trips_and_survives_clone_without_context() {
++        let mut pdata = create_test_pdata();
++        assert!(pdata.ingestion_time().is_none());
++        let at =
++            SystemTime::UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_789);
++        pdata.set_ingestion_time(at);
++        assert_eq!(pdata.ingestion_time(), Some(at));
++        assert_eq!(pdata.clone_without_context().ingestion_time(), Some(at));
++    }
++
+     #[test]
+     fn peer_addr_survives_clone_without_context() {
+         let addr: SocketAddr = "[2001:db8::1]:9999".parse().unwrap();
+diff --git a/rust/otap-dataflow/crates/quiver/src/engine.rs b/rust/otap-dataflow/crates/quiver/src/engine.rs
+index 12b0383..14a1138 100644
+--- a/rust/otap-dataflow/crates/quiver/src/engine.rs
++++ b/rust/otap-dataflow/crates/quiver/src/engine.rs
+@@ -5975,6 +5975,56 @@ mod tests {
+         }
+     }
+ 
++    /// Scenario: bundles ingested a day ago sit in the WAL and the open
++    /// segment when the engine dies; the engine reopens (now).
++    /// Guarantees: the replayed bundles keep their original ingestion times
++    /// in the segment manifest, so a subscriber that reads them after the
++    /// restart sees when they were first ingested, not when they were
++    /// replayed.
++    #[tokio::test]
++    async fn wal_replay_preserves_ingestion_times() {
++        let dir = tempdir().expect("tempdir");
++        let config = QuiverConfig::builder()
++            .data_dir(dir.path())
++            .segment(SegmentConfig {
++                target_size_bytes: NonZeroU64::new(100 * 1024 * 1024).unwrap(),
++                max_open_duration: Duration::from_secs(3600),
++                ..Default::default()
++            })
++            .build()
++            .expect("config");
++        let day_ago = SystemTime::now() - Duration::from_secs(86_400);
++        let times: Vec<i64> = (0..3)
++            .map(|i| {
++                let t = day_ago + Duration::from_millis(i);
++                i64::try_from(t.duration_since(UNIX_EPOCH).unwrap().as_nanos()).unwrap()
++            })
++            .collect();
++        {
++            let engine = QuiverEngine::open(config.clone(), test_budget())
++                .await
++                .expect("engine");
++            for &ns in &times {
++                let bundle = TimestampedBundle::with_rows_and_time(
++                    4,
++                    UNIX_EPOCH + Duration::from_nanos(ns as u64),
++                );
++                engine.ingest(&bundle).await.expect("ingest");
++            }
++            assert_eq!(engine.total_segments_written(), 0);
++        }
++        let engine = QuiverEngine::open(config, test_budget())
++            .await
++            .expect("engine reopen");
++        let replayed: Vec<Option<i64>> = engine
++            .open_segment
++            .lock()
++            .manifest()
++            .map(crate::segment::ManifestEntry::ingestion_time_ns)
++            .collect();
++        assert_eq!(replayed, times.into_iter().map(Some).collect::<Vec<_>>());
++    }
++
+     #[tokio::test]
+     async fn wal_replay_skips_already_finalized_bundles() {
+         let dir = tempdir().expect("tempdir");
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs b/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
+index 72ca48f..c504a25 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/open_segment.rs
+@@ -164,8 +164,14 @@ impl OpenSegment {
+ 
+         let bundle_index = self.manifest.len() as u32;
+         let item_count = bundle.item_count_is_known().then(|| bundle.item_count());
++        let ingestion_time_ns = bundle
++            .ingestion_time()
++            .duration_since(std::time::UNIX_EPOCH)
++            .ok()
++            .and_then(|d| i64::try_from(d.as_nanos()).ok());
+         let mut entry =
+-            ManifestEntry::new_with_counts(bundle_index, item_count, bundle.byte_count());
++            ManifestEntry::new_with_counts(bundle_index, item_count, bundle.byte_count())
++                .with_ingestion_time_ns(ingestion_time_ns);
+ 
+         // Iterate over all slots defined in the bundle's descriptor
+         for slot_desc in &bundle.descriptor().slots {
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/reader.rs b/rust/otap-dataflow/crates/quiver/src/segment/reader.rs
+index 8957995..2f74707 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/reader.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/reader.rs
+@@ -78,6 +78,9 @@ pub struct ReconstructedBundle {
+     bundle_index: u32,
+     /// Payload batches by slot ID.
+     payloads: HashMap<SlotId, RecordBatch>,
++    /// The bundle's ingestion time as the segment recorded it (ns since the
++    /// Unix epoch), if it did.
++    ingestion_time_ns: Option<i64>,
+     /// Keeps the backing buffer alive (may be mmap or heap allocation).
+     /// RecordBatches reference slices of this buffer.
+     _backing: Arc<Buffer>,
+@@ -90,6 +93,7 @@ impl ReconstructedBundle {
+         Self {
+             bundle_index: 0,
+             payloads: HashMap::new(),
++            ingestion_time_ns: None,
+             _backing: Arc::new(Buffer::from_vec(Vec::<u8>::new())),
+         }
+     }
+@@ -100,6 +104,14 @@ impl ReconstructedBundle {
+         self.bundle_index
+     }
+ 
++    /// Returns when the bundle was first ingested (its WAL entry's
++    /// ingestion time), if the segment recorded it. Legacy segments did not.
++    #[must_use]
++    pub fn ingestion_time(&self) -> Option<std::time::SystemTime> {
++        let ns = u64::try_from(self.ingestion_time_ns?).ok()?;
++        std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_nanos(ns))
++    }
++
+     /// Returns the payload batches by slot ID.
+     #[must_use]
+     pub const fn payloads(&self) -> &HashMap<SlotId, RecordBatch> {
+@@ -637,6 +649,7 @@ impl SegmentReader {
+         Ok(ReconstructedBundle {
+             bundle_index: entry.bundle_index,
+             payloads,
++            ingestion_time_ns: entry.ingestion_time_ns(),
+             _backing: Arc::clone(&self.buffer),
+         })
+     }
+@@ -902,6 +915,7 @@ impl SegmentReader {
+     /// - `bundle_index`: UInt32
+     /// - `item_count`: nullable UInt64 (optional for legacy segments)
+     /// - `byte_count`: nullable UInt64 (optional for legacy segments)
++    /// - `ingestion_time_ns`: nullable Int64 (optional for legacy segments)
+     /// - `slot_refs`: List<Struct<slot_id: UInt16, stream_id: UInt32, chunk_index: UInt32>>
+     ///
+     /// Each row represents one [`ManifestEntry`] describing which stream chunks
+@@ -963,6 +977,15 @@ impl SegmentReader {
+                     .collect::<Vec<_>>()
+             });
+ 
++        let ingestion_times = batch
++            .column_by_name("ingestion_time_ns")
++            .and_then(|column| column.as_primitive_opt::<arrow_array::types::Int64Type>())
++            .map(|array| {
++                (0..array.len())
++                    .map(|index| (!array.is_null(index)).then(|| array.value(index)))
++                    .collect::<Vec<_>>()
++            });
++
+         // Get the slot_refs list column
+         let slot_refs_col =
+             batch
+@@ -995,7 +1018,9 @@ impl SegmentReader {
+         for (i, &bundle_index) in bundle_indices.iter().enumerate() {
+             let item_count = item_counts.as_ref().and_then(|counts| counts[i]);
+             let byte_count = byte_counts.as_ref().and_then(|counts| counts[i]);
+-            let mut entry = ManifestEntry::new_with_counts(bundle_index, item_count, byte_count);
++            let ingestion_time_ns = ingestion_times.as_ref().and_then(|times| times[i]);
++            let mut entry = ManifestEntry::new_with_counts(bundle_index, item_count, byte_count)
++                .with_ingestion_time_ns(ingestion_time_ns);
+ 
+             // Get the struct array for this bundle's slot refs
+             let slot_refs_for_bundle = slot_refs_list.value(i);
+@@ -1634,6 +1659,67 @@ mod tests {
+         );
+     }
+ 
++    /// Scenario: Bundles are appended with fixed ingestion times, one of them
++    /// before the Unix epoch.
++    /// Guarantees: A bundle read back from the finalized segment reports its
++    /// ingestion time to the nanosecond; a pre-epoch time reads back as
++    /// unknown.
++    #[tokio::test]
++    async fn roundtrip_manifest_ingestion_times() {
++        let dir = tempdir().expect("tempdir");
++        let path = dir.path().join("ingestion_times.qseg");
++        let schema = test_schema();
++        let fingerprint = [0x44; 32];
++        let t0 = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_700_000_000_123_456_789);
++        let t1 = t0 + std::time::Duration::from_secs(86_400);
++        let before_epoch = std::time::UNIX_EPOCH - std::time::Duration::from_secs(1);
++
++        let bundles = [
++            TestBundle::new(slot_descriptors())
++                .with_payload(
++                    SlotId::new(0),
++                    fingerprint,
++                    make_batch(&schema, &[1], &["a"]),
++                )
++                .with_ingestion_time(t0),
++            TestBundle::new(slot_descriptors())
++                .with_payload(
++                    SlotId::new(0),
++                    fingerprint,
++                    make_batch(&schema, &[2], &["b"]),
++                )
++                .with_ingestion_time(t1),
++            TestBundle::new(slot_descriptors())
++                .with_payload(
++                    SlotId::new(0),
++                    fingerprint,
++                    make_batch(&schema, &[3], &["c"]),
++                )
++                .with_ingestion_time(before_epoch),
++        ];
++        let mut open_segment = OpenSegment::new();
++        for bundle in &bundles {
++            let _ = open_segment.append(bundle).expect("append");
++        }
++        let _ = SegmentWriter::new(SegmentSeq::new(1), true)
++            .write_segment(&path, open_segment)
++            .await
++            .expect("write");
++
++        let reader = SegmentReader::open(&path).expect("open");
++        let times: Vec<_> = reader
++            .manifest()
++            .iter()
++            .map(|entry| {
++                reader
++                    .read_bundle(entry)
++                    .expect("read_bundle")
++                    .ingestion_time()
++            })
++            .collect();
++        assert_eq!(times, vec![Some(t0), Some(t1), None]);
++    }
++
+     /// Scenario: A legacy manifest contains no byte-count column.
+     /// Guarantees: The new reader accepts it without inventing logical bytes.
+     #[tokio::test]
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/test_utils.rs b/rust/otap-dataflow/crates/quiver/src/segment/test_utils.rs
+index afe6e79..6727ae3 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/test_utils.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/test_utils.rs
+@@ -93,6 +93,7 @@ pub struct TestBundle {
+     descriptor: BundleDescriptor,
+     payloads: HashMap<SlotId, (SchemaFingerprint, RecordBatch)>,
+     byte_count: Option<u64>,
++    ingestion_time: Option<SystemTime>,
+ }
+ 
+ impl TestBundle {
+@@ -103,6 +104,7 @@ impl TestBundle {
+             descriptor: BundleDescriptor::new(slots),
+             payloads: HashMap::new(),
+             byte_count: None,
++            ingestion_time: None,
+         }
+     }
+ 
+@@ -124,6 +126,13 @@ impl TestBundle {
+         self.byte_count = Some(byte_count);
+         self
+     }
++
++    /// Sets a fixed ingestion time (default: `SystemTime::now()` on each call).
++    #[must_use]
++    pub const fn with_ingestion_time(mut self, ingestion_time: SystemTime) -> Self {
++        self.ingestion_time = Some(ingestion_time);
++        self
++    }
+ }
+ 
+ impl RecordBundle for TestBundle {
+@@ -132,7 +141,7 @@ impl RecordBundle for TestBundle {
+     }
+ 
+     fn ingestion_time(&self) -> SystemTime {
+-        SystemTime::now()
++        self.ingestion_time.unwrap_or_else(SystemTime::now)
+     }
+ 
+     fn payload(&self, slot: SlotId) -> Option<PayloadRef<'_>> {
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/types.rs b/rust/otap-dataflow/crates/quiver/src/segment/types.rs
+index be06557..f12a8bc 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/types.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/types.rs
+@@ -310,6 +310,15 @@ pub struct ManifestEntry {
+     /// This excludes segment encoding and shared file overhead. `None` means
+     /// the count is unknown.
+     byte_count: Option<u64>,
++    /// The bundle's ingestion time ([`RecordBundle::ingestion_time`], from
++    /// its WAL entry on replay), as nanoseconds since the Unix epoch.
++    ///
++    /// Persisted so a bundle read back from a finalized segment (on every
++    /// delivery, including after a restart) reports when it was first
++    /// ingested. `None` for legacy segments and pre-epoch times.
++    ///
++    /// [`RecordBundle::ingestion_time`]: crate::record_bundle::RecordBundle::ingestion_time
++    ingestion_time_ns: Option<i64>,
+     /// Mapping from slot to the stream/chunk containing that slot's data.
+     slot_refs: HashMap<SlotId, SlotChunkRef>,
+ }
+@@ -336,10 +345,25 @@ impl ManifestEntry {
+             bundle_index,
+             item_count,
+             byte_count,
++            ingestion_time_ns: None,
+             slot_refs: HashMap::new(),
+         }
+     }
+ 
++    /// Sets the bundle's ingestion time (nanoseconds since the Unix epoch).
++    #[must_use]
++    pub(crate) const fn with_ingestion_time_ns(mut self, ingestion_time_ns: Option<i64>) -> Self {
++        self.ingestion_time_ns = ingestion_time_ns;
++        self
++    }
++
++    /// Returns the bundle's ingestion time (nanoseconds since the Unix
++    /// epoch) when the segment recorded it.
++    #[must_use]
++    pub const fn ingestion_time_ns(&self) -> Option<i64> {
++        self.ingestion_time_ns
++    }
++
+     /// Returns the number of logical data items in this bundle.
+     ///
+     /// Returns 0 when the count is unavailable.
+diff --git a/rust/otap-dataflow/crates/quiver/src/segment/writer.rs b/rust/otap-dataflow/crates/quiver/src/segment/writer.rs
+index e958e51..444cff3 100644
+--- a/rust/otap-dataflow/crates/quiver/src/segment/writer.rs
++++ b/rust/otap-dataflow/crates/quiver/src/segment/writer.rs
+@@ -75,7 +75,8 @@ use std::path::Path;
+ use std::sync::Arc;
+ 
+ use arrow_array::builder::{
+-    FixedSizeBinaryBuilder, ListBuilder, StructBuilder, UInt16Builder, UInt32Builder, UInt64Builder,
++    FixedSizeBinaryBuilder, Int64Builder, ListBuilder, StructBuilder, UInt16Builder, UInt32Builder,
++    UInt64Builder,
+ };
+ use arrow_array::{ArrayRef, RecordBatch};
+ use arrow_ipc::writer::FileWriter;
+@@ -487,6 +488,12 @@ impl SegmentWriter {
+         if has_any_byte_counts {
+             fields.push(Field::new("byte_count", DataType::UInt64, true));
+         }
++        let has_any_ingestion_times = entries
++            .iter()
++            .any(|entry| entry.ingestion_time_ns().is_some());
++        if has_any_ingestion_times {
++            fields.push(Field::new("ingestion_time_ns", DataType::Int64, true));
++        }
+         // Note: The list item field must be nullable to match what ListBuilder produces.
+         fields.push(Field::new(
+             "slot_refs",
+@@ -503,6 +510,8 @@ impl SegmentWriter {
+         let mut item_count_builder = UInt64Builder::with_capacity(entries.len());
+         let mut byte_count_builder =
+             has_any_byte_counts.then(|| UInt64Builder::with_capacity(entries.len()));
++        let mut ingestion_time_builder =
++            has_any_ingestion_times.then(|| Int64Builder::with_capacity(entries.len()));
+ 
+         // Create the list builder with a struct builder inside
+         let struct_builder = StructBuilder::from_fields(
+@@ -519,6 +528,9 @@ impl SegmentWriter {
+             if let Some(byte_count_builder) = &mut byte_count_builder {
+                 byte_count_builder.append_option(entry.exact_byte_count());
+             }
++            if let Some(ingestion_time_builder) = &mut ingestion_time_builder {
++                ingestion_time_builder.append_option(entry.ingestion_time_ns());
++            }
+ 
+             // Get the struct builder from the list builder
+             let struct_builder = slot_refs_builder.values();
+@@ -552,6 +564,9 @@ impl SegmentWriter {
+         if let Some(mut byte_count_builder) = byte_count_builder {
+             columns.push(Arc::new(byte_count_builder.finish()));
+         }
++        if let Some(mut ingestion_time_builder) = ingestion_time_builder {
++            columns.push(Arc::new(ingestion_time_builder.finish()));
++        }
+         columns.push(Arc::new(slot_refs_builder.finish()));
+         let batch = RecordBatch::try_new(schema.clone(), columns)
+             .map_err(|e| SegmentError::Arrow { source: e })?;

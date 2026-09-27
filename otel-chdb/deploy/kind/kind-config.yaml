@@ -1,0 +1,13 @@
+# One small real cluster for the deploy/ manifests (../../deploy/results/k8s-sim.md).
+#   kind create cluster --config kind-config.yaml --image kindest/node:<version>
+# The dev box runs cgroup v1 (hybrid); kubelet >= 1.35 refuses cgroup v1
+# unless failCgroupV1 is false.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: k8s-edge
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: KubeletConfiguration
+        failCgroupV1: false

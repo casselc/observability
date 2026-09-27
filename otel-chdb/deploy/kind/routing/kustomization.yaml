@@ -1,0 +1,22 @@
+# kind + service-affine routing (components/routing): the gateway tier and 8
+# publishers (scaled to 4 here: one 4-CPU node).
+#   kustomize build --load-restrictor LoadRestrictionsNone deploy/kind/routing
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../edge
+components:
+  - ../../components/routing
+images:
+  - name: otelcol-deploy-lbpatched
+    newName: localhost/otelcol-deploy-lbpatched
+    newTag: v0.161.0
+patches:
+  - target:
+      kind: StatefulSet
+      name: otap-publisher
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4

@@ -454,6 +454,8 @@ build of this branch and ocb v0.161.0 builds:
 | durable buffer full | `scripts/diskfull.sh` | `results/durable-diskfull.txt` |
 | routing, restarts, scaling | `scripts/route_test.sh` (+ `gateway-local.yaml`, `publishers.sh`, `route_check.sh`) | `results/route-*.txt` |
 | Go publisher | `scripts/go_edge_test.sh` | objects checked directly (below) |
+| every build against a live API server (2026-09-27) | `kubectl apply --dry-run=server --validate=strict`, Kubernetes 1.36.1 on KWOK | 11 of 11 (the 9 overlays, `kind/edge`, `kind/routing`) |
+| control-plane behaviour, no containers | `kind/edge` and `kind/routing` applied to a 1,000-node KWOK cluster | `results/k8s-sim.md` §Manifests: PVCs bind and are kept on scale-down and reused on scale-up (3→4→3), rollout restart one ordinal at a time, `system-node-critical` admitted outside kube-system, and the routing switch needs a rollout restart (fixed in `components/routing`) |
 
 Notes:
 
@@ -471,8 +473,9 @@ Notes:
   objects and drops an object whose rows, in order, equal another's (what
   the consumer's content check skips). On `gwkill-stock` it gives the
   consumer's numbers exactly (18,277 duplicate log rows).
-- Not exercised: a real cluster (probes, the webhooks, the k8s resolver,
-  EndpointSlice churn, PVC expansion), mTLS, OTLP compression between the
+- Not exercised: a real cluster with running containers (probes, the
+  webhooks, the k8s resolver against live EndpointSlice churn, PVC
+  expansion; a kind run is prepared in `kind/` but did not fit the box), mTLS, OTLP compression between the
   tiers (left off: not measured against the Rust receiver), metrics through
   the routing tier (sent around it by design).
 

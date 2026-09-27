@@ -1,0 +1,48 @@
+# The Rust edge in a local kind cluster: SeaweedFS on the host as S3 (reached
+# through relay.py on the kind network's gateway), static keys from a Secret
+# (SeaweedFS's local test keys), images loaded with `kind load docker-image`.
+# Everything else is base/rust as shipped: this overlay only supplies what an
+# operator's overlay supplies (edge-target, credentials, images), plus
+# requests sized for a 4-CPU node.
+#   kustomize build --load-restrictor LoadRestrictionsNone deploy/kind/edge | kubectl apply -f -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: otel-edge
+resources:
+  - ../../base/rust
+configMapGenerator:
+  - name: edge-target
+    behavior: merge
+    literals:
+      - CLUSTER=kind-edge
+      - S3_BUCKET=k8s-edge
+      - S3_REGION=us-east-1
+      - S3_ENDPOINT=http://172.18.0.1:18333
+      - S3_BASE=http://172.18.0.1:18333/k8s-edge/edge
+      - S3_FORCE_PATH_STYLE=true
+secretGenerator:
+  - name: s3-credentials
+    literals:
+      - AWS_ACCESS_KEY_ID=otel
+      - AWS_SECRET_ACCESS_KEY=otelsecret
+images:
+  - name: otap-s3pq
+    newName: localhost/otap-s3pq
+    newTag: kind
+  - name: otelcol-deploy
+    newName: localhost/otelcol-deploy
+    newTag: v0.161.0
+patches:
+  - target:
+      kind: StatefulSet
+      name: otap-publisher
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom/-
+        value:
+          secretRef:
+            name: s3-credentials
+      # 3-4 publishers and the agent on one 4-CPU node
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: {cpu: 250m, memory: 512Mi}

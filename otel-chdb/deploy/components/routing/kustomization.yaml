@@ -46,7 +46,12 @@ patches:
       # gateway's ring is keyed on them rather than on pod IPs.
       # serviceName is immutable: switching routing on for an existing
       # StatefulSet means deleting it with --cascade=orphan and re-applying
-      # (the PVCs, and so the buffers and producer ids, are kept).
+      # (the PVCs, and so the buffers and producer ids, are kept), THEN
+      #   kubectl -n otel-edge rollout restart statefulset/otap-publisher
+      # The new StatefulSet adopts the running pods without replacing them
+      # (same template), and an adopted pod keeps spec.subdomain
+      # otap-publisher, so the ring's EndpointSlice has no hostname for it
+      # until it is recreated (seen on KWOK: results/k8s-sim.md).
       - op: replace
         path: /spec/serviceName
         value: otap-publisher-ring

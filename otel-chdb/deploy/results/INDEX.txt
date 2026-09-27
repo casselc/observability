@@ -32,3 +32,6 @@ agent-queue.txt        scripts/agent_test.sh (base/rust/agent-rust.yaml, publish
 configs-correctness.txt scripts/configs_e2e.sh (correctness.py + metrics_correctness.py
                        for edge.yaml, edge-durable.yaml, edge-otap.yaml)
 go-edge.txt            scripts/go_edge_test.sh (the Go publisher, SIGKILL mid-stream)
+k8s-sim.md             2026-09-27: KWOK fleet driving the entity controller (../../entities/controller):
+                       freshness, cost, volume, resource_id agreement, outages; deploy/ manifests on a
+                       1,005-node KWOK control plane (kind itself did not fit the box)

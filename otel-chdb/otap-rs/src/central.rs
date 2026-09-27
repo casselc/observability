@@ -1,7 +1,10 @@
 //! The central side: the consumer's ClickHouse statements.
 //!
-//! The target is the ClickStack-typed table plus one column, `content_key`
-//! (the batch's content hash, constant per batch), with:
+//! The target is ClickStack's table (traces and logs: HyperDX 2.39.1's own
+//! DDL, indexes, materialized columns and key-value rollup, in
+//! `sql/otel_traces.sql` and `sql/otel_logs.sql`) plus the edge envelope and
+//! one column, `content_key` (the batch's content hash, constant per batch),
+//! with:
 //! - an aggregating projection content_key → count(), so the check before
 //!   insert reads a few hundred bytes, not the table (../model/FASTPATH.md §4);
 //! - a batch-constant partition key, `toDate(received_at)`, so every insert
@@ -139,31 +142,38 @@ SETTINGS non_replicated_deduplication_window = 1000",
             contrib_metrics_columns(signal)
         );
     }
-    let body = match signal {
-        crate::Signal::Traces => "(Timestamp DateTime64(9), TraceId String, SpanId String, ParentSpanId String, TraceState String,
-  SpanName LowCardinality(String), SpanKind LowCardinality(String), ServiceName LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeName String, ScopeVersion String,
-  SpanAttributes Map(LowCardinality(String), String), Duration UInt64, StatusCode LowCardinality(String), StatusMessage String,
-  Events Nested (Timestamp DateTime64(9), Name LowCardinality(String), Attributes Map(LowCardinality(String), String)),
-  Links Nested (TraceId String, SpanId String, TraceState String, Attributes Map(LowCardinality(String), String))",
-        crate::Signal::Logs => "(Timestamp DateTime64(9), TraceId String, SpanId String, TraceFlags UInt8, SeverityText LowCardinality(String),
-  SeverityNumber UInt8, ServiceName LowCardinality(String), Body String, ResourceSchemaUrl LowCardinality(String),
-  ResourceAttributes Map(LowCardinality(String), String), ScopeSchemaUrl LowCardinality(String), ScopeName String,
-  ScopeVersion LowCardinality(String), ScopeAttributes Map(LowCardinality(String), String),
-  LogAttributes Map(LowCardinality(String), String), EventName String",
-        _ => unreachable!(),
+    clickstack_statements(table, signal).into_iter().next().expect("a traces or logs DDL file")
+}
+
+// ---- traces and logs: ClickStack 2.39.1 (sql/otel_traces.sql, sql/otel_logs.sql) ------
+
+const TRACES_DDL: &str = include_str!("../sql/otel_traces.sql");
+const LOGS_DDL: &str = include_str!("../sql/otel_logs.sql");
+
+/// The statements of `sql/otel_traces.sql` or `sql/otel_logs.sql`, with
+/// `{table}` (fully qualified) filled in: the table first, then its
+/// key-value rollup table and the materialized view that fills it. Empty for
+/// metrics.
+pub fn clickstack_statements(table: &str, signal: crate::Signal) -> Vec<String> {
+    let src = match signal {
+        crate::Signal::Traces => TRACES_DDL,
+        crate::Signal::Logs => LOGS_DDL,
+        _ => return Vec::new(),
     };
-    let order = match signal {
-        crate::Signal::Traces => "(ServiceName, SpanName, toDateTime(Timestamp))",
-        crate::Signal::Logs => "(ServiceName, Timestamp)",
-        _ => unreachable!(),
-    };
-    format!(
-        "CREATE TABLE IF NOT EXISTS {table} {body}{CENTRAL_ENV},
-  PROJECTION by_content (SELECT content_key, count() GROUP BY content_key))
-ENGINE = MergeTree PARTITION BY toDate(received_at) ORDER BY {order}
-SETTINGS non_replicated_deduplication_window = 1000"
-    )
+    let body: Vec<&str> = src.lines().filter(|l| !l.trim_start().starts_with("--")).collect();
+    body.join("\n")
+        .split(";\n")
+        .map(|s| s.trim().trim_end_matches(';').trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.replace("{table}", table))
+        .collect()
+}
+
+/// What `create_table` leaves out for traces and logs: ClickStack's key-value
+/// rollup table (`<table>_kv_rollup_15m`) and its materialized view, to run
+/// after the table, one statement each. Empty for metrics.
+pub fn create_rollups(table: &str, signal: crate::Signal) -> Vec<String> {
+    clickstack_statements(table, signal).into_iter().skip(1).collect()
 }
 
 // ---- metrics layout B (sql/series_tables.sql) ------------------------------------------
@@ -222,5 +232,45 @@ impl ClickHouse {
             return Err(format!("clickhouse {status}: {}", text.trim()));
         }
         Ok(text.trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Signal;
+
+    #[test]
+    fn traces_and_logs_ddl_is_clickstacks_plus_the_consumers() {
+        for (sig, cols, mv) in [
+            (Signal::Traces, TRACES_COLS, "db.otel_traces_kv_rollup_15m_mv"),
+            (Signal::Logs, LOGS_COLS, "db.otel_logs_attr_kv_rollup_15m_mv"),
+        ] {
+            let table = format!("db.{}", sig.table());
+            let st = clickstack_statements(&table, sig);
+            assert_eq!(st.len(), 3, "{st:?}");
+            let t = create_table(&table, sig);
+            assert_eq!(t, st[0]);
+            assert!(t.starts_with(&format!("CREATE TABLE IF NOT EXISTS {table}\n(")), "{t}");
+            // What the consumer relies on (sql.rs: range_partition_key, counts, the dedup token).
+            assert!(t.contains("\nPARTITION BY toDate(received_at)\n"), "{t}");
+            assert!(t.contains("PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)"), "{t}");
+            assert!(t.contains("SETTINGS non_replicated_deduplication_window = 1000, "), "{t}");
+            // Every column the INSERT names exists as a column that takes input.
+            for c in format!("{cols}{ENV_COLS}, content_key").split(", ").map(|c| c.trim_start_matches(", ").trim_matches('`')) {
+                let decl = format!("\n    `{c}` ");
+                let at = t.find(&decl).unwrap_or_else(|| panic!("{c} not in {t}"));
+                let line = t[at + 1..].lines().next().unwrap();
+                assert!(!line.contains(" MATERIALIZED ") && !line.contains(" ALIAS "), "{line}");
+            }
+            assert!(t.contains("TYPE text(tokenizer = 'array')") && !t.contains("{table}") && !t.contains(" TTL "), "{t}");
+            let r = create_rollups(&table, sig);
+            assert_eq!(r.len(), 2);
+            assert!(r[0].starts_with(&format!("CREATE TABLE IF NOT EXISTS {table}_kv_rollup_15m\n")) && r[0].contains("SummingMergeTree"), "{}", r[0]);
+            assert!(r[0].contains("SETTINGS non_replicated_deduplication_window = 1000, "), "an exact retry must not count twice: {}", r[0]);
+            assert!(r[1].starts_with(&format!("CREATE MATERIALIZED VIEW IF NOT EXISTS {mv} TO {table}_kv_rollup_15m\n")), "{}", r[1]);
+            assert!(r[1].contains(&format!("FROM {table}\n")) && !r[1].contains("{table}"), "{}", r[1]);
+        }
+        assert!(clickstack_statements("db.t", Signal::MetricsGauge).is_empty() && create_rollups("db.t", Signal::MetricsGauge).is_empty());
     }
 }

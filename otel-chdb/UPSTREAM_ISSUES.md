@@ -600,3 +600,41 @@ per object (`x-amz-meta-*`).
 **Also noted:** for `FORMAT ArrowStream`, the `_row_number` virtual column is
 NULL. Row order had to come from `rowNumberInAllBlocks()`
 ([`otap/README.md`](otap/README.md) §d).
+
+## U22. collector exporterhelper: a full disk makes the persistent queue drop an acknowledged item
+
+- **Project / version:** `go.opentelemetry.io/collector/exporter/exporterhelper`
+  v0.161.0 (`internal/queue/persistent_queue.go`), with the contrib
+  `file_storage` extension v0.161.0.
+- **Source here:** [`deploy/results/wedge.txt`](deploy/results/wedge.txt),
+  `deploy/scripts/wedge_test.sh` (`EDGE=go CASE=volume`); DECISIONS.md risk
+  #14.
+
+**Title:** persistent queue: `getNextItem` loses an item when the storage
+write that marks it dispatched fails (ENOSPC)
+
+**Repro.** A collector with `sending_queue` on `file_storage` whose
+directory is a small tmpfs (48 MiB), the exporter's backend down, and a
+sender pushing 10k-span requests until the queue's writes fail with "no
+space left on device" (5 were accepted). Bring the backend back: 4 of the 5
+are exported. Grow the filesystem and restart: the queue loads with
+`readIndex == writeIndex` and nothing is replayed. 4 of 4 runs lost one
+accepted request.
+
+**Cause (source).** `getNextItem` increments `metadata.ReadIndex` and
+appends the index to `CurrentlyDispatchedItems` in memory, then writes the
+metadata and reads the item in one storage batch. When that batch fails,
+it logs "Failed to dispatch item" at debug, calls `itemDispatchingFinish`
+(which deletes the item, or fails to on a full disk) and returns "not
+consumed". The advanced `ReadIndex` is kept and written with the next
+metadata write that succeeds, so the item is never read again. (`putInternal`
+similarly increments `WriteIndex` before a batch that can fail, which only
+leaves a hole that reads skip.)
+
+**Expected:** a failed read leaves the item where it was (restore
+`ReadIndex` and the dispatched list, retry later), and a lost item is logged
+above debug.
+
+**Workaround here:** cap the queue in bytes well below the volume
+(`deploy/base/go/publisher-config.yaml`), fail readiness below 1 GiB free,
+alert on the volume.

@@ -27,6 +27,8 @@ deploy/
   overlays/           {rust,go}-{eks-irsa,eks-pod-identity,nutanix,roles-anywhere}, rust-eks-irsa-routing
   collector/          ocb build of the agent/gateway collector; patches/0001 for the gateway
   images/             Dockerfiles: otap-s3pq, any ocb collector, aws_signing_helper
+  edgeprobe/          the publishers' readiness probe (a wedged buffer is not ready; §Durable buffer)
+  alerts/             Prometheus rules for the buffers and the probe
   scripts/            the local tests below
   results/            their outputs
 ```
@@ -50,19 +52,24 @@ after the overlay's, so a value set in a component cannot be overridden.
 
 ```
  app pods ──OTLP──► otel-agent (DaemonSet, one per node)
-                     memory_limiter → persistent queue (hostPath); no batch (Rust edge)
+                     memory_limiter → persistent queue (hostPath); no batch step
                      retry forever
                         │ OTLP/gRPC, round robin over the headless Service
                         ▼
                     otap-publisher-N (StatefulSet, 3 per cluster; 8 routed)  ┌─ with components/routing:
                      receiver → batch (3 MiB / 1 s) → durable buffer (PVC)  │  agents → otel-gateway (Deployment)
+                     (Go: receiver → s3pq batch (10k items / 1 s) → queue)  │
                      → exporter:s3pq ── 1 create-only PUT per object ──► S3  │  load_balancing, routing_key: service
                                                                              │  → the publisher that owns the service
 ```
 
 The agents are the custodians of anything not yet acknowledged: their queue
 is on the node's disk and they never give up. A publisher acknowledges after
-its WAL write, and its buffer holds the data until the create-only commit.
+its WAL write (Go: its queue write), and its buffer holds the data until the
+create-only commit. **Nothing batches in front of a persistent queue and
+acknowledges before the batch is written**: the agents do not batch at all,
+and each publisher batches before its buffer but answers a request only
+once the batch holding it is on disk (D4, 2026-09-27).
 Central (the consumer) is unchanged and is not deployed here.
 
 ## What each decision became
@@ -71,15 +78,15 @@ Central (the consumer) is unchanged and is not deployed here.
 |---|---|---|
 | D1 edge publisher | base/rust (primary), base/go (secondary) | the Go edge is the `s3pq` exporter (`../parquetgo/s3pqexporter`, 2026-09-26): manifest-less for traces, logs and metrics layout B, the Rust edge's objects (`../conformance`); it replaced `awss3inline`, which had no metrics lanes |
 | D3 commit protocol | both publishers | one create-only PUT per object at `{bucket}/edge/{CLUSTER-pod}/{signal}/{epoch}/{seq}`; the IAM policy grants `s3:ListBucket` so a free slot is 404 |
-| D4 / risk #10: batch before any queue, never after | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml | Rust-edge agents (2026-09-27): **no batch processor** (it acks before the queue write: acked requests were lost on SIGKILL on kind, `results/k8s-sim.md` §kind), `sending_queue` on `file_storage` sized in items, no `sending_queue.batch`; Go-edge agents: `batch` processor, then the queue (same loss window: the Go publisher does not batch); Rust publisher: `processor:batch` in front of the WAL, nothing between the WAL and the exporter; Go publisher: no batching (its queue is right behind the receiver) |
+| D4 / risk #10: agents never batch in front of a persistent queue; publishers batch before theirs and ack after it | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml, Go publisher-config.yaml | Agents, both edges (2026-09-27): **no batch processor** (it acks before the queue write: acked requests were lost on SIGKILL on kind, `results/k8s-sim.md` §kind, and locally 10 of 32 per signal on the Go edge, `results/go-batch.txt`), `sending_queue` on `file_storage` sized in items, no `sending_queue.batch`; Rust publisher: `processor:batch` in front of the WAL (acks propagate after the WAL write), nothing between the WAL and the exporter; Go publisher: s3pq's `batch` in front of its queue (10k items / 1 s; each caller answered once the merged request is enqueued), no `sending_queue.batch` (rejected by s3pq) |
 | D4: retries never give up | agents, Go publisher, Rust buffer | `retry_on_failure.max_elapsed_time: 0`; Quiver retries NACKs with backoff 1–30 s and no deadline (`max_age` unset) |
 | D7 layout B | edge-publisher.yaml, Go publisher-config.yaml | `metrics_layout: series_table` (per-type points lanes + the series lane) |
 | D16 sorting off | all otap-rs configs | `parquet.sort.by: none` |
 | D16 routing | components/routing | gateway with `routing_key: service`, 8 publishers, ring Service with `publishNotReadyAddresses` (§Routing) |
 | D18 credentials | components/* | no keys in any file; the default chain in both clients (§Targets) |
-| D19 durable buffer | base/rust | on, 40 GiB cap on a 50 Gi PVC, `size_cap_policy: backpressure` (§Durable buffer) |
-| risk #11: 10k-row objects | edge-publisher.yaml; Go agents | the Rust publisher's `max_size: 8 MiB` splits big requests deterministically and bounds a merged batch; Go-edge agents: `send_batch_max_size: 10000` |
-| risk #14 disk full | edge-durable.yaml / edge-publisher.yaml | backpressure, cap well below the volume, measured (§Durable buffer) |
+| D19 durable buffer | base/rust, base/go | Rust: on, 40 GiB cap on a 50 Gi PVC, `size_cap_policy: backpressure`; Go: the `file_storage` queue, 16 GiB of OTLP (`sizer: bytes`) on a 50 Gi PVC; both: not ready when the buffer can't take writes (§Durable buffer) |
+| risk #11: 10k-row objects | edge-publisher.yaml; Go publisher-config.yaml | the Rust publisher's `max_size: 8 MiB` splits big requests deterministically and bounds a merged batch; the Go publisher's `batch.max_size: 10000` (items) does the same (the batch processor's split) |
+| risk #14 disk full | edge-publisher.yaml, Go publisher-config.yaml, both publisher.yaml | backpressure, cap well below the volume, measured; readiness fails on a full volume or a buffer at 95% of its cap (`edgeprobe`), alerts in `alerts/` (§Durable buffer) |
 | memory limits | everywhere | Rust: `policies.resources.memory_limiter` (enforce, 1 GiB / 1.5 GiB of a 2 GiB container); Go: `memory_limiter` first in every pipeline, `GOMEMLIMIT` |
 
 ### Changes to the existing edge configurations
@@ -119,9 +126,11 @@ Checked and left alone: the durable buffer's policy (`backpressure`, now
 measured), its retry settings, the OTLP receivers' `wait_for_result`, the
 exporter's timeouts, layout B.
 
-`otelcol/config.edge.yaml` (the chDB edge, D4's config): the `batch`
-processor before the persistent queue, `max_elapsed_time: 0` and
-`seal_optimize: false` were right. Two defects fixed: **no memory limiter in
+`otelcol/config.edge.yaml` (the chDB edge, D4's config): `max_elapsed_time:
+0` and `seal_optimize: false` were right; the `batch` processor before the
+persistent queue was thought right then, but it acknowledges before the
+queue write (`results/k8s-sim.md` §8, 2026-09-27). The chDB edge is not deployed (D1), so
+it is left as is and noted in D4. Two defects fixed: **no memory limiter in
 any pipeline** (the build carried it, nothing used it), and **batches of
 5,000–20,000 rows** where the design and the consumer's limits assume
 10,000 (`send_batch_size` / `send_batch_max_size: 10000`). It passes
@@ -234,10 +243,88 @@ consumer reads both with `--depth 2`.
     flush had failed was committed only after a pod restart replayed the
     WAL. End result: every row once. Operationally: grow the PVC, then
     restart the pod.
-- **Alert** on `storage_bytes_used_bytes` (the publisher's
-  `/api/v1/metrics`) against the cap, and on the pod's volume usage.
+- **Go publisher** (`base/go`): the `file_storage` queue is the buffer,
+  capped at **16 GiB of OTLP** (`sizer: bytes`; ~1.6× that in bbolt, and
+  compaction copies the live data) on a 50 Gi PVC. The cap must stay well
+  below the volume, more strictly than for Rust: **a full volume loses
+  acknowledged requests** [M, `results/wedge.txt`: 1 of 5 in each of 4
+  runs]. The exporterhelper queue (v0.161.0) advances its read index before
+  the storage write that marks an item dispatched; when that write fails
+  with ENOSPC it abandons the item, and the index is saved at the next write
+  that succeeds (U22). Queue full at its cap (not the volume): refused
+  retryably, nothing lost.
+- **Not ready when the buffer can't take writes** (2026-09-27, `edgeprobe/`,
+  `results/wedge.txt`). Both publishers' readiness probe is `edgeprobe`, a
+  6 MB static binary in each image, run by the kubelet as an exec probe. It
+  wraps the old check (`-ready`: the engine's `/api/v1/readyz`, which fails
+  at the memory hard limit; the collector's `health_check`) and adds two:
+  - the buffer volume has **under 1 GiB free** (statfs of the buffer
+    directory): the kind wedge;
+  - the buffer is at **95% of its cap**: Rust `storage_bytes_used_bytes /
+    storage_bytes_cap_bytes` from `/api/v1/metrics`, Go
+    `otelcol_exporter_queue_size / otelcol_exporter_queue_capacity`
+    (`exporter="s3pq"`) from `:8888/metrics`.
+
+  Both are states, not events, so the pod returns by itself once S3 drains
+  the buffer or the volume grows (`successThreshold: 3`, 15 s). Why a probe
+  binary: neither collector can report it. The engine's readyz knows memory
+  pressure and the pipeline phase only, and a node has no hook into it
+  without patching otap-dataflow. The Go `health_check` (v1) reports the
+  pipeline up; its component-status mode (a feature gate) would need the
+  exporter to watch its own queue and disk anyway. A sidecar would add a
+  container and an image per pod to do the same reads.
+
+  | Local test (`scripts/wedge_test.sh`, 48 MiB tmpfs or a small cap, S3 cut) | Not ready after | Ready again | Acknowledged → on S3 |
+  |---|---|---|---|
+  | Rust, volume full (cap 1 GiB) | 1 s ("0 bytes available") | only after the volume grew (S3 back 90 s: still full) | 40,000 → 40,000 |
+  | Rust, cap 192 MiB reached | 2 s (fill 0.951) | 6 s after S3 came back | 210,000 → 210,000 |
+  | Go, volume full (cap 16 GiB) | 1 s | only after the volume grew | 50,000 → **40,000** (U22) |
+  | Go, cap 150 MB reached | 5 s (fill 0.988) | 2 s after S3 came back | 240,000 → 240,000 |
+
+  **What not ready does, and what it does not.** It removes the pod from
+  the Service's endpoints and DNS, so new connections (a restarted agent)
+  go elsewhere, and `EdgePublisherNotReady` fires
+  (`alerts/edge-buffer.rules.yaml`, on kube-state-metrics). It does not
+  close the running agents' connections: their `dns:///` round robin
+  re-resolves only when a connection fails (§Runbook). What moves those
+  agents' requests to the other publishers is the refusal itself (503 /
+  `Unavailable`, retried by the agent through the next connection), as on
+  kind.
+- **Alerts** (`alerts/edge-buffer.rules.yaml`): the probe failing for 5 min
+  (page); the Rust buffer above 50% of its cap or the Go queue above 50%
+  (warn); writes refused (`processor.durable_buffer.ingest` failures, the
+  Go queue's `enqueue_failed_*`); a Rust segment flush failed (restart the
+  pod once the volume has room); the PVC under 10% free.
 - A host crash loses at most the last 25 ms of acknowledged requests (the
   WAL's fsync interval; D19).
+
+## Runbook
+
+- **Scale publishers up** (N → N+1): `kubectl -n otel-edge scale
+  sts/otap-publisher --replicas=N+1` (Go: `sts/otelcol-publisher`), wait
+  for the new pod to be Ready, **then restart the agents**: `kubectl -n
+  otel-edge rollout restart ds/otel-agent`. Until the publishers' OTLP
+  receiver closes connections at a maximum age (the Rust receiver has no
+  such limit yet), a running agent never resolves the new pod: its
+  `dns:///` round robin re-resolves only when a connection fails, and on
+  kind the fourth publisher got no traffic for as long as we watched [M,
+  `results/k8s-sim.md` §8]. A graceful agent restart loses and duplicates
+  nothing (row 6 there). With `components/routing` the gateways watch
+  EndpointSlices and need no restart for traces and logs; metrics go from
+  the agents straight to the publishers, so restart the agents anyway.
+- **Scale down** only while S3 is healthy, and keep the removed ordinal's
+  PVC until it has been back once or its buffer is empty (§Routing, What
+  scaling does).
+- **A publisher not ready, "buffer volume full"**: S3 was unreachable long
+  enough to fill the volume. Restore S3, **grow the PVC** (the buffer can't
+  release committed segments without room), then **restart the pod**: a
+  Rust segment whose flush failed on ENOSPC is committed only when a restart
+  replays the WAL (kind). On the Go edge this should not happen with the
+  cap below the volume; if it did, some acknowledged requests may be lost
+  (U22), and nothing at the publisher tells which.
+- **A publisher not ready, "buffer at its cap"**: S3 unreachable or slower
+  than the traffic. Nothing to do at the publisher; the agents hold the
+  rest in their queues, and the pod returns once S3 drains it.
 
 ## Duplicates and request identity (risk #10)
 
@@ -249,12 +336,13 @@ its bytes are identical. Every hop that can resend was checked [M,
 |---|---|---|
 | agent resends from its queue (publisher down, timeout) | yes: the queue item is the request | the publisher recognises its own content key, or central does; `agent-queue.txt`: 32 requests acked while the publisher was down, agent SIGKILLed, all 160,000 spans and 160,000 logs once, 10,000 rows per object |
 | Quiver replays after a publisher restart | yes: the WAL holds the batch | `durable-diskfull.txt`, `route-pubkill-patched.txt`: 0 duplicates |
+| the Go publisher's queue replays a merged request after a crash mid-PUT | yes: the queue item is the merged request, with its received_at | `go-batch.txt` killput: 4-request batches, 3 replays per run landed twice on S3 with the same rows and received_at, the consumer skipped them: 0 duplicates in 2 runs |
 | the gateway's per-publisher retry | yes: the same piece | `route-pubkill-stock.txt`: 0 |
 | the agent resends through a restarted gateway, traces | yes: the split is deterministic for traces | `route-gwkill-stock.txt`: traces 0 |
 | … logs and metrics, stock exporter | **no**: pieces are merged in Go map order | `route-gwkill-stock.txt`: **18,277 duplicate log rows** in 320,000 |
 | … logs, with `collector/patches/0001` | yes | `route-gwkill-patched.txt`: 0 |
 | … after the ring changed (a publisher added or removed) | no: the pieces are cut differently | `route-reroute-patched.txt`: 3,348 trace and 6,412 log rows duplicated |
-| a request that reached a publisher's WAL is resent (publisher crash between the WAL write and the ack, a sender timeout), with the publisher's batch step | no: it lands in another batch | a window of milliseconds; not hit in `route-pubkill-batched-direct.txt` (publisher SIGKILLed under 8 senders: 0 duplicates, 4 byte-identical replays dropped) |
+| a request that reached a publisher's WAL (Go: its queue) is resent (publisher crash between the write and the ack, a sender timeout), with the publisher's batch step | no: it lands in another batch | a window of milliseconds; not hit in `route-pubkill-batched-direct.txt` (publisher SIGKILLed under 8 senders: 0 duplicates, 4 byte-identical replays dropped), nor in `go-batch.txt` (killpub, killput: 0 duplicates) |
 | the agents resend through a killed gateway to publishers **with** the batch step | no: the resent pieces are re-batched | `route-gwkill-batched.txt`: **70,320 trace and 61,727 log rows** duplicated by two SIGKILLs (8 concurrent senders) |
 | … the gateway stopped with SIGTERM (a rolling update) | nothing is resent | `route-gwterm-batched.txt`: 0 (the gateway drained its in-flight requests in ~6 s) |
 | … publishers **without** the batch step, patched gateway | yes | `route-gwkill-unbatched.txt`: 0, with 8 concurrent senders |
@@ -472,6 +560,8 @@ build of this branch and ocb v0.161.0 builds:
 | durable buffer full | `scripts/diskfull.sh` | `results/durable-diskfull.txt` |
 | routing, restarts, scaling | `scripts/route_test.sh` (+ `gateway-local.yaml`, `publishers.sh`, `route_check.sh`) | `results/route-*.txt` |
 | Go publisher | `scripts/go_edge_test.sh` | objects checked directly (below) |
+| Go edge batching before the publisher's queue (2026-09-27) | `scripts/go_batch_test.sh` (+ `../parquetgo/s3pqexporter` unit tests) | `results/go-batch.txt`: agent SIGKILL ×2: old configs lost 100,000 of 320,000 rows per signal, new 0; publisher SIGKILL ×2 and a SIGKILL mid-PUT with merged batches: 0 lost, 0 duplicates; rows per object 10,000 = 10,000 (10k-row requests) and 600 → 1,297 (300-row requests, 4 agents) |
+| readiness on a wedged buffer (2026-09-27) | `scripts/wedge_test.sh` (+ `edgeprobe` unit tests) | `results/wedge.txt`: both edges not ready within 1–4 s of a full volume or a buffer at 95% of its cap, ready again when S3 drains it or the volume grows; the Go edge lost 1 of 5 acked requests on a full volume (U22) |
 | every build against a live API server (2026-09-27) | `kubectl apply --dry-run=server --validate=strict`, Kubernetes 1.36.1 on KWOK | 11 of 11 (the 9 overlays, `kind/edge`, `kind/routing`) |
 | one real cluster, end to end (2026-09-27) | kind v0.31 / Kubernetes 1.35, `kind/edge` then `kind/routing`, SeaweedFS and the consumer on the host | `results/k8s-sim.md` §kind: 17 datasets of 320k spans + 320k logs through agents → publishers → S3 → consumer; exactly once through publisher SIGKILLs, force deletes, rollout restarts, scale 3→4→3 with a retained buffer, a full buffer volume, graceful gateway restarts; duplicates only on gateway SIGKILL (as `route-gwkill-batched`); the agent SIGKILL loss found and fixed (`agent-rust.yaml`) |
 | control-plane behaviour, no containers | `kind/edge` and `kind/routing` applied to a 1,000-node KWOK cluster | `results/k8s-sim.md` §Manifests: PVCs bind and are kept on scale-down and reused on scale-up (3→4→3), rollout restart one ordinal at a time, `system-node-critical` admitted outside kube-system, and the routing switch needs a rollout restart (fixed in `components/routing`) |
@@ -511,4 +601,10 @@ BIN=$B/otap-s3pq SEND=$T/otlpsend MIX=$S/mix W=$S/run TMPFS=/mnt/160m-tmpfs scri
 GW=... BIN=... CONSUME=$B/consume SEND=... MIX=... W=$S/run RUN=gwkill-patched SCEN=gwkill N=8 scripts/route_test.sh
 CFG=$PWD/../otap-rs/configs/edge-publisher.yaml SENDERS=8 CHECK=s3 ... RUN=gwkill-batched ... scripts/route_test.sh
 GOCOL=otelcol-s3pq CONSUME=... SEND=... MIX=... W=$S/run RUN=go1 scripts/go_edge_test.sh   # MIX: + metrics-b00NN.pb
+$S/mixgen -signal traces -out $S/mixs -batches 160 -rows 300 -publishers 1 -route none -seed 11   # and logs; -rows 1000 for killput
+GOCOL=... GW=... CONSUME=... SEND=... MIX=$S/mixs W=$S/run RUN=sizes-after SCEN=sizes ROWS=300 scripts/go_batch_test.sh
+AGENT_CFG=<agent-go.yaml of 30e5320> PUB_CFG=<publisher-config.yaml of 30e5320> ... RUN=sizes-before ... scripts/go_batch_test.sh
+FAULTPROXY=$T/faultproxy2 ... MIX=$S/mixm SCEN=killput ROWS=1000 scripts/go_batch_test.sh   # also SCEN=bulk, killagent, killpub
+(cd edgeprobe && CGO_ENABLED=0 go build -o $S/edgeprobe .)
+EDGE=rust CASE=volume BIN=$B/otap-s3pq PROBE=$S/edgeprobe SEND=... MIX=$S/mixw W=$S/run RUN=w1 scripts/wedge_test.sh   # root: mounts a tmpfs; EDGE=go GOCOL=..., CASE=cap
 ```

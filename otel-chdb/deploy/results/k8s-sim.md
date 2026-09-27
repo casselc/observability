@@ -325,9 +325,10 @@ env expansion, and the S3 path. kind covered them (§8).
      WAL (~3 MiB objects, oversized requests split at 8 MiB). The queue is
      now sized in items (2.5 M, about the old 250 × 10k).
    - **Verified:** the same kills lost nothing (datasets 7 and 8).
-   - **Not fixed:** the Go edge's agent (`agent-go.yaml`) has the same
-     window. Its publisher does not batch, so it keeps the batch step with a
-     comment (§9).
+   - **Not fixed here:** the Go edge's agent (`agent-go.yaml`) had the same
+     window, and its publisher did not batch. Fixed later the same day by
+     moving the batch step into the Go publisher, in front of its queue
+     (§9, `go-batch.txt`).
 2. **`kind/prebuilt.Dockerfile` used `debian:bookworm-slim` (glibc 2.36)
    (fixed).** The host builds need glibc 2.39, so every publisher
    crash-looped with "GLIBC_2.39 not found". The base is now `ubuntu:24.04`,
@@ -376,7 +377,7 @@ pipe". `kind/runc-oom-clamp.sh` clamps the value, wired in through
   none. The agents' `dns:///` round robin re-resolves only when a connection
   fails, so a new publisher is invisible to running agents. Row 12 needed
   `kubectl rollout restart ds/otel-agent`, which is safe after the fix
-  (row 6). Now in the deploy README §Scaling.
+  (row 6). Now in the deploy README §Runbook.
 - **Row 13, full volume:** the publisher answered `Unavailable` ("wal io
   error: No space left on device"). The agents moved those requests to the
   other publishers, and the pod stayed Ready.
@@ -420,17 +421,25 @@ placement, and metrics (only traces and logs were sent).
 
 ## 9. What is left
 
-1. **The Go edge's agent** keeps its batch step. Its loss window on SIGKILL is
-   the same as the one found on kind (§8). The Go publisher does not batch,
-   so the fix there is a batch step in the Go publisher, or accepting the
-   window. This is a decision for D4 (DECISIONS.md still describes the agent
-   batch step).
+1. ~~**The Go edge's agent** keeps its batch step.~~ **Done (2026-09-27):**
+   the Go publisher batches before its queue (s3pq `batch`, 10k items / 1 s,
+   each request answered once its merged request is enqueued) and
+   `agent-go.yaml` has no batch step. Locally, two agent SIGKILLs lost 10 of
+   32 10k-row requests per signal with the old configs and none with the
+   new; objects stay 10k rows at 10k-row requests and double at 300-row
+   requests from 4 agents (`results/go-batch.txt`). D4 now says it: agents
+   never batch in front of a persistent queue.
 2. **New publishers get no traffic** until the agents reconnect (§8). The fix
-   is a server-side max connection age on the Rust OTLP receiver (upstream),
-   or an agent restart after a scale-up.
-3. **A full buffer volume needs an operator**: grow the volume, then restart
-   the pod (§8). The pod stays Ready throughout. A readiness signal on a
-   wedged buffer would take it out of rotation.
+   is a server-side max connection age on the Rust OTLP receiver (upstream);
+   until then the deploy README §Runbook restarts the agents after a
+   scale-up.
+3. ~~**A full buffer volume needs an operator** … the pod stays Ready.~~
+   **Readiness done (2026-09-27):** `edgeprobe` fails the probe on a buffer
+   volume under 1 GiB free or a buffer at 95% of its cap, for both edges,
+   and `alerts/edge-buffer.rules.yaml` pages on it (`results/wedge.txt`). A
+   full volume still needs an operator (grow, then restart). The Go edge
+   **loses** acknowledged requests on a full volume (U22), so its queue cap
+   is now in bytes, far below the volume.
 4. **Rerun the KWOK agreement check** with the controller's agent-rule fix
    (§3).
 5. **Sync cadence and shape** (§5): at start-up plus hourly, or key-only.

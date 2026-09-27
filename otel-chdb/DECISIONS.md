@@ -462,18 +462,39 @@ manifest fields in the footer, and stock awss3exporter can use it. The
   - `sending_queue` on `file_storage`;
   - `retry_on_failure.max_elapsed_time: 0`;
   - `timeout` of at least the p99 PUT latency;
-  - batch **before** the queue, not with `sending_queue.batch`.
+  - batch **before** the queue, not with `sending_queue.batch`;
+  - **and acknowledge only after the batch is persisted (2026-09-27).**
+    The `batch` processor is asynchronous: the receiver acks a request as
+    soon as the batcher holds it, before the queue write, so a SIGKILL loses
+    acknowledged data (kind: 1–5 of 32 requests per kill; locally 10 of 32
+    per signal on the Go edge, [`deploy/results/go-batch.txt`](deploy/results/go-batch.txt)).
+    So **agents never batch in front of a persistent queue** (no `batch`
+    processor, no `sending_queue.batch`; a queue item is the sender's
+    request), and **publishers batch after the sender's hop and before their
+    own durable buffer, answering each request only once the batch holding
+    it is written**: Rust, `processor:batch` in front of Quiver (acks
+    propagate after the WAL write); Go, `s3pq`'s own `batch` (10,000 items
+    or 1 s, a larger request split deterministically at 10,000; each caller
+    returns once the merged request is in the `file_storage` queue).
+  - A batch persisted as one queue item replays byte-identical: same
+    content key, same `received_at` (the time the merged request was
+    enqueued, [D19](#d19-durable-buffer-at-the-edge)). The window it keeps:
+    a sender resending a request whose batch was written but whose answer
+    was lost puts it in a new batch (milliseconds; 0 duplicates in the
+    local kill tests).
 - **Upstreamable, in increasing ambition:**
   1. Content-Type and metadata from encoding extensions;
   2. `if_none_match` plus a content-derived key;
   3. `key_mode: sequence` (U15).
 - `s3pq` enforces the Go config rules in its validation: it refuses
-  `retry_on_failure.max_elapsed_time` ≠ 0 and any `sending_queue.batch`.
+  `retry_on_failure.max_elapsed_time` ≠ 0 and any `sending_queue.batch`;
+  its `batch` block is the batch step before the queue.
 
-**Open risks.** None in config: `otelcol/config.edge.yaml` now batches
-before the queue with the `batch` processor and sets `max_elapsed_time: 0`
-and `seal_optimize: false` ([§5](#5-contradictions-and-stale-statements),
-item 16).
+**Open risks.** `otelcol/config.edge.yaml` (the chDB edge, not deployed:
+D1) still batches with the `batch` processor before its queue, so it has
+the ack-before-persist window above; `max_elapsed_time: 0` and
+`seal_optimize: false` are right
+([§5](#5-contradictions-and-stale-statements), item 16).
 
 ---
 
@@ -1454,6 +1475,20 @@ Retention is sized for custody age, not for the cap (below).
 - **Go:** the enqueue. `s3pq` stamps client metadata `x-s3pq-received-at`
   before the sending queue; `file_storage` persists client metadata with
   the request, so a replay publishes the original value.
+- **A merged request (Go `batch`, 2026-09-27)** carries **the time it was
+  handed to the queue**, stamped after the merge in a context of its own.
+  Not the min or the max of its members' arrival times: none of them is in
+  custody until the merged request is written (none was acknowledged), and
+  a stamp older than that start breaks both users of the value. The
+  consumer's partition and count check need a replay to keep its value
+  (it does: the stamp is persisted with the merged item), and
+  `complete_through` (below; `model/completeness.qnt`) claims that a request with `received_at` below
+  an object's `oscope-low` is already committed. A request still being
+  merged is in no one's custody and so in no object's low; a stamp from its
+  arrival could fall below a later object's low while it is not yet
+  committed. The Rust batch step does the same: Quiver stamps the batch at
+  its WAL write. Test: `TestBatchReceivedIsTheEnqueueTime`; replays after a
+  SIGKILL mid-PUT kept it (`deploy/results/go-batch.txt`, killput).
 - **Without a buffer** custody passes at the commit: the exporter's clock.
 - Request bytes, content keys and rows are unchanged.
 
@@ -1680,12 +1715,12 @@ how likely it is.
 | 7b | **Insert and merge cost of the ClickStack DDL** (new 2026-09-27) | Aligning traces and logs with ClickStack 2.39.1 (option 2) multiplies insert CPU 2.4–2.6× and merges 2.0× against the pre-alignment tables; it takes the mid scenario from 91 to 139 vCPU ([§3](#3-current-sizing-summary)). The ratios were measured on a loaded box (1-min load 5.6–20; full-DDL spans ranged 8.4–15.3 µs) and applied to idle-box baselines. Most of the insert is the text indexes and the rollup view; most of the merge is ZSTD and the items indexes ([`hyperdx/README.md`](hyperdx/README.md) §Option 2). **Levers, cheapest first:** (a) larger objects: the rollup view's cost is mostly per statement (logs +2.1 µs/row at 10k rows per object, +8.6 at 3.2k), so it shrinks as objects grow; (b) drop `idx_trace_id` (trace-id lookups lose their index; not measured); (c) drop the rollup (HyperDX's filter panel falls back to scans for native-column values: 9.7 s of scans against 0.9 s with the rollup, 3 M rows); (d) the entity catalog ([`entities/README.md`](entities/README.md)): rows carry `resource_id` + a residual map, about 2.8× less insert CPU per span and 3.2× per log (8.7 against 24.6 / 27.7 µs, loaded box) and −44 to −57% bytes, but only with HyperDX's resource-attribute SQL rewritten onto the catalog, e.g. by the rewrite proxy ([`entities/rwproxy/README.md`](entities/rwproxy/README.md): **exact** mode equal to the ALIAS column on 1,452 statements, **catalog** mode exact once the catalog is complete) and an edge change. | Re-measure option 2 on an idle box at production statement sizes (≈32 objects per statement); measure (a)–(c) against HyperDX live. |
 | 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**; lowered 2026-09-27 to the residual case) | The check reads the batch's own days ± 3 days (1 day until the audit round): 116 GETs and 25 ms CPU cold against 2,320 and 516 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than 3 days after its original is ingested twice. **Since 2026-09-27 an edge buffer's replay is not such a copy:** it keeps its `received_at` and lands in its original's partition (4-day outage: 3/3 skipped, audit silent [M]; [D19](#d19-durable-buffer-at-the-edge)). The residual case is new custody of the same bytes: a sender that resends after its own outage of more than 3 days, or resends to another publisher. **It is no longer silent:** the horizon audit counts every such copy (`consumer_late_copies_total`, a WARN per copy) after the fact, daily by default; it doesn't prevent the duplicate, and a same-day duplicate is outside what it sees. On a replicated central it must run with `--sync-replica`: unsynced, a lagging replica missed a late copy [M] (fixed 2026-09-26, `central-replicated/README.md` §4). | Measure the resend delay of real senders, and alert on the counter; ~~stamp `received_at` before the durable buffer~~ (built 2026-09-27); a deletion tool for reported copies (not built). |
 | 9 | **Replicated insert cost** (mostly retired 2026-09-27) | 58.6–66.7 µs/row was measured on replicas at 7.9 objects per statement under a load average of 26–35. **Re-measured at 31.3 objects per statement on the same server (load 2–6): replication adds 9% to an insert statement** (39.3 against 36.1 µs/row, all tables; traces 17.1 against 16.4) and 2.1 Keeper transactions, **+20% counting both replicas' whole CPU** (checks, the other replica's fetches, merges) [M] ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)). The earlier figure was the small statements and the box. What remains: the plain baseline here (14–16 µs/row for traces and logs) is above the idle single-node 12, so the calculator's constants should be checked on an idle box. | Re-measure both on an idle box. The calculator (v12, 2026-09-27) now pays insert once per shard under ReplicatedMergeTree and on every server when independent; the +9% per statement is not in it yet. |
-| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
-| 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |
+| 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters; ack only after the batch is persisted ([D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred)). (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; 2026-09-27: agents no longer batch, both publishers batch before their buffer and replay merged batches byte-identical; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
+| 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: the Go publisher's batch caps objects at 10,000 items; the Rust publisher's at 8 MiB.) |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |
 | 12b | **Two edges drift** | Rust and Go must write the same rows; the Go and Rust Parquet writers and otap-dataflow's views differ in edge cases (found so far: span kinds outside the enum; parquet-go's untruncated statistics). | Run `conformance/run.sh` (both layouts), `conformance/go_faults.sh` and `parquetgo/modelcheck` in CI on every writer, otap-dataflow or collector version bump. (All three run nightly since 2026-09-27, `nightly.yml`; a bump is caught the next night, not on its push.) |
 | 13 | **Rust upstream maturity** | otap-dataflow is pre-1.0, pinned at `5db8358` plus 2 patches. The OTAP receiver closes a whole stream on a poison batch. The build needs a pinned 577 MB toolchain. | Upstream the patches (U2, U11); track releases. |
-| 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests. A filesystem full before the cap stalls the publisher until the volume grows (measured; nothing lost). | Keep the cap below the volume and alert on it (`deploy/`); a power-cut test. |
+| 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests (Go: `file_storage` does not fsync by default, so a host crash can lose what the page cache held). A filesystem full before the cap stalls the Rust publisher until the volume grows (measured; nothing lost), and **loses acknowledged requests on the Go publisher** (1 of 5 in each of 4 runs, U22). | Keep the cap below the volume (Go: 16 GiB of OTLP, `sizer: bytes`, on 50 Gi) and alert on it; since 2026-09-27 a publisher whose buffer volume has under 1 GiB free or whose buffer is at 95% of its cap is not ready and pages (`deploy/edgeprobe`, `deploy/alerts`); a power-cut test. |
 | 14b | **Retention against custody age** (new 2026-09-27) | Partitions are dropped by `received_at`, which a replay keeps. An acked request whose custody age at the replay exceeds the TTL is inserted and dropped at the next TTL merge: acked and never visible. Under `backpressure` custody age is backlog + outage with its flaps + drain, **not bounded by the buffer cap** ([D19](#d19-durable-buffer-at-the-edge); `model/retention.qnt` [Q]); `drop_oldest` bounds it only by losing acked data. At 90 days it does not bind; a retention cut to days, or a cut during a site's outage, does. The same bound applies to the lake sealer's dedup TTL. | An edge metric and alert on the oldest `received_at` in custody; allow retention cuts only above the longest custody age planned for. |
 | 15 | **Series id collisions** | 64-bit: about 3% chance of any collision among 10⁹ series ever seen [E]. A collision merges two series' attributes. | Accept, or move to 128 bits: +0.03 B/point stored, +8 B/point of Parquet [E]. |
 
@@ -1761,3 +1796,4 @@ Short drafts, with repro, expected and actual behaviour, and versions, are in
 | U19 | ClickHouse 26.10.1 | `ParquetMetadata` omits footer key-value metadata | low | HEAD for `x-amz-meta-*` |
 | U20 | contrib loadbalancingexporter v0.161.0 | logs/metrics pieces merged per backend in map order, so a retry isn't byte-identical; metrics without `service.name` logged and dropped | medium | `deploy/collector/patches/0001`; metrics bypass the gateway |
 | U21 | otap-dataflow Quiver `5db8358` | with its filesystem full, a restart fails WAL replay (ENOSPC writing a segment) and the pipeline exits after 5 attempts | medium | cap well below the volume |
+| U22 | collector exporterhelper v0.161.0 persistent queue | with its filesystem full, reading the next item fails on the metadata write; the queue has already advanced its read index, drops the item, and saves the index at the next write that succeeds: an acknowledged request is lost (logged at debug) | high for a full volume | a byte cap well below the volume; readiness and alerts on free space (`deploy/`) |

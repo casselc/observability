@@ -207,6 +207,37 @@ async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
     assert_eq!(s.lanes_taken, 1, "{s:?}");
 }
 
+/// A lease or checkpoint CAS whose request was lost (never applied, no
+/// answer). The read-back finds the version we wrote on, still ours: the
+/// worker keeps the lane and retries on that version, inside the window it
+/// already had. Before the fix it dropped the lane as taken over
+/// (`lanes_lost_cas`) and the lane idled until our own lease expired (the
+/// MBT's `designSlow`, seed 0x29e8aebd).
+#[tokio::test(flavor = "current_thread")]
+async fn a_lost_lease_or_checkpoint_write_keeps_the_lane() {
+    let (b, c, clk) = setup();
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), drop_every: 3, ..Default::default() };
+    let mut e = Edge::new("p1", "traces");
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    for r in 0..6 {
+        for i in 0..3 {
+            e.commit(&b, &format!("h{r}-{i}"), 3).await;
+        }
+        run(&mut ws, &clk, 40, 100).await;
+        // No stall: each round's batches are in within the round.
+        assert_eq!(ws[0].stats.objects_inserted, 3 * (r + 1), "round {r}: {:?}", ws[0].stats);
+    }
+    for r in 0..6 {
+        for i in 0..3 {
+            assert_eq!(c.count("otel_traces", &format!("h{r}-{i}")), 3, "h{r}-{i}");
+        }
+    }
+    let s = &ws[0].stats;
+    assert!(s.renewals >= 3 && s.ckpt_writes >= 3, "renewals {} ckpt writes {}", s.renewals, s.ckpt_writes);
+    assert_eq!(s.lanes_lost_cas, 0, "a lost request taken as a lost lane: {s:?}");
+    assert_eq!(s.lanes_taken, 1, "{s:?}");
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn gaps_are_never_skipped_nor_tombstoned() {
     let (b, c, clk) = setup();

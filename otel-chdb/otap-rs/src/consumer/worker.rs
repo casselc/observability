@@ -545,13 +545,19 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             let lane = self.held[&id].lane.clone();
             let doc = coord::renew(&h.doc, self.clock.wall());
             match self.write_lease(&lane, &doc, Some(&h.etag)).await {
-                Some(held) => {
+                Ok(held) => {
                     self.stats.renewals += 1;
                     if let Some(ls) = self.held.get_mut(&id) {
                         ls.held = held;
                     }
                 }
-                None => {
+                // Our request never applied: the lease is still the version
+                // we hold, on its old window (the lapse check above still
+                // counts from it). The next maintain retries.
+                Err(NotWritten::Unchanged) => {
+                    log(&self.cfg, &format!("lease {id}: renewal not applied, still ours; retrying"));
+                }
+                Err(NotWritten::Other) => {
                     // Taken over (or unresolvable): stop at once. A lost answer
                     // that actually applied is harmless: the lease expires.
                     self.stats.lanes_lost_cas += 1;
@@ -564,7 +570,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
 
     /// PUT a lease doc (If-Match `etag`, or create), resolving a lost answer
     /// by reading it back. The window starts when the PUT was sent.
-    async fn write_lease(&self, lane: &Lane, doc: &LeaseDoc, etag: Option<&str>) -> Option<Held> {
+    async fn write_lease(&self, lane: &Lane, doc: &LeaseDoc, etag: Option<&str>) -> Result<Held, NotWritten> {
         let key = lane.lease_key(&self.cfg.ctl);
         let body = Bytes::from(serde_json::to_vec(doc).expect("lease json"));
         let (sent_ms, sent_wall_ms) = (self.clock.mono(), self.clock.wall());
@@ -584,10 +590,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     }
                     e
                 }
-                _ => return None,
+                Ok(Some((_, e))) if etag == Some(e.as_str()) => return Err(NotWritten::Unchanged),
+                _ => return Err(NotWritten::Other),
             },
         };
-        Some(Held { doc: doc.clone(), etag, sent_ms, sent_wall_ms })
+        Ok(Held { doc: doc.clone(), etag, sent_ms, sent_wall_ms })
     }
 
     async fn discover(&mut self) {
@@ -861,7 +868,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
         };
         let doc = coord::take(id, prev.as_ref().map(|p| &p.0), &self.cfg.worker, t.ttl_ms, self.clock.wall());
-        let Some(held) = self.write_lease(&lane, &doc, prev.as_ref().map(|p| p.1.as_str())).await else { return false };
+        let Ok(held) = self.write_lease(&lane, &doc, prev.as_ref().map(|p| p.1.as_str())).await else { return false };
         // Fence the checkpoint: rewrite it under our lease epoch.
         match self.fence_checkpoint(&lane, doc.epoch).await {
             Some((ck, etag)) => {
@@ -893,27 +900,28 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 Err(_) => return None,
             };
             let new = cur.bumped(lease_epoch);
-            if let Some(e) = self.write_ckpt(&key, &new, etag.as_deref()).await {
+            if let Ok(e) = self.write_ckpt(&key, &new, etag.as_deref()).await {
                 return Some((new, e));
             }
         }
         None
     }
 
-    async fn write_ckpt(&self, key: &str, doc: &CkptDoc, etag: Option<&str>) -> Option<String> {
+    async fn write_ckpt(&self, key: &str, doc: &CkptDoc, etag: Option<&str>) -> Result<String, NotWritten> {
         let body = Bytes::from(serde_json::to_vec(doc).expect("ckpt json"));
         // As write_lease: a 412 may be our own write behind an error answer.
         // A checkpoint equal to ours (our lease epoch, its version) is ours.
         match self.bucket.put(key, body, etag.map_or(Cond::Create, Cond::IfMatch), &BTreeMap::new()).await {
-            Put::Ok(e) => Some(e),
+            Put::Ok(e) => Ok(e),
             r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(key).await {
                 Ok(Some((b, e))) if serde_json::from_slice::<CkptDoc>(&b).ok().as_ref() == Some(doc) => {
                     if r == Put::Conflict {
                         log(&self.cfg, &format!("{key}: 412, but the checkpoint is ours (our earlier attempt applied)"));
                     }
-                    Some(e)
+                    Ok(e)
                 }
-                _ => None,
+                Ok(Some((_, e))) if etag == Some(e.as_str()) => Err(NotWritten::Unchanged),
+                _ => Err(NotWritten::Other),
             },
         }
     }
@@ -1576,7 +1584,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         self.stats.ckpt_bytes_max = self.stats.ckpt_bytes_max.max(size);
         self.stats.ckpt_epochs_max = self.stats.ckpt_epochs_max.max(new.epochs.len() as u64);
         match self.write_ckpt(&key, &new, Some(&etag)).await {
-            Some(e) => {
+            Ok(e) => {
                 self.stats.epochs_closed += closed;
                 self.stats.epochs_compacted += dropped.len() as u64;
                 if self.cfg.verbose && !dropped.is_empty() {
@@ -1592,7 +1600,13 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 ls.ckpt_etag = e;
                 true
             }
-            None => {
+            // Our request never applied: the checkpoint is the version we
+            // hold, and our lease still fences it. The next step advances.
+            Err(NotWritten::Unchanged) => {
+                log(&self.cfg, &format!("checkpoint {id}: write not applied, still ours; retrying"));
+                false
+            }
+            Err(NotWritten::Other) => {
                 self.stats.lanes_lost_cas += 1;
                 log(&self.cfg, &format!("checkpoint {id}: CAS failed (another worker took the lane); dropping it"));
                 let _ = self.held.remove(id);
@@ -1660,6 +1674,20 @@ pub enum TombResult {
     /// A late batch got the slot first: ingest it.
     LostToData,
     Unresolved(String),
+}
+
+/// Why a lease or checkpoint PUT If-Match did not take (read back after a
+/// 412 or no answer).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotWritten {
+    /// The object still has the ETag we sent in If-Match: our request did
+    /// not apply (lost, or not landed yet; if it lands later it is ours,
+    /// and a retry on the same ETag gets a 412). Before 2026-09-27 this
+    /// dropped a lane that was still ours (MBT `designSlow`, seed
+    /// 0x29e8aebd): it idled until our own lease expired.
+    Unchanged,
+    /// Another doc (a takeover), no object, or no answer to the read.
+    Other,
 }
 
 /// Races a create-only tombstone into `{prefix}/{epoch}/{seq}`.

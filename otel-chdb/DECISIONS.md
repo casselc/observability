@@ -1701,7 +1701,9 @@ about 88% of the daily bytes in layout B, and both constants are estimates.
 ## 4. Open risks and unknowns, ranked
 
 Ranked by how much of the design fails or changes if the risk lands, then by
-how likely it is.
+how likely it is. Every boundary call's unknown outcomes, with their settle
+bounds and caller rules, are in [AMBIGUITY.md](AMBIGUITY.md); its open rows
+feed this list.
 
 | Rank | Risk | Why it matters | What would retire it |
 |---|---|---|---|

@@ -15,6 +15,7 @@ meant for. They were built with the skills in
 | `edgePublish.qnt` | The commit protocol end to end. The collector's persistent queue retries a payload after a failed export. The writer crashes and restarts with a new epoch. S3 writes succeed, fail, or fail **ambiguously** (the object lands but the writer sees an error). A batch goes to the table, then Parquet, then its manifest. Generations rotate under a lock and are sealed. Central workers claim manifested batches, insert them with a dedup token, and record them in a ledger; a worker can crash between insert and ledger. |
 | `partLifetime.qnt` | Object lifetime on one published table. The writer inserts, merges, and cleans up after `old_parts_lifetime`, and may exit. Readers refresh their list of parts on an interval (or stop refreshing) and run queries of bounded length. The consumer garbage-collects a generation, with or without reader leases. Time is an integer tick, because the timing bounds are the point. |
 | `*_test.qnt` | Deterministic scenarios: the minimal story behind each counterexample, and the same story against each fix. |
+| `ambiguousCall.qnt`, [`TEMPLATE.md`](TEMPLATE.md) | The template every external call follows: lost request, late effect, lost answer, duplicate delivery, and the caller's rule as a flag; which models have each ([`../AMBIGUITY.md`](../AMBIGUITY.md)). |
 | `trace.py` | Summarises an ITF trace from `quint run --mbt --out-itf`: the action taken at each step and what changed. |
 
 Design choices are `const` flags, and each configuration is an instance module

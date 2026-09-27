@@ -1,0 +1,25 @@
+s3accept: store local, s3://otel/am-accept/20260927T161043-0ae571/ (endpoint http://127.0.0.1:18333, path-style), run 20260927T161043-0ae571
+  identity           … PASS (0s)
+  list-race          … PASS (10.65s)
+
+       LEVEL        CHECK               RESULT
+----------------------------------------------------------------------------------------------------
+PASS   required     identity            static keys from the environment
+         · credential source: EnvConfigCredentials → static keys from the environment
+         · key ****, session token false, expires never, retrieved in 0s
+         · STS GetCallerIdentity skipped: custom endpoint and no --sts-endpoint (Nutanix Objects has no STS)
+PASS   info         list-race           LIST under concurrent writes: 173 LISTs, every acked key listed, no holes
+         · 16 lanes × 500 create-only slots written concurrently with 4 listers: 173 LISTs; acked keys missing from a LIST sent after their 200: 0; holes (slot n+1 listed without n): 0; PUT errors 0
+PASS   recommended  cleanup             deleted 8000 objects, aborted 0 uploads; prefix empty
+         · deleted 8000 objects (0 failed), aborted 0 uploads, 0 left under am-accept/20260927T161043-0ae571/
+
+What the design can rely on here:
+  UNPROVEN  S3-native control plane: create-only log slots, epoch fence, CAS'd leases and checkpoints
+            not run or skipped: create-only, if-match, create-race, cas-race, ambiguous-create, ambiguous-cas, read-after-write, head-missing
+  UNPROVEN  otap-rs consumer: HEAD slots with metadata, LIST StartAfter discovery, 404 on free slots, DELETE for GC
+            not run or skipped: create-only, if-match, create-race, cas-race, ambiguous-cas, metadata, read-after-write, list, head-missing
+  UNPROVEN  Exporter data path: plain and create-only PUTs of 100 KB-1 MB objects with the SDKs' default checksums
+            not run or skipped: plain-put, checksum, clock
+
+HTTP requests sent: 8582 (GET 200:574 POST 200:8 PUT 200:8000)
+JSON report: /tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/listrace.json

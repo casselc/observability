@@ -1,0 +1,26 @@
+    Finished `release` profile [optimized] target(s) in 1m 00s
+     Running tests/ambig_s3.rs (/tmp/claude-0/-home-user/db86342c-d57d-54b7-95b1-90f220828b73/scratchpad/otap-rs-target/release/deps/ambig_s3-527b2391ed7aebb3)
+running 2 tests
+test create_only_put_answered_an_error_after_it_applied_is_resolved_as_ours ... 2026/09/27 16:17:54 PUT #1 /otel/am-rs-create-500-1790525874298930252/traces/20260927T161754.377Z-93ef3a3e/00000000000000000000.parquet inm="*" im="" -> 200 (applied; answered 500 InternalError)
+2026/09/27 16:17:54 PUT #2 /otel/am-rs-create-500-1790525874298930252/traces/20260927T161754.377Z-93ef3a3e/00000000000000000000.parquet inm="*" -> 412
+2026/09/27 16:17:54 HEAD /otel/am-rs-create-500-1790525874298930252/traces/20260927T161754.377Z-93ef3a3e/00000000000000000000.parquet inm="" -> 200
+status 500: committed at Ref { epoch: "20260927T161754.377Z-93ef3a3e", seq: 0 }; puts 1 heads 1 resolved_own 1 learned_other 0 resent 0
+2026/09/27 16:17:54 PUT #1 /otel/am-rs-create-503-1790525874498348347/traces/20260927T161754.575Z-45c5d755/00000000000000000000.parquet inm="*" im="" -> 200 (applied; answered 503 SlowDown)
+2026/09/27 16:17:54 PUT #2 /otel/am-rs-create-503-1790525874498348347/traces/20260927T161754.575Z-45c5d755/00000000000000000000.parquet inm="*" -> 412
+2026/09/27 16:17:54 HEAD /otel/am-rs-create-503-1790525874498348347/traces/20260927T161754.575Z-45c5d755/00000000000000000000.parquet inm="" -> 200
+status 503: committed at Ref { epoch: "20260927T161754.575Z-45c5d755", seq: 0 }; puts 1 heads 1 resolved_own 1 learned_other 0 resent 0
+2026/09/27 16:17:54 PUT #1 /otel/am-rs-create-409-1790525874693771593/traces/20260927T161754.770Z-215a85e9/00000000000000000000.parquet inm="*" im="" -> 200 (applied; answered 409 ConditionalRequestConflict)
+2026/09/27 16:17:54 HEAD /otel/am-rs-create-409-1790525874693771593/traces/20260927T161754.770Z-215a85e9/00000000000000000000.parquet inm="" -> 200
+status 409: committed at Ref { epoch: "20260927T161754.770Z-215a85e9", seq: 0 }; puts 1 heads 1 resolved_own 1 learned_other 0 resent 0
+ok
+test if_match_put_answered_an_error_after_it_applied_reports_a_precondition_failure ... 2026/09/27 16:17:54 PUT #1 /otel/am-rs-cas-500-1790525874787325826/lease.json inm="" im="\"9abcde3c584628a02620bf796dee1204\"" -> 200 (applied; answered 500 InternalError)
+2026/09/27 16:17:54 PUT #2 /otel/am-rs-cas-500-1790525874787325826/lease.json inm="" -> 412
+status 500: put_opts(If-Match) -> Err(Precondition { path: "am-rs-cas-500-1790525874787325826/lease.json", source: RetryError(RetryErrorImpl { method: PUT, uri: …, retries: 1, max_retries: 2, elapsed: 111.098697ms, retry_timeout: 10s, inner: Status { status: 412, body: Some("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold</Message><Resource>/otel/am-rs-cas-500-1790525874787325826/lease.json</Resource><RequestId>18D939CBF318BF56470063E3</RequestId><Key>am-rs-cas-500-1790525874787325826/lease.json</Key><BucketName>otel</BucketName></Error>") } }) }); the object now holds b"v1"
+2026/09/27 16:17:55 PUT #1 /otel/am-rs-cas-503-1790525874985773459/lease.json inm="" im="\"9abcde3c584628a02620bf796dee1204\"" -> 200 (applied; answered 503 SlowDown)
+2026/09/27 16:17:55 PUT #2 /otel/am-rs-cas-503-1790525874985773459/lease.json inm="" -> 412
+status 503: put_opts(If-Match) -> Err(Precondition { path: "am-rs-cas-503-1790525874985773459/lease.json", source: RetryError(RetryErrorImpl { method: PUT, uri: …, retries: 1, max_retries: 2, elapsed: 112.245386ms, retry_timeout: 10s, inner: Status { status: 412, body: Some("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold</Message><Resource>/otel/am-rs-cas-503-1790525874985773459/lease.json</Resource><RequestId>18D939CBFF2F4112A42FA29A</RequestId><Key>am-rs-cas-503-1790525874985773459/lease.json</Key><BucketName>otel</BucketName></Error>") } }) }); the object now holds b"v1"
+2026/09/27 16:17:55 PUT #1 /otel/am-rs-cas-409-1790525875186605569/lease.json inm="" im="\"9abcde3c584628a02620bf796dee1204\"" -> 200 (applied; answered 409 ConditionalRequestConflict)
+2026/09/27 16:17:55 PUT #2 /otel/am-rs-cas-409-1790525875186605569/lease.json inm="" -> 412
+status 409: put_opts(If-Match) -> Err(Precondition { path: "am-rs-cas-409-1790525875186605569/lease.json", source: RetryError(RetryErrorImpl { method: PUT, uri: …, retries: 1, max_retries: 2, elapsed: 108.714826ms, retry_timeout: 10s, inner: Status { status: 412, body: Some("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>PreconditionFailed</Code><Message>At least one of the pre-conditions you specified did not hold</Message><Resource>/otel/am-rs-cas-409-1790525875186605569/lease.json</Resource><RequestId>18D939CC0B1085D59301B29D</RequestId><Key>am-rs-cas-409-1790525875186605569/lease.json</Key><BucketName>otel</BucketName></Error>") } }) }); the object now holds b"v1"
+ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s

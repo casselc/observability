@@ -3,10 +3,10 @@ module github.com/casselc/observability/otel-chdb/otap-rs/tools
 go 1.26.0
 
 replace (
-	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
 	github.com/casselc/observability/otel-chdb/chdbexporter => ../../chdbexporter
 	github.com/casselc/observability/otel-chdb/parquetgo => ../../parquetgo
 	github.com/casselc/observability/otel-chdb/parquetgo/compare => ../../parquetgo/compare
+	github.com/chdb-io/chdb-go/v2 => ../../chdb-go
 )
 
 require (
@@ -38,6 +38,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.91 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
+	github.com/zeebo/blake3 v0.2.4 // indirect
 )
 
 require (
@@ -46,7 +47,7 @@ require (
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
 	github.com/apache/thrift v0.24.0 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.47.1 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.33.6 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6 // indirect
@@ -58,16 +59,16 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/aws-sdk-go-v2/service/signin v1.10.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
 	github.com/aws/smithy-go v1.28.1 // indirect
+	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chdb-io/chdb-go/v2 v2.0.0-00010101000000-000000000000 // indirect
-	github.com/casselc/observability/otel-chdb/metrics-layout v0.0.0-00010101000000-000000000000
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/foxboron/go-tpm-keyfiles v0.0.0-20250903184740-5d135037bd4d // indirect
 	github.com/go-faster/city v1.0.1 // indirect

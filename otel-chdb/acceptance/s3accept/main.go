@@ -97,6 +97,10 @@ func checks() []Check {
 			Plan: func(p Params) string {
 				return fmt.Sprintf("%d × (PUT, LIST until visible ≤ %s); 16 slot PUTs; 6 StartAfter LISTs; a MaxKeys=3 paginated LIST; a delimiter LIST", p.ConsistencyN, p.ListLagMax)
 			}},
+		{ID: "list-race", Title: "LIST under concurrent create-only writes: acked keys listed, no holes", Level: Info, Needs: []string{"inline-consumer"}, Run: checkListRace,
+			Plan: func(p Params) string {
+				return fmt.Sprintf("%d lanes × %d slot PUTs, concurrently with 4 listers (LIST until the writers stop)", p.RaceWriters, 2*p.ConsistencyN)
+			}},
 		{ID: "head-missing", Title: "HEAD/GET of a missing key: 404, not 403", Level: Required, Needs: []string{"control-plane", "inline-consumer"}, Run: checkHeadMissing,
 			Plan: func(Params) string { return "HEAD and GET of a key never written" }},
 		{ID: "checksum", Title: "SDK default CRC32 (header and trailer), when_required, DeleteObjects", Level: Recommended, Needs: []string{"exporter-data"}, Run: checkChecksum,

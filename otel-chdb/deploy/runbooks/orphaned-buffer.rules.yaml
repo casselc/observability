@@ -1,0 +1,47 @@
+# Prometheus alerting rules: a publisher's buffer volume that no pod mounts
+# (runbooks/scale-down.md). A StatefulSet scale-down keeps the removed
+# ordinal's PVC (whenScaled: Retain) with whatever its buffer had not
+# committed; that data is acked to the agents and is committed only when a
+# publisher mounts the volume again. If the ordinal never returns, it is
+# never committed, and nothing else reports it: the publishers' own buffer
+# metrics vanish with the pod, and kubelet volume stats exist only for
+# mounted volumes. So the alert is on the claim, from kube-state-metrics.
+#
+# A plain rules file (`rule_files:`); for the Prometheus Operator, put the
+# `groups:` under a PrometheusRule's `spec:`. Namespace and claim names as in
+# base/ (buffer-otap-publisher-N, queue-otelcol-publisher-N).
+groups:
+  - name: otel-edge-orphaned-buffer
+    rules:
+      # A restart or reschedule remounts within minutes; 30 min unmounted
+      # means a scale-down (or a pod stuck Pending).
+      - alert: EdgeBufferVolumeUnmounted
+        expr: |
+          kube_persistentvolumeclaim_info{namespace="otel-edge",
+              persistentvolumeclaim=~"buffer-otap-publisher-[0-9]+|queue-otelcol-publisher-[0-9]+"}
+          unless on (namespace, persistentvolumeclaim)
+            kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="otel-edge"}
+        for: 30m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }}: publisher buffer volume not mounted for 30 min"
+          runbook: >-
+            runbooks/scale-down.md §Orphaned buffer. Its un-committed requests
+            were acked to the agents; they are committed only when a publisher
+            mounts the volume. Scale the StatefulSet back up to include that
+            ordinal, let it drain, then scale down with the drain procedure.
+      # Custody age: the oldest request on the volume keeps its received_at
+      # and ages; past the hot tier it lands cold, past the TTL it is
+      # inserted and dropped at once (DECISIONS.md D19, R-S6). Page well
+      # before either (6 h here; lower it if retention is cut to days).
+      - alert: EdgeBufferVolumeOrphaned
+        expr: |
+          kube_persistentvolumeclaim_info{namespace="otel-edge",
+              persistentvolumeclaim=~"buffer-otap-publisher-[0-9]+|queue-otelcol-publisher-[0-9]+"}
+          unless on (namespace, persistentvolumeclaim)
+            kube_pod_spec_volumes_persistentvolumeclaims_info{namespace="otel-edge"}
+        for: 6h
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.persistentvolumeclaim }}: publisher buffer volume orphaned for 6 h (acked data not committed)"
+          runbook: runbooks/scale-down.md §Orphaned buffer

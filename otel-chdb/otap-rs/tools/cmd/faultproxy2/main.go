@@ -7,6 +7,12 @@
 //	                   client times out, retries, and the late copy arrives
 //	                   after the retry (it must get 412)
 //	-mode drop         never forward, answer 503 after -hold: nothing lands
+//	-mode commit-error forward (the object lands), then answer -status (500
+//	                   InternalError, 503 SlowDown or 409
+//	                   ConditionalRequestConflict) at once: the client's own
+//	                   retry of a create-only PUT then gets 412 for its own
+//	                   write, and of an If-Match PUT 412 against its own new
+//	                   ETag (AMBIGUITY.md, audit a)
 //
 // -head-hold D -head-limit N also holds the answers to the first N matching
 // HEADs for D (the HEAD is applied at once), so a PUT that timed out can't be
@@ -36,7 +42,8 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:18335", "")
 	target := flag.String("target", "http://127.0.0.1:18333", "")
 	match := flag.String("match", "", "fault PUTs whose path contains this")
-	mode := flag.String("mode", "answer-late", "answer-late | apply-late | drop | none")
+	mode := flag.String("mode", "answer-late", "answer-late | apply-late | drop | commit-error | none")
+	status := flag.Int("status", 500, "commit-error: the status answered after the PUT applied")
 	hold := flag.Duration("hold", 3*time.Second, "")
 	every := flag.Int64("every", 1, "fault every n-th matching PUT")
 	skip := flag.Int64("skip", 0, "leave the first n matching PUTs alone")
@@ -140,6 +147,16 @@ func main() {
 			case <-r.Context().Done():
 				log.Printf("PUT #%d: client gave up; the request is still on its way", i)
 			}
+		case "commit-error":
+			rec := forward(r, body)
+			code := map[int]string{409: "ConditionalRequestConflict", 503: "SlowDown"}[*status]
+			if code == "" {
+				code = "InternalError"
+			}
+			log.Printf("PUT #%d %s inm=%q im=%q -> %d (applied; answered %d %s)", i, r.URL.Path, inm, r.Header.Get("If-Match"), rec.Code, *status, code)
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(*status)
+			_, _ = w.Write([]byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error><Code>" + code + "</Code><Message>injected after the write applied</Message></Error>"))
 		case "drop":
 			log.Printf("PUT #%d %s inm=%q: dropped", i, r.URL.Path, inm)
 			time.Sleep(*hold)

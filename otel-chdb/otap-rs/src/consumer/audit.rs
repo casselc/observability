@@ -79,11 +79,20 @@ pub struct AuditConfig {
     /// `max_threads` for the audit's queries: it shares central with the
     /// inserts, and is in no hurry.
     pub max_threads: u32,
+    /// A replicated central (`--sync-replica`): before a table is read,
+    /// `SYSTEM SYNC REPLICA … LIGHTWEIGHT`, so the replica the audit reads
+    /// holds every part committed on any replica. Without it a lagging
+    /// replica answers without the parts it hasn't fetched, and a copy among
+    /// them is missed by that run (central-replicated/README.md). A sync that
+    /// fails (the source replica down, `sync_timeout_ms`) is that table's
+    /// error: the run counts as failed and the next one covers the window.
+    pub sync_replica: bool,
+    pub sync_timeout_ms: u64,
 }
 
 impl Default for AuditConfig {
     fn default() -> Self {
-        AuditConfig { horizon_ms: Some(super::worker::DEFAULT_HORIZON_MS), lookback_ms: 2 * 86_400_000, sample_hex: 0, max_candidates: 1000, tables: Vec::new(), max_threads: 2 }
+        AuditConfig { horizon_ms: Some(super::worker::DEFAULT_HORIZON_MS), lookback_ms: 2 * 86_400_000, sample_hex: 0, max_candidates: 1000, tables: Vec::new(), max_threads: 2, sync_replica: false, sync_timeout_ms: 60_000 }
     }
 }
 
@@ -342,6 +351,8 @@ pub struct AuditReport {
     pub unexplained: Vec<Found>,
     pub errors: Vec<String>,
     pub duration_ms: u64,
+    /// The replica this run read (`run_replicas`).
+    pub replica: String,
 }
 
 impl AuditState {
@@ -417,8 +428,36 @@ pub async fn run(ch: &ClickHouse, db: &str, cfg: &AuditConfig, state: &mut Audit
     rep
 }
 
+/// `run` on the first of `replicas` (from `*cur`) that answers; `*cur`
+/// sticks to it for the next run. Each run reads one replica (with
+/// `sync_replica`, synced first, so any replica gives the same answer).
+pub async fn run_replicas(replicas: &[ClickHouse], cur: &mut usize, db: &str, cfg: &AuditConfig, state: &mut AuditState, now_ns: u64) -> AuditReport {
+    let n = replicas.len().max(1);
+    let mut first_err = None;
+    for i in 0..n {
+        let j = (*cur + i) % n;
+        let Some(ch) = replicas.get(j) else { break };
+        match ch.query("SELECT 1", &[]).await {
+            Ok(_) => {
+                *cur = j;
+                let mut rep = run(ch, db, cfg, state, now_ns).await;
+                rep.replica = ch.url.clone();
+                return rep;
+            }
+            Err(e) => {
+                let _ = first_err.get_or_insert(format!("{}: {e}", ch.url));
+            }
+        }
+    }
+    AuditReport { errors: vec![format!("no replica answers ({})", first_err.unwrap_or_default())], ..Default::default() }
+}
+
 async fn audit_table(ch: &ClickHouse, db: &str, t: &Target, cfg: &AuditConfig, since_ns: u64, h: Option<u64>, rep: &mut AuditReport) -> Result<Vec<Found>, String> {
     let fq = format!("{db}.{}", t.table);
+    if cfg.sync_replica {
+        let to = format!("{:.3}", cfg.sync_timeout_ms as f64 / 1000.0);
+        let _ = ch.query(&format!("SYSTEM SYNC REPLICA {fq} LIGHTWEIGHT"), &[("receive_timeout", to.as_str())]).await.map_err(|e| format!("sync replica: {e}"))?;
+    }
     let threads = cfg.max_threads.max(1).to_string();
     let st = [("optimize_use_projections", "1"), ("max_threads", threads.as_str())];
     let c = parse_candidates(&ch.query(&candidates_sql(&fq, since_ns, cfg.sample_hex, cfg.max_candidates), &st).await?)?;
@@ -554,6 +593,74 @@ mod tests {
 
     fn run_id() -> String {
         format!("{:08x}", rand::random::<u32>())
+    }
+
+    /// A replicated central (the replicas of central-replicated/, skipped
+    /// when they aren't up; `OTAPRS_REPLICAS=url1,url2`): r2 stops fetching,
+    /// a late copy lands on r1. Without the sync r2's audit misses it (the
+    /// gap this guards); with `sync_replica` r2's run fails (the sync times
+    /// out) instead of reporting a clean table; once r2 fetches, both
+    /// replicas report the same copy; and a dead first URL fails over.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_lagging_replica_is_synced_or_the_run_fails() {
+        let urls = std::env::var("OTAPRS_REPLICAS").unwrap_or_else(|_| "http://127.0.0.1:28123,http://127.0.0.1:38123".into());
+        let reps: Vec<ClickHouse> = urls.split(',').map(ClickHouse::new).collect();
+        if reps.len() < 2 || !ch_up(&reps[0]).await || !ch_up(&reps[1]).await {
+            eprintln!("no replicated ClickHouse: skipped");
+            return;
+        }
+        let (r1, r2) = (&reps[0], &reps[1]);
+        let db = format!("repl_audit_it_{}", run_id());
+        let fq = format!("{db}.otel_logs");
+        let k = LaneKind::for_signal("logs").unwrap();
+        let ddl = k
+            .create_table(&fq)
+            .replacen("ENGINE = MergeTree", &format!("ENGINE = ReplicatedMergeTree('/clickhouse/tables/audit_it/{db}/otel_logs', '{{replica}}')"), 1)
+            .replace("SETTINGS non_replicated_deduplication_window = 1000, ", "SETTINGS ")
+            .replace("SETTINGS non_replicated_deduplication_window = 1000", "");
+        for r in [r1, r2] {
+            r.query(&format!("CREATE DATABASE {db}"), &[]).await.unwrap();
+            r.query(&ddl, &[]).await.unwrap();
+        }
+        let now = super::super::wall_ms() * 1_000_000;
+        let today = now / D;
+        let put = |key: &str, epoch: &str, days_ago: u64| {
+            let recv = (today - days_ago) * D + HR;
+            format!(
+                "INSERT INTO {fq} (Timestamp, ServiceName, Body, received_at, row_ordinal, producer_id, producer_epoch, content_key) \
+                 SELECT now64(9), 'svc', 'b', fromUnixTimestamp64Nano(toInt64({recv})), number, 'p1', '{epoch}', '{key}' FROM numbers(6)"
+            )
+        };
+        r1.query(&put("late", "E1", 5), &[]).await.unwrap();
+        r2.query(&format!("SYSTEM SYNC REPLICA {fq} LIGHTWEIGHT"), &[]).await.unwrap();
+        r2.query(&format!("SYSTEM STOP FETCHES {fq}"), &[]).await.unwrap();
+        r1.query(&put("late", "E2", 0), &[]).await.unwrap();
+        let plain = AuditConfig { lookback_ms: 2 * 86_400_000, ..AuditConfig::default() };
+        let synced = AuditConfig { sync_replica: true, sync_timeout_ms: 2000, ..plain.clone() };
+        // r2 hasn't fetched the copy: unsynced, it reports a clean table.
+        let rep = run(r2, &db, &plain, &mut AuditState::default(), now).await;
+        assert!(rep.errors.is_empty() && rep.late.is_empty(), "{rep:?}");
+        // Synced, the run fails rather than say so.
+        let mut st = AuditState::default();
+        let rep = run(r2, &db, &synced, &mut st, now).await;
+        assert!(rep.late.is_empty() && rep.errors.len() == 1 && rep.errors[0].contains("sync replica"), "{rep:?}");
+        assert!(st.late_total.values().all(|n| *n == 0), "nothing counted by a failed run");
+        r2.query(&format!("SYSTEM START FETCHES {fq}"), &[]).await.unwrap();
+        let rep = run(r2, &db, &synced, &mut st, now).await;
+        assert!(rep.errors.is_empty() && rep.late.len() == 1 && rep.late[0].copy.epoch == "E2", "{rep:?}");
+        let rep1 = run(r1, &db, &synced, &mut AuditState::default(), now).await;
+        assert_eq!(rep1.late.iter().map(|f| (&f.key, &f.copy.epoch, f.dup_rows)).collect::<Vec<_>>(), rep.late.iter().map(|f| (&f.key, &f.copy.epoch, f.dup_rows)).collect::<Vec<_>>());
+        // A dead first URL: the run reads the next replica, and sticks to it.
+        let dead_then_r2 = vec![ClickHouse::new("http://127.0.0.1:9"), ClickHouse::new(&r2.url)];
+        let mut cur = 0;
+        let rep = run_replicas(&dead_then_r2, &mut cur, &db, &synced, &mut AuditState::default(), now).await;
+        assert!(rep.errors.is_empty() && rep.late.len() == 1 && rep.replica == r2.url && cur == 1, "{rep:?}");
+        let none = vec![ClickHouse::new("http://127.0.0.1:9")];
+        let rep = run_replicas(&none, &mut 0, &db, &synced, &mut AuditState::default(), now).await;
+        assert!(rep.errors.len() == 1 && rep.errors[0].starts_with("no replica answers"), "{rep:?}");
+        for r in [r1, r2] {
+            r.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+        }
     }
 
     /// Rows planted the way ingestions leave them: a copy 5 days after its

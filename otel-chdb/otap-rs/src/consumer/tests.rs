@@ -812,6 +812,61 @@ async fn an_unanswered_statement_is_waited_out() {
     }
 }
 
+/// A statement answered with TIMEOUT_EXCEEDED whose commit was still
+/// resolving in Keeper, and lands afterwards (measured on the replicated
+/// central: 19 s past max_execution_time). The worker leaves its lane alone
+/// until the statement has settled, then verifies: once. The `ErrorSettles`
+/// mutant (an error answer ends the statement, the code before the fix)
+/// verifies at once, finds the objects missing, inserts them again, and the
+/// first statement lands too.
+#[tokio::test(flavor = "current_thread")]
+async fn an_error_answer_whose_commit_is_still_resolving_is_waited_out() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        c.late_error_every.set(1);
+        c.slack_ms.set(T.slack_ms);
+        let mut e = Edge::new("p1", "logs");
+        e.commit(&b, "h0", 5).await;
+        e.commit(&b, "h1", 7).await;
+        let mut cf = cfg("w1");
+        if mutant {
+            cf.timing.mutation = Mutation::ErrorSettles;
+        }
+        let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+        let _ = w.step().await; // takes the lane, sends: TIMEOUT_EXCEEDED
+        c.late_error_every.set(0);
+        for _ in 0..80 {
+            clk.0.set(clk.0.get() + 250);
+            let _ = w.step().await;
+        }
+        c.flush_late();
+        let (n0, n1) = (c.count("otel_logs", "h0"), c.count("otel_logs", "h1"));
+        if mutant {
+            assert!(n0 > 5 && n1 > 7, "the mutant inserts again while the first statement is still to land: {n0}, {n1}");
+        } else {
+            assert_eq!((n0, n1), (5, 7), "exactly once");
+            assert_eq!(c.landed_late.get(), 1);
+            assert!(w.stats.unsettled == 1 && w.stats.deferred_unsettled > 0 && w.stats.retried_missing == 0, "{:?}", w.stats);
+        }
+    }
+}
+
+/// Which error answers end a statement at once.
+#[test]
+fn error_answers_that_settle() {
+    use super::sql::{error_code, settles_at_once};
+    let e = |c: u32, name: &str| format!("clickhouse 500 Internal Server Error: Code: {c}. DB::Exception: x. ({name}) (version 26.10.1.618 (official build))");
+    assert_eq!(error_code(&e(159, "TIMEOUT_EXCEEDED")), Some(159));
+    for (c, n) in [(159, "TIMEOUT_EXCEEDED"), (999, "KEEPER_EXCEPTION"), (319, "UNKNOWN_STATUS_OF_INSERT"), (242, "TABLE_IS_READ_ONLY"), (499, "S3_ERROR"), (241, "MEMORY_LIMIT_EXCEEDED")] {
+        assert!(!settles_at_once(&e(c, n)), "{c} may come with a commit still resolving");
+    }
+    for (c, n) in [(62, "SYNTAX_ERROR"), (60, "UNKNOWN_TABLE"), (252, "TOO_MANY_PARTS"), (202, "TOO_MANY_SIMULTANEOUS_QUERIES")] {
+        assert!(settles_at_once(&e(c, n)), "{c} is raised before anything is written");
+    }
+    assert!(settles_at_once(&format!("clickhouse 500: Code: 395. DB::Exception: {}: a row's received_at differs", super::sql::RANGE_GUARD)));
+    assert!(!settles_at_once("clickhouse: error sending request"), "no code: not provably over");
+}
+
 fn at(day: u64, h: u64, m: u64) -> u64 {
     day * DAY_NS + (h * 60 + m) * 60_000_000_000
 }

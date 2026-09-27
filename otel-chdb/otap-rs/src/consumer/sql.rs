@@ -95,22 +95,68 @@ impl LaneKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InsertErr {
     pub msg: String,
-    /// The server answered (with an error): the statement is over, so a
-    /// verify now sees everything it will ever write. `false`: no answer (a
-    /// timeout, a reset, a replica switch): it may still be running, or not
-    /// have arrived yet, and may land until its lease version's
-    /// `Held::settled_by`. A KILL doesn't change that: it can reach the
-    /// server before the statement does.
+    /// Nothing of the statement can land after this answer: the server
+    /// answered with an error raised before anything was written
+    /// (`settles_at_once`). `false`: no answer (a timeout, a reset, a replica
+    /// switch: it may still be running, or not have arrived yet), or an error
+    /// that may come with a commit still resolving (TIMEOUT_EXCEEDED after a
+    /// Keeper request hung: the part lands at the end of the server's retry
+    /// loop, measured 19 s past max_execution_time). Such a statement may land
+    /// until its lease version's `Held::settled_by`. A KILL doesn't change
+    /// that: it can reach the server before the statement does.
     pub settled: bool,
+    /// The server answered (with an error), settled or not.
+    pub answered: bool,
     /// The partition-range assertion fired: an object's rows don't all carry
     /// the `received_at` of its metadata. Nothing of the statement was written
     /// (squashed: one block), or only whole other objects (not squashed).
     pub range: bool,
 }
 
+/// Error codes a server raises before an INSERT … SELECT writes anything
+/// (parsing, analysis, access, admission): an answer with one of them means
+/// nothing of the statement can land later. Every other error may follow a
+/// commit that is still resolving: TIMEOUT_EXCEEDED (159) and
+/// KEEPER_EXCEPTION (999) after a hung Keeper request, UNKNOWN_STATUS_OF_INSERT
+/// (319), and TABLE_IS_READ_ONLY (242), which the commit's retry loop also
+/// raises once the session has expired. The range assertion
+/// (`FUNCTION_THROW_IF_VALUE_IS_NON_ZERO`, 395) fires while reading, before
+/// the statement's single block is written.
+pub const SETTLING_CODES: &[u32] = &[
+    16,  // NO_SUCH_COLUMN_IN_TABLE
+    36,  // BAD_ARGUMENTS
+    43,  // ILLEGAL_TYPE_OF_ARGUMENT
+    47,  // UNKNOWN_IDENTIFIER
+    60,  // UNKNOWN_TABLE
+    62,  // SYNTAX_ERROR
+    81,  // UNKNOWN_DATABASE
+    115, // UNKNOWN_SETTING
+    202, // TOO_MANY_SIMULTANEOUS_QUERIES
+    252, // TOO_MANY_PARTS (checked before the insert starts writing)
+    395, // FUNCTION_THROW_IF_VALUE_IS_NON_ZERO (the range assertion)
+    497, // ACCESS_DENIED
+    516, // AUTHENTICATION_FAILED
+];
+
+/// The `Code: N` of a ClickHouse error answer.
+pub fn error_code(msg: &str) -> Option<u32> {
+    let i = msg.find("Code: ")? + 6;
+    msg[i..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+}
+
+/// Whether a server's error answer to an insert means nothing of it can land later.
+pub fn settles_at_once(msg: &str) -> bool {
+    msg.contains(RANGE_GUARD) || error_code(msg).is_some_and(|c| SETTLING_CODES.contains(&c))
+}
+
 impl std::fmt::Display for InsertErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.msg, if self.settled { "" } else { " (no answer: unsettled)" })
+        let note = match (self.settled, self.answered) {
+            (true, _) => "",
+            (false, true) => " (an error that may come with a commit still resolving: unsettled)",
+            (false, false) => " (no answer: unsettled)",
+        };
+        write!(f, "{}{note}", self.msg)
     }
 }
 
@@ -292,6 +338,20 @@ impl<B: Bucket> ClickHouseCentral<B> {
         r
     }
 
+    /// The largest Keeper session timeout among the replicas that answer
+    /// (`system.zookeeper_connection`), or None if none does.
+    pub async fn keeper_session_timeout_ms(&self) -> Option<u64> {
+        let mut best = None;
+        for r in &self.replicas {
+            if let Ok(s) = r.query("SELECT max(session_timeout_ms) FROM system.zookeeper_connection", &[]).await {
+                if let Ok(v) = s.trim().parse::<u64>() {
+                    best = Some(best.map_or(v, |b: u64| b.max(v)));
+                }
+            }
+        }
+        best
+    }
+
     /// Makes the current replica hold everything committed on any replica
     /// before now (for a check that doesn't follow our own statement here).
     async fn sync(&self, fq: &str) -> Result<(), String> {
@@ -377,15 +437,16 @@ impl<B: Bucket> ClickHouseCentral<B> {
         }
         let r = match self.q(sql, &st).await {
             Ok(_) => Ok(()),
-            // The server answered: the statement is over.
-            Err(e) if e.starts_with("clickhouse ") => Err(InsertErr { range: e.contains(RANGE_GUARD), msg: e, settled: true }),
+            // The server answered: over, unless the error may come with a
+            // commit still resolving in Keeper (`settles_at_once`).
+            Err(e) if e.starts_with("clickhouse ") => Err(InsertErr { range: e.contains(RANGE_GUARD), settled: settles_at_once(&e), answered: true, msg: e }),
             Err(e) => {
                 // No answer: stop it early if it is running (saves work), but
                 // don't trust that: the KILL can reach the server before the
                 // statement does. The caller waits until `settled_by`.
                 let kill = format!("KILL QUERY WHERE query_id = {} SYNC", sq(&qid));
                 let _ = self.q(&kill, &[]).await;
-                Err(InsertErr { msg: e, settled: false, range: false })
+                Err(InsertErr { msg: e, settled: false, answered: false, range: false })
             }
         };
         // The verify that follows reads the replica this statement ran on:
@@ -508,6 +569,10 @@ pub struct MemCentral {
     /// after it was sent, but never after its fence + budget + `slack_ms`
     /// (what a slow network, or a Keeper request past max_execution_time, does).
     pub late_every: Cell<u64>,
+    /// Every n-th statement is answered at once with TIMEOUT_EXCEEDED, and
+    /// lands later all the same (as late as `late_every`'s): a commit whose
+    /// Keeper request hung, resolved after the server gave up on the time limit.
+    pub late_error_every: Cell<u64>,
     pub late_by_ms: Cell<u64>,
     pub slack_ms: Cell<u64>,
     pub late: RefCell<Vec<(u64, String, Vec<Obj>)>>,
@@ -594,6 +659,12 @@ impl Central for MemCentral {
         self.flush_late();
         self.n.set(self.n.get() + 1);
         let n = self.n.get();
+        if self.late_error_every.get() > 0 && n % self.late_error_every.get() == 0 && self.now() <= fence.wall_ms {
+            let at = self.now() + fence.budget_ms + self.slack_ms.get();
+            self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
+            let msg = "clickhouse 500 Internal Server Error: Code: 159. DB::Exception: Timeout exceeded: elapsed 28870.471 ms, maximum: 10000.000 ms. (TIMEOUT_EXCEEDED)".to_string();
+            return Err(InsertErr { settled: settles_at_once(&msg), answered: true, range: false, msg });
+        }
         if self.late_every.get() > 0 && n % self.late_every.get() == 0 {
             // No answer. It arrives late: if by its fence, it runs, and
             // lands as late as it can: its whole budget plus the slack after.
@@ -602,7 +673,7 @@ impl Central for MemCentral {
                 let at = arrive + fence.budget_ms + self.slack_ms.get();
                 self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
             }
-            return Err(InsertErr { msg: "injected: no answer (the statement is late)".into(), settled: false, range: false });
+            return Err(InsertErr { msg: "injected: no answer (the statement is late)".into(), settled: false, answered: false, range: false });
         }
         if self.now() > fence.wall_ms {
             self.fenced.set(self.fenced.get() + 1);
@@ -610,18 +681,18 @@ impl Central for MemCentral {
         }
         // The range assertion, as squashed: one bad object fails the statement before anything is written.
         if guard && self.ranged(k) && objs.iter().any(|o| o.received_ns > 0 && self.recv_of(o).iter().any(|r| *r != o.received_ns)) {
-            return Err(InsertErr { msg: format!("clickhouse 500: {RANGE_GUARD}"), settled: true, range: true });
+            return Err(InsertErr { msg: format!("clickhouse 500: {RANGE_GUARD}"), settled: true, answered: true, range: true });
         }
         let partial = self.partial_every.get() > 0 && n % self.partial_every.get() == 0;
         for (i, o) in objs.iter().enumerate() {
             if partial && i > 0 {
-                return Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, range: false });
+                return Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, answered: true, range: false });
             }
             self.add(&k.table, o, o.rows);
             self.applied.borrow_mut().push((k.table.clone(), o.content.clone()));
         }
         if self.lost_answer_every.get() > 0 && n % self.lost_answer_every.get() == 0 {
-            return Err(InsertErr { msg: "injected: the answer was lost".into(), settled: false, range: false });
+            return Err(InsertErr { msg: "injected: the answer was lost".into(), settled: false, answered: false, range: false });
         }
         Ok(())
     }

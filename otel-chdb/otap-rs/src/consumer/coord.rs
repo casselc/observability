@@ -104,11 +104,18 @@ pub struct Timing {
     pub margin_ms: u64,
     /// The longest an INSERT may run (`max_execution_time`).
     pub budget_ms: u64,
-    /// How long a statement's commit can outlive `max_execution_time`: on a
-    /// replicated table, one Keeper request (`operation_timeout_ms`, 10 s by
-    /// default; central-replicated/README.md §A time-bound caveat). The
-    /// margin must cover it (`check`), and a statement whose answer was lost
-    /// is treated as possibly landing until `Held::settled_by`.
+    /// How long a statement's commit can outlive `max_execution_time`. On a
+    /// replicated central, a commit whose Keeper request hangs (the node it
+    /// is on frozen or partitioned, or the quorum lost) is resolved by the
+    /// server's retry loop, which ran up to 29.0 s after the statement
+    /// started, just under the Keeper session timeout (30 s), and the part
+    /// can land at the end of it even though the statement answers
+    /// TIMEOUT_EXCEEDED: measured 19.0 s past a 10 s budget
+    /// (central-replicated/README.md, "Keeper overrun"; the Keeper operation
+    /// timeout, 10 s, does not bound it). So slack ≥ session timeout −
+    /// budget. The margin must cover it (`check`), and a statement whose
+    /// outcome is unknown is treated as possibly landing until
+    /// `Held::settled_by`.
     pub slack_ms: u64,
     /// A deliberate bug, for the model-based test (never set in production).
     pub mutation: Mutation,
@@ -134,13 +141,20 @@ pub enum Mutation {
     /// The check's partition range comes from the worker's wall clock (today),
     /// not from the objects' data (the model's `wallRange`).
     WallRange,
+    /// Any error answer from the server counts as the statement being over
+    /// (the code before the replicated run of 2026-09-26): a TIMEOUT_EXCEEDED
+    /// whose commit was still resolving in Keeper lands after the worker
+    /// verified and re-inserted (the model's `errorSettles`).
+    ErrorSettles,
 }
 
-/// The smallest lease margin a production worker accepts: a replicated
-/// central's Keeper request can outlive `max_execution_time` by
-/// `operation_timeout_ms` (10 s), and the margin must cover that
-/// (DECISIONS.md risk 5c). `--allow-short-margin` overrides it (tests).
-pub const MIN_MARGIN_MS: u64 = 10_000;
+/// The smallest lease margin a production worker accepts: on a replicated
+/// central a commit can land up to the Keeper session timeout (30 s) after
+/// its statement started, 20 s past a 10 s `max_execution_time` (measured
+/// 19.0 s), and the margin must cover that (DECISIONS.md risk 5c; it was
+/// 10 s, the Keeper operation timeout, until the replicated run of
+/// 2026-09-26 measured more). `--allow-short-margin` overrides it (tests).
+pub const MIN_MARGIN_MS: u64 = 20_000;
 
 impl Timing {
     /// Sanity: a statement must fit inside a lease with room to renew, and
@@ -177,20 +191,22 @@ impl Timing {
         self.check()?;
         if !allow_short && self.margin_ms < MIN_MARGIN_MS {
             return Err(format!(
-                "lease margin {} ms is below the minimum {} ms: on a replicated central one Keeper request can \
-                 outlive max_execution_time by operation_timeout_ms (10 s), and the margin must cover it \
-                 (DECISIONS.md D9, risk 5c). Raise --margin (and --ttl), or pass --allow-short-margin for a test.",
+                "lease margin {} ms is below the minimum {} ms: on a replicated central a commit can land up to \
+                 the Keeper session timeout (30 s) after its statement started, 20 s past a 10 s budget, and the \
+                 margin must cover it (DECISIONS.md D9, risk 5c). Raise --margin (and --ttl), or pass \
+                 --allow-short-margin for a test.",
                 self.margin_ms, MIN_MARGIN_MS
             ));
         }
         Ok(())
     }
 
-    /// The production defaults: ttl 45 s, margin 10 s, budget 10 s, slack 10 s
-    /// (45 = 1.5 × (10 + 2 × 10): a statement plus both margins fit in the
-    /// two-thirds of the TTL left after a renewal is due).
+    /// The production defaults: ttl 75 s, margin 20 s, budget 10 s, slack 20 s
+    /// (75 = 1.5 × (10 + 2 × 20): a statement plus both margins fit in the
+    /// two-thirds of the TTL left after a renewal is due). They were 45 / 10 /
+    /// 10 / 10 until the replicated run measured commits 19 s past the budget.
     pub const fn production() -> Timing {
-        Timing { ttl_ms: 45_000, margin_ms: 10_000, budget_ms: 10_000, slack_ms: 10_000, mutation: Mutation::None }
+        Timing { ttl_ms: 75_000, margin_ms: 20_000, budget_ms: 10_000, slack_ms: 20_000, mutation: Mutation::None }
     }
 }
 
@@ -580,17 +596,22 @@ mod tests {
         // the margin must cover the commit slack
         let e = Timing { slack_ms: 1001, ..T }.check().unwrap_err();
         assert!(e.contains("shorter than the commit slack"), "{e}");
-        // the production floor: refused below 10 s unless overridden
+        // the production floor: refused below 20 s unless overridden
         let e = T.check_production(false).unwrap_err();
-        assert!(e.contains("below the minimum 10000 ms") && e.contains("--allow-short-margin"), "{e}");
+        assert!(e.contains("below the minimum 20000 ms") && e.contains("--allow-short-margin"), "{e}");
         assert!(T.check_production(true).is_ok());
-        // the defaults comply; the old ones (30 s / 2 s / 10 s) don't
+        // the defaults comply; the old ones (30 s / 2 s / 10 s, then 45 s / 10 s / 10 s) don't
         assert!(Timing::production().check_production(false).is_ok());
+        let prev = Timing { ttl_ms: 45_000, margin_ms: 10_000, budget_ms: 10_000, slack_ms: 10_000, mutation: Mutation::None };
+        assert!(prev.check().is_ok() && prev.check_production(false).is_err());
         let old = Timing { ttl_ms: 30_000, margin_ms: 2_000, budget_ms: 10_000, slack_ms: 2_000, mutation: Mutation::None };
         assert!(old.check().is_ok() && old.check_production(false).is_err());
         // D9's "TTL 30 s and margin ≥ 10 s" doesn't fit a 10 s budget
-        let d9 = Timing { ttl_ms: 30_000, margin_ms: 10_000, ..Timing::production() };
+        let d9 = Timing { ttl_ms: 30_000, margin_ms: 10_000, slack_ms: 10_000, ..Timing::production() };
         assert!(d9.check().unwrap_err().contains("need ttl ≥ 45000 ms"));
+        // a 20 s margin needs a 75 s TTL with a 10 s budget
+        let short = Timing { ttl_ms: 60_000, ..Timing::production() };
+        assert!(short.check().unwrap_err().contains("need ttl ≥ 75000 ms"));
         // a lost statement has settled before anyone may take the lane over
         let h = Held { doc: take("l", None, "w", T.ttl_ms, 0), etag: "e".into(), sent_ms: 100, sent_wall_ms: 0 };
         assert!(h.settled_by(&T) <= 100 + T.ttl_ms + T.margin_ms);

@@ -53,7 +53,7 @@
 //!   gone").
 
 use super::bucket::{Bucket, Cond, Put};
-use super::coord::{self, CkptDoc, Ewma, Held, Lane, LeaseDoc, Observer, Timing, join};
+use super::coord::{self, CkptDoc, Ewma, Held, Lane, LeaseDoc, Mutation, Observer, Timing, join};
 use super::discovery::{Backoff, Hints, Jitter};
 use super::plan::{self, CheckRange, Found, Limits, Obj, Verdict};
 use super::sql::{Central, Fence, InsertErr, LaneKind};
@@ -1297,6 +1297,12 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         Ok(m)
     }
 
+    /// Whether nothing of a failed statement can land any more (the
+    /// `ErrorSettles` mutant: any error answer).
+    fn settled(&self, e: &InsertErr) -> bool {
+        e.settled || (self.cfg.timing.mutation == Mutation::ErrorSettles && e.answered)
+    }
+
     /// A statement over these objects got no answer: it may land until each
     /// lane's `settled_by`. Until then those lanes are left alone.
     fn unsettle(&mut self, objs: &[&Obj], e: &InsertErr) {
@@ -1361,7 +1367,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let res = self.central.insert(k, &refs, fence, &token, guard).await;
         let mut range_err = false;
         match &res {
-            Err(e) if !e.settled => {
+            Err(e) if !self.settled(e) => {
                 self.stats.insert_errors += 1;
                 self.unsettle(&refs, e);
                 return;
@@ -1433,7 +1439,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             self.stats.retried_missing += 1;
             let mut range_err = false;
             match self.central.insert(k, &[&o], fence, &token, guard).await {
-                Err(e) if !e.settled => {
+                Err(e) if !self.settled(&e) => {
                     self.stats.insert_errors += 1;
                     self.unsettle(&[&o], &e);
                     continue;
@@ -1487,7 +1493,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         log(&self.cfg, &format!("{} holds {have} of {} rows of {}: repairing", k.table, o.rows, o.content));
         if let Err(e) = self.central.repair(k, o, fence, &token).await {
             self.stats.insert_errors += 1;
-            if !e.settled {
+            if !self.settled(&e) {
                 self.unsettle(&[o], &e);
                 return false;
             }

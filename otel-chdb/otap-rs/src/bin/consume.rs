@@ -5,21 +5,23 @@
 //!
 //!   consume --s3 http://127.0.0.1:18333/otel/prefix/edges --ch http://127.0.0.1:18123 --db central
 //!           [--depth 2] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
-//!           [--ttl 45s --margin 10s --budget 10s --keeper-slack 10s [--allow-short-margin]]
+//!           [--ttl 75s --margin 20s --budget 10s --keeper-slack 20s [--allow-short-margin]]
 //!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
 //!           [--idle-backoff 1s..30s | off] [--idle-after 10s] [--linger 0ms]
 //!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
 //!           [--check-horizon 3d | all] [--no-check-range]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
-//!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold 14s]]
+//!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold <budget+slack+2s>]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
-//!   consume gc --s3 ... [--ctl PREFIX] --delay 75s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
+//!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
 //!           audit flags: [--check-horizon 3d | all] [--audit-lookback 2d] [--audit-sample-hex 0]
 //!           [--audit-max-candidates 1000] [--audit-tables t1,t2] [--audit-max-threads 2]
 //!           [--audit-timeout 30m] [--audit-no-state]
+//!           replicated central: [--ch URL1,URL2 (a run reads the first that answers)]
+//!           [--sync-replica [--audit-sync-timeout 60s] (SYNC REPLICA … LIGHTWEIGHT per table first)]
 //!
 //! The horizon audit (`consumer/audit.rs`) reports copies of a request that
 //! were ingested twice because the copy was received more than the check's
@@ -29,11 +31,14 @@
 //! what it reported in `{ctl}/audit/{db}.json`. `--metrics-addr` serves
 //! Prometheus text on `/metrics` (off by default; e.g. `:9464`).
 //!
-//! The lease timing is validated at start: a margin below 10 s is refused
-//! (a replicated central's Keeper request can outlive max_execution_time by
-//! 10 s) unless `--allow-short-margin` (tests with compressed timing), and
-//! the margin must cover `--keeper-slack` (default 10 s; with
-//! `--allow-short-margin`, the margin itself).
+//! The lease timing is validated at start: a margin below 20 s is refused
+//! (on a replicated central a commit can land up to the Keeper session
+//! timeout, 30 s, after its statement started: 20 s past a 10 s budget)
+//! unless `--allow-short-margin` (tests with compressed timing), and the
+//! margin must cover `--keeper-slack` (default 20 s; with
+//! `--allow-short-margin`, the margin itself). On a replicated central
+//! (`--sync-replica` or several `--ch`) the worker also reads the replicas'
+//! Keeper session timeout and refuses a slack below it minus the budget.
 //!
 //! Checkpoints are compacted: once `consume gc` has retired a closed epoch
 //! (after `--zombie`), the lane's holder drops it at its next full listing
@@ -265,7 +270,7 @@ async fn main() {
             let cfg = GcConfig {
                 root: root.clone(),
                 ctl: ctl.clone(),
-                delay_ms: opt_ms(&args, "--delay", "75s"),
+                delay_ms: opt_ms(&args, "--delay", "115s"),
                 zombie_ms: opt_ms(&args, "--zombie", "10m"),
                 dry_run: flag(&args, "--dry-run"),
             };
@@ -313,11 +318,21 @@ async fn main() {
             let Some(audit_every) = audit_every else { return };
             let db = arg(&args, "--db").expect("the horizon audit needs --db (and --ch)");
             let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
-            let mut ch = otap_s3pq::central::ClickHouse::new(ch_url.split(',').next().unwrap_or(&ch_url));
-            ch.http = reqwest::Client::builder()
-                .timeout(Duration::from_millis(opt_ms(&args, "--audit-timeout", "30m")))
-                .build()
-                .expect("http client");
+            // `--ch a,b`: a replicated central; a run reads the first replica
+            // that answers (and, with --sync-replica, syncs each table first).
+            let replicas: Vec<otap_s3pq::central::ClickHouse> = ch_url
+                .split(',')
+                .filter(|u| !u.is_empty())
+                .map(|u| {
+                    let mut ch = otap_s3pq::central::ClickHouse::new(u);
+                    ch.http = reqwest::Client::builder()
+                        .timeout(Duration::from_millis(opt_ms(&args, "--audit-timeout", "30m")))
+                        .build()
+                        .expect("http client");
+                    ch
+                })
+                .collect();
+            let mut cur = 0usize;
             let cfg = AuditConfig {
                 horizon_ms,
                 lookback_ms: opt_ms(&args, "--audit-lookback", "2d"),
@@ -325,6 +340,8 @@ async fn main() {
                 max_candidates: arg(&args, "--audit-max-candidates").map_or(1000, |s| s.parse().expect("--audit-max-candidates")),
                 tables: arg(&args, "--audit-tables").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default(),
                 max_threads: arg(&args, "--audit-max-threads").map_or(2, |s| s.parse().expect("--audit-max-threads")),
+                sync_replica: flag(&args, "--sync-replica"),
+                sync_timeout_ms: opt_ms(&args, "--audit-sync-timeout", "60s"),
             };
             // The copies already reported survive a restart: {ctl}/audit/{db}.json.
             let state_key = coord::join(&ctl, &format!("audit/{db}.json"));
@@ -346,7 +363,7 @@ async fn main() {
             }
             loop {
                 let mut a = state.borrow().audit.clone();
-                let rep = audit::run(&ch, &db, &cfg, &mut a, consumer::wall_ms() * 1_000_000).await;
+                let rep = audit::run_replicas(&replicas, &mut cur, &db, &cfg, &mut a, consumer::wall_ms() * 1_000_000).await;
                 for f in rep.late.iter().chain(rep.unexplained.iter()) {
                     eprintln!("{}", f.log_line(cfg.horizon_ms));
                 }
@@ -494,7 +511,7 @@ async fn main() {
     // settings to every insert (e.g. insert_quorum=2).
     central.sync_replica = flag(&args, "--sync-replica");
     central.sync_timeout_ms = opt_ms(&args, "--sync-timeout", "5s");
-    central.switch_hold_ms = arg(&args, "--switch-hold").map_or(cfg.timing.budget_ms + 12_000, |s| dur_ms(&s));
+    central.switch_hold_ms = arg(&args, "--switch-hold").map_or(cfg.timing.budget_ms + cfg.timing.slack_ms + 2_000, |s| dur_ms(&s));
     central.no_ddl = flag(&args, "--no-ddl");
     central.insert_settings = args
         .iter()
@@ -502,6 +519,29 @@ async fn main() {
         .filter(|(_, a)| *a == "--insert-setting")
         .filter_map(|(i, _)| args.get(i + 1)?.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
         .collect();
+    // A replicated central: a commit can land up to the Keeper session
+    // timeout after its statement started (central-replicated/README.md,
+    // "Keeper overrun"), so the slack must cover that minus the budget.
+    if central.sync_replica || central.replicas.len() > 1 {
+        match central.keeper_session_timeout_ms().await {
+            Some(st) if cfg.timing.slack_ms + cfg.timing.budget_ms < st => {
+                let msg = format!(
+                    "--keeper-slack {} ms + --budget {} ms is below the replicas' Keeper session timeout {st} ms: \
+                     a commit whose Keeper request hangs can land up to the session timeout after its statement \
+                     started. Raise --keeper-slack (and --margin, --ttl), or lower zookeeper.session_timeout_ms",
+                    cfg.timing.slack_ms, cfg.timing.budget_ms
+                );
+                if allow_short {
+                    eprintln!("consume: warning (--allow-short-margin): {msg}");
+                } else {
+                    eprintln!("consume: {msg}");
+                    std::process::exit(2);
+                }
+            }
+            Some(_) => {}
+            None => eprintln!("consume: warning: no replica told its Keeper session timeout; the slack is not checked against it"),
+        }
+    }
     let central = Rc::new(central);
     if let (Some(t), Some(s)) = (&table_override, &legacy_signal) {
         central.table_override.borrow_mut().insert(s.clone(), t.split_once('.').map_or(t.clone(), |(_, n)| n.to_string()));

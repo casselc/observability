@@ -146,6 +146,19 @@ pub enum Mutation {
     /// whose commit was still resolving in Keeper lands after the worker
     /// verified and re-inserted (the model's `errorSettles`).
     ErrorSettles,
+    /// Lease ETags listed during a discovery round are recorded as first seen
+    /// when the round started, and `try_take`'s read when it was asked for
+    /// (the code before the DST fix, STPA.md CAST #13): after a slow round a
+    /// renewal looks older than it is and a live lease is taken.
+    BackdateObservations,
+    /// A step renews only at insert: no renewal between lanes and no stop
+    /// in a long HEAD scan (the code before the DST fix, CAST #14): a
+    /// backlog that takes longer to scan than the lease window livelocks.
+    RenewOnlyAtInsert,
+    /// A 412 on the worker's own lease or checkpoint write is taken as
+    /// another worker's write, not read back (the code before the audit fix,
+    /// CAST #15): the lane is dropped although the lease is ours.
+    Own412IsTakeover,
 }
 
 /// The smallest lease margin a production worker accepts: on a replicated

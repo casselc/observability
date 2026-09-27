@@ -331,9 +331,10 @@ where
 
 /// A fresh thread with seeded OS randomness and the trace; `body`'s panic
 /// is the failure.
-fn on_thread(seed: u64, keep: bool, body: impl FnOnce() -> String + Send + 'static) -> Outcome {
-    // A failing seed's panic is reported by `sweep` (with its repro line), not
-    // by the default hook's message and backtrace on every run.
+/// Panics on threads named `dst-*` are reported by their driver (`sweep`
+/// with its repro line, or Hegel), not by the default hook's message and
+/// backtrace on every run.
+pub fn quiet_panics() {
     static QUIET: std::sync::Once = std::sync::Once::new();
     QUIET.call_once(|| {
         let prev = std::panic::take_hook();
@@ -343,6 +344,39 @@ fn on_thread(seed: u64, keep: bool, body: impl FnOnce() -> String + Send + 'stat
             }
         }));
     });
+}
+
+// ---- a run driven step by step (tests/hegel_dst.rs) ------------------------------------------
+
+/// Makes the current thread a simulation thread, as `run` does for its own:
+/// OS randomness from `seed`, a fresh trace. The driver keeps the thread
+/// (and its paused runtime) across steps; `leave` ends it.
+pub fn enter(seed: u64, keep: bool) {
+    let mut s = seed ^ 0x0DD5_EED0_0000_0000;
+    OS_RNG.with(|c| c.set(Some(splitmix(&mut s))));
+    TRACE.with(|t| *t.borrow_mut() = Trace { keep, hasher: Some(blake3::Hasher::new()), ..Default::default() });
+}
+
+/// Starts the simulated clocks at wall time `wall0_ms`; call inside the
+/// paused runtime (its clock is the origin). They stay on for the thread
+/// until `leave`, so everything after runs inside `block_on`.
+pub fn start_clock(wall0_ms: u64) {
+    let start = tokio::time::Instant::now();
+    SIM_CLOCK.with(|c| c.set(Some((start, 1_000_000_000_000, wall0_ms as i64 * 1_000_000))));
+}
+
+/// Ends a thread's simulation: real randomness and clocks again. Returns
+/// (the trace if kept, its hash, its line count).
+pub fn leave() -> (String, String, u64) {
+    SIM_CLOCK.with(|c| c.set(None));
+    OS_RNG.with(|c| c.set(None));
+    let tr = TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()));
+    let hash = tr.hasher.map(|h| h.finalize().to_hex().to_string()).unwrap_or_default();
+    (tr.text, hash, tr.lines)
+}
+
+fn on_thread(seed: u64, keep: bool, body: impl FnOnce() -> String + Send + 'static) -> Outcome {
+    quiet_panics();
     let t0 = std::time::Instant::now();
     let h = std::thread::Builder::new()
         .name(format!("dst-{seed}"))

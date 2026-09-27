@@ -220,7 +220,12 @@ impl Default for Limits {
     }
 }
 
-/// Groups objects (in order) into statements under the limits.
+/// Groups objects into statements under the limits. Shared statements keep
+/// the objects' order; an object over a solo limit gets a statement of its
+/// own at once, ahead of the shared one still being filled (so statements
+/// are not in slot order: harmless, as the checkpoint advances over done
+/// slots in slot order whatever order their statements ran in;
+/// tests/hegel_props.rs `prop_group_partitions_within_limits`).
 pub fn group(objs: Vec<Obj>, l: &Limits) -> Vec<Vec<Obj>> {
     let mut out: Vec<Vec<Obj>> = Vec::new();
     let mut cur: Vec<Obj> = Vec::new();

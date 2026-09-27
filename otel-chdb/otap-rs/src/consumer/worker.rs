@@ -448,7 +448,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         for id in &ids {
             // Renew between lanes: a long scan (a backlog, slow HEADs) must
             // not outlast the leases (tests/dst_consumer.rs `a_backlog…`).
-            self.maintain().await;
+            if self.cfg.timing.mutation != Mutation::RenewOnlyAtInsert {
+                self.maintain().await;
+            }
             let now = self.clock.mono();
             let due = self.held.get(id).is_some_and(|l| now >= l.next_list_at);
             if !due {
@@ -583,6 +585,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // wall time) was written by us.
         let etag = match self.bucket.put(&key, body, cond, &BTreeMap::new()).await {
             Put::Ok(e) => e,
+            Put::Conflict if self.cfg.timing.mutation == Mutation::Own412IsTakeover => return Err(NotWritten::Other),
             r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(&key).await {
                 Ok(Some((b, e))) if serde_json::from_slice::<LeaseDoc>(&b).ok().as_ref() == Some(doc) => {
                     if r == Put::Conflict {
@@ -671,10 +674,12 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let t = self.cfg.timing;
         let read_loads = self.cfg.balance.mode == BalanceMode::Load
             && self.last_loads.is_none_or(|x| now >= x + self.cfg.balance.loads_every_ms);
+        let round_start = now;
+        let backdate = t.mutation == Mutation::BackdateObservations;
         if let Ok(items) = b.list(&wprefix, None).await {
             // Observed now, not when the round started: a new ETag must not
             // be backdated by however long the requests (or a pause) took.
-            let now = self.clock.mono();
+            let now = if backdate { round_start } else { self.clock.mono() };
             let mut live = 0;
             let mut dead = Vec::new();
             let mut peers = Vec::new();
@@ -727,7 +732,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             // recorded as seen at the round's start would look unchanged for
             // longer than it was, and `try_take` would take a live lease
             // (tests/dst_consumer.rs `a_slow_discovery_round…`).
-            let now = self.clock.mono();
+            let now = if backdate { round_start } else { self.clock.mono() };
             let mut m = HashMap::new();
             for it in items {
                 if let Some(l) = Lane::from_ctl_key(&lprefix, &it.key) {
@@ -842,6 +847,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     /// observation; then fences its checkpoint. Returns whether it did.
     async fn try_take(&mut self, id: &str) -> bool {
         let t = self.cfg.timing;
+        let asked = self.clock.mono();
         let Some(lane) = self.lanes.get(id).cloned() else { return false };
         let prev = match self.lease_etags.get(id) {
             None => None,
@@ -850,7 +856,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
                     Ok(Some((body, etag))) => {
                         // When the answer came, not when we asked (as in heartbeat_and_leases).
-                        let now = self.clock.mono();
+                        let now = if t.mutation == Mutation::BackdateObservations { asked } else { self.clock.mono() };
                         self.obs.observe(id, Some(&etag), now);
                         let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { return false };
                         // (A lease this worker let lapse still names it as
@@ -913,6 +919,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // A checkpoint equal to ours (our lease epoch, its version) is ours.
         match self.bucket.put(key, body, etag.map_or(Cond::Create, Cond::IfMatch), &BTreeMap::new()).await {
             Put::Ok(e) => Ok(e),
+            Put::Conflict if self.cfg.timing.mutation == Mutation::Own412IsTakeover => Err(NotWritten::Other),
             r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(key).await {
                 Ok(Some((b, e))) if serde_json::from_slice::<CkptDoc>(&b).ok().as_ref() == Some(doc) => {
                     if r == Put::Conflict {
@@ -1052,7 +1059,10 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 // Once the renewal is due, leave the rest for the next step
                 // (the HEADs so far are kept): the lease is renewed before
                 // the next lane or the insert, not after it has lapsed.
-                if !ls.heads.contains_key(&(e.clone(), *seq)) && ls.held.renew_due(self.clock.mono()) {
+                if !ls.heads.contains_key(&(e.clone(), *seq))
+                    && ls.held.renew_due(self.clock.mono())
+                    && cfg.timing.mutation != Mutation::RenewOnlyAtInsert
+                {
                     break;
                 }
                 heads += 1;

@@ -1,0 +1,24 @@
+# Hegel's settings profiles (HEGEL.md). Cargo runs the tests from this
+# directory, where the engine finds this file. HEGEL_TEST_CASES,
+# HEGEL_SEED and the other HEGEL_* variables override any profile.
+
+# Local runs.
+[profiles.development]
+test_cases = 200
+
+# Every push and pull request (ci.yml; selected on CI servers). Over the
+# shipped `ci` profile (derandomized: the same cases every run, so a PR's
+# verdict does not depend on luck; no database; no too_slow check): small.
+[profiles.ci]
+test_cases = 100
+
+# nightly.yml (HEGEL_DEFAULT_PROFILE=nightly): a fresh seed every night, a
+# large budget, and a database of failing examples that the next night
+# replays first (restored from the Actions cache, uploaded as the
+# `hegel-db` artifact).
+[profiles.nightly]
+extends = "ci"
+test_cases = 3000
+derandomize = false
+seed = "none"
+database = ".hegel/examples"

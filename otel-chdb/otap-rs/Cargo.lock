@@ -943,17 +943,38 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993b95dc1b248e3f5747dcb017a41d6e75853a2e5ee4504f7d537c5b8dffdae4"
 
 [[package]]
+name = "dashu-base"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "861a614e79388a4c72aa66b0bdabc91e3a4f30d53e0c8d962953e207d75884d0"
+dependencies = [
+ "num-modular",
+]
+
+[[package]]
 name = "dashu-int"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49c05a0d5cb0b39fcc87c46432fdac24b90dce239857c7f6b798be4ffc3c42c6"
 dependencies = [
  "cfg-if",
- "dashu-base",
+ "dashu-base 0.4.3",
  "num-modular",
  "num-order",
  "rustversion",
  "serde",
+ "static_assertions",
+]
+
+[[package]]
+name = "dashu-int"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24f558ce3d00852b4959e5fee8d317aa37e7f469c35abc9d4eeb81fcc0177485"
+dependencies = [
+ "cfg-if",
+ "dashu-base 0.6.1",
+ "num-modular",
  "static_assertions",
 ]
 
@@ -1511,6 +1532,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "hegeltest"
+version = "0.47.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c8361f5ba09b21e4659d76f262ee3df97bfa292e59b218b075e9453620d71a6"
+dependencies = [
+ "hegeltest-c",
+ "hegeltest-macros",
+ "parking_lot",
+]
+
+[[package]]
+name = "hegeltest-c"
+version = "0.43.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffb913690e8f7276e92359e0f9a035973621cbe6f0b8935d809c8a5b178f0338"
+dependencies = [
+ "dashu-int 0.6.1",
+ "hashbrown 0.17.1",
+ "libm",
+ "miniz_oxide 0.8.9",
+ "once_cell",
+ "rand 0.10.3",
+ "rustc-hash",
+ "rustix",
+ "toml",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "hegeltest-macros"
+version = "0.47.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b767549c4d29cb37ee4baff6d74114b6b6ca3a39e33e22a7f7510addd045a8a1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1960,7 +2021,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d620b7b3d17650581da9208d1240baaff4ee33decff1c7782bdb9b4cab71c20"
 dependencies = [
- "dashu-int",
+ "dashu-int 0.4.3",
  "serde",
  "serde_json",
  "serde_with",
@@ -2735,6 +2796,7 @@ dependencies = [
  "blake3",
  "bytes",
  "futures",
+ "hegeltest",
  "hex",
  "http",
  "http-body-util",
@@ -2755,6 +2817,7 @@ dependencies = [
  "otel-arrow-dfe-pdata-views",
  "otel-arrow-dfe-telemetry",
  "parquet",
+ "prost 0.14.4",
  "quint-connect",
  "rand 0.10.3",
  "reqwest 0.12.28",
@@ -4259,6 +4322,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_spanned"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4829,6 +4901,18 @@ dependencies = [
  "libc",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "toml"
+version = "1.1.6+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+dependencies = [
+ "serde_spanned",
+ "toml_datetime",
+ "toml_parser",
+ "winnow",
 ]
 
 [[package]]

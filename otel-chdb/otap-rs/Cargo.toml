@@ -88,3 +88,11 @@ turmoil = "=0.7.2"
 hyper = { version = "1.11", features = ["client", "server", "http1"] }
 hyper-util = { version = "0.1.20", features = ["tokio"] }
 http-body-util = "0.1.5"
+# Property, stateful and swarm tests (HEGEL.md). Hegel is Hypothesis for
+# Rust; `static-engine` links the engine (hegeltest-c, pure Rust) into the
+# test binaries instead of loading libhegel_c at run time, so the tests build
+# and run offline once the crates are fetched. Pinned exactly: Hegel is in
+# beta and may break its API between releases.
+hegeltest = { version = "=0.47.4", features = ["static-engine"] }
+# Building OTLP requests in the property tests (already in the graph via pdata).
+prost = "0.14"

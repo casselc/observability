@@ -5,10 +5,19 @@
 # layout the Rust consumer reads (--depth 2) and the Rust publishers write.
 # As D4 requires (and s3pq's config validation enforces): the queue on
 # file_storage, retry_on_failure.max_elapsed_time: 0, a timeout above the
-# p99 PUT, and no batching after the queue. It does not batch at all: the
-# agents send 10k-item requests, and batching here would merge different
-# senders' requests, so a resent request would get a new content key (risk
-# #10). Credentials: the AWS SDK's default chain (IRSA, Pod Identity,
+# p99 PUT, and no batching after the queue (`sending_queue.batch` is
+# rejected).
+# Batching is s3pq's `batch`, BEFORE the queue (2026-09-27): requests are
+# merged to 10,000 items (spans, log records, data points) or 1 s, a larger
+# request is split deterministically at 10,000 (risk #11), and a sender is
+# answered only once the merged request is written to the queue, so nothing
+# is acked before it is on disk (the agents no longer batch: their `batch`
+# processor acked before their queue, deploy/results/k8s-sim.md §8). The
+# queue item is the merged request, so a replay keeps its bytes and content
+# key; its received_at is the time it was handed to the queue. As with the
+# Rust publisher's batch step, a resend of a request already written but
+# whose answer was lost lands in another batch (README §Duplicates).
+# Credentials: the AWS SDK's default chain (IRSA, Pod Identity,
 # credential_process, static keys from the environment); AWS_CA_BUNDLE for a
 # private CA; a custom endpoint (S3_BASE=https://host/bucket/prefix) is
 # addressed path-style.
@@ -46,6 +55,11 @@ exporters:
       put_timeout: 10s
       head_timeout: 2s
     timeout: 30s                          # above put_timeout + head_timeout
+    batch:                                # before the queue; the ack waits for the enqueue
+      enabled: true
+      flush_timeout: ${env:BATCH_TIMEOUT:-1s}   # D16's T; well under the agents' 60 s timeout
+      min_size: ${env:BATCH_MIN_ITEMS:-10000}
+      max_size: ${env:BATCH_MAX_ITEMS:-10000}
     retry_on_failure:
       enabled: true
       initial_interval: 1s
@@ -55,9 +69,15 @@ exporters:
       enabled: true
       storage: file_storage/queue
       num_consumers: 2
-      sizer: requests
-      queue_size: 5000                    # x ~10k items; the PVC is the bound
-      # no `batch:` (risk #10; rejected by s3pq's validation)
+      # Bytes (the requests' OTLP size), and well under the volume: bbolt
+      # takes ~1.6x that on disk (~8 MB per 10k-span request of ~5 MB) and
+      # compaction copies the live data, and a FULL volume loses acked data
+      # here: the queue skips an item it can't mark as dispatched
+      # (results/wedge.txt, UPSTREAM_ISSUES.md U22). 16 GiB of OTLP is
+      # ~26 GiB of bbolt on the 50 Gi PVC; readiness fails at 95% of it.
+      sizer: bytes
+      queue_size: ${env:QUEUE_BYTES:-17179869184}
+      # no `batch:` here (risk #10; rejected by s3pq's validation)
 service:
   extensions: [health_check, file_storage/queue]
   telemetry:

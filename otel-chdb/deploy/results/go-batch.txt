@@ -1,0 +1,163 @@
+# The Go edge's batch step moved from the agents into the publisher, before
+# its queue (2026-09-27): scripts/go_batch_test.sh, local processes, SeaweedFS
+# 4.47 on :18333, ClickHouse 26.10 on :18123, otelcol-s3pq and otelcol-deploy
+# built from this commit (ocb v0.161.0), the release consume of this branch.
+#
+#   before = the configs of 30e5320: agent-go.yaml with the batch processor
+#            (10,000 items / 2 s) before its queue, a publisher that does not
+#            batch (AGENT_CFG / PUB_CFG);
+#   after  = this commit: agents without a batch step, the publisher's s3pq
+#            `batch` (10,000 items / 1 s, split at 10,000) before its queue.
+#
+# Data: bench/sorting/gen (mixgen) traces and logs: 300-row requests (sizes),
+# 10,000-row requests (bulk, killagent, killpub), 1,000-row requests
+# (killput). Every sender resends until 2xx. "central" is the consumer's
+# database; "objects on S3" are counted from the objects directly.
+
+### bulk, before
+scenario bulk: 1 agent(s), 2 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 32 attempts for 32 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":32 "rows_inserted":320000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 160000 distinct
+160000	160000	0	16	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+16	10000	10000	10000	1272344
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 160000 distinct
+160000	160000	0	16	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+16	10000	10000	10000	833270
+
+### bulk, after
+scenario bulk: 1 agent(s), 2 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 32 attempts for 32 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":32 "rows_inserted":320000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 160000 distinct
+160000	160000	0	16	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+16	10000	10000	10000	1272338
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 160000 distinct
+160000	160000	0	16	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+16	10000	10000	10000	833264
+
+### sizes, before
+scenario sizes: 4 agent(s), 8 senders, 40 requests each, interval 1s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 320 attempts for 320 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":160 "rows_inserted":96000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	80	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+80	600	600	600	114600
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	80	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+80	600	600	600	80584
+
+### sizes, after
+scenario sizes: 4 agent(s), 8 senders, 40 requests each, interval 1s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 320 attempts for 320 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":74 "rows_inserted":96000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	37	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+37	900	1297	1800	217442
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	37	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+37	900	1297	1800	150244
+
+### killagent, before
+agent SIGKILL at 2.172 s
+agent SIGKILL at 5.509 s
+scenario killagent: 1 agent(s), 4 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 92 attempts for 64 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":44 "rows_inserted":440000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+220000	220000	0	22	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+22	10000	10000	10000	1265764
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+220000	220000	0	22	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+22	10000	10000	10000	833931
+
+### killagent, after
+agent SIGKILL at 2.172 s
+agent SIGKILL at 5.031 s
+scenario killagent: 1 agent(s), 4 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 88 attempts for 64 requests (more: resends)
+consumer: "dedup_skipped":0 "errors":0 "objects_inserted":64 "rows_inserted":640000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	2
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+32	10000	10000	10000	1268839
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+32	10000	10000	10000	834907
+
+### killpub, before
+publisher SIGKILL at 2.100 s
+publisher SIGKILL at 5.970 s
+scenario killpub: 1 agent(s), 4 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 64 attempts for 64 requests (more: resends)
+consumer: "dedup_skipped":1 "errors":0 "objects_inserted":64 "rows_inserted":640000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	5
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+32	10000	10000	10000	1268832
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	5
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+33	10000	10000	10000	834987
+
+### killpub, after
+publisher SIGKILL at 2.144 s
+publisher SIGKILL at 6.069 s
+scenario killpub: 1 agent(s), 4 senders, 16 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 64 attempts for 64 requests (more: resends)
+consumer: "dedup_skipped":1 "errors":0 "objects_inserted":64 "rows_inserted":640000
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	5
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+32	10000	10000	10000	1268826
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 320000 distinct
+320000	320000	0	32	6
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+33	10000	10000	10000	835053
+
+### killput (run 1), after
+publisher SIGKILL at 6.594 s with 5 objects landed, answers held
+scenario killput: 1 agent(s), 4 senders, 24 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 96 attempts for 96 requests (more: resends)
+consumer: "dedup_skipped":3 "errors":0 "objects_inserted":26 "rows_inserted":96000 (dedup_skipped: byte-identical copies it recognised)
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	13	3
+traces copies on S3 (the same rows in two objects: a replay or a resend): rows sets with copies, of which every copy has the same received_at
+1	1
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+14	1000	3714	4000	553662
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	13	4
+logs copies on S3 (the same rows in two objects: a replay or a resend): rows sets with copies, of which every copy has the same received_at
+2	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+15	1000	3733	4000	367092
+
+### killput (run 2), after
+publisher SIGKILL at 6.659 s with 5 objects landed, answers held
+scenario killput: 1 agent(s), 4 senders, 24 requests each, interval 0s; agent agent-go.yaml, publisher publisher-config.yaml
+senders: 96 attempts for 96 requests (more: resends)
+consumer: "dedup_skipped":3 "errors":0 "objects_inserted":25 "rows_inserted":96000 (dedup_skipped: byte-identical copies it recognised)
+traces central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	13	3
+traces copies on S3 (the same rows in two objects: a replay or a resend): rows sets with copies, of which every copy has the same received_at
+1	1
+traces objects on S3: count, rows/object min / avg / max, bytes/object avg
+14	1000	3714	4000	553768
+logs central: rows, distinct rows, duplicate rows, objects (content keys), epochs; expected 48000 distinct
+48000	48000	0	12	4
+logs copies on S3 (the same rows in two objects: a replay or a resend): rows sets with copies, of which every copy has the same received_at
+2	2
+logs objects on S3: count, rows/object min / avg / max, bytes/object avg
+14	4000	4000	4000	390036

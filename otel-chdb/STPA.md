@@ -235,7 +235,7 @@ sequenceDiagram
   W->>C: count check: absent
   W->>C: INSERT S1 with fence
   C-->>W: TIMEOUT_EXCEEDED (S1 still in Keeper)
-  Note over W: FATAL: treats the error as done; verify finds nothing
+  Note over W: FATAL: treats the error as done, verify finds nothing
   W->>C: INSERT S2 (the retry)
   Note over C: S2 commits
   Note over C: S1 lands too: the batch is in central twice (atMostOnce fails)

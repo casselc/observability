@@ -1,0 +1,292 @@
+# STPA analysis
+
+Exported 2026-09-27 from the PRD's "STPA analysis" tab (Telemetry UI PRD,
+draft). The PRD's drawn diagrams are redrawn here as Mermaid. Related:
+[DECISIONS.md](DECISIONS.md), [AMBIGUITY.md](AMBIGUITY.md) (the ambiguity
+register that follows from the CAST below), [model/](model/).
+
+A first-pass STPA of the telemetry pipeline and UI, extended with STPA-Sec for adversarial causes and STPA-Teaming for how on-call people and automation work together.
+
+## Losses and hazards
+
+Six losses cover safety, security and cost; seven hazards are the system states that lead to them.
+
+| ID | Loss |
+| --- | --- |
+| L-1 | An incident is missed, misdiagnosed or prolonged because operators lacked correct telemetry |
+| L-2 | Acknowledged telemetry is lost |
+| L-3 | Telemetry shown to people or alerts is wrong: duplicated, missing, stale or on the wrong entity |
+| L-4 | Sensitive data is disclosed (secrets or personal data in logs, one team's data to another) |
+| L-5 | Telemetry or the catalog is tampered with, hiding or forging activity |
+| L-6 | The pipeline harms production or budget: node pressure, full disks, runaway central or S3 cost |
+
+| ID | Hazard | Losses |
+| --- | --- | --- |
+| H-1 | Acknowledged telemetry is in no store and cannot be recovered | L-2, L-1 |
+| H-2 | A result is presented as complete while it is missing or duplicating data | L-3, L-1 |
+| H-3 | Telemetry is attributed to the wrong entity, or to none | L-3, L-1 |
+| H-4 | An alert condition holds but no page reaches on-call, or a page fires for a condition that does not hold | L-1 |
+| H-5 | People act on a stale or wrong view without knowing it (snapshot, source or mode confusion) | L-1, L-3 |
+| H-6 | An unauthorized party can read or write telemetry, the catalog or control objects | L-4, L-5 |
+| H-7 | A pipeline component uses resources beyond its budget | L-6, L-2 |
+
+## System-level constraints
+
+Each constraint is the inverse of a hazard; most are already enforced by the pipeline's commit and consumer protocols, and the rest become requirements.
+
+| ID | Constraint | Hazard | Enforced today by |
+| --- | --- | --- | --- |
+| SC-1 | Telemetry must not be acknowledged until it is durable, and must be ingested exactly once | H-1 | Create-only commits, durable buffer, leases, count check and repair (Quint-checked) |
+| SC-2 | Every result must state its source and the time it is complete through; incomplete windows must be marked | H-2, H-5 | Nothing yet (new) |
+| SC-3 | Entity attribution must be derived from the resource's own attributes and must fall back to them when the catalog is missing or late | H-3 | Leftover map and grace window in the entity spike |
+| SC-4 | Alerts must evaluate only complete windows and must report their own failure to evaluate | H-4 | Nothing yet (new) |
+| SC-5 | The UI must make its data source, snapshot and degraded mode visible on every view | H-5 | Nothing yet (new) |
+| SC-6 | Every write path must be authenticated and authorized, and reads must be scoped by role | H-6 | Credential chain per edge; no reader-side controls yet |
+| SC-7 | Every component must have a resource budget and must push back rather than exceed it | H-7 | Durable buffer cap with backpressure; memory limiters |
+
+## Control structure
+
+Two views of one hierarchy: the automated data plane, and the loop where people steer through the UI and alerts. Solid arrows are control actions, dashed arrows feedback; the stores are the controlled processes.
+
+**A. Data plane.** Every store has automated controllers and no person acts on it directly; operators act only through configuration and deploys, and see aggregate feedback.
+
+```mermaid
+flowchart TB
+  ops["Platform operators<br/>configuration, budgets, retention, access; deploy and scale"]
+  edge["Edge collectors<br/>agents, publishers, buffer; commit protocol per lane"]
+  ec["Entity controllers<br/>one per cluster; write entity records"]
+  s3[("S3 lanes and control objects<br/>telemetry and entity objects; leases, checkpoints, tombstones, GC marks")]
+  con["Consumer workers<br/>leases, time-bound inserts, count check and repair"]
+  agg["Central aggregator<br/>merges and versions; flags catalog gaps"]
+  gc["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots"]
+  ch[("Central ClickHouse<br/>tables, rollups, indexes")]
+  cat[("Entity catalog<br/>tables and dictionaries")]
+  lake[("Lake snapshots<br/>Iceberg (planned)")]
+  ops -->|config, deploy| edge
+  ops -->|config, deploy| ec
+  edge -->|create-only PUT| s3
+  ec -->|entity records| s3
+  con -->|CAS leases, checkpoints| s3
+  s3 -.->|list, get| con
+  s3 -.->|read records| agg
+  gc -->|delete, seal| s3
+  con -->|insert, repair| ch
+  ch -.->|counts| con
+  agg -->|upsert| cat
+  gc -->|commit| lake
+  gc -.->|health, audit, cost| ops
+```
+
+**B. People and automation.** On-call people steer through two automated teammates, the UI and the alerting engine. Their only view of the data is what the query service returns, so its complete-through time is the feedback that keeps their mental model correct.
+
+```mermaid
+flowchart TB
+  oc["On-call engineers<br/>choose scope, time range and snapshot; write alert rules; ack, silence, escalate"]
+  op["Platform operators<br/>routing policy, access, retention, budgets"]
+  ui["Telemetry UI<br/>results with source and mode; scope bar, snapshot picker"]
+  al["Alerting engine<br/>evaluates complete windows; pages on-call"]
+  qs["Query service<br/>resolves entities; routes to central or the lake;<br/>returns a complete-through time with every result"]
+  ch[("Central ClickHouse")]
+  lake[("Lake snapshots")]
+  cat[("Entity catalog")]
+  oc -->|queries| ui
+  ui -.->|results, freshness| oc
+  oc -->|rules, acks| al
+  al -.->|pages| oc
+  ui -->|requests| qs
+  qs -.->|complete-through| ui
+  al -->|evaluate| qs
+  qs -.->|values| al
+  op -->|routing, access| qs
+  qs -->|SQL| ch
+  ch -.->|rows, status| qs
+  qs -->|plans, reads| lake
+  lake -.->|rows| qs
+  qs -->|lookups| cat
+```
+
+## Unsafe control actions
+
+Each row is one way a control action becomes unsafe, using STPA's four types: not provided (NP), provided when unsafe (P), wrong timing or order (T), stopped too soon or applied too long (D).
+
+| ID | Controller | Control action | Type | Unsafe when | Hazards |
+| --- | --- | --- | --- | --- | --- |
+| UCA-1 | Edge collector | Acknowledge a request | P | Before the batch is durable in the buffer or committed | H-1 |
+| UCA-2 | Edge collector | Resend a batch | P | With a new receive time, after its original committed long before | H-2 |
+| UCA-3 | Edge collector | Push back on senders (503) | NP | When the buffer is full, so senders think data was accepted | H-1, H-7 |
+| UCA-4 | Consumer worker | Insert a statement | T | After its lease window closed, racing the new holder | H-2 |
+| UCA-5 | Consumer worker | Repair missing rows | P | While the original statement can still land | H-2 |
+| UCA-6 | GC | Delete a slot | T | Before every reader (consumer groups, sealer) has passed it | H-1 |
+| UCA-7 | Entity controller | Write an entity record | NP | For a pod that is running and producing telemetry | H-3 |
+| UCA-8 | Entity controller | Write an entity record | P | With another cluster's or a stale identity | H-3 |
+| UCA-9 | Query service | Route a query to a source | P | To a source that does not cover the requested range, without saying so | H-2, H-5 |
+| UCA-10 | Query service | Return a result | P | Without its complete-through time, or with a wrong one | H-2, H-5 |
+| UCA-11 | Alerting engine | Evaluate a rule | T | Over a window that is not yet complete | H-4 |
+| UCA-12 | Alerting engine | Page on-call | NP | When evaluation failed because a source was down | H-4 |
+| UCA-13 | On-call engineer | Pick a snapshot or source | P | An old snapshot while believing it is live | H-5 |
+| UCA-14 | On-call engineer | Silence an alert | D | Longer than the incident, hiding a later one | H-4 |
+| UCA-15 | Platform operator | Change retention | P | Shorter than the longest edge outage the buffer rides out | H-1 |
+| UCA-16 | Platform operator | Grant access | P | Wider than the role needs, across clusters or namespaces | H-6 |
+
+## Loss scenarios
+
+Several scenarios were already found and fixed through the Quint models and the fault runs; the open ones become requirements.
+
+| ID | UCA | Scenario (why it could happen) | Status |
+| --- | --- | --- | --- |
+| LS-1 | UCA-2 | The edge crashed after a commit landed but before the buffer's ack; on replay it stamped a new receive time, so the copy fell outside the check horizon | Fixed: receive time kept through the buffer; horizon audit as backstop |
+| LS-2 | UCA-5 | ClickHouse answered a timeout, but the insert committed up to 29 s later; the consumer's process model said "failed" | Fixed: error answers waited out; 20 s margin enforced at start |
+| LS-3 | UCA-6 | A writer that never learned its write succeeded retried into a slot GC had already deleted, below the checkpoint | Fixed: GC keeps the slot below the checkpoint until the epoch retires |
+| LS-4 | UCA-4 | A worker paused past its lease; its clock said it still held the lane | Guarded: monotonic lease clock plus server-side fence |
+| LS-5 | UCA-7 | The entity controller was down or lagging; agents kept producing telemetry for pods the catalog lacked | Guarded by the grace window; the announcement lane is not built |
+| LS-6 | UCA-9, UCA-10 | Central was degraded; the query service fell back to the lake but the UI kept its "live" look | Open: needs SC-2 and SC-5 |
+| LS-7 | UCA-11 | A lane was lagging; the alert window closed on partial data and read as "no errors" | Open: evaluate only up to the complete-through time |
+| LS-8 | UCA-12 | The alerting engine could not reach any source and treated "no data" as "OK" | Open: a failed evaluation must page |
+| LS-9 | UCA-3 | The buffer volume filled before the size cap; the publisher crash-looped | Measured; cap kept well below the volume, alert on it |
+| LS-10 | UCA-15 | Retention was cut while an edge site was offline for days; its replay landed in expired partitions | Open: retention must exceed the buffer's longest outage; check at config time |
+
+## STPA-Sec
+
+The same control structure, with an adversary as a cause: the biggest exposure is that S3 and the entity lanes accept any writer holding a valid key.
+
+| ID | Adversary action | Unsafe control action or feedback | Hazards | Mitigation |
+| --- | --- | --- | --- | --- |
+| SEC-1 | A compromised pod or node forges telemetry or entity records for other workloads | Entity controller or edge writes wrong identity (UCA-8) | H-3, H-6 | Per-cluster write prefixes and keys; the aggregator rejects records whose cluster does not match the writer |
+| SEC-2 | A stolen edge key overwrites or deletes lane objects | Corrupts the process the consumer reads | H-1, H-6 | Create-only writes; no delete permission at the edge; object lock or versioning on lane prefixes |
+| SEC-3 | An attacker writes a lease or checkpoint to stall or skip lanes | Forged feedback to consumer workers | H-1, H-2 | Control prefixes writable only by consumer roles; audit on unexpected writers |
+| SEC-4 | Secrets or personal data in log bodies and attributes | UI returns data wider than its reader's role (UCA-16) | H-6 | Redaction at the edge; role-scoped reads by cluster and namespace; query audit log |
+| SEC-5 | A crafted query exhausts central or the lake readers | Query service provides load beyond budget | H-7 | Per-user and per-query limits; cost estimate before running cold queries |
+| SEC-6 | An insider silences alerts or edits rules to hide activity | Alerting control actions (UCA-14) | H-4, H-5 | Change history on rules and silences; two-person rule for silences over a set length |
+| SEC-7 | Log injection makes the UI or proxy run unintended SQL | Rewrite proxy or query service executes attacker text | H-6 | Parse and rebuild SQL from an AST; never splice user text; read-only ClickHouse users |
+| SEC-8 | Tampered time on an edge node shifts receive times | Wrong partition and check range (UCA-2) | H-2 | Clock checks at the edge; the horizon audit flags implausible gaps |
+
+## STPA-Teaming
+
+On-call people and the automation (UI, query service, alerting, pipeline controllers) form one team; the teaming hazards are gaps in shared awareness, handoffs and trust between them.
+
+| ID | Teaming issue | What goes wrong | Hazards | Requirement |
+| --- | --- | --- | --- | --- |
+| TM-1 | Mode awareness | The UI silently switches from central to the lake; the engineer reads 40 s-old data as live | H-5 | A persistent source and freshness badge; a visible banner on any mode change |
+| TM-2 | Shared understanding of completeness | The engineer reads "no errors" where the window was only half ingested | H-2, H-5 | Incomplete windows drawn as such; counts marked partial |
+| TM-3 | Automation's limits known to people | Alerts are trusted after the alerting engine lost a source | H-4 | The alerting engine reports its own health and pages on failed evaluation |
+| TM-4 | Handoff between shifts | A silence or a pinned snapshot outlives the person who set it | H-4, H-5 | Silences and pins carry an owner and an expiry, shown to the next person |
+| TM-5 | Trust calibration | The pipeline had a late-copy or gap event; people keep trusting the numbers | H-2 | Pipeline-health warnings shown on affected views, not only on a separate page |
+| TM-6 | Entity model mismatch | The engineer filters by a workload; the catalog is behind a rollout, so new pods are missing | H-3, H-5 | Views show catalog lag and count rows without an entity match |
+| TM-7 | Workload and attention | Many near-duplicate pages from the same cause flood on-call | H-4 | Grouping by entity and cause; one page per incident, not per series |
+| TM-8 | Future AI assistant | An assistant answers from stale or partial results with confidence | H-5 | Assistants see the same freshness and completeness metadata and must state it |
+
+## Derived requirements
+
+Ten requirements come out of this pass; all are P0 unless marked, and each traces to the scenarios above.
+
+| ID | Requirement | From |
+| --- | --- | --- |
+| R-S1 | Every result carries its source and complete-through time; the UI shows both on every view | SC-2, LS-6, TM-1 |
+| R-S2 | Windows not yet complete are drawn as incomplete, and counts over them are marked partial | TM-2, UCA-10 |
+| R-S3 | Alerts evaluate only up to the complete-through time; a failed evaluation pages | LS-7, LS-8, TM-3 |
+| R-S4 | Silences and pinned snapshots have an owner and an expiry, shown at handoff | TM-4, UCA-14 |
+| R-S5 | Views show catalog lag and rows without an entity match | LS-5, TM-6 |
+| R-S6 | Retention changes are refused if shorter than the longest configured edge-buffer outage (custody age; see DECISIONS.md D19) | LS-10, UCA-15 |
+| R-S7 | Writes are scoped by cluster prefix and role; edge keys cannot delete; the aggregator rejects mismatched clusters. Scheme (proposed, not built): cluster-first keys; publishers and entity controllers may only create under their own cluster's prefix, keyed on a cluster principal tag in the session credentials; only consumer roles can write or delete control objects. Recorded in [DECISIONS.md](DECISIONS.md) D18 | SEC-1, SEC-2, SEC-3 |
+| R-S8 | Reads are role-scoped by cluster and namespace; every query is audit-logged | SEC-4, UCA-16 |
+| R-S9 | The query service and rewrite proxy build SQL only from a parsed tree, with per-user limits (P1) | SEC-5, SEC-7 |
+| R-S10 | Alerts group by entity and cause, one page per incident (P1) | TM-7 |
+
+## CAST: issues already found
+
+Most of the defects found so far share one control flaw: a controller treated an ambiguous outcome (no answer, an error, a timeout, a restart) as a definite one, and its process model drifted from reality. [AMBIGUITY.md](AMBIGUITY.md) turns this into a register of every boundary call's outcomes.
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Replay stamped a new receive time | Horizon audit design, then a crash/replay test | H-2 | Edge: "the time I see the request is when it arrived" | Without a buffer that was true | Keep the buffer's ingestion time (patch 0003, queue metadata) | Identity and time must come from the first durable custody, not the latest handler |
+| 2 | An error answer that still committed | Replicated-central soak with Keeper faults | H-2 | Consumer: "an error means nothing was written" | ClickHouse docs and single-node behaviour | Only pre-write errors settle a statement; others are waited out; mutant `errorSettles` | Classify outcomes as definite or ambiguous; model the ambiguous ones |
+| 3 | Retry after a lost answer re-inserted rows | Quint model (`releaseInFlight` family) | H-2 | Consumer: "verify now, the statement is over" | Local inserts return fast | Lanes with an unanswered statement are left alone until it cannot land | A check is only valid after the thing checked can no longer change |
+| 4 | GC deleted a slot a writer later retried into | Quint model at short lease with writer faults | H-1 | GC: "below the checkpoint nothing will be written again" | Writers were assumed to know their outcome | Keep the slot below the checkpoint until the epoch retires; mutant `gcReopens` | Deleting needs the writers' view, not only the reader's |
+| 5 | 10 s margin too short | Directed Keeper-overrun test (19 s past the limit) | H-2 | Consumer: "a commit lands within max_execution_time + 10 s" | Keeper's operation timeout is 10 s | 20 s margin, checked against the Keeper session at start; mutant `keeperOverrun` | Derive margins from the real bound (session timeout), and check them at runtime |
+| 6 | Audit read a lagging replica | Replicated run | H-2 | Audit: "any replica is current" | Single node had no lag | Sync the replica first; fail over; fail visibly | Feedback from a replica needs its freshness attached |
+| 7 | Unescaped quote broke every insert | Edge-deploy agent's run | H-1 (availability) | Consumer SQL builder | String built by hand | One quoting helper; a test that the SQL parses | Build SQL from a tree, never by splicing |
+| 8 | RefCell borrow held across an await | Clippy in the CI spike | H-1 (availability) | Consumer runtime | Borrow looked short-lived | Read first, borrow after; lint made fatal | Turn known-dangerous lints into errors |
+| 9 | One 1 MiB value made an object 40× larger | Hostile conformance data | H-7 | Go writer: "statistics are small" | Normal data has short values | Truncate statistics to 64 bytes, as parquet-rs does | Test with hostile data, not just realistic data |
+| 10 | Load-balancer retries were not byte-identical | Gateway kill tests | H-2 | Upstream exporter: map order | Order did not matter before content keys | Sort pieces (patch 0001, U20) | Anything that re-cuts a request must be deterministic |
+| 11 | Configs carried static keys that shadowed IRSA and Pod Identity | Edge config audit | H-6 | Edge config | Convenient for local runs | Credentials only from the environment | Local convenience must not ship in shared configs |
+| 12 | Tests ran against binaries built from a different tree | Our own agent coordination | H-2 (for results) | Development process: a shared build directory | Faster builds | Separate build directories per checkout; rebuild before trusting a run | Evidence needs provenance: record what was tested |
+
+**Systemic factors**
+
+- **Ambiguous outcomes treated as definite** (issues 2, 3, 4, 5, 6). The fix pattern is the same each time: name the ambiguous outcome, wait until it cannot change, and model it. The Quint models found three of these before production would have.
+- **Time as identity** (issues 1, 5). Anything that decides placement or safety from a clock needs a stated bound and a runtime check.
+- **Feedback without freshness** (issue 6, and the open LS-6 to LS-8). A controller acting on feedback must know how current it is; this is the same requirement the UI now carries as R-S1.
+- **Test evidence without provenance** (issue 12, and the memory and disk exhaustion that broke runs). Results are only as good as knowing which build and which environment produced them; CI now records both.
+
+## What the models showed
+
+Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.
+
+**errorSettles** — an error answer that still committed stored the batch twice.
+
+```mermaid
+sequenceDiagram
+  participant E as Edge writer
+  participant S as S3 lane
+  participant W as Consumer w1
+  participant C as ClickHouse
+  E->>S: PUT e1/0, create-only
+  W->>S: lease and checkpoint
+  W->>C: count check: absent
+  W->>C: INSERT S1 with fence
+  C-->>W: TIMEOUT_EXCEEDED (S1 still in Keeper)
+  Note over W: FATAL: treats the error as done; verify finds nothing
+  W->>C: INSERT S2 (the retry)
+  Note over C: S2 commits
+  Note over C: S1 lands too: the batch is in central twice (atMostOnce fails)
+  Note over W,C: Guard: after an ambiguous answer, wait until S1 can no longer land
+```
+
+**gcReopens** — GC deleted a slot the writer later reused; an acknowledged batch was never ingested.
+
+```mermaid
+sequenceDiagram
+  participant E as Edge writer
+  participant S as S3 lane
+  participant W as Consumer w1
+  participant C as ClickHouse
+  participant G as GC
+  E->>S: PUT e1/0, request 2
+  Note over E: no answer: moves on (slot unresolved)
+  Note over S: the late PUT lands
+  W->>C: INSERT e1/0
+  C-->>W: committed
+  W->>S: checkpoint past e1/0
+  G->>S: FATAL: delete e1/0 (just below the checkpoint)
+  E->>S: PUT e1/0, request 1
+  S-->>E: 200: request 1 acked
+  Note over S,W: request 1 sits below the checkpoint, never ingested (neverSkipsCommitted fails)
+  Note over G: Guard: GC keeps the slot just below the checkpoint until its epoch retires
+```
+
+| Trace | What goes wrong | Invariant broken | Guard that now blocks it |
+| --- | --- | --- | --- |
+| errorSettles | An error answer is taken as the end of a statement that still commits; the retry stores the batch twice | atMostOnce | Wait after an ambiguous answer until the statement can no longer land |
+| gcReopens | GC deletes the slot just below the checkpoint; the writer's next batch re-creates it, acked and never ingested | neverSkipsCommitted | GC keeps that slot until the epoch retires |
+| releaseInFlight | A worker gives its lane back with a statement in flight; the next holder inserts the same batch | atMostOnce | A release waits until the statement is past its settle time |
+| keeperOverrun | A replicated commit hangs in Keeper past the margin and lands after another worker inserted the batch | atMostOnce | Keeper slack must not exceed the margin (20 s, checked at start) |
+| noHorizon | A replay stamped with its restart day is checked only against that day and misses its original | atMostOnce | Check horizon at least the longest gap, and replays keep their receive time |
+| restamp | After a two-day outage the old edge re-stamps the replay; the check misses day 0 | replayKeepsReceivedAt, atMostOnce | Receive time is stamped at custody (patch 0003, queue metadata) |
+
+## Modelling the open issues
+
+Four new Quint models cover the open scenarios; every design instance holds and every mutant breaks (82 rows in `model/open_models.sh`, 0 off expectation at seed 0x5eed; sampled, not proofs), and three of them changed the design.
+
+| Model | Open issue | What holds in the design | Mutants that break it |
+| --- | --- | --- | --- |
+| `completeness.qnt` | LS-6, LS-7, LS-8 | A published complete-through time is sound; alerts never evaluate past it; every result carries its own source's watermark; no source always pages | Idle lane counted as caught up; watermark from the last receive time; highest object counted with an earlier gap; evaluation by wall clock; no data treated as OK; lake result labelled with central's watermark |
+| `entityCatalog.qnt` | LS-5 | No row stays unattributable for ever, even through controller outages | No announcements; a lost announcement counted as sent; grace window shorter than controller delay plus dictionary lag |
+| `retention.qnt` | LS-10, R-S6 | Every acknowledged request lands in a partition that still exists | Retention too short; a cut while an edge is offline; retention sized from buffer cap ÷ rate |
+| `sealer.qnt` | Lake snapshots | Snapshots are monotone and repeatable; each object sealed at most once; the watermark never passes an unsealed slot | Blind overwrite; stale plan committed; watermark from the listing; no dedup |
+
+**What the models changed**
+
+- **Complete-through needs one new field.** It cannot be derived from what the consumer knows today. Each object must carry the oldest receive time still in the edge's custody when it was written. Two simpler rules the design notes proposed are unsound. An idle lane and an offline edge with a full buffer look the same from S3, so idle edges must commit heartbeat slots, and a lane that stops advancing pages as stale rather than being dropped.
+- **The announcement lane closes the permanent gap, not the transient one.** In a separate lane, a row can be ingested before its announcement. Put the announcement ahead of its rows in the data lane to bound the gap to the dictionary lag. During a controller outage, rows can only be eventually exact.
+- **The retention rule in D19 was wrong under backpressure.** A full buffer keeps its oldest requests, so their age equals the outage length whatever the size cap. R-S6 must bound custody age (backlog + outage with flaps + drain), not buffer size. Only drop-oldest bounds age by the cap, by losing acknowledged data.
+- **The sealer's dedup set must outlive the longest custody age.** Now that replays keep their original receive time, a 3-day dedup window would seal a replay twice after a longer outage.

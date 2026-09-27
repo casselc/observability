@@ -5,10 +5,12 @@
 //! Keeping the I/O out is what lets the model-based test drive every step of
 //! the model, including the ones a real network makes hard to hit.
 //!
-//! Layout: `{prefix}/{epoch}/{seq:020d}.parquet`. A slot holds a data object
-//! (the batch; its description in `x-amz-meta-oscope-*` and in the Parquet
-//! footer) or a zero-byte tombstone the consumer wrote. Every write is
-//! `PUT If-None-Match: *`.
+//! Layout (format v2, `../FORMAT.md`): a lane's prefix is
+//! `{root}/{cluster}/{producer}/{signal}`, its slots
+//! `{prefix}/{epoch}/{seq:020d}.parquet`. A slot holds a data object (the
+//! batch; its description in `x-amz-meta-oscope-*` and in the Parquet
+//! footer), a zero-byte heartbeat, or a zero-byte tombstone the consumer
+//! wrote. Every write is `PUT If-None-Match: *`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
@@ -25,8 +27,39 @@ pub const META_ROWS: &str = "oscope-rows";
 pub const META_MIN_TIME: &str = "oscope-min-time";
 pub const META_MAX_TIME: &str = "oscope-max-time";
 pub const META_RECEIVED: &str = "oscope-received";
+/// The format version of the object (`FORMAT_VERSION`).
+pub const META_FORMAT: &str = "oscope-format";
+/// The key's `{cluster}`.
+pub const META_CLUSTER: &str = "oscope-cluster";
+/// The custody floor (ns): every request of the publisher with
+/// `received_at` below it was committed before this slot was first sent
+/// (`../FORMAT.md` §2, `../model/completeness.qnt`).
+pub const META_LOW: &str = "oscope-low";
 pub const KIND_DATA: &str = "data";
 pub const KIND_TOMB: &str = "tomb";
+/// A heartbeat: a zero-byte slot carrying only `oscope-low`.
+pub const KIND_BEAT: &str = "beat";
+/// The on-disk format these keys and metadata follow (`../FORMAT.md`).
+pub const FORMAT_VERSION: u32 = 2;
+
+/// Whether `s` may be a cluster or producer name (a key segment):
+/// `[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?`. Never empty, never `_`-prefixed
+/// (control objects), never containing `/`.
+pub fn valid_name(s: &str) -> bool {
+    let b = s.as_bytes();
+    let edge = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    !b.is_empty()
+        && b.len() <= 63
+        && edge(b[0])
+        && edge(b[b.len() - 1])
+        && b.iter().all(|&c| edge(c) || c == b'.' || c == b'_' || c == b'-')
+}
+
+/// A lane's key prefix: `{root}/{cluster}/{producer}/{signal}`.
+pub fn lane_prefix(root: &str, cluster: &str, producer: &str, signal: &str) -> String {
+    let root = root.trim_matches('/');
+    if root.is_empty() { format!("{cluster}/{producer}/{signal}") } else { format!("{root}/{cluster}/{producer}/{signal}") }
+}
 
 /// The key of slot `seq` in `epoch`'s log. Zero padding makes LIST order slot order.
 pub fn slot_key(prefix: &str, epoch: &str, seq: u64) -> String {
@@ -72,7 +105,8 @@ pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (yoe + era * 400 + i64::from(m <= 2), m, d)
 }
 
-/// What a slot holds, as a HEAD reads it.
+/// What a slot holds, as a HEAD reads it. (A heartbeat is `Data` here: to
+/// the writer's protocol it is a batch like any other.)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Slot {
     Free,

@@ -56,7 +56,7 @@ When the alert fires for ordinal N:
 
 1. `kubectl -n otel-edge scale sts/otap-publisher --replicas=N+1` (Go:
    `sts/otelcol-publisher`). The pod mounts its own PVC (same producer id
-   `CLUSTER-otap-publisher-N`), replays it, and commits the backlog. The
+   `{CLUSTER}/otap-publisher-N`), replays it, and commits the backlog. The
    ordinals between the current size and N come back too; they replay
    their own volumes, or start empty.
 2. Watch it drain (Rule 1, step 2), then scale back down with Rule 1.

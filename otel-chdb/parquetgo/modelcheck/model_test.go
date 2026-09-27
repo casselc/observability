@@ -84,7 +84,7 @@ type harness struct {
 
 func newHarness(t *testing.T, payloads int, mut commit.Mutation) *harness {
 	st := commit.NewMemStore()
-	tr := NewTranslator("m", map[string]string{"traces": ""})
+	tr := NewTranslator("m/c/p", map[string]string{"traces": ""})
 	st.OnApply, st.OnLose = tr.OnApply, tr.OnLose
 	h := &harness{t: t, st: st, tr: tr, mut: mut, reqs: map[int]ptrace.Traces{}, ctx: context.Background(), notes: map[string]int{}}
 	h.cons = &Consumer{T: tr, NS: "traces", Store: st}
@@ -102,7 +102,7 @@ func newHarness(t *testing.T, payloads int, mut commit.Mutation) *harness {
 func (h *harness) start(zombie, first bool) {
 	tag := strconv.Itoa(h.n)
 	h.n++
-	e, err := edge.New(edge.Config{Store: h.st, Prefix: "m", ProducerID: "p", Observer: h.tr.Tagged(tag), Mutation: h.mut})
+	e, err := edge.New(edge.Config{Store: h.st, Prefix: "m", Cluster: "c", ProducerID: "p", Observer: h.tr.Tagged(tag), Mutation: h.mut})
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ var mns = map[string]string{"metrics_gauge": "g", "metrics_sum": "s"}
 
 func newMHarness(t *testing.T, mut commit.Mutation) *mharness {
 	st := commit.NewMemStore()
-	tr := NewTranslator("m", mns)
+	tr := NewTranslator("m/c/p", mns)
 	st.OnApply, st.OnLose = tr.OnApply, tr.OnLose
 	h := &mharness{t: t, st: st, tr: tr, mut: mut, reqs: map[int]pmetric.Metrics{}, acked: map[int]bool{}, leases: 1, ctx: context.Background()}
 	for p := 1; p <= 2; p++ {
@@ -396,7 +396,7 @@ func newMHarness(t *testing.T, mut commit.Mutation) *mharness {
 func (h *mharness) start(first bool) {
 	tag := strconv.Itoa(h.n)
 	h.n++
-	e, err := edge.New(edge.Config{Store: h.st, Prefix: "m", ProducerID: "p", MetricsLayout: edge.ClickstackTables,
+	e, err := edge.New(edge.Config{Store: h.st, Prefix: "m", Cluster: "c", ProducerID: "p", MetricsLayout: edge.ClickstackTables,
 		Observer: h.tr.Tagged(tag), Mutation: h.mut})
 	if err != nil {
 		h.t.Fatal(err)

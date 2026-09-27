@@ -67,7 +67,7 @@ func metrics(seed int) pmetric.Metrics {
 func newEdge(t *testing.T, st commit.Store, layout string) *Edge {
 	t.Helper()
 	var n atomic.Int64
-	e, err := New(Config{Store: st, Prefix: "root/p1", ProducerID: "p1", MetricsLayout: layout,
+	e, err := New(Config{Store: st, Prefix: "root", Cluster: "c1", ProducerID: "p1", MetricsLayout: layout,
 		PutTimeout: time.Second, HeadTimeout: time.Second,
 		NewEpoch: func() string { return fmt.Sprintf("20260926T000000.000Z-%08x", n.Add(1)) },
 		Now:      func() time.Time { return time.Unix(0, 1_790_000_000_123_456_789) }})
@@ -99,14 +99,14 @@ func TestTracesObject(t *testing.T) {
 	if err := e.PushTraces(context.Background(), td); err != nil {
 		t.Fatal(err)
 	}
-	keys := st.Keys("root/p1/traces/")
-	if len(keys) != 1 || keys[0] != "root/p1/traces/20260926T000000.000Z-00000001/00000000000000000000.parquet" {
+	keys := st.Keys("root/c1/p1/traces/")
+	if len(keys) != 1 || keys[0] != "root/c1/p1/traces/20260926T000000.000Z-00000001/00000000000000000000.parquet" {
 		t.Fatal(keys)
 	}
 	o, _ := st.Get(keys[0])
 	b, _ := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
 	want := map[string]string{
-		"oscope-kind": "data", "oscope-producer": "p1", "oscope-epoch": "20260926T000000.000Z-00000001", "oscope-seq": "0",
+		"oscope-format": "2", "oscope-cluster": "c1", "oscope-kind": "data", "oscope-producer": "p1", "oscope-epoch": "20260926T000000.000Z-00000001", "oscope-seq": "0",
 		"oscope-content": commit.ContentHash("traces", b), "oscope-signal": "traces", "oscope-schema": "1", "oscope-rows": "5",
 		"oscope-min-time": "1700000000000000000", "oscope-max-time": "1700000000000000004", "oscope-received": "1790000000123456789",
 	}
@@ -119,6 +119,8 @@ func TestTracesObject(t *testing.T) {
 		t.Errorf("meta %v", o.Meta)
 	}
 	f := footer(t, o.Body)
+	delete(want, commit.MetaFormat)
+	delete(want, commit.MetaCluster)
 	for k, v := range want {
 		if f[k] != v {
 			t.Errorf("footer %s = %q, want %q", k, f[k], v)
@@ -147,7 +149,7 @@ func TestTracesObject(t *testing.T) {
 	if err := e.PushTraces(context.Background(), traces(3, 2)); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(st.Keys("root/p1/traces/")); n != 2 || e.Stats().ResolvedOwn.Load() != 1 {
+	if n := len(st.Keys("root/c1/p1/traces/")); n != 2 || e.Stats().ResolvedOwn.Load() != 1 {
 		t.Fatal(n)
 	}
 }
@@ -161,7 +163,7 @@ func TestLogsAndEmpty(t *testing.T) {
 	}
 	r := ld.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty()
 	r.Body().SetStr("hello")
-	if err := e.PushLogs(context.Background(), ld); err != nil || len(st.Keys("root/p1/logs/")) != 1 {
+	if err := e.PushLogs(context.Background(), ld); err != nil || len(st.Keys("root/c1/p1/logs/")) != 1 {
 		t.Fatal(err, st.Keys(""))
 	}
 }
@@ -178,7 +180,7 @@ func TestMetricsSeriesLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, ns := range []string{parquetgo.SigNumberPoints, parquetgo.SigHistogramPoints, parquetgo.SigSeries} {
-		if n := len(st.Keys("root/p1/" + ns + "/")); n != 1 {
+		if n := len(st.Keys("root/c1/p1/" + ns + "/")); n != 1 {
 			t.Fatalf("%s: %d objects", ns, n)
 		}
 	}
@@ -189,7 +191,7 @@ func TestMetricsSeriesLayout(t *testing.T) {
 	if err := e.PushMetrics(ctx, metrics(2)); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(st.Keys("root/p1/" + parquetgo.SigSeries + "/")); n != 1 {
+	if n := len(st.Keys("root/c1/p1/" + parquetgo.SigSeries + "/")); n != 1 {
 		t.Fatal("re-announced", n)
 	}
 	// New series whose series object stays unresolved: the request fails,
@@ -221,7 +223,7 @@ func TestMetricsSeriesLayout(t *testing.T) {
 	if n := e.SeriesCacheLen(); n != 10 {
 		t.Fatal("announced after commit", n)
 	}
-	for _, k := range st.Keys("root/p1/") {
+	for _, k := range st.Keys("root/c1/p1/") {
 		if !strings.HasSuffix(k, ".parquet") {
 			t.Fatal(k)
 		}
@@ -241,7 +243,7 @@ func TestMetricsClickstackLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, ns := range []string{"metrics_gauge", "metrics_sum", "metrics_histogram"} {
-		ks := st.Keys("root/p1/" + ns + "/")
+		ks := st.Keys("root/c1/p1/" + ns + "/")
 		if len(ks) != 1 {
 			t.Fatalf("%s: %v", ns, ks)
 		}
@@ -261,7 +263,7 @@ func TestHaltOnTombstone(t *testing.T) {
 		t.Fatal(err)
 	}
 	ep := e.Lane("traces")[0].Epoch()
-	st.Tomb(commit.SlotKey("root/p1/traces", ep, 1))
+	st.Tomb(commit.SlotKey("root/c1/p1/traces", ep, 1))
 	if err := e.PushTraces(ctx, traces(1, 2)); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +280,7 @@ func TestReplayKeepsReceived(t *testing.T) {
 	st := commit.NewMemStore()
 	var n atomic.Int64
 	incarnation := func() *Edge {
-		e, err := New(Config{Store: st, Prefix: "root/p1", ProducerID: "p1", PutTimeout: time.Second, HeadTimeout: time.Second,
+		e, err := New(Config{Store: st, Prefix: "root", Cluster: "c1", ProducerID: "p1", PutTimeout: time.Second, HeadTimeout: time.Second,
 			NewEpoch: func() string { return fmt.Sprintf("20260926T000000.000Z-%08x", n.Add(1)) },
 			// four days after the request was queued
 			Now: func() time.Time { return time.Unix(0, int64(t0)).Add(96 * time.Hour) }})
@@ -298,7 +300,7 @@ func TestReplayKeepsReceived(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	keys := st.Keys("root/p1/")
+	keys := st.Keys("root/c1/p1/")
 	contents := map[string]map[string]bool{} // namespace -> content keys
 	epochs := map[string]bool{}
 	for _, k := range keys {

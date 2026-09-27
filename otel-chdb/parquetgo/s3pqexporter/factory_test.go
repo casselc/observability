@@ -31,10 +31,10 @@ func TestConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg = load(t, map[string]any{
-		"producer_id": "p1", "lanes": 2, "metrics_layout": "clickstack_tables",
+		"cluster": "c1", "producer_id": "p1", "lanes": 2, "metrics_layout": "clickstack_tables",
 		"series":  map[string]any{"window": "30m", "byte_stream_split": false},
 		"parquet": map[string]any{"bloom_columns": []any{}, "zstd_level": 6},
-		"s3": map[string]any{"url": "https://objects.example/bucket/edge/p1", "path_style": true,
+		"s3": map[string]any{"url": "https://objects.example/bucket/edge", "path_style": true,
 			"put_timeout": "5s", "access_key_id": "k", "secret_access_key": "s"},
 	})
 	if err := cfg.Validate(); err != nil {
@@ -47,12 +47,12 @@ func TestConfig(t *testing.T) {
 		t.Fatalf("%+v", ec)
 	}
 	// D4: no max_elapsed_time, no batching after the queue.
-	bad := load(t, map[string]any{"producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
+	bad := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
 		"retry_on_failure": map[string]any{"max_elapsed_time": "5m"}})
 	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "max_elapsed_time") {
 		t.Fatal(err)
 	}
-	bad = load(t, map[string]any{"producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
+	bad = load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
 		"sending_queue": map[string]any{"batch": map[string]any{}}})
 	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "batch") {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestExportToBucket(t *testing.T) {
 		t.Skip("GOEDGE_S3 not set")
 	}
 	run := time.Now().Format("150405.000")
-	cfg := load(t, map[string]any{"producer_id": "exporter-test", "s3": map[string]any{"url": url + "/exporter-test/" + run}})
+	cfg := load(t, map[string]any{"cluster": "c1", "producer_id": "exporter-test", "s3": map[string]any{"url": url + "/exporter-test/" + run}})
 	set := exportertest.NewNopSettings(Type)
 	set.ID = component.NewIDWithName(Type, "t")
 	ctx := context.Background()

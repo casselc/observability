@@ -358,8 +358,19 @@ attaches and reads (built and tested: `452131c`, `2f1f3c2`); both at once.
 rejects.
 
 **Decision.** Each batch is its own commit record. It is written at
-`{prefix}/{signal}/{epoch}/{seq:020d}.parquet` with `PUT If-None-Match: *`,
-and its description goes in `x-amz-meta-oscope-*` and the Parquet footer.
+`{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet` with
+`PUT If-None-Match: *`, and its description goes in `x-amz-meta-oscope-*`
+and the Parquet footer. The keys, metadata and control objects are
+specified once, in [FORMAT.md](FORMAT.md) (format v2).
+
+- **Cluster first (format v2, 2026-09-27).** The key starts with the
+  cluster, so write access can be scoped by prefix
+  ([D18](#d18-s3-client-and-credentials), STPA R-S7); a lane is
+  `{cluster}/{producer}/{signal}`. Version 1
+  (`{root}/{producer}/{signal}/…`) is a clean break, not read: no real data
+  existed, and a transition reader would keep two namings, two discovery
+  walks and two policy sets alive for nothing. `{ctl}/format.json` and
+  `oscope-format: 2` on every object guard it (FORMAT.md §5).
 
 - On a 412 or no answer, the writer HEADs the slot:
   - ours → done;

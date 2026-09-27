@@ -271,15 +271,15 @@ pub fn table_of(signal: &str) -> String {
     otap_s3pq::Signal::from_name(signal).expect("signal").table().to_string()
 }
 
-/// `r/edges/{producer}/{signal}/{epoch}/{seq}.parquet` -> (lane, epoch, seq).
+/// `r/edges/{cluster}/{producer}/{signal}/{epoch}/{seq}.parquet` (format v2) -> (lane, epoch, seq).
 pub fn parse_slot(key: &str) -> Option<(String, String, u64)> {
     let rest = key.strip_prefix(ROOT)?.strip_prefix('/')?;
     let parts: Vec<&str> = rest.split('/').collect();
-    if parts.len() != 4 {
+    if parts.len() != 5 {
         return None;
     }
-    let seq = parts[3].strip_suffix(".parquet")?.parse().ok()?;
-    Some((format!("{}/{}", parts[0], parts[1]), parts[2].to_string(), seq))
+    let seq = parts[4].strip_suffix(".parquet")?.parse().ok()?;
+    Some((parts[..3].join("/"), parts[3].to_string(), seq))
 }
 
 impl World {
@@ -1062,7 +1062,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
             let name = format!("edge-p{pi}-{s}");
             edge_tasks.push(tokio::task::spawn_local(async move {
                 let b = SimBucket { w: w.clone(), p: Proc::new(&name) };
-                let mut e = Edge { producer: format!("p{pi}"), signal: s.to_string(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
+                let mut e = Edge { producer: format!("c{}/p{pi}", pi % 2), signal: s.to_string(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
                 e.new_epoch();
                 let table = table_of(s);
                 let gap = w.sim.range(100, 2_000);
@@ -1277,7 +1277,7 @@ pub fn spawn_edge(w: &Rc<World>, producer: usize, signal: &str) -> (tokio::sync:
     drop(tokio::task::spawn_local(async move {
         let name = p2.name.clone();
         let b = SimBucket { w: w.clone(), p: p2 };
-        let mut e = Edge { producer: format!("p{producer}"), signal: s.clone(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
+        let mut e = Edge { producer: format!("c{}/p{producer}", producer % 2), signal: s.clone(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
         e.new_epoch();
         let table = table_of(&s);
         while let Some(cmd) = rx.recv().await {

@@ -138,10 +138,10 @@ fn table_of(signal: &str) -> String {
 fn parse_slot(key: &str) -> Option<(String, String, u64)> {
     let rest = key.strip_prefix(ROOT)?.strip_prefix('/')?;
     let parts: Vec<&str> = rest.split('/').collect();
-    if parts.len() != 4 {
+    if parts.len() != 5 {
         return None;
     }
-    Some((format!("{}/{}", parts[0], parts[1]), parts[2].to_string(), parts[3].strip_suffix(".parquet")?.parse().ok()?))
+    Some((parts[..3].join("/"), parts[3].to_string(), parts[4].strip_suffix(".parquet")?.parse().ok()?))
 }
 
 fn url_key(url: &str) -> Option<&str> {
@@ -345,7 +345,7 @@ async fn edge_host(w: Rc<World>, producer: usize) {
     for s in SIGNALS {
         let (w, b) = (w.clone(), b.clone());
         lanes.push(tokio::task::spawn_local(async move {
-            let prefix = format!("{ROOT}/p{producer}/{s}");
+            let prefix = format!("{ROOT}/c{}/p{producer}/{s}", producer % 2);
             let table = table_of(s);
             let (mut n_ep, mut next) = (1u32, 0u64);
             let gap = w.sim.range(100, 1_500);

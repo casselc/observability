@@ -109,8 +109,9 @@ pub async fn append<S: SlotStore>(
         }
         let obj = cache.obj.as_ref().expect("encoded above");
         let mut meta = obj.meta.clone();
+        // A heartbeat's encoder says so (`KIND_BEAT`); anything else is data.
+        let _ = meta.entry(proto::META_KIND.to_string()).or_insert_with(|| proto::KIND_DATA.to_string());
         for (k, v) in [
-            (proto::META_KIND, proto::KIND_DATA.to_string()),
             (proto::META_EPOCH, here.epoch.clone()),
             (proto::META_SEQ, here.seq.to_string()),
             (proto::META_CONTENT, content.to_string()),

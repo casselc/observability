@@ -96,7 +96,7 @@ impl Jitter {
 /// Where a worker learns that a lane may have new objects.
 #[async_trait(?Send)]
 pub trait Hints {
-    /// Lane ids (`producer/signal`, or `signal` at depth 1) that may have new
+    /// Lane ids (`cluster/producer/signal` at depth 3) that may have new
     /// objects since the last call. Best effort in every way.
     async fn poll(&self) -> Vec<String>;
 }
@@ -121,8 +121,9 @@ impl Hints for MemHints {
 }
 
 /// The lane of an object key under `root`, if the key is a slot key
-/// (`{root}/{producer}/{signal}/{epoch}/{seq:020d}.parquet`, or without the
-/// producer at depth 1). Control keys (`_consumer/…`) are not lanes.
+/// (`{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet` at
+/// depth 3, format v2; fewer leading segments at depth 2 and 1). Control
+/// keys (`_consumer/…`) are not lanes.
 pub fn lane_of_key(root: &str, depth: usize, key: &str) -> Option<String> {
     let root = root.trim_matches('/');
     let rest = if root.is_empty() { key } else { key.strip_prefix(root)?.strip_prefix('/')? };
@@ -218,6 +219,11 @@ mod tests {
         assert_eq!(lane_of_key("r/edges", 2, "r/edges/_consumer/ckpt/edge-1/traces.json"), None);
         assert_eq!(lane_of_key("r/edges", 2, "r/other/edge-1/traces/E/00000000000000000001.parquet"), None);
         assert_eq!(lane_of_key("r/edges", 2, "r/edges/edge-1/traces/E"), None);
+        // format v2: cluster first (depth 3); a v1 key there has one segment too few
+        let k3 = "r/edges/c1/edge-1/traces/1727000000000Z-ab12/00000000000000000042.parquet";
+        assert_eq!(lane_of_key("r/edges", 3, k3).as_deref(), Some("c1/edge-1/traces"));
+        assert_eq!(lane_of_key("r/edges", 3, k).as_deref(), None);
+        assert_eq!(lane_of_key("r/edges", 3, "r/edges/_consumer/ckpt/c1/edge-1/traces.json"), None);
         // S3 notification (SQS body), SNS-wrapped, and EventBridge
         let s3 = r#"{"Records":[{"eventName":"ObjectCreated:Put","s3":{"bucket":{"name":"b"},"object":{"key":"r/edges/edge%2D1/logs/E1/00000000000000000000.parquet","size":10}}}]}"#;
         assert_eq!(keys_of_event(s3), vec!["r/edges/edge-1/logs/E1/00000000000000000000.parquet"]);

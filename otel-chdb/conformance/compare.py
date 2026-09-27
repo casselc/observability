@@ -189,7 +189,7 @@ def central(tag):
 def objects(root):
     listed = {}
     for e in ("rust", "go"):
-        base, keys = list_keys(f"{root}/{e}/edge-{e}")
+        base, keys = list_keys(f"{root}/{e}/conf/edge-{e}")  # {root}/{cluster}/{producer} (FORMAT.md)
         by = {}
         for k in keys:
             parts = k.split("/")
@@ -213,7 +213,9 @@ def objects(root):
             rb, gb = s3([], f"{listed['rust'][0]}/{rk}"), s3([], f"{listed['go'][0]}/{gk}")
             rf, gf = pq.ParquetFile(io.BytesIO(rb)), pq.ParquetFile(io.BytesIO(gb))
             kv = {e: {k.decode(): v.decode() for k, v in (f.metadata.metadata or {}).items()} for e, f in (("rust", rf), ("go", gf))}
-            want = gm  # the lane's metadata includes kind, epoch, seq, content and producer
+            # the lane's metadata includes kind, epoch, seq, content and producer; format,
+            # cluster and low are S3 metadata only (FORMAT.md §2)
+            want = {k: v for k, v in gm.items() if k not in ("oscope-format", "oscope-cluster", "oscope-low")}
             check(f"{tag}: footer = metadata (go)", kv["go"] == want, f"{sorted(set(kv['go'].items()) ^ set(want.items()))}")
             check(f"{tag}: footer keys as rust's", set(kv["go"]) == set(kv["rust"]), f"{sorted(set(kv['go']) ^ set(kv['rust']))}")
             check(f"{tag}: Parquet schema", leaf_schema(rf) == leaf_schema(gf),

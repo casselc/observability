@@ -68,7 +68,13 @@ pub enum OtlpPath {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// The bucket and the data root (`{root}` in `../FORMAT.md`): objects go
+    /// under `{root}/{cluster}/{producer_id}/{signal}/`.
     pub s3: S3Config,
+    /// The cluster this publisher serves: the first key segment, which
+    /// write access is scoped by (DECISIONS.md D18). Required.
+    pub cluster: String,
+    /// Unique in the cluster and stable per durable buffer (the pod name).
     pub producer_id: String,
     #[serde(default = "one")]
     pub lanes: usize,
@@ -98,10 +104,17 @@ pub fn validate_config(v: &serde_json::Value) -> Result<(), otel_arrow_dfe_confi
     let c: Config = serde_json::from_value(v.clone()).map_err(|e| {
         otel_arrow_dfe_config::error::Error::InvalidUserConfig { error: e.to_string() }
     })?;
-    if c.s3.url.is_empty() || c.producer_id.is_empty() {
+    if c.s3.url.is_empty() || c.producer_id.is_empty() || c.cluster.is_empty() {
         return Err(otel_arrow_dfe_config::error::Error::InvalidUserConfig {
-            error: "s3.url and producer_id are required".into(),
+            error: "s3.url, cluster and producer_id are required".into(),
         });
+    }
+    for (what, v) in [("cluster", &c.cluster), ("producer_id", &c.producer_id)] {
+        if !proto::valid_name(v) {
+            return Err(otel_arrow_dfe_config::error::Error::InvalidUserConfig {
+                error: format!("{what} {v:?}: want [a-z0-9]([a-z0-9._-]{{0,61}}[a-z0-9])? (a key segment, ../FORMAT.md)"),
+            });
+        }
     }
     Ok(())
 }
@@ -147,6 +160,7 @@ struct Shared {
     stats: Stats,
     timeouts: Timeouts,
     producer: String,
+    cluster: String,
     lanes: HashMap<(Signal, usize), Rc<tokio::sync::Mutex<LaneState>>>,
     lanes_per_signal: usize,
     prefixes: HashMap<Signal, String>,
@@ -265,7 +279,10 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
             batch: r.seq,
             received_ns,
         };
-        sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)
+        let mut o = sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)?;
+        let _ = o.meta.insert(proto::META_FORMAT.to_string(), proto::FORMAT_VERSION.to_string());
+        let _ = o.meta.insert(proto::META_CLUSTER.to_string(), sh.cluster.clone());
+        Ok(o)
     };
     let res = runner::append(
         &mut st.lane,
@@ -335,7 +352,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
         let mut lanes = HashMap::new();
         let mut prefixes = HashMap::new();
         for s in Signal::ALL {
-            let _ = prefixes.insert(s, format!("{}/{}", store.prefix, s.name()).trim_start_matches('/').to_string());
+            let _ = prefixes.insert(s, proto::lane_prefix(&store.prefix, &cfg.cluster, &cfg.producer_id, s.name()));
             for i in 0..cfg.lanes.max(1) {
                 let _ = lanes.insert(
                     (s, i),
@@ -360,6 +377,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
             ),
             stats: Stats::default(),
             producer: cfg.producer_id.clone(),
+            cluster: cfg.cluster.clone(),
             lanes,
             lanes_per_signal: cfg.lanes.max(1),
             prefixes,

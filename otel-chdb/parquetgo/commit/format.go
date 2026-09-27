@@ -1,7 +1,10 @@
 // Package commit is the Go edge's manifest-less commit protocol: the data
 // object is the commit record (../../DECISIONS.md D3, ../../model/s3Inline.qnt).
 //
-//	{prefix}/{signal}/{epoch}/{seq:020d}.parquet
+//	{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet
+//
+// (format v2, ../../FORMAT.md: a Lane's Prefix is everything before the
+// epoch, LanePrefix).
 //
 // Each (signal, lane) appends batches to its own epoch's log at consecutive
 // slots with PUT If-None-Match: *, and carries the batch description in S3
@@ -43,13 +46,55 @@ const (
 	MetaMinTime  = "oscope-min-time"
 	MetaMaxTime  = "oscope-max-time"
 	MetaReceived = "oscope-received"
+	// MetaFormat is the object's on-disk format (FormatVersion).
+	MetaFormat = "oscope-format"
+	// MetaCluster is the key's {cluster}.
+	MetaCluster = "oscope-cluster"
+	// MetaLow is the custody floor (ns): every request of the publisher
+	// with received_at below it was committed before this slot was first
+	// sent (../../FORMAT.md §2, ../../model/completeness.qnt).
+	MetaLow = "oscope-low"
 
 	KindData = "data"
 	KindTomb = "tomb"
+	// KindBeat is a heartbeat: a zero-byte slot carrying only oscope-low.
+	KindBeat = "beat"
+
+	// FormatVersion is the on-disk format these keys and metadata follow.
+	FormatVersion = 2
 
 	// ParquetContentType is the objects' Content-Type.
 	ParquetContentType = "application/vnd.apache.parquet"
 )
+
+// ValidName reports whether s may be a cluster or producer name (a key
+// segment): [a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?. Never empty, never
+// _-prefixed (control objects), never containing '/'.
+func ValidName(s string) bool {
+	if len(s) == 0 || len(s) > 63 {
+		return false
+	}
+	edge := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }
+	if !edge(s[0]) || !edge(s[len(s)-1]) {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !edge(c) && c != '.' && c != '_' && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// LanePrefix is a lane's key prefix: {root}/{cluster}/{producer}/{signal}.
+func LanePrefix(root, cluster, producer, signal string) string {
+	root = strings.Trim(root, "/")
+	p := cluster + "/" + producer + "/" + signal
+	if root == "" {
+		return p
+	}
+	return root + "/" + p
+}
 
 // SlotKey is the key of slot seq in epoch's log under prefix (which ends in
 // the signal). Zero padding makes LIST order slot order.

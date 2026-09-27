@@ -64,7 +64,9 @@ def ch(sql):
 
 def ls(prefix):
     """Object keys under a prefix (via ClickHouse: s3 LIST through a glob)."""
-    return ch(f"SELECT DISTINCT _path FROM s3('{S3}/{prefix}/**', '{KEY}', '{SECRET}', 'One') ORDER BY _path FORMAT TSV").splitlines()
+    # (non-empty only: heartbeats and tombstones are zero-byte slots, ../../FORMAT.md)
+    return ch(f"SELECT DISTINCT _path FROM s3('{S3}/{prefix}/**', '{KEY}', '{SECRET}', 'One') WHERE _size > 0 ORDER BY _path "
+              f"FORMAT TSV SETTINGS s3_skip_empty_files = 0").splitlines()
 
 
 def main():
@@ -85,7 +87,7 @@ def main():
     try:
         for path in paths:
             for sig, st, cols in [("traces", TRACE_ST, TRACE_COLS), ("logs", LOG_ST, LOG_COLS)]:
-                keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{sig}") if k.endswith(".parquet")]
+                keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/*/*/{sig}") if k.endswith(".parquet")]
                 for ds, seq in [("testgen-3000", 0), ("nasty-700", 1)]:
                     mine = [k for k in keys if k.endswith(f"/{seq:020d}.parquet")]
                     if not mine:

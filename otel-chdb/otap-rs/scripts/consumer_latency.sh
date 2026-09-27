@@ -21,7 +21,7 @@ for poll in ${POLLS:-200ms 1s}; do
   DB=otaprs_consumer_$RUN
   PREFIX=otel/otap-rs-consumer/$RUN/edges
   env OTLP_HTTP=127.0.0.1:24418 OTLP_GRPC=127.0.0.1:24417 ADMIN_HTTP=127.0.0.1:28090 PUT_TIMEOUT=5s PRODUCER=edge-1 \
-    S3_URL=$S3/$PREFIX/edge-1 "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" > "$tmp/edge.log" 2>&1 &
+    S3_URL=$S3/$PREFIX "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" > "$tmp/edge.log" 2>&1 &
   E=$!
   sleep 2
   "$B/consume" --s3 "$S3/$PREFIX" --db "$DB" --worker lat --poll "$poll" --ttl 30s --margin 2s --budget 10s --allow-short-margin ${WFLAGS:-} \

@@ -151,7 +151,7 @@ type Timeouts struct{ Put, Head time.Duration }
 // Append serializes on the lane.
 type Lane struct {
 	Name     string // for events: "{signal}/{index}"
-	Prefix   string // {root}/{signal}
+	Prefix   string // {root}/{cluster}/{producer}/{signal} (LanePrefix)
 	Producer string
 	Store    Store
 	Timeouts Timeouts
@@ -296,7 +296,9 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 		for k, v := range obj.Meta {
 			meta[k] = v
 		}
-		meta[MetaKind] = KindData
+		if meta[MetaKind] == "" { // a heartbeat's encoder says KindBeat
+			meta[MetaKind] = KindData
+		}
 		meta[MetaEpoch] = here.Epoch
 		meta[MetaSeq] = strconv.FormatUint(here.Seq, 10)
 		meta[MetaContent] = content

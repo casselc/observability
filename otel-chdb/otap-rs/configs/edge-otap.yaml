@@ -52,6 +52,7 @@ groups:
           s3pq:
             type: exporter:s3pq
             config:
+              cluster: "${env:CLUSTER:-local}"
               producer_id: "${env:PRODUCER:-edge-1}"
               lanes: ${env:LANES:-1}
               otlp_path: "${env:OTLP_PATH:-direct}"

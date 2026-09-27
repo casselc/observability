@@ -1,5 +1,8 @@
 //! The production-shaped central consumer (importer) for the manifest-less
-//! layout `{root}/{producer}/{signal}/{epoch}/{seq:020d}.parquet`.
+//! layout of format v2 (`../../FORMAT.md`):
+//! `{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet`. A lane
+//! is `{cluster}/{producer}/{signal}` (`coord::Lane`: `producer` holds the
+//! segments above the signal, `cluster/producer` at `depth` 3).
 //!
 //! - `coord`:  the lane lease and checkpoint documents, and every decision
 //!   about them (take, renew, release, the insert time bound, the fair
@@ -46,6 +49,37 @@ pub mod metrics;
 pub mod plan;
 pub mod sql;
 pub mod worker;
+
+/// `{ctl}/format.json`: the on-disk format this bucket is in (`../../FORMAT.md` §5).
+pub fn format_key(ctl: &str) -> String {
+    coord::join(ctl, "format.json")
+}
+
+/// Checks the bucket's format marker, creating it (create-only) when there is
+/// none: `Err` when it names another format (a version-1 bucket is drained
+/// or purged before version 2 is deployed on it) or can't be read.
+pub async fn ensure_format<B: bucket::Bucket + ?Sized>(b: &B, ctl: &str) -> Result<(), String> {
+    let key = format_key(ctl);
+    let want = otap_s3pq::proto::FORMAT_VERSION as u64;
+    for _ in 0..3 {
+        match b.get(&key).await? {
+            Some((body, _)) => {
+                let v: serde_json::Value = serde_json::from_slice(&body).map_err(|e| format!("{key}: {e}"))?;
+                return match v["format"].as_u64() {
+                    Some(f) if f == want => Ok(()),
+                    f => Err(format!("{key} says format {f:?}; this consumer reads format {want} (../FORMAT.md §5)")),
+                };
+            }
+            None => {
+                let doc = serde_json::json!({"format": want, "layout": "{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet"});
+                let body = bytes::Bytes::from(doc.to_string());
+                // Create-only; a 412 or a lost answer is settled by reading it back.
+                let _ = b.put(&key, body, bucket::Cond::Create, &std::collections::BTreeMap::new()).await;
+            }
+        }
+    }
+    Err(format!("{key}: could not create or read the format marker"))
+}
 
 /// Milliseconds on a monotonic clock (the lease time bound is measured on it).
 pub fn mono_ms() -> u64 {

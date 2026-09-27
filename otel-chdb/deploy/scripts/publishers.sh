@@ -18,7 +18,7 @@ start1() {
   setsid bash -c 'echo $$ > "$0"; exec "$@"' "$W/pub-$i.pid" env \
     MEM_SOURCE=rss OTLP_GRPC=127.0.0.1:151$ii OTLP_HTTP=127.0.0.1:152$ii ADMIN_HTTP=127.0.0.1:153$ii \
     PRODUCER=pub-$i BUFFER_DIR="$W/buf-$i" BUFFER_CAP="${BUFFER_CAP:-1 GiB}" VERBOSE=true \
-    S3_URL="$S3_ROOT/$RUN/pub-$i" "$BIN" -c "$CFG" >> "$W/pub-$i.log" 2>&1 < /dev/null &
+    S3_URL="$S3_ROOT/$RUN" "$BIN" -c "$CFG" >> "$W/pub-$i.log" 2>&1 < /dev/null &
 }
 case $cmd in
   start) mkdir -p "$W"; for i in $(seq 0 $((n-1))); do start1 "$i"; done

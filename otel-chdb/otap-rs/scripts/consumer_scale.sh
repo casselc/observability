@@ -34,7 +34,7 @@ trap cleanup EXIT
 
 edge() { # producer port-offset
   env OTLP_HTTP=127.0.0.1:$((25400 + $2)) OTLP_GRPC=127.0.0.1:$((25500 + $2)) ADMIN_HTTP=127.0.0.1:$((25600 + $2)) PUT_TIMEOUT=5s \
-    PRODUCER="$1" S3_URL="$S3/$PREFIX/$1" "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" >> "$tmp/edge-$1.log" 2>&1 &
+    PRODUCER="$1" S3_URL="$S3/$PREFIX" "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" >> "$tmp/edge-$1.log" 2>&1 &
   echo $!
 }
 

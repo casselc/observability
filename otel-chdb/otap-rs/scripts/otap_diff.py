@@ -11,7 +11,7 @@ def q(s):
 run,sig=sys.argv[1],sys.argv[2]
 import os
 base=f"http://127.0.0.1:18333/otel/{os.environ.get('S3_PREFIX', 'otap-rs-edge')}/corr/{run}"
-src=lambda p: f"s3('{base}/{p}/{sig}/*/00000000000000000000.parquet','otel','otelsecret','Parquet')"
+src=lambda p: f"s3('{base}/{p}/*/*/{sig}/*/00000000000000000000.parquet','otel','otelsecret','Parquet')"
 desc=[l.split('\t')[:2] for l in q(f"DESCRIBE {src('direct')} FORMAT TSV").splitlines()]
 env={'producer_id','producer_epoch','batch_id','received_at','row_ordinal','schema_version'}
 exprs=[]

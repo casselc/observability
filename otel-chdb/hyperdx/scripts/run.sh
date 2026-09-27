@@ -62,9 +62,9 @@ for step in "$@"; do
     curl -sf -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" -u otel:otelsecret http://127.0.0.1:18333/hdx-otel > /dev/null || true
     export AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret
     bg edge.log env METRICS_LAYOUT=series_table OTLP_HTTP=127.0.0.1:14518 OTLP_GRPC=127.0.0.1:14517 ADMIN_HTTP=127.0.0.1:14580 \
-      PRODUCER=hdx-edge-1 S3_URL=http://127.0.0.1:18333/hdx-otel/edges/hdx-edge-1 "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml"
+      PRODUCER=hdx-edge-1 S3_URL=http://127.0.0.1:18333/hdx-otel/edges "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml"
     bg edge-stock.log env METRICS_LAYOUT=clickstack_tables OTLP_HTTP=127.0.0.1:14528 OTLP_GRPC=127.0.0.1:14527 ADMIN_HTTP=127.0.0.1:14581 \
-      PRODUCER=hdx-edge-stock S3_URL=http://127.0.0.1:18333/hdx-otel/stock/hdx-edge-stock "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml" ;;
+      PRODUCER=hdx-edge-stock S3_URL=http://127.0.0.1:18333/hdx-otel/stock "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml" ;;
   consumers)
     python3 "$H/setup_db.py" stock hdx_stock > /dev/null   # stock tables first: the consumer keeps them
     for r in edges:hdx_b:w1 stock:hdx_stock:w2; do
@@ -94,7 +94,7 @@ for step in "$@"; do
   schema-edge)
     curl -sf -X PUT --aws-sigv4 "aws:amz:us-east-1:s3" -u otel:otelsecret http://127.0.0.1:18333/hdx-otel > /dev/null || true
     AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret bg edge.log env OTLP_HTTP=127.0.0.1:14518 OTLP_GRPC=127.0.0.1:14517 \
-      ADMIN_HTTP=127.0.0.1:14580 PRODUCER=hdx-schema S3_URL=http://127.0.0.1:18333/hdx-otel/schema/hdx-schema "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml" ;;
+      ADMIN_HTTP=127.0.0.1:14580 PRODUCER=hdx-schema S3_URL=http://127.0.0.1:18333/hdx-otel/schema "$B/otap-s3pq" -c "$OTAP/configs/edge.yaml" ;;
   schema-consumers)
     for db in hdx_old hdx_full hdx_new; do
       bg "consumer-$db.log" "$B/consume" --s3 http://127.0.0.1:18333/hdx-otel/schema --ctl "ctl-$db" --ch "http://$CH" --db "$db" \

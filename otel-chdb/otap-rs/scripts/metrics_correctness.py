@@ -92,7 +92,9 @@ def ch(sql, **params):
 
 
 def ls(prefix):
-    return ch(f"SELECT DISTINCT _path FROM s3('{S3}/{prefix}/**', '{KEY}', '{SECRET}', 'One') ORDER BY _path FORMAT TSV").splitlines()
+    # (non-empty only: heartbeats and tombstones are zero-byte slots, ../../FORMAT.md)
+    return ch(f"SELECT DISTINCT _path FROM s3('{S3}/{prefix}/**', '{KEY}', '{SECRET}', 'One') WHERE _size > 0 ORDER BY _path "
+              f"FORMAT TSV SETTINGS s3_skip_empty_files = 0").splitlines()
 
 
 SERIES_LANES = ["metrics_number_points", "metrics_gauge_points", "metrics_sum_points", "metrics_histogram_points",
@@ -142,7 +144,7 @@ def series_checks(run, path, ds, seq, refdb, db, check):
         ch(st.replace("{db}", bdb).replace("{vdb}", bdb))
     n_obj = {}
     for lane in SERIES_LANES:
-        keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/{lane}") if k.endswith(".parquet")]
+        keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/*/*/{lane}") if k.endswith(".parquet")]
         n_obj[lane] = len(keys)
         for k in keys:
             ch(series_insert(lane, bdb, f"{S3}/{k.split('/', 1)[1]}"), **SETTINGS)
@@ -202,7 +204,7 @@ def main():
             for t in TYPES:
                 for ds, seq in DATASETS:
                     tag = f"{path} {t} {ds}"
-                    keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/{t}") if k.endswith(".parquet")]
+                    keys = [k for k in ls(f"{PREFIX}/corr/{run}/{path}/{ds}/*/*/{t}") if k.endswith(".parquet")]
                     mine = [k for k in keys if k.endswith(f"/{0:020d}.parquet")]
                     if not mine:
                         check(tag, False, "no object (the request was rejected)")

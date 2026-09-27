@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/casselc/observability/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo/commit"
 	"github.com/casselc/observability/otel-chdb/parquetgo/edge"
 	"go.opentelemetry.io/collector/config/configopaque"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -31,8 +32,11 @@ type Config struct {
 	// default: one object per request, as the conformance edge runs.
 	Batch BatchConfig `mapstructure:"batch"`
 
+	// Cluster is the cluster this publisher serves: the first key segment,
+	// which write access is scoped by (DECISIONS.md D18). Required.
+	Cluster string `mapstructure:"cluster"`
 	// ProducerID names this publisher (the envelope's producer_id and
-	// x-amz-meta-oscope-producer). It must be unique in the fleet and
+	// x-amz-meta-oscope-producer). It must be unique in the cluster and
 	// stable per persistent queue.
 	ProducerID string `mapstructure:"producer_id"`
 	// Lanes per namespace (default 1): a request goes to lane
@@ -61,9 +65,9 @@ type ParquetConfig struct {
 // S3Config is the bucket and the credentials (parquetgo's S3 client, DECISIONS.md D18).
 type S3Config struct {
 	// URL: s3://bucket/prefix (AWS) or http(s)://host[:port]/bucket/prefix
-	// (a custom endpoint, path-style). Objects go under
-	// {prefix}/{namespace}/{epoch}/{seq:020d}.parquet: put the producer in
-	// the prefix ({root}/{producer}, the consumer's --depth 2).
+	// (a custom endpoint, path-style). The prefix is the data root: objects
+	// go under {prefix}/{cluster}/{producer_id}/{namespace}/{epoch}/{seq:020d}.parquet
+	// (format v2, ../../FORMAT.md).
 	URL    string `mapstructure:"url"`
 	Region string `mapstructure:"region"`
 	// Static keys (Nutanix Objects, SeaweedFS, MinIO); without them the AWS
@@ -86,6 +90,13 @@ func (c *Config) Validate() error {
 	var errs []error
 	if c.ProducerID == "" {
 		errs = append(errs, errors.New("producer_id is required"))
+	} else if !commit.ValidName(c.ProducerID) {
+		errs = append(errs, fmt.Errorf("producer_id %q: want [a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])? (a key segment)", c.ProducerID))
+	}
+	if c.Cluster == "" {
+		errs = append(errs, errors.New("cluster is required"))
+	} else if !commit.ValidName(c.Cluster) {
+		errs = append(errs, fmt.Errorf("cluster %q: want [a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])? (a key segment)", c.Cluster))
 	}
 	if c.S3.URL == "" {
 		errs = append(errs, errors.New("s3.url is required"))
@@ -149,6 +160,6 @@ func (c *Config) EdgeConfig() edge.Config {
 	if series.Statistics == "" {
 		series.Statistics = d.Statistics
 	}
-	return edge.Config{S3: s3, ProducerID: c.ProducerID, Lanes: c.Lanes, MetricsLayout: c.MetricsLayout,
+	return edge.Config{S3: s3, Cluster: c.Cluster, ProducerID: c.ProducerID, Lanes: c.Lanes, MetricsLayout: c.MetricsLayout,
 		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout}
 }

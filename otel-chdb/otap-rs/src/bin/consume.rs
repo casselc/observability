@@ -4,7 +4,7 @@
 //! See `src/consumer/mod.rs` and the README's "Consumer" section.
 //!
 //!   consume --s3 http://127.0.0.1:18333/otel/prefix/edges --ch http://127.0.0.1:18123 --db central
-//!           [--depth 2] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
+//!           [--depth 3] [--ctl PREFIX] [--signals traces,logs,...] [--worker NAME]
 //!           [--ttl 75s --margin 20s --budget 10s --keeper-slack 20s [--allow-short-margin]]
 //!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
 //!           [--idle-backoff 1s..30s | off] [--idle-after 10s] [--linger 0ms]
@@ -46,12 +46,14 @@
 //! (`--full-list`), so a checkpoint holds only the epochs not retired yet.
 //! Without GC running, checkpoints keep every epoch.
 //!
-//! Lanes are `{root}/{producer}/{signal}` (`--depth 2`, the default) or
-//! `{root}/{signal}` (`--depth 1`). The control prefix defaults to
-//! `{root}/_consumer`.
+//! Lanes are `{root}/{cluster}/{producer}/{signal}` (format v2,
+//! `../../FORMAT.md`; `--depth 3`, the default; 2 and 1 drop the leading
+//! segments, for tests). The control prefix defaults to `{root}/_consumer`.
+//! The workers and GC check `{ctl}/format.json` at start, creating it when
+//! absent, and refuse to run on a bucket of another format.
 //!
 //! The prototype's flags still work: `--signal S --table db.t [--state F]`
-//! is `--depth 1 --signals S` with that table (the state file is ignored:
+//! is `--signals S` with that table (the state file is ignored:
 //! progress is on S3 now), and the leases are released on exit so the next
 //! run can take them at once.
 
@@ -251,6 +253,12 @@ async fn main() {
     };
 
     let sub = args.get(1).map(String::as_str);
+    if !matches!(sub, Some("horizon-audit" | "purge" | "audit")) {
+        if let Err(e) = consumer::ensure_format(&*bucket, &ctl).await {
+            eprintln!("consume: refusing to start: {e}");
+            std::process::exit(2);
+        }
+    }
     if sub == Some("gc") || sub == Some("horizon-audit") {
         // GC (`gc`), and the horizon audit beside it (`gc --audit-every`) or
         // alone (`horizon-audit`). One task: GC and the audit interleave at
@@ -448,11 +456,10 @@ async fn main() {
     let worker = arg(&args, "--worker").unwrap_or_else(|| "w".into());
     let worker = format!("{worker}-{}", coord::nonce());
     let mut cfg = Config::new(&root, &ctl, &worker);
-    cfg.depth = arg(&args, "--depth").map_or(2, |d| d.parse().expect("--depth"));
+    cfg.depth = arg(&args, "--depth").map_or(3, |d| d.parse().expect("--depth"));
     cfg.signals = arg(&args, "--signals").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
     let mut table_override = None;
     if let Some(s) = &legacy_signal {
-        cfg.depth = 1;
         cfg.signals = vec![s.clone()];
         table_override = arg(&args, "--table");
     }

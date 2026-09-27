@@ -254,7 +254,7 @@ func TestBatchLogsMetrics(t *testing.T) {
 }
 
 func TestBatchConfig(t *testing.T) {
-	cfg := load(t, map[string]any{"producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
+	cfg := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
 		"batch": map[string]any{"enabled": true, "flush_timeout": "500ms", "min_size": 8000, "max_size": 10000}})
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestBatchConfig(t *testing.T) {
 		{"enabled": true, "min_size": 0},
 		{"enabled": true, "min_size": 100, "max_size": 50},
 	} {
-		c := load(t, map[string]any{"producer_id": "p", "s3": map[string]any{"url": "s3://b/p"}, "batch": bad})
+		c := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"}, "batch": bad})
 		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "batch.") {
 			t.Fatalf("%v: %v", bad, err)
 		}

@@ -52,9 +52,15 @@ const (
 type Config struct {
 	// S3 is the bucket URL and credentials (parquetgo.Config's S3 fields:
 	// URL, keys or the default chain, Profile, RoleARN, S3Region,
-	// PathStyle, CABundle, Transport). The objects go under
-	// {URL prefix}/{namespace}/{epoch}/{seq:020d}.parquet.
-	S3         parquetgo.Config
+	// PathStyle, CABundle, Transport). The URL's path is the data root:
+	// objects go under
+	// {root}/{Cluster}/{ProducerID}/{namespace}/{epoch}/{seq:020d}.parquet
+	// (format v2, ../../FORMAT.md).
+	S3 parquetgo.Config
+	// Cluster is the first key segment, which write access is scoped by
+	// (DECISIONS.md D18). Required.
+	Cluster string
+	// ProducerID is unique in the cluster and stable per persistent queue.
 	ProducerID string
 	// Lanes per namespace (default 1).
 	Lanes int
@@ -113,8 +119,11 @@ var Namespaces = []string{"traces", "logs",
 
 // New validates cfg and builds the lanes (no request is made).
 func New(cfg Config) (*Edge, error) {
-	if cfg.ProducerID == "" {
-		return nil, errors.New("producer_id is required")
+	if cfg.ProducerID == "" || cfg.Cluster == "" {
+		return nil, errors.New("cluster and producer_id are required")
+	}
+	if !commit.ValidName(cfg.Cluster) || !commit.ValidName(cfg.ProducerID) {
+		return nil, fmt.Errorf("cluster %q, producer_id %q: want [a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])? (a key segment, ../../FORMAT.md)", cfg.Cluster, cfg.ProducerID)
 	}
 	if cfg.Lanes <= 0 {
 		cfg.Lanes = 1
@@ -152,10 +161,7 @@ func New(cfg Config) (*Edge, error) {
 		e.prefix = strings.Trim(cfg.Prefix, "/")
 	}
 	for _, ns := range Namespaces {
-		p := ns
-		if e.prefix != "" {
-			p = e.prefix + "/" + ns
-		}
+		p := commit.LanePrefix(e.prefix, cfg.Cluster, cfg.ProducerID, ns)
 		for i := range cfg.Lanes {
 			e.lanes[ns] = append(e.lanes[ns], &commit.Lane{
 				Name: ns + "/" + strconv.Itoa(i), Prefix: p, Producer: cfg.ProducerID, Store: e.store,
@@ -212,6 +218,8 @@ func IsPermanent(err error) bool {
 // content and producer); footer is the same plus those four.
 func (e *Edge) description(ns string, rows int, minTS, maxTS, received uint64) map[string]string {
 	return map[string]string{
+		commit.MetaFormat:   strconv.Itoa(commit.FormatVersion),
+		commit.MetaCluster:  e.cfg.Cluster,
 		commit.MetaProducer: e.cfg.ProducerID,
 		commit.MetaSignal:   ns,
 		commit.MetaSchema:   strconv.Itoa(SchemaVersion),
@@ -225,6 +233,11 @@ func (e *Edge) description(ns string, rows int, minTS, maxTS, received uint64) m
 func footerOf(meta map[string]string, r commit.Ref, content string) map[string]string {
 	f := make(map[string]string, len(meta)+4)
 	for k, v := range meta {
+		// Where and when it was published is S3 metadata only, as the
+		// Rust edge writes it (../../FORMAT.md §2).
+		if k == commit.MetaFormat || k == commit.MetaCluster || k == commit.MetaLow {
+			continue
+		}
 		f[k] = v
 	}
 	f[commit.MetaKind] = commit.KindData

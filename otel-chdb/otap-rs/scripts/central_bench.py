@@ -76,7 +76,7 @@ def main():
             subprocess.run([enc, "--file", f, "--signal", sig, "--warmup", "1", "--batches", "9", "--s3", f"{S3}/{base}/{tag}",
                             "--key", KEY, "--secret", SECRET], check=True, stdout=subprocess.DEVNULL)
             layouts[(sig, name)] = lambda n, sig=sig, tag=tag: (
-                f"{S3}/{base}/{tag}/{sig}/*/" + ("{" + ",".join(f"{i:020d}" for i in range(n)) + "}" if n > 1 else f"{0:020d}") + ".parquet")
+                f"{S3}/{base}/{tag}/*/*/{sig}/*/" + ("{" + ",".join(f"{i:020d}" for i in range(n)) + "}" if n > 1 else f"{0:020d}") + ".parquet")
         for name, extra in [("parquetgo (all blooms)", []), ("parquetgo, no bloom", ["-bloom=false"])]:
             tag = "pg" if not extra else "pg-nobloom"
             subprocess.run([pubbench, "-impl", "parquet-go", "-url", f"{S3}/{base}/{tag}", "-signal", sig, "-warmup", "1",

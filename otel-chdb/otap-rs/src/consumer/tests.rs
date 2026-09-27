@@ -150,7 +150,7 @@ fn setup() -> (Rc<MemBucket>, Rc<MemCentral>, FakeClock) {
 #[tokio::test(flavor = "current_thread")]
 async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     for i in 0..5 {
         e.commit(&b, &format!("h{i}"), 10).await;
     }
@@ -166,14 +166,14 @@ async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
     assert_eq!(c.applied.borrow().len(), 6, "the copy was skipped: {:?}", c.applied.borrow());
     // E0001 is superseded; its head (slot 5) is free: after `quiet` it is tombstoned.
     run(&mut ws, &clk, 30, 100).await;
-    let ck = ws[0].checkpoint("p1/traces").unwrap().clone();
+    let ck = ws[0].checkpoint("c1/p1/traces").unwrap().clone();
     assert!(ck.closed("E0001") && ck.next("E0001") == 5, "{ck:?}");
     assert!(!ck.closed("E0002") && ck.next("E0002") == 2);
     let s = &ws[0].stats;
     assert_eq!((s.tombstones_won, s.epochs_closed, s.dedup_skipped), (1, 1, 1), "{s:?}");
     assert!(s.statements <= 2, "5 + 1 objects in at most 2 statements of 4: {}", s.statements);
     // The dead writer (a zombie) tries its next slot: the tombstone halts it.
-    let mut z = Edge { producer: "p1".into(), signal: "traces".into(), epoch: "E0001".into(), next: 5, n_epochs: 5, recv_clock: None };
+    let mut z = Edge { producer: "c1/p1".into(), signal: "traces".into(), epoch: "E0001".into(), next: 5, n_epochs: 5, recv_clock: None };
     let (ep, _) = z.commit(&b, "h9", 10).await;
     assert_eq!(ep, "E0006", "halted and moved on");
 }
@@ -188,7 +188,7 @@ async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
 async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
     let (b, c, clk) = setup();
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), own_conflict_every: 2, ..Default::default() };
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     let mut ws = vec![worker("w1", &b, &c, &clk)];
     for r in 0..6 {
         for i in 0..3 {
@@ -217,7 +217,7 @@ async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
 async fn a_lost_lease_or_checkpoint_write_keeps_the_lane() {
     let (b, c, clk) = setup();
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), drop_every: 3, ..Default::default() };
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     let mut ws = vec![worker("w1", &b, &c, &clk)];
     for r in 0..6 {
         for i in 0..3 {
@@ -241,17 +241,17 @@ async fn a_lost_lease_or_checkpoint_write_keeps_the_lane() {
 #[tokio::test(flavor = "current_thread")]
 async fn gaps_are_never_skipped_nor_tombstoned() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "logs");
+    let mut e = Edge::new("c1/p1", "logs");
     e.commit(&b, "a", 1).await;
     // slot 1 missing, slot 2 present (a deleted slot, or LIST ahead of HEAD)
     let k2 = proto::slot_key(&e.prefix(), "E0001", 2);
     b.insert(&k2, Bytes::from("x"), meta("E0001", 2, "c", 1));
-    let mut e2 = Edge::new("p1", "logs");
+    let mut e2 = Edge::new("c1/p1", "logs");
     e2.new_epoch(); // a newer epoch exists, so E0001 is superseded
     e2.commit(&b, "d", 1).await;
     let mut ws = vec![worker("w1", &b, &c, &clk)];
     run(&mut ws, &clk, 50, 200).await;
-    let ck = ws[0].checkpoint("p1/logs").unwrap().clone();
+    let ck = ws[0].checkpoint("c1/p1/logs").unwrap().clone();
     assert_eq!((ck.next("E0001"), ck.closed("E0001")), (1, false));
     assert_eq!(c.count("otel_logs", "c"), 0);
     assert_eq!(ws[0].stats.gaps_seen, 1);
@@ -261,13 +261,13 @@ async fn gaps_are_never_skipped_nor_tombstoned() {
 #[tokio::test(flavor = "current_thread")]
 async fn takeover_waits_for_expiry_and_fences_the_old_holder() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     e.commit(&b, "h0", 5).await;
     let mut w1 = worker("w1", &b, &c, &clk);
     let mut w2 = worker("w2", &b, &c, &clk);
     let _ = w1.step().await;
     let _ = w2.step().await;
-    assert_eq!(w1.held_lanes(), vec!["p1/traces"]);
+    assert_eq!(w1.held_lanes(), vec!["c1/p1/traces"]);
     assert!(w2.held_lanes().is_empty());
     // w1 stops (a pause): w2 may take the lane only after ttl + margin of
     // seeing the same lease version.
@@ -281,7 +281,7 @@ async fn takeover_waits_for_expiry_and_fences_the_old_holder() {
         clk.0.set(clk.0.get() + 1000);
         let _ = w2.step().await;
     }
-    assert_eq!(w2.held_lanes(), vec!["p1/traces"]);
+    assert_eq!(w2.held_lanes(), vec!["c1/p1/traces"]);
     assert_eq!(c.count("otel_traces", "h1"), 5);
     // w1 resumes: its own clock says its window is over; it drops the lane
     // without inserting, and its checkpoint CAS would fail anyway.
@@ -301,8 +301,8 @@ async fn takeover_waits_for_expiry_and_fences_the_old_holder() {
 #[tokio::test(flavor = "current_thread")]
 async fn a_worker_retakes_lanes_it_let_lapse() {
     let (b, c, clk) = setup();
-    let mut e1 = Edge::new("p1", "traces");
-    let mut e2 = Edge::new("p2", "traces");
+    let mut e1 = Edge::new("c1/p1", "traces");
+    let mut e2 = Edge::new("c1/p2", "traces");
     e1.commit(&b, "a0", 3).await;
     e2.commit(&b, "b0", 3).await;
     let mut w1 = worker("w1", &b, &c, &clk);
@@ -337,7 +337,7 @@ async fn a_worker_retakes_lanes_it_let_lapse() {
 #[tokio::test(flavor = "current_thread")]
 async fn the_server_fences_a_statement_sent_after_the_window() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "logs");
+    let mut e = Edge::new("c1/p1", "logs");
     e.commit(&b, "h0", 5).await;
     let mut w1 = worker("w1", &b, &c, &clk);
     let _ = w1.step().await; // takes the lane, ingests h0
@@ -350,7 +350,7 @@ async fn the_server_fences_a_statement_sent_after_the_window() {
     // the statement, and the verify's retry of the missing object: both no-ops
     assert_eq!(c.fenced.get(), 2);
     assert_eq!(w1.stats.retried_missing, 1);
-    assert_eq!(w1.checkpoint("p1/logs").unwrap().next("E0001"), 1, "not advanced past the fenced object");
+    assert_eq!(w1.checkpoint("c1/p1/logs").unwrap().next("E0001"), 1, "not advanced past the fenced object");
     // When the worker's own clock catches up it sees the window is over.
     clk.0.set(clk.0.get() + T.ttl_ms);
     let _ = w1.step().await;
@@ -362,7 +362,7 @@ async fn partial_statements_and_lost_answers_are_repaired_by_the_verify() {
     let (b, c, clk) = setup();
     c.partial_every.set(2); // every 2nd statement: only its first object lands
     c.lost_answer_every.set(3); // every 3rd: lands, answer lost
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     for i in 0..20 {
         e.commit(&b, &format!("h{i}"), 7).await;
     }
@@ -376,20 +376,20 @@ async fn partial_statements_and_lost_answers_are_repaired_by_the_verify() {
     assert_eq!(c.applied.borrow().len(), 20, "each object applied exactly once");
     assert!(ws[0].stats.retried_missing > 0 && ws[0].stats.insert_errors > 0);
     assert!(ws[0].stats.unsettled > 0, "{:?}", ws[0].stats);
-    assert_eq!(ws[0].checkpoint("p1/traces").unwrap().next("E0001"), 20);
+    assert_eq!(ws[0].checkpoint("c1/p1/traces").unwrap().next("E0001"), 20);
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn series_lane_needs_no_check() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "metrics_series");
+    let mut e = Edge::new("c1/p1", "metrics_series");
     e.commit(&b, "s0", 3).await;
     e.commit(&b, "s1", 3).await;
     let mut ws = vec![worker("w1", &b, &c, &clk)];
     run(&mut ws, &clk, 2, 100).await;
     assert_eq!(ws[0].stats.series_objects_inserted, 2);
     assert_eq!(ws[0].stats.checks, 0);
-    assert_eq!(ws[0].checkpoint("p1/metrics_series").unwrap().next("E0001"), 2);
+    assert_eq!(ws[0].checkpoint("c1/p1/metrics_series").unwrap().next("E0001"), 2);
 }
 
 /// Many edge restarts on one lane, with GC retiring closed epochs: the
@@ -399,7 +399,7 @@ async fn series_lane_needs_no_check() {
 #[tokio::test(flavor = "current_thread")]
 async fn checkpoint_stays_bounded_across_many_epochs() {
     let (b, c, clk) = setup();
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     let mut ws = vec![worker("w1", &b, &c, &clk)];
     let gcc = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: 1000, zombie_ms: 3000, dry_run: false };
     let mut n = 0;
@@ -417,7 +417,7 @@ async fn checkpoint_stays_bounded_across_many_epochs() {
             let _ = gc_step(&*b, &gcc, clk.0.get()).await.unwrap();
         }
         if round >= 20 {
-            let ck = ws[0].checkpoint("p1/traces").unwrap();
+            let ck = ws[0].checkpoint("c1/p1/traces").unwrap();
             max_epochs = max_epochs.max(ck.epochs.len());
             max_bytes = max_bytes.max(serde_json::to_vec(ck).unwrap().len());
             max_gc = max_gc.max(b.get(&format!("{CTL}/gc.json")).await.unwrap().unwrap().0.len());
@@ -427,7 +427,7 @@ async fn checkpoint_stays_bounded_across_many_epochs() {
         assert_eq!(c.count("otel_traces", &format!("h{i}")), 3, "h{i}");
     }
     assert_eq!(c.applied.borrow().len(), n, "each batch applied once");
-    let ck = ws[0].checkpoint("p1/traces").unwrap().clone();
+    let ck = ws[0].checkpoint("c1/p1/traces").unwrap().clone();
     let s = &ws[0].stats;
     // An epoch lives 3 s here (6 × 500 ms per restart) and retires after
     // quiet (2 s) + the GC delay and zombie bound (3 s): about 3 to 4 at once.
@@ -437,8 +437,8 @@ async fn checkpoint_stays_bounded_across_many_epochs() {
     assert!(s.epochs_compacted >= 110, "{s:?}");
     // The full listing starts after the floor: a whole-lane LIST of the
     // bucket right now returns only the epochs above it.
-    let items = b.list(&format!("{ROOT}/p1/traces"), super::coord::floor_start_after(&format!("{ROOT}/p1/traces"), &ck.floor).as_deref()).await.unwrap();
-    let epochs: BTreeSet<String> = items.iter().filter_map(|i| proto::parse_slot_key(&format!("{ROOT}/p1/traces"), &i.key)).map(|(e, _)| e).collect();
+    let items = b.list(&format!("{ROOT}/c1/p1/traces"), super::coord::floor_start_after(&format!("{ROOT}/c1/p1/traces"), &ck.floor).as_deref()).await.unwrap();
+    let epochs: BTreeSet<String> = items.iter().filter_map(|i| proto::parse_slot_key(&format!("{ROOT}/c1/p1/traces"), &i.key)).map(|(e, _)| e).collect();
     assert!(epochs.len() <= 5 && epochs.iter().all(|x| x.as_str() > ck.floor.as_str()), "{epochs:?}");
 }
 
@@ -449,12 +449,12 @@ async fn checkpoint_stays_bounded_across_many_epochs() {
 async fn early_compaction_would_skip_a_late_batch() {
     for mutant in [false, true] {
         let (b, c, clk) = setup();
-        let mut e1 = Edge::new("p1", "logs");
+        let mut e1 = Edge::new("c1/p1", "logs");
         e1.commit(&b, "a", 2).await;
         e1.commit(&b, "b", 2).await;
         // A second writer (another exporter lane of the edge) opens a newer
         // epoch: E0001 is superseded while its writer is still alive.
-        let mut e2 = Edge::new("p1", "logs");
+        let mut e2 = Edge::new("c1/p1", "logs");
         e2.new_epoch();
         e2.commit(&b, "c", 2).await;
         let mut cfg = cfg("w1");
@@ -469,7 +469,7 @@ async fn early_compaction_would_skip_a_late_batch() {
             clk.0.set(clk.0.get() + 100);
             let _ = w.step().await;
         }
-        let ck = w.checkpoint("p1/logs").unwrap();
+        let ck = w.checkpoint("c1/p1/logs").unwrap();
         if mutant {
             assert_eq!(ck.floor, "E0001", "compacted while open");
             assert_eq!(c.count("otel_logs", "late"), 0, "the mutant never ingests the late batch");
@@ -488,10 +488,10 @@ async fn early_compaction_would_skip_a_late_batch() {
 #[tokio::test(flavor = "current_thread")]
 async fn writes_into_retired_epochs_are_ignored_or_ingested_once() {
     let (b, c, clk) = setup();
-    let prefix = format!("{ROOT}/p1/traces");
+    let prefix = format!("{ROOT}/c1/p1/traces");
     // E0001: closed after one batch. E0002: a gap (slot 1 missing), so it
     // stays open for ever. E0003: closed after one batch. E0004: the newest.
-    let mut e = Edge::new("p1", "traces");
+    let mut e = Edge::new("c1/p1", "traces");
     e.commit(&b, "a", 1).await;
     e.new_epoch();
     e.commit(&b, "b", 1).await;
@@ -506,7 +506,7 @@ async fn writes_into_retired_epochs_are_ignored_or_ingested_once() {
         run(&mut ws, &clk, 1, 500).await;
         let _ = gc_step(&*b, &gcc, clk.0.get()).await.unwrap();
     }
-    let ck = ws[0].checkpoint("p1/traces").unwrap().clone();
+    let ck = ws[0].checkpoint("c1/p1/traces").unwrap().clone();
     assert_eq!(ck.floor, "E0001", "{ck:?}");
     assert!(!ck.epochs.contains_key("E0003"), "retired above the open E0002: dropped too");
     assert!(ck.epochs.contains_key("E0002") && !ck.closed("E0002"));
@@ -589,7 +589,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
     let mut edges: Vec<Edge> = Vec::new();
     for p in 0..3 {
         for s in ["traces", "logs", "metrics_gauge"] {
-            edges.push(if scale { Edge::stamped(&format!("p{p}"), s, &clk) } else { Edge::new(&format!("p{p}"), s) });
+            edges.push(if scale { Edge::stamped(&format!("c{}/p{p}", p % 2), s, &clk) } else { Edge::new(&format!("c{}/p{p}", p % 2), s) });
         }
     }
     let mk = |name: &str| Worker::new(if scale { scale_cfg(name) } else { cfg(name) }, b.clone(), c.clone(), clk.clone());
@@ -687,8 +687,8 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
 #[tokio::test(flavor = "current_thread")]
 async fn idle_lanes_back_off_and_hints_wake_them() {
     let (b, c, clk) = setup();
-    let mut busy = Edge::new("busy", "traces");
-    let mut idle: Vec<Edge> = (0..9).map(|i| Edge::new(&format!("idle{i}"), "traces")).collect();
+    let mut busy = Edge::new("c1/busy", "traces");
+    let mut idle: Vec<Edge> = (0..9).map(|i| Edge::new(&format!("c1/idle{i}"), "traces")).collect();
     for e in idle.iter_mut() {
         e.commit(&b, &format!("{}-0", e.producer), 1).await;
     }
@@ -708,8 +708,8 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
         clk.0.set(clk.0.get() + 200);
     }
     let per = |p: &str| w.stats.lists_by_lane.get(&format!("{p}/traces")).copied().unwrap_or(0);
-    let busy_lists = per("busy");
-    let idle_lists: u64 = (0..9).map(|i| per(&format!("idle{i}"))).sum::<u64>() / 9;
+    let busy_lists = per("c1/busy");
+    let idle_lists: u64 = (0..9).map(|i| per(&format!("c1/idle{i}"))).sum::<u64>() / 9;
     assert!(busy_lists >= 1400, "the busy lane is listed every poll: {busy_lists}");
     // 300 s at a 16 s cap: about 35 LISTs per idle lane (2 s of grace at
     // every poll, the doubling, then the cap), not 1,500.
@@ -719,7 +719,7 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
     }
     // A hint: the idle lane's new object is in at the next poll.
     idle[3].commit(&b, "idle3-1", 1).await;
-    hints.push("idle3/traces");
+    hints.push("c1/idle3/traces");
     let _ = w.step().await;
     assert_eq!(c.count("otel_traces", "idle3-1"), 1, "woken by the hint");
     assert_eq!(w.stats.hint_wakeups, 1);
@@ -733,8 +733,8 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
         assert!(waited <= 18_000, "an idle lane is listed at least every max backoff");
     }
     // Spurious hints (lanes with nothing new, unknown lanes) change nothing.
-    hints.push("idle1/traces");
-    hints.push("nope/traces");
+    hints.push("c1/idle1/traces");
+    hints.push("c1/nope/traces");
     hints.push("garbage");
     let before = c.applied.borrow().len();
     let _ = w.step().await;
@@ -747,7 +747,7 @@ async fn idle_lanes_back_off_and_hints_wake_them() {
 async fn linger_fills_statements_within_its_bound() {
     for linger in [0, 1_000] {
         let (b, c, clk) = setup();
-        let mut edges: Vec<Edge> = (0..4).map(|i| Edge::stamped(&format!("p{i}"), "logs", &clk)).collect();
+        let mut edges: Vec<Edge> = (0..4).map(|i| Edge::stamped(&format!("c1/p{i}"), "logs", &clk)).collect();
         let mut cf = cfg("w1");
         cf.linger_ms = linger;
         cf.limits.max_objects = 8;
@@ -792,8 +792,8 @@ async fn linger_fills_statements_within_its_bound() {
 #[tokio::test(flavor = "current_thread")]
 async fn load_balancing_spreads_weight_and_settles() {
     let (b, c, clk) = setup();
-    let mut heavy = Edge::new("heavy", "traces");
-    let mut light: Vec<Edge> = (0..8).map(|i| Edge::new(&format!("l{i}"), "traces")).collect();
+    let mut heavy = Edge::new("c2/heavy", "traces");
+    let mut light: Vec<Edge> = (0..8).map(|i| Edge::new(&format!("c{}/l{i}", i % 2), "traces")).collect();
     let mut ws: Vec<W> = (0..3).map(|i| Worker::new(scale_cfg(&format!("w{i}")), b.clone(), c.clone(), clk.clone())).collect();
     let mut n = 0;
     let mut released_at_half = 0;
@@ -813,7 +813,7 @@ async fn load_balancing_spreads_weight_and_settles() {
     let released: u64 = ws.iter().map(|w| w.stats.lanes_released).sum();
     assert_eq!(released, released_at_half, "no lane moved in the second minute: settled");
     let held: Vec<Vec<String>> = ws.iter().map(|w| w.held_lanes()).collect();
-    let with_heavy = held.iter().position(|h| h.contains(&"heavy/traces".to_string())).expect("the heavy lane is held");
+    let with_heavy = held.iter().position(|h| h.contains(&"c2/heavy/traces".to_string())).expect("the heavy lane is held");
     assert_eq!(held[with_heavy].len(), 1, "the heavy lane's worker holds nothing else: {held:?}");
     let others: Vec<usize> = (0..3).filter(|i| *i != with_heavy).map(|i| held[i].len()).collect();
     assert_eq!(others.iter().sum::<usize>(), 8, "{held:?}");
@@ -837,7 +837,7 @@ async fn an_unanswered_statement_is_waited_out() {
         c.late_every.set(1);
         c.late_by_ms.set(1000);
         c.slack_ms.set(T.slack_ms);
-        let mut e = Edge::new("p1", "traces");
+        let mut e = Edge::new("c1/p1", "traces");
         e.commit(&b, "h0", 5).await;
         let mut cf = cfg("w1");
         if mutant {
@@ -885,7 +885,7 @@ async fn an_error_answer_whose_commit_is_still_resolving_is_waited_out() {
         let (b, c, clk) = setup();
         c.late_error_every.set(1);
         c.slack_ms.set(T.slack_ms);
-        let mut e = Edge::new("p1", "logs");
+        let mut e = Edge::new("c1/p1", "logs");
         e.commit(&b, "h0", 5).await;
         e.commit(&b, "h1", 7).await;
         let mut cf = cfg("w1");
@@ -953,16 +953,16 @@ async fn the_check_range_follows_the_data() {
             cf.timing.mutation = Mutation::WallRange;
         }
         // Spanning a day boundary: 23:59 on day 20,009 and 00:01 on day 20,010.
-        put_obj(&b, "p1/logs", "E1", 0, "span-a", 4, at(20_009, 23, 59)).await;
-        put_obj(&b, "p1/logs", "E1", 1, "span-b", 4, at(20_010, 0, 1)).await;
+        put_obj(&b, "c1/p1/logs", "E1", 0, "span-a", 4, at(20_009, 23, 59)).await;
+        put_obj(&b, "c1/p1/logs", "E1", 1, "span-b", 4, at(20_010, 0, 1)).await;
         // Old: received five days ago; an earlier attempt (a worker that
         // crashed before its checkpoint write) already put its rows in.
-        put_obj(&b, "p2/logs", "E1", 0, "old", 6, at(20_005, 8, 0)).await;
+        put_obj(&b, "c1/p2/logs", "E1", 0, "old", 6, at(20_005, 8, 0)).await;
         let old = super::plan::Obj {
-            lane: "p2/logs".into(),
+            lane: "c1/p2/logs".into(),
             epoch: "E1".into(),
             seq: 0,
-            key: proto::slot_key(&format!("{ROOT}/p2/logs"), "E1", 0),
+            key: proto::slot_key(&format!("{ROOT}/c1/p2/logs"), "E1", 0),
             size: 100,
             content: "old".into(),
             rows: 6,
@@ -1007,17 +1007,17 @@ async fn copies_within_the_horizon_and_lying_metadata() {
     cf.horizon_ms = Some(86_400_000);
     let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
     // The original, received 23:50 on day 20,019, ingested.
-    put_obj(&b, "p1/traces", "E1", 0, "req", 5, at(20_019, 23, 50)).await;
+    put_obj(&b, "c1/p1/traces", "E1", 0, "req", 5, at(20_019, 23, 50)).await;
     for _ in 0..3 {
         let _ = w.step().await;
         clk.0.set(clk.0.get() + 200);
     }
     assert_eq!(c.count("otel_traces", "req"), 5);
     // Its copy: resent after the edge restarted, received 20 hours later.
-    put_obj(&b, "p1/traces", "E2", 0, "req", 5, at(20_020, 19, 50)).await;
+    put_obj(&b, "c1/p1/traces", "E2", 0, "req", 5, at(20_020, 19, 50)).await;
     // An object whose rows carry received times other than its metadata's (a foreign producer).
-    put_obj(&b, "p1/traces", "E2", 1, "liar", 4, at(20_020, 9, 0)).await;
-    let _ = c.true_recv.borrow_mut().insert(proto::slot_key(&format!("{ROOT}/p1/traces"), "E2", 1), vec![at(20_018, 9, 0), at(20_019, 9, 0)]);
+    put_obj(&b, "c1/p1/traces", "E2", 1, "liar", 4, at(20_020, 9, 0)).await;
+    let _ = c.true_recv.borrow_mut().insert(proto::slot_key(&format!("{ROOT}/c1/p1/traces"), "E2", 1), vec![at(20_018, 9, 0), at(20_019, 9, 0)]);
     for _ in 0..6 {
         let _ = w.step().await;
         clk.0.set(clk.0.get() + 200);
@@ -1029,7 +1029,7 @@ async fn copies_within_the_horizon_and_lying_metadata() {
     // A fresh worker (another holder) doesn't know about the liar: its guarded insert
     // fails again and nothing is written twice.
     let _ = c.rows.borrow_mut().insert(("otel_traces".into(), "liar".into()), 4);
-    let ck = w.checkpoint("p1/traces").unwrap().clone();
+    let ck = w.checkpoint("c1/p1/traces").unwrap().clone();
     assert_eq!(ck.next("E2"), 2);
 }
 
@@ -1045,21 +1045,58 @@ async fn the_default_horizon_is_three_days() {
     clk.0.set(at(20_024, 12, 0) / 1_000_000);
     let mut w = Worker::new(Config { horizon_ms: Config::new(ROOT, CTL, "x").horizon_ms, ..cf }, b.clone(), c.clone(), clk.clone());
     // Two originals, ingested: one received on day 20,020 at noon, one on day 20,021 at noon.
-    put_obj(&b, "p1/traces", "E1", 0, "far", 5, at(20_020, 12, 0)).await;
-    put_obj(&b, "p1/traces", "E1", 1, "near", 5, at(20_021, 12, 0)).await;
+    put_obj(&b, "c1/p1/traces", "E1", 0, "far", 5, at(20_020, 12, 0)).await;
+    put_obj(&b, "c1/p1/traces", "E1", 1, "near", 5, at(20_021, 12, 0)).await;
     for _ in 0..3 {
         let _ = w.step().await;
         clk.0.set(clk.0.get() + 200);
     }
     assert_eq!((c.count("otel_traces", "far"), c.count("otel_traces", "near")), (5, 5));
     // Their copies, resent into a new epoch: "near" 2.5 days later, "far" 4 days later.
-    put_obj(&b, "p1/traces", "E2", 0, "near", 5, at(20_024, 0, 0)).await;
-    put_obj(&b, "p1/traces", "E2", 1, "far", 5, at(20_024, 12, 0)).await;
+    put_obj(&b, "c1/p1/traces", "E2", 0, "near", 5, at(20_024, 0, 0)).await;
+    put_obj(&b, "c1/p1/traces", "E2", 1, "far", 5, at(20_024, 12, 0)).await;
     for _ in 0..4 {
         let _ = w.step().await;
         clk.0.set(clk.0.get() + 200);
     }
     assert_eq!(c.count("otel_traces", "near"), 5, "a copy within 3 days is found and skipped");
     assert_eq!(c.count("otel_traces", "far"), 10, "a copy 4 days later is out of the check's reach: ingested twice");
-    assert_eq!(w.checkpoint("p1/traces").unwrap().next("E2"), 2);
+    assert_eq!(w.checkpoint("c1/p1/traces").unwrap().next("E2"), 2);
+}
+
+// ---- format v2 ---------------------------------------------------------------------
+
+/// The format marker: created when absent, accepted when it says 2, and a
+/// bucket of another format is refused (../FORMAT.md §5).
+#[tokio::test(flavor = "current_thread")]
+async fn the_format_marker_is_created_once_and_another_format_refused() {
+    let (b, _, _) = setup();
+    super::ensure_format(&*b, CTL).await.unwrap();
+    let (body, _) = b.get(&super::format_key(CTL)).await.unwrap().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v["format"], 2);
+    super::ensure_format(&*b, CTL).await.unwrap();
+    let other = "r/v1ctl";
+    b.insert(&super::format_key(other), Bytes::from(r#"{"format":1}"#), BTreeMap::new());
+    assert!(super::ensure_format(&*b, other).await.unwrap_err().contains("format Some(1)"));
+}
+
+/// A version-1 key (`{root}/{producer}/{signal}/{epoch}/{seq}`) is not a
+/// lane at depth 3: its third segment is an epoch, not a signal. Two clusters
+/// with a producer of the same name are two lanes.
+#[tokio::test(flavor = "current_thread")]
+async fn v1_keys_are_invisible_and_clusters_separate_lanes() {
+    let (b, c, clk) = setup();
+    b.insert(&proto::slot_key(&format!("{ROOT}/p1/traces"), "E0001", 0), Bytes::from("x"), meta("E0001", 0, "v1", 3));
+    let mut a = Edge::new("c1/p1", "traces");
+    let mut z = Edge::new("c2/p1", "traces");
+    a.commit(&b, "a", 2).await;
+    z.commit(&b, "z", 2).await;
+    let mut w = worker("w1", &b, &c, &clk);
+    for _ in 0..4 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 100);
+    }
+    assert_eq!(w.held_lanes(), vec!["c1/p1/traces", "c2/p1/traces"]);
+    assert_eq!((c.count("otel_traces", "a"), c.count("otel_traces", "z"), c.count("otel_traces", "v1")), (2, 2, 0), "rows");
 }

@@ -1,8 +1,9 @@
 # otap-s3pq publishers (otap-rs, urn:otel:exporter:s3pq) running
 # otap-rs/configs/edge-publisher.yaml (edge-durable.yaml plus a batch step
 # in front of the buffer). A StatefulSet because each publisher
-# owns state: its durable buffer (PVC) and a stable producer id
-# (CLUSTER-otap-publisher-N), which is its lane prefix in the bucket.
+# owns state: its durable buffer (PVC) and a stable producer id (the pod
+# name, otap-publisher-N), which with the cluster names its lanes in the
+# bucket: {S3_BASE}/{CLUSTER}/{pod}/{signal}/ (../../../FORMAT.md).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -98,11 +99,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # The exporter appends {CLUSTER}/{PRODUCER}/{signal}/{epoch}/{seq}
+            # (CLUSTER comes from edge-target).
             - name: PRODUCER
-              value: "$(CLUSTER)-$(POD_NAME)"
-            # {bucket root}/{producer}: the exporter appends {signal}/{epoch}/{seq}.
+              value: "$(POD_NAME)"
             - name: S3_URL
-              value: "$(S3_BASE)/$(PRODUCER)"
+              value: "$(S3_BASE)"
             - name: AWS_REGION
               value: "$(S3_REGION)"
             - name: OTLP_GRPC

@@ -93,7 +93,10 @@ impl Clock for FakeClock {
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// The data root: lanes are `{root}/{producer}/{signal}` (depth 2) or `{root}/{signal}` (1).
+    /// The data root: lanes are `{root}/{cluster}/{producer}/{signal}`
+    /// (depth 3, format v2, the default); `depth` is the number of key
+    /// segments of a lane (2: `{root}/{producer}/{signal}`, 1:
+    /// `{root}/{signal}`, kept for mechanism tests).
     pub root: String,
     pub depth: usize,
     /// The control prefix: leases, checkpoints, heartbeats, GC state.
@@ -170,7 +173,7 @@ impl Config {
     pub fn new(root: &str, ctl: &str, worker: &str) -> Self {
         Config {
             root: root.trim_matches('/').into(),
-            depth: 2,
+            depth: 3,
             ctl: ctl.trim_matches('/').into(),
             signals: Vec::new(),
             worker: worker.into(),
@@ -512,10 +515,12 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     self.stats.hint_wakeups += 1;
                 }
             } else if !self.lanes.contains_key(&id) {
+                if id.split('/').count() != self.cfg.depth || id.split('/').any(|p| p.is_empty() || p.starts_with('_')) {
+                    continue;
+                }
                 let lane = match id.rsplit_once('/') {
-                    Some((p, s)) if self.cfg.depth >= 2 => Lane { producer: p.to_string(), signal: s.to_string() },
-                    None if self.cfg.depth == 1 => Lane { producer: String::new(), signal: id.clone() },
-                    _ => continue,
+                    Some((p, s)) => Lane { producer: p.to_string(), signal: s.to_string() },
+                    None => Lane { producer: String::new(), signal: id.clone() },
                 };
                 let wanted = self.cfg.signals.is_empty() || self.cfg.signals.contains(&lane.signal);
                 if LaneKind::for_signal(&lane.signal).is_some() && wanted {
@@ -611,21 +616,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         self.heartbeat_and_leases(&b).await;
     }
 
-    /// The lane directories: one LIST of the root, one per producer.
+    /// The lane directories: one LIST of the root, one per cluster, one per
+    /// producer (`list_lane_parents`).
     async fn list_lanes(&mut self) -> bool {
         let b = self.bucket.clone();
         let mut lanes = BTreeMap::new();
-        let producers: Vec<String> = if self.cfg.depth >= 2 {
-            match b.list_dirs(&self.cfg.root).await {
-                Ok(p) => p.into_iter().filter(|p| !p.starts_with('_')).collect(),
-                Err(e) => {
-                    self.stats.errors += 1;
-                    log(&self.cfg, &format!("discover: {e}"));
-                    return false;
-                }
+        let producers = match list_lane_parents(&*b, &self.cfg.root, self.cfg.depth).await {
+            Ok(p) => p,
+            Err(e) => {
+                self.stats.errors += 1;
+                log(&self.cfg, &format!("discover: {e}"));
+                return false;
             }
-        } else {
-            vec![String::new()]
         };
         for p in producers {
             let dir = if p.is_empty() { self.cfg.root.clone() } else { join(&self.cfg.root, &p) };
@@ -1676,6 +1678,27 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let _ = m.insert("visible_ms_max".into(), pct(1.0).into());
         v
     }
+}
+
+/// The directories a lane's signal sits under, relative to `root`: every
+/// `{cluster}/{producer}` at depth 3 (one LIST of the root, one per
+/// cluster), every `{producer}` at 2, `""` at 1. Names starting with `_`
+/// are control prefixes, never lanes.
+pub async fn list_lane_parents<B: Bucket + ?Sized>(b: &B, root: &str, depth: usize) -> Result<Vec<String>, String> {
+    let mut parents = vec![String::new()];
+    for _ in 1..depth.max(1) {
+        let mut next = Vec::new();
+        for p in &parents {
+            let dir = if p.is_empty() { root.to_string() } else { join(root, p) };
+            for d in b.list_dirs(&dir).await? {
+                if !d.starts_with('_') && !d.is_empty() {
+                    next.push(if p.is_empty() { d } else { format!("{p}/{d}") });
+                }
+            }
+        }
+        parents = next;
+    }
+    Ok(parents)
 }
 
 pub enum TombResult {

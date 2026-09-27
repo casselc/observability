@@ -43,7 +43,7 @@ def main():
             subprocess.run([f"{t}/pubbench", "-impl", "parquet-go", "-url", f"{S3}/{base}/pg", "-signal", sig, "-n", "10000",
                             "-warmup", "1", "-batches", "9"], check=True, stdout=subprocess.DEVNULL, env=env)
             layouts = {
-                "rust": lambda n: f"{S3}/{base}/rust/{sig}/*/" + ("{" + ",".join(f"{i:020d}" for i in range(n)) + "}" if n > 1 else f"{0:020d}") + ".parquet",
+                "rust": lambda n: f"{S3}/{base}/rust/*/*/{sig}/*/" + ("{" + ",".join(f"{i:020d}" for i in range(n)) + "}" if n > 1 else f"{0:020d}") + ".parquet",
                 "parquetgo": lambda n: f"{S3}/{base}/pg/cmp/{sig}/v1/*/*/*/" + ("{" + ",".join(f"{i:020d}" for i in range(1, n + 1)) + "}" if n > 1 else f"{1:020d}") + ".parquet",
             }
             tbl = f"{db}.{sig}"

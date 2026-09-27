@@ -1,6 +1,7 @@
 # otelcol-s3pq publishers (Go edge). A StatefulSet for the same reasons as
 # the Rust one: the persistent sending queue lives on the pod's PVC, and the
-# producer id (CLUSTER-otelcol-publisher-N) must be stable per volume.
+# producer id (the pod name, otelcol-publisher-N; the cluster is its own key
+# segment) must be stable per volume.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -90,7 +91,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: PRODUCER
-              value: "$(CLUSTER)-$(POD_NAME)"
+              value: "$(POD_NAME)"
             - name: AWS_REGION
               value: "$(S3_REGION)"
             - name: QUEUE_DIR

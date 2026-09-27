@@ -18,9 +18,9 @@ configMapGenerator:
   # components (../../components/*) and the overlays merge their values in.
   - name: edge-target
     literals:
-      - CLUSTER=CHANGE-ME-cluster            # producer ids are CLUSTER-POD_NAME: unique per fleet
+      - CLUSTER=change-me-cluster            # the first key segment ({root}/{CLUSTER}/{pod}/...), and the IAM principal tag; lowercase, [a-z0-9._-]
       - S3_BUCKET=CHANGE-ME-bucket
       - S3_REGION=us-east-1
       - S3_ENDPOINT=                         # empty: AWS S3; https://host for a custom endpoint
-      - S3_BASE=s3://CHANGE-ME-bucket/edge   # otap-s3pq's URL root (the producer is appended)
+      - S3_BASE=s3://CHANGE-ME-bucket/edge   # the data root {root}; the publishers append {CLUSTER}/{pod}/{signal} (../../../FORMAT.md)
       - S3_FORCE_PATH_STYLE=false

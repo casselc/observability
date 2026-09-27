@@ -199,7 +199,7 @@ func main() {
 	switch *impl {
 	case "edge":
 		e, err := edge.New(edge.Config{S3: parquetgo.Config{URL: url, AccessKeyID: s3.Key, SecretAccessKey: s3.Secret},
-			ProducerID: producer + "-" + epoch, MetricsLayout: *layout})
+			Cluster: "bench", ProducerID: strings.ToLower(producer + "-" + epoch), MetricsLayout: *layout})
 		if err != nil {
 			log.Fatal(err)
 		}

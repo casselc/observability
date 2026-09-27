@@ -1,8 +1,9 @@
 # The Go publisher: OTLP in -> memory_limiter -> s3pq (../../../parquetgo/
 # s3pqexporter), whose persistent queue (file_storage on the pod's PVC) is
 # the durable buffer (D19). Traces, logs and metrics (layout B, D7) go to
-# manifest-less create-only slots under {S3_BASE}/{PRODUCER}/{signal}/, the
-# layout the Rust consumer reads (--depth 2) and the Rust publishers write.
+# manifest-less create-only slots under {S3_BASE}/{CLUSTER}/{PRODUCER}/{signal}/
+# (format v2, ../../../FORMAT.md), the layout the Rust consumer reads and the
+# Rust publishers write.
 # As D4 requires (and s3pq's config validation enforces): the queue on
 # file_storage, retry_on_failure.max_elapsed_time: 0, a timeout above the
 # p99 PUT, and no batching after the queue (`sending_queue.batch` is
@@ -56,11 +57,12 @@ processors:
     spike_limit_percentage: 20
 exporters:
   s3pq:
+    cluster: ${env:CLUSTER}
     producer_id: ${env:PRODUCER}
     lanes: 2                              # per signal; = the queue's consumers
     metrics_layout: series_table          # D7 (layout B); clickstack_tables for the contrib tables
     s3:
-      url: ${env:S3_BASE}/${env:PRODUCER}
+      url: ${env:S3_BASE}
       region: ${env:S3_REGION}
       put_timeout: 10s
       head_timeout: 2s

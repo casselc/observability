@@ -39,7 +39,7 @@ ROOT=$S3/repl-bench/$RUN/edges
 
 if [ "${SKIP_GEN:-0}" != 1 ]; then
   env OTLP_HTTP=127.0.0.1:24398 OTLP_GRPC=127.0.0.1:24397 ADMIN_HTTP=127.0.0.1:28099 PUT_TIMEOUT=5s LANES=1 PRODUCER=bench \
-    S3_URL=$ROOT/bench "$B/otap-s3pq" -c "$OTAP/scripts/consumer_soak_edge.yaml" > "$OUT/edge.log" 2>&1 &
+    S3_URL=$ROOT "$B/otap-s3pq" -c "$OTAP/scripts/consumer_soak_edge.yaml" > "$OUT/edge.log" 2>&1 &
   edge=$!
   sleep 2
   "$B/soaksend" -url http://127.0.0.1:24398 -producer bench -signals traces,logs,metrics -rate "$RATE" -rows 200 -points 20 \

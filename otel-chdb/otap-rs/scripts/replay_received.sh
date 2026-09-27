@@ -98,7 +98,7 @@ scenario() { # name edge-binary
   "$T/faultproxy2" -listen $proxy -target "$S3" -match "/$root/" -mode answer-late -hold 5s > "$OUT/$name.proxy.log" 2>&1 &
   local fp=$!
   sleep 0.5
-  local p; p=$(edge "$bin" "http://$proxy/$BUCKET/$root/edge" "$buf" "$log"); ready
+  local p; p=$(edge "$bin" "http://$proxy/$BUCKET/$root" "$buf" "$log"); ready
   "$T/otlpsend" -url http://127.0.0.1:$port -signal traces -file "$FILES" -n $N -backoff 300ms > "$OUT/$name.send.jsonl" 2> "$OUT/$name.send.err"
   # every request is acked from the WAL; wait for objects to land, then kill
   # while their answers are held
@@ -114,7 +114,7 @@ scenario() { # name edge-binary
   q "DROP DATABASE IF EXISTS $db"
   consume > "$OUT/$name.consume.log" 2>&1
   sleep 2
-  p=$(edge "$bin" "http://127.0.0.1:$NOAUTH_PORT/$BUCKET/$root/edge" "$buf" "$log" "$GAP_S"); ready
+  p=$(edge "$bin" "http://127.0.0.1:$NOAUTH_PORT/$BUCKET/$root" "$buf" "$log" "$GAP_S"); ready
   for _ in $(seq 100); do [ "$(count "$root")" -ge $((N + before)) ] && break; sleep 0.2; done
   sleep 1; kill -INT $p; wait $p 2>/dev/null
   # every object: its metadata's received_at and its rows'

@@ -42,8 +42,9 @@ kustomize build --load-restrictor LoadRestrictionsNone overlays/rust-eks-irsa | 
 ```
 
 Every value an operator sets is marked `CHANGE-ME` in the overlay's
-`kustomization.yaml`: the cluster name (producer ids are
-`CLUSTER-POD_NAME`, so it must be unique in the fleet), the bucket, the
+`kustomization.yaml`: the cluster name (the first key segment,
+`{S3_BASE}/{CLUSTER}/{pod}/{signal}/…`, and the IAM principal tag; unique in
+the fleet, lowercase `[a-z0-9._-]`), the bucket, the
 region, and the target's credentials wiring. Put overlay-specific values in
 the overlay, never in a component: a component's ConfigMap generator merges
 after the overlay's, so a value set in a component cannot be overridden.
@@ -77,7 +78,7 @@ Central (the consumer) is unchanged and is not deployed here.
 | Decision | Where | Setting |
 |---|---|---|
 | D1 edge publisher | base/rust (primary), base/go (secondary) | the Go edge is the `s3pq` exporter (`../parquetgo/s3pqexporter`, 2026-09-26): manifest-less for traces, logs and metrics layout B, the Rust edge's objects (`../conformance`); it replaced `awss3inline`, which had no metrics lanes |
-| D3 commit protocol | both publishers | one create-only PUT per object at `{bucket}/edge/{CLUSTER-pod}/{signal}/{epoch}/{seq}`; the IAM policy grants `s3:ListBucket` so a free slot is 404 |
+| D3 commit protocol | both publishers | one create-only PUT per object at `{bucket}/edge/{CLUSTER}/{pod}/{signal}/{epoch}/{seq}` (format v2, [`../FORMAT.md`](../FORMAT.md)); the IAM policy grants `s3:ListBucket` so a free slot is 404 |
 | D4 / risk #10: agents never batch in front of a persistent queue; publishers batch before theirs and ack after it | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml, Go publisher-config.yaml | Agents, both edges (2026-09-27): **no batch processor** (it acks before the queue write: acked requests were lost on SIGKILL on kind, `results/k8s-sim.md` §kind, and locally 10 of 32 per signal on the Go edge, `results/go-batch.txt`), `sending_queue` on `file_storage` sized in items, no `sending_queue.batch`; Rust publisher: `processor:batch` in front of the WAL (acks propagate after the WAL write), nothing between the WAL and the exporter; Go publisher: s3pq's `batch` in front of its queue (10k items / 1 s; each caller answered once the merged request is enqueued), no `sending_queue.batch` (rejected by s3pq) |
 | D4: retries never give up | agents, Go publisher, Rust buffer | `retry_on_failure.max_elapsed_time: 0`; Quiver retries NACKs with backoff 1–30 s and no deadline (`max_age` unset) |
 | D7 layout B | edge-publisher.yaml, Go publisher-config.yaml | `metrics_layout: series_table` (per-type points lanes + the series lane) |
@@ -145,9 +146,11 @@ image `base/go` runs), the awss3 prototypes kept for their demo.
 ## Targets
 
 All three publishers read the same `edge-target` ConfigMap (`envFrom`), and
-build `S3_URL=$(S3_BASE)/$(PRODUCER)` (Rust) or `s3_prefix:
-edge/${PRODUCER}` (Go), so the bucket layout is the same everywhere and the
-consumer reads both with `--depth 2`.
+set `S3_URL=$(S3_BASE)` with `CLUSTER` and `PRODUCER=$(POD_NAME)` (Rust) or
+`url: ${S3_BASE}`, `cluster: ${CLUSTER}`, `producer_id: ${PRODUCER}` (Go), so
+the bucket layout, `{S3_BASE}/{CLUSTER}/{pod}/{signal}/…` (format v2,
+[`../FORMAT.md`](../FORMAT.md)), is the same everywhere and the consumer
+reads both at its default `--depth 3`.
 
 ### EKS: IRSA or Pod Identity (`components/eks-irsa`, `components/eks-pod-identity`)
 
@@ -571,7 +574,7 @@ metrics on the unbatched path (its merge order is random).
   reconnects through a fresh resolution. Scale-down needs nothing: the
   removed publisher's connections fail and the agents re-resolve. The
   routing gateway watches EndpointSlices and is not affected.
-- **Producer ids are stable** per ordinal (`CLUSTER-otap-publisher-N`), so a
+- **Producer ids are stable** per ordinal (`otap-publisher-N` under the cluster's prefix), so a
   restarted or rescheduled publisher continues its lanes, and a lane's
   consumer lease and checkpoint are reused.
 - The object count per cluster grows with N either way (D16): keep the

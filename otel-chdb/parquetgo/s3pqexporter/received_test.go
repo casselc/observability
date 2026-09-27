@@ -62,7 +62,7 @@ func TestReceivedSurvivesTheQueue(t *testing.T) {
 	}
 	// Published four days later (a replay after a long outage).
 	st := commit.NewMemStore()
-	e, err := edge.New(edge.Config{Store: st, Prefix: "p", ProducerID: "p", PutTimeout: time.Second, HeadTimeout: time.Second,
+	e, err := edge.New(edge.Config{Store: st, Prefix: "p", Cluster: "c", ProducerID: "p", PutTimeout: time.Second, HeadTimeout: time.Second,
 		NewEpoch: func() string { return "E2" }, Now: func() time.Time { return enq.Add(96 * time.Hour) }})
 	if err != nil {
 		t.Fatal(err)

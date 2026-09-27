@@ -57,7 +57,7 @@ proxy() { # i
 edge() { # i
   local lanes=1; [ "$1" = 2 ] && lanes=2
   env OTLP_HTTP=127.0.0.1:$((24308 + 10 * $1)) OTLP_GRPC=127.0.0.1:$((24307 + 10 * $1)) ADMIN_HTTP=127.0.0.1:$((28080 + $1)) \
-    PUT_TIMEOUT=1s LANES=$lanes PRODUCER=edge-$1 S3_URL=http://127.0.0.1:$((18340 + $1))/$PREFIX/edge-$1 \
+    PUT_TIMEOUT=1s LANES=$lanes PRODUCER=edge-$1 S3_URL=http://127.0.0.1:$((18340 + $1))/$PREFIX \
     "$B/otap-s3pq" -c "$here/scripts/consumer_soak_edge.yaml" >> "$OUT/edge-$1.log" 2>&1 &
   PID[edge$1]=$!
 }

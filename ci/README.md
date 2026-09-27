@@ -27,6 +27,7 @@ or after it.
 | `rust-integration` | `tests/series.rs` with the Go prototype's fleet objects, `tests/creds.rs` against credstubs |
 | `rust-mbt` (x3) | the quint-connect model-based tests, one runner per test binary (`mbt_s3inline`, `mbt_s3inline_metrics`, `mbt_s3inline_consumer`), `--test-threads=1`, `QUINT_SEED=0x5eed` |
 | `model` | `otap-rs/scripts/consumer_model.sh` through `ci/model-check.sh`; `parquetgo/modelcheck` |
+| `kani` | Kani 0.68.0 (cached); `cargo kani` in `otap-rs/verify`: the proof harnesses for the consumer's lease window and check range (`otap-rs/VERIFY.md`), ~20 min |
 | `chdb` | libchdb (the release `chdb-go/update_libchdb.sh` pins, cached); `go test` in chdb-go, chdbexporter (with `PBT_QUINT=1`) and parquetgo/compare |
 
 Every job that touches the services uploads their logs on failure; the

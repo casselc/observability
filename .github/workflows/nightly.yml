@@ -406,6 +406,40 @@ jobs:
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
 
+  # Kani proofs of the consumer's lease window and check range
+  # (otap-rs/VERIFY.md): every harness in otap-rs/verify, one at a time,
+  # ~20 min; the largest peaks near 6 GB. The mutant harnesses
+  # (expected to fail) are behind a feature and do not run here.
+  kani:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      KANI_VERSION: "0.68.0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.kani
+            ~/.cargo/bin/kani
+            ~/.cargo/bin/cargo-kani
+          key: kani-${{ runner.os }}-${{ env.KANI_VERSION }}
+      - name: Install Kani
+        run: |
+          command -v cargo-kani || cargo install --locked kani-verifier --version "$KANI_VERSION"
+          cargo kani setup
+      - name: cargo kani (otap-rs/verify)
+        working-directory: otel-chdb/otap-rs/verify
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          cargo kani --output-format terse 2>&1 | tee "$RUNNER_TEMP/out/kani.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: kani
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore
+
   # The Go tests that load libchdb (the chdb-go fork, the chdb exporter with
   # its quint-driven property tests, parquetgo/compare's correctness run).
   chdb:

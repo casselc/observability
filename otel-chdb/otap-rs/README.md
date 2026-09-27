@@ -585,6 +585,23 @@ Full table: `results/central.md`.
   carries a bloom filter.
 - The 1-object rows are dominated by other load: see `results/central.md`.
 
+**The table these numbers were taken against is gone (2026-09-27).** They
+compare the two edges' objects on the pre-alignment, central-typed tables.
+The consumer now creates ClickStack 2.39.1's `otel_traces` / `otel_logs`
+minus the four text indexes on `mapKeys()` (option 2, `e784242`), with the
+key-value rollup and its view (`sql/otel_{traces,logs}.sql`,
+`central::create_rollups`). Same objects, one-object statements, loaded
+box, median µs per span / log with the rollup view: 9.11 / 7.12 against
+3.37 / 3.06 on the old tables (full ClickStack DDL 12.81 / 7.48); merges
+2.0×; spans store 20–25% fewer bytes, logs ±3%
+([`../hyperdx/README.md`](../hyperdx/README.md) §Option 2,
+`../hyperdx/results/schema3-insert.md`). HyperDX 2.39.1 takes the same fast
+paths on option 2 as on the full DDL (map keys from the `*_attr_items`
+indexes). The calculator now uses 9.0 µs insert and 20.1 µs merge per span
+or log ([`../DECISIONS.md`](../DECISIONS.md) §3). The Rust-against-parquetgo
+comparison above is about the objects, and a different table does not
+change it; it was not re-run.
+
 ### End-to-end latency to query visibility [M]
 
 `scripts/latency.sh` runs one box, 30 requests of 10k spans, one per
@@ -2654,6 +2671,13 @@ every closed epoch; its own open items are in
   keyed by a hash of their columns instead.)
 
 ## Reproduce
+
+CI runs most of what follows (2026-09-27; [`../../ci/README.md`](../../ci/README.md)):
+`ci.yml` on every push (clippy, `cargo test --lib --bins` with the
+consumer's ClickHouse/S3 tests, the integration tests `determinism`,
+`otap_view`, `metrics`, `series`), `nightly.yml` daily (conformance,
+`faults.sh`, a consumer soak, the three quint-connect MBT suites,
+`scripts/consumer_model.sh`, `tests/creds.rs`).
 
 ```sh
 export AWS_ACCESS_KEY_ID=otel AWS_SECRET_ACCESS_KEY=otelsecret   # the configs carry no keys

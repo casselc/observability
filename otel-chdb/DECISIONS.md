@@ -42,7 +42,7 @@ disagreed with each other, and how each was resolved.
 | # | Decision | Status |
 |---|---|---|
 | [D1](#d1-edge-publisher-rust-otap-dataflow-exporter-go-parquetgo-not-chdb) | Edge publisher: Rust otap-dataflow exporter where it can run, Go `s3pq` (parquetgo) for Go collectors, not chDB | accepted; **Go path kept** (2026-09-26); its gaps closed the same day (s3pq: manifest-less for every signal, layout B, row-identical with Rust through the consumer) |
-| [D2](#d2-transfer-format-parquet-read-with-s3-not-native-parts) | Transfer format: Parquet read with `s3()`, not native parts on `s3_plain_rewritable` | accepted |
+| [D2](#d2-transfer-format-parquet-read-with-s3-not-native-parts) | Transfer format: Parquet read with `s3()`, not native parts on `s3_plain_rewritable` | accepted; traces/logs land in ClickStack 2.39.1's DDL minus the four mapKeys indexes (option 2, 2026-09-27): insert 2.4–2.6×, merges 2.0× the old tables |
 | [D3](#d3-commit-protocol-manifest-less-create-only-slots) | Commit protocol: manifest-less create-only slots | accepted; manifests and the S3-native log superseded |
 | [D4](#d4-awss3exporter-stock-rejected-patched-prototyped-own-exporter-preferred) | awss3exporter: stock rejected, patched version prototyped, own exporter built | stock rejected; **own exporter `s3pq` built and deployed (2026-09-26)**; awss3inline superseded |
 | [D5](#d5-otap-variants-otap-only-as-an-input-transport) | OTAP: only as an input transport; never stored | accepted |
@@ -53,13 +53,13 @@ disagreed with each other, and how each was resolved.
 | [D10](#d10-consumer-multi-object-statements-squashed-to-one-block) | Consumer: multi-object statements squashed to one block | accepted; linger built, off by default (2026-09-26) |
 | [D11](#d11-consumer-count-check-and-repair-not-dedup-tokens) | Consumer: count check and repair, not dedup tokens | accepted; the check reads the batch's partitions ± a copy horizon (2026-09-26), 3 days, with a horizon audit reporting late copies; edge replays keep `received_at` (2026-09-27), so the horizon now covers sender resends only |
 | [D12](#d12-consumer-gc-and-checkpoint-compaction) | Consumer: GC and checkpoint compaction | accepted; GC keeps the slot below the position (2026-09-26) |
-| [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted; the fleet-scale consumer run on it (2026-09-26/27): exactly once, margin raised to 20 s, audit syncs; replicated DDL now ClickStack's with the rollups, derived from the consumer's (2026-09-27) |
+| [D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy) | Replicated central: plain ReplicatedMergeTree, zero-copy rejected, sync before checks | accepted; the fleet-scale consumer run on it (2026-09-26/27): exactly once, margin raised to 20 s, audit syncs; replicated DDL now ClickStack's with the rollups, derived from the consumer's (2026-09-27); insert CPU paid once per shard, +9% per statement (2026-09-27) |
 | [D14](#d14-storage-tiers) | Storage tiers: hot 1–7 days, then cold | accepted; cold medium open |
 | [D15](#d15-metrics-downsampling) | Metrics downsampling: 5-minute rollups | proposed; not built |
 | [D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8) | Edge sorting off; service-affine routing at N ≥ 8 | accepted; routing built as `deploy/components/routing`, measured locally, not deployed |
 | [D17](#d17-lake--hybrid-cold-tier) | Lake / hybrid cold tier | exploratory |
 | [D18](#d18-s3-client-and-credentials) | S3 client and credentials | accepted |
-| [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`); `received_at` = entry into the buffer, kept across replays (2026-09-27) |
+| [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`); `received_at` = entry into the buffer, kept across replays (2026-09-27); **retention bounds custody age, not cap ÷ rate** (model, 2026-09-27) |
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 
 ---
@@ -109,6 +109,18 @@ estimates ([risk 2](#4-open-risks-and-unknowns-ranked)).
 These invariants are the correctness contract. "Checked in code" means a
 quint-connect or quintgo test replays model traces through the implementation.
 
+**CI (2026-09-27)** runs these checks, not only the author's box
+([`../ci/README.md`](../ci/README.md)): `ci.yml` on every push (`go vet`
+and `go test -race` in the fast Go modules, clippy, the Rust unit tests
+with the consumer's ClickHouse/S3 tests, and the Rust integration tests
+`determinism`, `otap_view`, `metrics`, `series`); `nightly.yml` daily
+(conformance for both layouts and `go_faults.sh`, `faults.sh` and a
+consumer soak, the three quint-connect MBT suites at seed 0x5eed, the
+model checks through `ci/model-check.sh` and `parquetgo/modelcheck`, and
+the chDB tests). A CI run is on SeaweedFS and a single ClickHouse in
+Docker, like the [M] here: it guards against regressions, it does not
+retire the risks of §4.
+
 | Model | Invariants the design must keep | Checked | Checked in code |
 |---|---|---|---|
 | `model/edgePublish.qnt` (manifests; now superseded) | `commitImpliesData`, `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `payloadIngestedAtMostOnce`, `sealMatchesManifests` | 5,000 × 40-step simulation; Apalache ≤ 8–10 steps ([`model/README.md`](model/README.md), `1307816`) | quintgo conformance and model-seeded PBT ([`PBT.md`](PBT.md), `38c641e`) |
@@ -119,6 +131,17 @@ quint-connect or quintgo test replays model traces through the implementation.
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
+| `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | not built |
+| `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on three instances; mutants `noAnnounce`, `announceEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | not built |
+| `model/retention.qnt` (open scenario: STPA LS-10, R-S6) | `acceptedVisible` (an acked request is never inserted into an expired partition), `noEdgeDrop`, `custodyAgeBounded` | 20,000 × 50; 6 witnesses; mutants `retentionShort`, `cutDuringOutage`, `capSized` (retention sized as cap ÷ rate) caught; `dropOldest` keeps `acceptedVisible` and breaks `noEdgeDrop`. **Finding:** D19's retention rule was wrong ([D19](#d19-durable-buffer-at-the-edge)) | not applicable (a sizing rule) |
+| `model/sealer.qnt` (open scenario: the lake's snapshot log, [research §5.1](research/central-optional.md#51-the-sealer-is-a-consumer-group-with-a-table-log-sink)) | `monotone`, `repeatableAsOf`, `atMostOncePerSnapshot`, `neverSkipsSealed`, `wmSound` | 20,000 × 40; 5 witnesses; mutants `blindCommit`, `noRebase`, `wmFromList`, `noDedup` (`abe3e97`) | not built |
+
+The four open-scenario models run from `model/open_models.sh` (quint 0.32,
+Rust evaluator), a row per check with its expected verdict: every row as
+expected at seed 0x5eed (`abe3e97`; the script has 82 rows, the commit
+message counts 86) [Q]. They are sampled simulations and scripted runs of
+small instances, not proofs; nothing in code is linked to them yet, and
+CI's `ci/model-check.sh` runs `consumer_model.sh`, not this script.
 
 Assumptions every model makes, and which the code must therefore guarantee:
 
@@ -154,6 +177,12 @@ Assumptions every model makes, and which the code must therefore guarantee:
   publisher). The consumer can't enforce it, so it watches for it: the
   horizon audit reports every copy ingested twice because of it
   (`auditLate` in the model; `consumer_late_copies_total`).
+- **A bounded custody age** (2026-09-27, `model/retention.qnt`): the TTL
+  by `received_at` exceeds the longest time a request stays in an edge's
+  custody (backlog + outage with its flaps + drain), not the buffer's cap
+  ÷ its rate ([D19](#d19-durable-buffer-at-the-edge)). The edge can't
+  enforce it; it is a sizing rule plus an alert on the oldest request in
+  custody.
 - **Small domains and bounded depth.** A ✓ in simulation is not a proof.
   Apalache goes to 6–12 steps only.
 
@@ -299,6 +328,21 @@ attaches and reads (built and tested: `452131c`, `2f1f3c2`); both at once.
 - The partLifetime rules (`old_parts_lifetime` > query + refresh, reader
   leases) no longer bind, because nothing reads live native parts.
 - Central pays about 0.4 µs/row for type conversion.
+- **The central tables (2026-09-27, option 2; `e784242`, `3c5985e`):**
+  traces and logs are ClickStack 2.39.1's DDL minus the four text indexes
+  on `mapKeys()` (`idx_res_attr_key`, `idx_span_attr_key`,
+  `idx_scope_attr_key`, `idx_log_attr_key`), with its key-value rollup.
+  HyperDX 2.39.1 live finds map keys through the `*_attr_items` indexes
+  instead: all 46 key-discovery statements rewritten that way, the same
+  keys, the rest of its SQL identical; the nine scenarios cost 0.12× the
+  old tables' server time, the same as the full DDL [M]. The price
+  against the pre-alignment tables: insert 2.4–2.6× (full DDL 2.9–3.5×),
+  merges 2.0×; stored bytes spans −20 to −25%, logs ±3% [M, loaded box]
+  ([`hyperdx/README.md`](hyperdx/README.md) §Schema, §Option 2;
+  `hyperdx/results/schema3-*`). Sizing in [§3](#3-current-sizing-summary),
+  the insert cost as a risk in [§4](#4-open-risks-and-unknowns-ranked).
+  HyperDX's filter panel lists the envelope columns (`producer_id`,
+  `content_key`, …) as facets; hiding them (ALIAS or naming) is open.
 - The format is ClickHouse-version independent, and a lakehouse can read it.
   Spark needs `nanosAsLong` for `TIMESTAMP(NANOS)` ([`parquetgo/README.md`](parquetgo/README.md) §Correctness).
 
@@ -1072,6 +1116,17 @@ GC, metrics), production lease timing.
 **Consequences.**
 
 - Cold S3 bytes and PUTs double, and each replica merges its own S3 parts.
+- **Insert CPU is paid once per shard** (2026-09-27): a part is parsed,
+  indexed and run through the materialized views on the replica that
+  inserts it, and the other replicas fetch it; every replica still merges
+  its own copy. Measured overhead of replication on that one insert: +9%
+  per statement, and about +20% counting both replicas' whole CPU
+  (checks, fetches, merges) [M] (`094f9cb`,
+  `central-replicated/results/bench-insert/`). The alternative,
+  independent servers with a consumer group each on the same lanes, pays
+  the insert on every server and multiplies the S3 GETs, with no Keeper.
+  The calculator (v12) models both: the mid scenario is 139 vCPU with
+  ReplicatedMergeTree against 151 independent ([§3](#3-current-sizing-summary)).
 - The lease margin must cover how late a replicated commit can land: up to
   the Keeper session timeout after the statement started (19.0 s past a
   10 s budget measured), not the operation timeout as first assumed; the
@@ -1356,6 +1411,7 @@ so the token header was never exercised against a store.
 **Consequences.** Without the buffer, an S3 outage pushes back to the clients
 (503) and custody stays with them. With it, custody moves to the edge's disk:
 size `retention_size_cap` for the outage to ride out, at about 630 B per span.
+Retention is sized for custody age, not for the cap (below).
 
 **received_at across replays (2026-09-27)** [M]
 ([`otap-rs/README.md`](otap-rs/README.md) §received_at is the custody time):
@@ -1380,13 +1436,66 @@ disk unchanged; +8 B per bundle in the segment manifest); Go 1.5 µs,
 624 B and 10 allocations per request, +45 B per request in the
 `file_storage` record.
 
-**TTL against outages (2026-09-27)** [E]. Partitions are dropped by
-`received_at`, and a replay now keeps the time it entered the buffer.
-**The TTL by `received_at` must exceed the longest outage the edge
-buffer rides out** (`retention_size_cap` at the edge's rate): a replay
-older than the TTL is inserted and then dropped at the next TTL merge,
-and a TTL move to the cold tier sends it to cold at once. At 90 days this
-does not bind; size the buffer's cap, not the TTL, for the outage.
+**TTL against custody age (2026-09-27)** [E, Q]. Partitions are dropped
+by `received_at`, and a replay now keeps the time it entered the buffer:
+a replay older than the TTL is inserted and then dropped at the next TTL
+merge, acked and never visible, and one older than the hot tier goes to
+cold at once (latency, not loss).
+
+- ~~The TTL by `received_at` must exceed the longest outage the edge
+  buffer rides out (`retention_size_cap` at the edge's rate).~~ **Wrong
+  under `backpressure`** (`model/retention.qnt`, `cadd7a1`): a full buffer
+  refuses new requests but keeps its oldest, so the oldest request's age
+  at the replay is not bounded by cap ÷ rate (mutant `capSized` breaks
+  `acceptedVisible`).
+- **The rule (R-S6): the TTL by `received_at` must exceed the longest
+  custody age**, the time the oldest request stays in an edge's buffer:
+  the backlog before the outage + the outage with its flaps (a link back
+  for a moment, not drained, down again, resets an outage clock while
+  the oldest request keeps aging) + the drain after it. It is independent
+  of the cap. A retention cut at runtime must stay above the same bound
+  (`cutDuringOutage` breaks it).
+- **Only `drop_oldest` bounds custody age by the cap, and it does so by
+  losing acked data at the edge** (`dropOldest`: `acceptedVisible` holds,
+  `noEdgeDrop` fails; 47 of 64 lost, measured below).
+- At 90 days the rule does not bind for any plausible outage; it binds
+  when retention (or the hot tier, for latency) is cut to days. What it
+  needs is a measure: an edge metric and alert on the oldest
+  `received_at` still in custody; neither `s3pq` exporter exports one
+  today (Quiver's and `file_storage`'s own metrics not checked).
+- **The lake sealer's dedup TTL** (research
+  [§5.1](research/central-optional.md#51-the-sealer-is-a-consumer-group-with-a-table-log-sink))
+  must likewise be at least the longest custody age, not the 3-day copy
+  horizon: a replay older than it is sealed a second time.
+
+**Open requirement: `complete_through` (2026-09-27)** [Q]
+(`model/completeness.qnt`, `cadd7a1`). A reader (the consumer, or the
+lake's sealer) can publish "every request received before W is readable"
+for deterministic alerts (research
+[§5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts))
+only if the edge tells it what is still in custody. §5.4's rules as
+written are unsound: the lane's last `received_at` seen passes an older
+request still queued (`lastReceived`), and counting an idle lane as
+caught up to the LIST time can't tell it from an offline edge with a
+full buffer (`listTimeIdle`). What the model needs, none of it built:
+
+- **a new object metadata field,** `x-amz-meta-oscope-low`: the minimum
+  of the object's PUT time and the oldest `received_at` still in the
+  edge's custody when it was first sent (other than its own); a resend
+  carries the same value;
+- **heartbeat slots:** an edge with nothing in custody commits an empty
+  object whose low is its PUT time, or it holds the watermark forever
+  (`noHeartbeat`: safe, but every window stalls until it pages);
+- **lanes registered before custody:** a lane's first object (a birth
+  heartbeat) is committed before its edge accepts data, so the minimum
+  is over every lane, not the ones seen so far (`noBirth`);
+- **per lane, the highest low over an ingested prefix** (`maxNotPrefix`),
+  the minimum over lanes, **published as a running max** (a zombie PUT
+  landing late makes the recomputed value dip);
+- the alert evaluator runs a window only once its end is ≤ the serving
+  source's watermark, pages on no source and on a stalled watermark, and
+  every result carries its source and that source's watermark
+  (`evalPastComplete`, `noDataOk`, `unlabeledFallback`).
 
 **Disk full, measured** (`deploy/results/durable-diskfull.txt`):
 `backpressure` answers 503 at the cap and every acked request is committed
@@ -1443,19 +1552,28 @@ unchanged) computes it with its current constants.
 - 90 days retained, 1 day hot, cold on local HDD;
 - rollups on: 14 raw days, 300 s windows;
 - 2 replicas of 32-vCPU nodes, 4 GB RAM per vCPU;
-- headroom 1.75×, query load 75% of ingest.
+- ReplicatedMergeTree: a part is inserted on one replica and fetched by
+  the other ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)),
+  plus 6 vCPU of Keeper [E];
+- headroom 1.75×, query load 75% of ingest;
+- traces and logs in ClickStack 2.39.1's DDL minus the mapKeys indexes
+  (option 2, [D2](#d2-transfer-format-parquet-read-with-s3-not-native-parts)).
 
-**Result: 91 vCPU in 2 shards × 2 replicas (4 nodes of 32 vCPU), and about
-992 TB over 90 days.**
+**Result (calculator v12, 2026-09-27): 139 vCPU in 3 shards × 2 replicas
+(6 nodes of 32 vCPU), and about 992 TB over 90 days.** With independent
+servers instead of ReplicatedMergeTree (each server's own consumer group
+inserts everything, no Keeper): 151 vCPU, same layout. Before option 2
+(the pre-alignment tables, v11): 91 vCPU in 2 × 2.
 
 | Output | Value |
 |---|---|
 | rows / s | 2.07 M (600k spans, 200k logs, 1.27 M points) |
-| insert vCPU per replica | 5.7 (of which fixed per-object 0.15) |
-| merge vCPU per replica | 13.3 |
-| headroom vCPU per replica | 14.2 |
-| query vCPU (spread over replicas) | 24.8 |
-| **vCPU per replica / total** | **45.6 / 91.1**: 2 shards of 32, about 71% of the provisioned 64 |
+| insert vCPU, whole region / per replica | 10.1 (of which fixed per-object 0.15) / 5.1 (independent: 10.1) |
+| merge vCPU per replica | 21.3 |
+| headroom vCPU per replica | 19.7 (independent: 23.5) |
+| query vCPU (spread over replicas) | 41.2 |
+| Keeper vCPU | 6 [E] (independent: 0) |
+| **vCPU per replica / total** | **66.7 / 139.4** (independent: 75.5 / 151.1): 3 shards of 32, about 69% of the provisioned 96 per replica |
 | compressed TB/day, one copy | 5.92 |
 | hot tier, all copies (+25% merge room) | 15.3 TB |
 | cold tier, all copies | 977 TB |
@@ -1463,35 +1581,38 @@ unchanged) computes it with its current constants.
 | storage $/month (local HDD / S3 per replica) | $45.2k / $23.7k |
 | edge objects per day | 7.8 M (S3 PUTs ≈ $1.2k/month) |
 | edge CPU, region (Rust / Go) | 5.3 / 7.3 vCPU |
-| with every constant at the low / high end of its spread | 78–95 vCPU ([`bench/clean/README.md`](bench/clean/README.md)) |
-| same scenario, metrics layout A | 263 vCPU (5 × 2), 1,117 TB |
-| same scenario, no downsampling | 85 vCPU, 1,068 TB |
+| with every constant at the low / high end of its spread | 78–95 vCPU at the pre-alignment constants ([`bench/clean/README.md`](bench/clean/README.md)); not recomputed for option 2 |
+| same scenario, metrics layout A | 282 vCPU (5 × 2), 1,117 TB |
+| same scenario, no downsampling | 135 vCPU (3 × 2), 1,068 TB |
+| with option 2's measured byte ratios (`bSpan` 64, `bLog` 61) | 846 TB ([`hyperdx/README.md`](hyperdx/README.md) §Option 2) |
 | before the idle-box re-measurement | 115 vCPU, 991 TB |
 
 **Constants and their provenance:**
 
 | Constant | Value | Provenance |
 |---|---|---|
-| `usRow`: insert µs per span or log | 3.43 [2.87–3.96] | **idle box**, `bench/clean` block 2: all-in CPU of one-object, 10k-row statements (earlier, loaded box: 5) |
+| `usRow`: insert µs per span or log | **9.0** (table only 6.2; full ClickStack DDL 12.0; pre-alignment 3.43 [2.87–3.96]) | option 2 with its key-value rollup view (2026-09-27): the ratio to the pre-alignment tables measured on a **loaded box** (×2.40–2.62, one-object statements, 0.75 spans + 0.25 logs; `hyperdx/results/schema3-insert.md`) applied to the **idle-box** baseline 3.43 (`bench/clean` block 2) |
 | `usPointB` / `usPointA`: insert µs per metric point | 1.18 / 4.47 | **idle box**, block 2. The A value is partly an encoder change: Rust objects, where the earlier value came from Go objects |
 | `fixedMs`: fixed ms per inserted object | 15.3 [11.6–18.6] | **idle box**, block 2: one-object statements |
-| `mergeRow`, `mergePointB`, `mergePointA`: merge µs | 10.1 / 4.1 / 19.4 | **idle box**, block 3, **projected** to 10⁴ parts per daily partition from runs that reached 161–2,100 parts. The projection is 5–60× beyond the parts measured |
+| `mergeRow`, `mergePointB`, `mergePointA`: merge µs | **20.1** / 4.1 / 19.4 | **idle box**, block 3, **projected** to 10⁴ parts per daily partition from runs that reached 161–2,100 parts. The projection is 5–60× beyond the parts measured. `mergeRow` (2026-09-27): the pre-alignment 10.1 × option 2's measured ratio 1.95–2.02 (full DDL 21.6; `schema3-insert.md`, clickhouse-local on 20–21 parts, loaded box) |
 | `bPointB`, `bPointA`, `bSeries`: stored bytes | 6.7 / 26.4 / 38.4 | **idle box**, block 4, `OPTIMIZE FINAL`, no-replay pool. The data is synthetic (±50% for a real fleet [E]) |
 | `edgeGoSpan`, `edgeGoLog`, `edgeRsSpan`, `edgeRsLog`: edge µs | 6.81 / 4.76 / 4.0 / 2.94 | **idle box**, block 1 |
 | `edgePointB`, `edgeRsPointA`: edge µs/point | 1.82 / 5.05 | **idle box**, the `bench/sorting` bisect at head (18.2 and 50.5 ms per 10k). bench/clean's block 1 values of 2.06 and 6.20 were a harness artefact |
 | `edgeGoPointA` | 7.47 | **idle box**, block 1 |
 | `rollUsB`, `rollUsA`, `rollWinB`, `rollWinA`: rollups | 1 µs / 10.5 µs / 18 B / 50 B | **loaded box**, metrics-layout. Not re-measured |
 | `bPqPointB`, `bPqPointA`: Parquet B/point | 24 / 38 | **loaded box**, parquet-go-era objects. The Rust objects are 18.1 / 19.8 |
-| `bSpan`, `bLog`: stored bytes | 80 / 60 | **[E]**. Synthetic data stored 9.6–39 B per span and 19 per log; not used |
+| `bSpan`, `bLog`: stored bytes | 80 / 60 | **[E]**, left as they were for option 2. Synthetic data stored 9.6–39 B per span and 19 per log; not used. Option 2 against the pre-alignment tables, measured: spans ×0.75–0.80, logs ×0.97–1.01 (`schema3-insert.md`) |
 | `bPq`: Parquet bytes per span or log | 50 | [E] |
 | headroom, query load | 1.75×, 75% | [E] |
 | hot-disk merge room (`HOT_SLACK`) | 1.25 | [E], a code constant |
 | prices: PUT, GET, disk, S3 | $0.005 and $0.0004 per 1k; $0.08, $0.045, $0.023 per GB-month | [E] list prices |
 | fleet and rates | [§1.2](#12-fleet-and-rates-per-region) | [E], apart from the fleet shape |
 
-**What moves the answer most.** Merges are 29% of per-replica CPU and rest on
-an extrapolation. Headroom and query load are 58% of the total and are pure
-estimates. The storage total rests on `bSpan` and `bLog`: spans and logs are
+**What moves the answer most.** Merges are 32% of per-replica CPU and rest on
+an extrapolation, now times a ratio taken on a loaded box. Headroom and
+query load are 58% of the total and are pure estimates. The insert and merge
+constants of option 2 are loaded-box ratios on an idle-box base
+([risk 7b](#4-open-risks-and-unknowns-ranked)). The storage total rests on `bSpan` and `bLog`: spans and logs are
 about 88% of the daily bytes in layout B, and both constants are estimates.
 
 ---
@@ -1510,14 +1631,16 @@ how likely it is.
 | 5 | **Clock assumptions** | (a) The server-side fence needs worker and ClickHouse wall clocks within the lease margin. (b) Checkpoint compaction assumes no producer clock steps back by more than about the zombie bound, since epochs are named by wall-clock ms. (c) Replicated central: a commit can land after `max_execution_time`. Assumed 10 s (one Keeper operation) and "retired" on 2026-09-26 with a 10 s margin; **the replicated run the same day measured 19.0 s** (a commit resolved by the server's retry loop when Keeper came back, up to the session timeout after the start, answering `TIMEOUT_EXCEEDED`), so the 10 s margin did not hold. **Retired again (2026-09-26/27):** margin and slack 20 s (TTL 75 s), a start-up check against the replicas' Keeper session timeout, and error answers that may come with a commit waited out ([D9](#d9-consumer-time-bound-on-inserts-plus-a-server-side-deadline)); the bound is measured (≤ 29.0 s after the start, under the 30 s session timeout), not proven. (d) SigV4 fails beyond 15 min of skew (a stall, not corruption). Lease expiry itself uses monotonic clocks and is safe. | NTP monitoring with alerts tighter than the margin; an occasional unbounded listing to detect an epoch below a floor (not built). |
 | 6 | **GC dependence** | GC is what bounds S3 storage, checkpoint size and `gc.json`. If it stops, compaction stops and checkpoints grow. Its safety rests on two bounds: the PUT lifetime (`--delay`) and the zombie lifetime (`--zombie`). A writer that outlives the zombie bound can re-create a deleted slot; such a batch is never ingested (not duplicated). (A live, unresolved writer could do the same below the checkpoint; fixed 2026-09-26: GC keeps the slot below the position, [D12](#d12-consumer-gc-and-checkpoint-compaction).) `gc.json` is one object sized marks × lanes × entries. | An alert on GC lag; shard `gc.json` per lane; enforce the zombie bound (pod termination grace plus kill). |
 | 7 | **Merge CPU extrapolation** | Merges are 29% of central CPU per replica, projected to 10⁴ parts from runs of 161–2,100 parts. The fits are within −2 to +18% when fitted on ≥ 300 parts, and off by ±27% on 100–130. Random-id traces borrow another run's slope. | A day-long run at production statement sizes. |
+| 7b | **Insert and merge cost of the ClickStack DDL** (new 2026-09-27) | Aligning traces and logs with ClickStack 2.39.1 (option 2) multiplies insert CPU 2.4–2.6× and merges 2.0× against the pre-alignment tables; it takes the mid scenario from 91 to 139 vCPU ([§3](#3-current-sizing-summary)). The ratios were measured on a loaded box (1-min load 5.6–20; full-DDL spans ranged 8.4–15.3 µs) and applied to idle-box baselines. Most of the insert is the text indexes and the rollup view; most of the merge is ZSTD and the items indexes ([`hyperdx/README.md`](hyperdx/README.md) §Option 2). **Levers, cheapest first:** (a) larger objects: the rollup view's cost is mostly per statement (logs +2.1 µs/row at 10k rows per object, +8.6 at 3.2k), so it shrinks as objects grow; (b) drop `idx_trace_id` (trace-id lookups lose their index; not measured); (c) drop the rollup (HyperDX's filter panel falls back to scans for native-column values: 9.7 s of scans against 0.9 s with the rollup, 3 M rows); (d) the entity catalog ([`entities/README.md`](entities/README.md)): rows carry `resource_id` + a residual map, about 2.8× less insert CPU per span and 3.2× per log (8.7 against 24.6 / 27.7 µs, loaded box) and −44 to −57% bytes, but only with HyperDX's resource-attribute SQL rewritten onto the catalog, e.g. by the rewrite proxy ([`entities/rwproxy/README.md`](entities/rwproxy/README.md): **exact** mode equal to the ALIAS column on 1,452 statements, **catalog** mode exact once the catalog is complete) and an edge change. | Re-measure option 2 on an idle box at production statement sizes (≈32 objects per statement); measure (a)–(c) against HyperDX live. |
 | 8 | **Consumer check's copy horizon** (was: the check reads the cold tier, **retired 2026-09-26**; lowered 2026-09-27 to the residual case) | The check reads the batch's own days ± 3 days (1 day until the audit round): 116 GETs and 25 ms CPU cold against 2,320 and 516 ms over 90 days on S3 [M] ([D11](#d11-consumer-count-check-and-repair-not-dedup-tokens)). What remains is its assumption: a copy of a request received more than 3 days after its original is ingested twice. **Since 2026-09-27 an edge buffer's replay is not such a copy:** it keeps its `received_at` and lands in its original's partition (4-day outage: 3/3 skipped, audit silent [M]; [D19](#d19-durable-buffer-at-the-edge)). The residual case is new custody of the same bytes: a sender that resends after its own outage of more than 3 days, or resends to another publisher. **It is no longer silent:** the horizon audit counts every such copy (`consumer_late_copies_total`, a WARN per copy) after the fact, daily by default; it doesn't prevent the duplicate, and a same-day duplicate is outside what it sees. On a replicated central it must run with `--sync-replica`: unsynced, a lagging replica missed a late copy [M] (fixed 2026-09-26, `central-replicated/README.md` §4). | Measure the resend delay of real senders, and alert on the counter; ~~stamp `received_at` before the durable buffer~~ (built 2026-09-27); a deletion tool for reported copies (not built). |
-| 9 | **Replicated insert cost** (mostly retired 2026-09-27) | 58.6–66.7 µs/row was measured on replicas at 7.9 objects per statement under a load average of 26–35. **Re-measured at 31.3 objects per statement on the same server (load 2–6): replication adds 9% to an insert statement** (39.3 against 36.1 µs/row, all tables; traces 17.1 against 16.4) and 2.1 Keeper transactions, **+20% counting both replicas' whole CPU** (checks, the other replica's fetches, merges) [M] ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)). The earlier figure was the small statements and the box. What remains: the plain baseline here (14–16 µs/row for traces and logs) is above the idle single-node 12, so the calculator's constants should be checked on an idle box. | Re-measure both on an idle box; put the replication factor (+9% per statement, +20% per replica pair) in the calculator. |
+| 9 | **Replicated insert cost** (mostly retired 2026-09-27) | 58.6–66.7 µs/row was measured on replicas at 7.9 objects per statement under a load average of 26–35. **Re-measured at 31.3 objects per statement on the same server (load 2–6): replication adds 9% to an insert statement** (39.3 against 36.1 µs/row, all tables; traces 17.1 against 16.4) and 2.1 Keeper transactions, **+20% counting both replicas' whole CPU** (checks, the other replica's fetches, merges) [M] ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)). The earlier figure was the small statements and the box. What remains: the plain baseline here (14–16 µs/row for traces and logs) is above the idle single-node 12, so the calculator's constants should be checked on an idle box. | Re-measure both on an idle box. The calculator (v12, 2026-09-27) now pays insert once per shard under ReplicatedMergeTree and on every server when independent; the +9% per statement is not in it yet. |
 | 10 | **Content key against re-batching** | The content key hashes the request. A collector that re-batches after a restart produces new keys, and central ingests both copies. The loadbalancing exporter (U20) and any batch step behind a fan-out also re-cut requests. | Batch before the queue; never use `sending_queue.batch` in front of these exporters. (`otelcol/config.edge.yaml` fixed 2026-09-26; `deploy/` agents and publishers checked 2026-09-26; with routing: the ordering patch, graceful gateway restarts, piece-level identity (not built).) |
 | 11 | **Large objects and single-block inserts** | Above about 100k points (158 MB decoded) ClickHouse split objects nondeterministically. The consumer caps statements at 200k rows and 16 MB and sends big objects alone, so the verify-and-repair path is what keeps them exact. | Keep edge batches at 10k rows; report U12. (`deploy/`: agents cap requests at 10,000 items; merged publisher batches ≤ 8 MiB.) |
 | 12 | **Pinned ClickHouse behaviour** | Dedup defaults changed across versions: `deduplicate_insert`, `async_insert_deduplicate`, `deduplicate_insert_select`. Parquet reader chunking changes block formation. Everything was measured on 26.10.1.618 only. | Pin the settings in the consumer (done for two of them) and re-run the correctness and fault suites on every upgrade. |
-| 12b | **Two edges drift** | Rust and Go must write the same rows; the Go and Rust Parquet writers and otap-dataflow's views differ in edge cases (found so far: span kinds outside the enum; parquet-go's untruncated statistics). | Run `conformance/run.sh` (both layouts), `conformance/go_faults.sh` and `parquetgo/modelcheck` in CI on every writer, otap-dataflow or collector version bump. |
+| 12b | **Two edges drift** | Rust and Go must write the same rows; the Go and Rust Parquet writers and otap-dataflow's views differ in edge cases (found so far: span kinds outside the enum; parquet-go's untruncated statistics). | Run `conformance/run.sh` (both layouts), `conformance/go_faults.sh` and `parquetgo/modelcheck` in CI on every writer, otap-dataflow or collector version bump. (All three run nightly since 2026-09-27, `nightly.yml`; a bump is caught the next night, not on its push.) |
 | 13 | **Rust upstream maturity** | otap-dataflow is pre-1.0, pinned at `5db8358` plus 2 patches. The OTAP receiver closes a whole stream on a poison batch. The build needs a pinned 577 MB toolchain. | Upstream the patches (U2, U11); track releases. |
 | 14 | **Edge durability window** | With Quiver, a host crash can lose ≤ 25 ms of acknowledged requests. A filesystem full before the cap stalls the publisher until the volume grows (measured; nothing lost). | Keep the cap below the volume and alert on it (`deploy/`); a power-cut test. |
+| 14b | **Retention against custody age** (new 2026-09-27) | Partitions are dropped by `received_at`, which a replay keeps. An acked request whose custody age at the replay exceeds the TTL is inserted and dropped at the next TTL merge: acked and never visible. Under `backpressure` custody age is backlog + outage with its flaps + drain, **not bounded by the buffer cap** ([D19](#d19-durable-buffer-at-the-edge); `model/retention.qnt` [Q]); `drop_oldest` bounds it only by losing acked data. At 90 days it does not bind; a retention cut to days, or a cut during a site's outage, does. The same bound applies to the lake sealer's dedup TTL. | An edge metric and alert on the oldest `received_at` in custody; allow retention cuts only above the longest custody age planned for. |
 | 15 | **Series id collisions** | 64-bit: about 3% chance of any collision among 10⁹ series ever seen [E]. A collision merges two series' attributes. | Accept, or move to 128 bits: +0.03 B/point stored, +8 B/point of Parquet [E]. |
 
 ---

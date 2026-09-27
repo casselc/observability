@@ -561,6 +561,18 @@ regular expressions over HyperDX's fixed rendering. **Proxy mode is what
 - This makes the catalog complete for everything the edges saw, whatever the
   controller did. The controller then adds lifecycle, topology and the
   normalized levels.
+- **Note (2026-09-27, `../model/entityCatalog.qnt`):** a *separate*
+  announcement lane closes only the permanent gap (no row stays
+  residual-only for good, `noPermanentOrphan`). The consumer ingests
+  lanes in any order, so rows can be ingested before their announcement
+  and read inexact meanwhile, however long the announcement lane lags
+  (`exactAfterLag` fails on the design as written). Writing the
+  announcement as an object **in the data lane, ahead of the rows** that
+  use it, lets the consumer's in-order ingest take it first and bounds the
+  transient gap to the dictionary lag (18–52 s measured; `sameLane`:
+  `exactAfterLag` holds). The announcement must be marked sent only once
+  its object has committed (`announceEarly` leaves a resource
+  unannounced after a lost PUT).
 - The flat announced sets can be normalized centrally by key family: the
   cluster, node, workload, pod and container parts each hashed, which
   deduplicates them into the same level dictionaries [E].

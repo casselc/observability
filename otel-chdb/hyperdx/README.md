@@ -267,10 +267,12 @@ What the consumer keeps on top, and why:
 | TTL | `toDate(Timestamp) + 30 days` (tables and rollups) | none | retention is the operator's; `toDateTime(received_at) + n` drops whole partitions (`central-replicated/scripts/ddl.py`) |
 | `idx_res_attr_key`, `idx_span_attr_key` / `idx_scope_attr_key`, `idx_log_attr_key` (text indexes on `mapKeys()`) | yes | **dropped** (option 2) | insert cost; HyperDX finds map keys through the `*_attr_items` indexes instead (§Option 2) |
 
-`create_rollups` is not yet run by the consumer: `ensure()` issues one DDL
-statement per lane (`src/consumer/sql.rs`). Until it runs the rollup
-statements after the table, HyperDX falls back to scanning for the native
-columns' values (the text-index paths work without the rollup).
+~~`create_rollups` is not yet run by the consumer.~~ Since 2026-09-27
+(`109ea83`) `ensure()` creates each traces/logs table's rollup table and
+view after the table, `IF NOT EXISTS`; with `--no-ddl` it warns if one is
+missing (`../otap-rs/README.md` §Consumer). Without the rollup HyperDX falls
+back to scanning for the native columns' values (the text-index paths work
+without it).
 
 The contrib exporter v0.161.0 (what "ClickStack-shaped" rows were defined
 against) differs from the seed: `__otel_materialized_*` instead of
@@ -400,6 +402,9 @@ median µs per span / log; merge by clickhouse-local on the same 20–21 parts):
   full DDL 12.0), `mergeRow` 10.1 → **20.1** (×1.95–2.02; full 21.6),
   `bSpan` ×0.75–0.80, `bLog` ×0.97–1.01. Mid scenario: 91 → **151 vCPU**
   (3 × 2 nodes; full DDL 169), 992 → 846 TB with `bSpan` 64 / `bLog` 61.
+  (2026-09-27: those are independent servers, each inserting everything.
+  The calculator v12 pays insert once per shard under ReplicatedMergeTree:
+  **139 vCPU** (full DDL 152), same 3 × 2; `../DECISIONS.md` §3.)
 - `correctness.py` passes on the option-2 tables (32 of 32, rollup counts
   included).
 

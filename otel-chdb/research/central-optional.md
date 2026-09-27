@@ -331,6 +331,13 @@ except that its sink is S3.
      *skipped* and never added.
    - The set is SlateDB or CAS'd hourly shards (§7), with a TTL of the
      copy horizon, 3 days (D11).
+   - **Note (2026-09-27): the TTL must be at least the longest custody
+     age, not 3 days.** A replay keeps its original `received_at` (D19),
+     and under backpressure a request can stay in an edge's buffer for the
+     backlog + the outage with its flaps + the drain, whatever the cap
+     (`model/retention.qnt`). A copy older than the dedup TTL is sealed a
+     second time. The sealer's own model (`model/sealer.qnt`) takes the
+     set as complete.
    - **Bodies are never read.**
 4. Write an Iceberg manifest listing the new slots as data files, by
    absolute path, with per-file stats from metadata. Then write a manifest
@@ -356,6 +363,11 @@ resumes from its frontier.
   `atMostOnce` becomes "each content key in at most one live snapshot";
   `neverSkipsCommitted` becomes "every committed slot is in a snapshot or
   in `skipped`".
+- **Modelled since (2026-09-27, `model/sealer.qnt`):** `monotone`,
+  `repeatableAsOf`, `atMostOncePerSnapshot`, `neverSkipsSealed`,
+  `wmSound`, with mutants `blindCommit`, `noRebase`, `wmFromList` and
+  `noDedup`, all as expected by sampled simulation (`model/open_models.sh`).
+  The three below are not in it.
 - **New mutants:**
   - `commitBeforeManifest` (a reader sees a missing manifest);
   - `gcReferencedSlot` (a slot deleted while a retained snapshot names
@@ -448,6 +460,35 @@ table location (open question 2).
 - An alert on window [t, t+5 min) evaluates on the first snapshot with
   W ≥ t + 5 min + slack. It gets **the same answer every time,** which
   central can't give today.
+
+**Note (2026-09-27): the rule above is unsound** (`model/completeness.qnt`;
+`../DECISIONS.md` D19, open requirement `complete_through`). From S3 a
+reader can't tell an idle lane from an offline edge with a full buffer, so
+counting idle lanes as caught up to the LIST time passes data still in
+custody (mutant `listTimeIdle`); and the lane's last `received_at` seen
+passes an older request still queued behind it, since an exporter's
+queue consumers don't commit oldest-first (`lastReceived`). Replays are
+not the only exception. What the model needs:
+
+- each object carries `x-amz-meta-oscope-low`: the minimum of its PUT time
+  and the oldest `received_at` still in the edge's custody when it was
+  first sent (other than its own);
+- a lane's watermark is the highest low over its ingested prefix (not the
+  highest ingested object: `maxNotPrefix`); W is the minimum over lanes,
+  **published as a running max** (a zombie PUT landing late makes the
+  recomputed value dip);
+- an edge with nothing in custody commits **heartbeat slots** (an empty
+  object, low = its PUT time); without them an idle lane stalls every
+  window until it pages;
+- **lanes are registered before custody:** a lane's first object, a birth
+  heartbeat, is committed before its edge accepts data, so W is not a
+  minimum over only the lanes seen so far (`noBirth`);
+- the evaluator pages when no source answers or a watermark stalls, never
+  reads "no data" as OK, and every result carries its source and that
+  source's W.
+
+None of it is built. The sealer's W over committed slots (§5.1) is
+modelled in `model/sealer.qnt` with low = `received_at`, the in-order case.
 
 ### 5.5 GC with snapshots
 

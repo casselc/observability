@@ -66,6 +66,13 @@ func (w *Writer) Add(recs ...Record) {
 	w.mu.Unlock()
 }
 
+// Buffered returns a copy of the records not flushed yet.
+func (w *Writer) Buffered() []Record {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]Record(nil), w.buf...)
+}
+
 func (w *Writer) Pending() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -545,6 +545,17 @@ regular expressions over HyperDX's fixed rendering. **Proxy mode is what
   - **Informer relist after a watch gap.** Deletions inside the gap are not
     seen, so `valid_to` stays open. The effect is cosmetic: the discovery
     rollup overstates live resources. Close versions not seen in a relist.
+    **Built 2026-09-27 (AMBIGUITY.md X1):** each informer relist writes a
+    `gap` record to the lane (`controller/internal/ctrl`: the resource, from
+    that informer's last observed event to the relist's completion, when its
+    resource version has moved and the work queue has drained;
+    `relist_incomplete` if that takes over 5 min). The aggregator marks the
+    cluster's versions whose `valid_from` or `closed_at` falls in the window
+    `uncertain = 1` (the `versions_final`, `pods` and `resources` views;
+    windows in the `gaps` view), leaving the merge itself unchanged. Pods
+    born and dead inside the gap are still missing; the window says where.
+    A controller restart is not yet a gap record (its lane is new; the gap
+    is between two incarnations' lanes).
   - **Lagging.** The same as down, bounded by the lag.
   - **Covered-key drift against the edges.** Silent mass degradation; alert
     on the unknown-id share.

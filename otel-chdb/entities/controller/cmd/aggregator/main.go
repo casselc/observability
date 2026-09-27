@@ -215,6 +215,9 @@ WHERE cluster_key = %[3]d AND closed_at = toDateTime64(0, 3, 'UTC') AND last_obs
 			log.Printf("sync %s: closed %d versions", o.key, closed)
 		}
 	}
+	if err := a.markGaps(o.key, plain); err != nil {
+		return err
+	}
 	cl := strings.TrimSuffix(strings.TrimPrefix(cluster, a.prefix+"/"), "/")
 	put := o.mod.UTC().Format("2006-01-02 15:04:05.000")
 	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.ingest_log (object, cluster, kind, bytes, records, put_at, closed_by_sync) VALUES ('%s', '%s', '%s', %d, %d, '%s', %d)",
@@ -225,5 +228,48 @@ WHERE cluster_key = %[3]d AND closed_at = toDateTime64(0, 3, 'UTC') AND last_obs
 		return err
 	}
 	a.progress[ln] = o.key
+	return nil
+}
+
+// markGaps marks, for each gap record in an object (a controller's informer
+// relisted: sql/aggregator.sql), the cluster's versions whose valid_from or
+// closed_at lies in the gap as uncertain. They are re-inserted with their
+// merged values and uncertain = 1, so the merge is otherwise unchanged. The
+// object's own records are already inserted, so the closes the relist
+// revealed (in the same object or an earlier one) are covered.
+func (a *agg) markGaps(key string, plain []byte) error {
+	if !bytes.Contains(plain, []byte(`"level":"gap"`)) {
+		return nil
+	}
+	n := 0
+	for _, line := range bytes.Split(plain, []byte{'\n'}) {
+		if !bytes.Contains(line, []byte(`"level":"gap"`)) {
+			continue
+		}
+		var g struct {
+			Level      string `json:"level"`
+			ClusterKey uint64 `json:"cluster_key"`
+			Kind       string `json:"kind"`
+			ValidFrom  string `json:"valid_from"`
+			ClosedAt   string `json:"closed_at"`
+		}
+		if err := json.Unmarshal(line, &g); err != nil || g.Level != lane.LGap {
+			return fmt.Errorf("gap record: %v", err)
+		}
+		q := fmt.Sprintf(`INSERT INTO %[1]s.records (level, key, entity, cluster_key, node_key, ns_key, wl_key, pod_key, kind, name, pod_uid, container, attrs, valid_from, closed_at, observed_at, event_at, writer, uncertain)
+SELECT level, key, entity, cluster_key, node_key, ns_key, wl_key, pod_key, kind, name, pod_uid, container, attrs, valid_from, closed_at, last_observed, first_event, 'gap-mark', 1
+FROM %[1]s.versions_final
+WHERE cluster_key = %[2]d AND level != 'gap' AND uncertain = 0
+  AND (closed_at BETWEEN toDateTime64('%[3]s', 3, 'UTC') AND toDateTime64('%[4]s', 3, 'UTC')
+       OR valid_from BETWEEN toDateTime64('%[3]s', 3, 'UTC') AND toDateTime64('%[4]s', 3, 'UTC'))`, a.db, g.ClusterKey, g.ValidFrom, g.ClosedAt)
+		_, s, err := a.c.Exec(q, nil, map[string]string{"insert_deduplication_token": fmt.Sprintf("%s#gap%d", key, n),
+			"deduplicate_blocks_in_dependent_materialized_views": "1"}, nil)
+		if err != nil {
+			return fmt.Errorf("gap mark: %w", err)
+		}
+		marked, _ := strconv.ParseInt(s.WrittenRows, 10, 64)
+		log.Printf("gap %s %s..%s (%s): %d versions marked uncertain", g.Kind, g.ValidFrom, g.ClosedAt, key, marked/2)
+		n++
+	}
 	return nil
 }

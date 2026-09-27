@@ -8,7 +8,20 @@
 --   closed_at  = closed_at of the LATEST observation (ties: the close wins),
 --                0 while open, so a wrongly closed version reopens when the
 --                controller sees it again;
---   everything else is a function of the key (content-addressed), so any().
+--   everything else is a function of the key (content-addressed), so any();
+--   uncertain  = max: 1 once a gap covers the version's valid_from or
+--                closed_at (below).
+--
+-- Gaps (AMBIGUITY.md X1): a controller writes a record of level 'gap' for
+-- each informer relist: [valid_from, closed_at] is the window in which that
+-- informer (kind) saw no events. A version that opened or closed in it may
+-- have done so at any time in it (a deletion found by the relist carries the
+-- relist time), and one that lived only inside it is missing. The aggregator
+-- re-inserts every version of the cluster whose valid_from or closed_at is
+-- in the window with uncertain = 1 and its merged values otherwise, which
+-- leaves the merge unchanged (same valid_from, the same latest observation,
+-- the same close). A catalog made before this column existed needs the
+-- ALTERs below and the materialized view re-created.
 
 CREATE TABLE IF NOT EXISTS {db}.records
 (
@@ -30,7 +43,8 @@ CREATE TABLE IF NOT EXISTS {db}.records
     observed_at DateTime64(3, 'UTC'),
     event_at DateTime64(3, 'UTC'),
     writer LowCardinality(String),
-    ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
+    ingested_at DateTime64(3, 'UTC') DEFAULT now64(3),
+    uncertain UInt8 DEFAULT 0
 )
 ENGINE = MergeTree
 ORDER BY (cluster_key, level, key, observed_at)
@@ -57,7 +71,8 @@ CREATE TABLE IF NOT EXISTS {db}.versions
     last_observed SimpleAggregateFunction(max, DateTime64(3, 'UTC')),
     first_event SimpleAggregateFunction(min, DateTime64(3, 'UTC')),
     first_ingested SimpleAggregateFunction(min, DateTime64(3, 'UTC')),
-    last_ingested SimpleAggregateFunction(max, DateTime64(3, 'UTC'))
+    last_ingested SimpleAggregateFunction(max, DateTime64(3, 'UTC')),
+    uncertain SimpleAggregateFunction(max, UInt8)
 )
 ENGINE = AggregatingMergeTree
 ORDER BY (cluster_key, level, key);
@@ -71,9 +86,13 @@ SELECT cluster_key, level, key,
        max(observed_at) AS last_observed,
        min(event_at) AS first_event,
        min(ingested_at) AS first_ingested,
-       max(ingested_at) AS last_ingested
+       max(ingested_at) AS last_ingested,
+       max(uncertain) AS uncertain
 FROM {db}.records
 GROUP BY cluster_key, level, key;
+
+ALTER TABLE {db}.records ADD COLUMN IF NOT EXISTS uncertain UInt8 DEFAULT 0;
+ALTER TABLE {db}.versions ADD COLUMN IF NOT EXISTS uncertain SimpleAggregateFunction(max, UInt8);
 
 CREATE VIEW IF NOT EXISTS {db}.versions_final AS
 SELECT cluster_key, level, key,
@@ -85,9 +104,15 @@ SELECT cluster_key, level, key,
        max(last_observed) AS last_observed,
        min(first_event) AS first_event,
        min(first_ingested) AS first_ingested,
-       max(last_ingested) AS last_ingested
+       max(last_ingested) AS last_ingested,
+       max(uncertain) AS uncertain
 FROM {db}.versions
 GROUP BY cluster_key, level, key;
+
+-- the windows in which a controller's informer saw no events
+CREATE VIEW IF NOT EXISTS {db}.gaps AS
+SELECT cluster_key, kind AS resource, valid_from AS gap_from, closed_at AS gap_to, first_event AS relist_at, name AS reason
+FROM {db}.versions_final WHERE level = 'gap';
 
 -- catalog.sql's shapes (valid_to = 2100-01-01 while open)
 CREATE VIEW IF NOT EXISTS {db}.clusters AS
@@ -99,10 +124,10 @@ SELECT key AS ns_key, cluster_key, attrs, valid_from, valid_to FROM {db}.version
 CREATE VIEW IF NOT EXISTS {db}.workloads AS
 SELECT key AS wl_key, cluster_key, ns_key, kind, name, attrs, valid_from, valid_to FROM {db}.versions_final WHERE level = 'workload';
 CREATE VIEW IF NOT EXISTS {db}.pods AS
-SELECT key AS pod_key, pod_uid, cluster_key, wl_key, node_key, ns_key, attrs, valid_from, valid_to FROM {db}.versions_final WHERE level = 'pod';
+SELECT key AS pod_key, pod_uid, cluster_key, wl_key, node_key, ns_key, attrs, valid_from, valid_to, uncertain FROM {db}.versions_final WHERE level = 'pod';
 CREATE VIEW IF NOT EXISTS {db}.resources AS
 SELECT key AS resource_id, attrs, cluster_key, pod_uid, container, valid_from, valid_to, 'controller' AS source,
-       first_event, first_ingested, last_observed
+       first_event, first_ingested, last_observed, uncertain
 FROM {db}.versions_final WHERE level = 'resource';
 CREATE VIEW IF NOT EXISTS {db}.resources_current AS
 SELECT * FROM {db}.resources WHERE valid_to > now64(3);

@@ -26,6 +26,10 @@ const (
 	LWorkload  = "workload"
 	LPod       = "pod"
 	LResource  = "resource"
+	// LGap is not a catalog level: a window [ValidFrom, ClosedAt] in which
+	// the informer Kind names saw no events (a relist), so what changed in
+	// it is uncertain (AMBIGUITY.md X1).
+	LGap = "gap"
 )
 
 // Record is one version of one entity, as observed at ObservedAt.

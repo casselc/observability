@@ -23,8 +23,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
+	appsinformers "k8s.io/client-go/informers/apps/v1"
+	batchinformers "k8s.io/client-go/informers/batch/v1"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	"k8s.io/client-go/informers/internalinterfaces"
 	"k8s.io/client-go/kubernetes"
 	appslisters "k8s.io/client-go/listers/apps/v1"
 	batchlisters "k8s.io/client-go/listers/batch/v1"
@@ -89,9 +94,36 @@ type Controller struct {
 	// seen only by such a relist (cache.DeletedFinalStateUnknown): their
 	// close time is the relist, not the deletion.
 	Lists, DeletedUnknown atomic.Int64
-	Synced                               atomic.Bool
-	inflight                             atomic.Int64
+	// Gaps counts the gap records written: one per completed relist, with
+	// the window [last event observed on that informer, relist completion]
+	// in which events may have been missed (AMBIGUITY.md X1).
+	Gaps     atomic.Int64
+	Synced   atomic.Bool
+	inflight atomic.Int64
+
+	// per informer (resource name → state): the relist gap bookkeeping
+	watch map[string]*watchState
+	// rvOf reads an informer's last synced resource version (a test seam).
+	rvOf func(res string) string
+	// relistPoll and relistWait bound the wait for a relist to complete.
+	relistPoll, relistWait time.Duration
 }
+
+// watchState is one informer's view of its own watch.
+type watchState struct {
+	lists     atomic.Int64
+	lastEvent atomic.Int64 // ms: the last event its handlers observed, or its first LIST
+	inf       cache.SharedIndexInformer
+}
+
+// The informers, by the resource name the gap records carry.
+const (
+	resPods        = "pods"
+	resNodes       = "nodes"
+	resNamespaces  = "namespaces"
+	resReplicaSets = "replicasets"
+	resJobs        = "jobs"
+)
 
 func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 	c := &Controller{cfg: cfg, cs: cs, out: out,
@@ -103,8 +135,51 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 	if cfg.Transform {
 		opts = append(opts, informers.WithTransform(strip))
 	}
-	opts = append(opts, informers.WithTweakListOptions(func(o *metav1.ListOptions) { c.countList(o) }))
 	c.inf = informers.NewSharedInformerFactoryWithOptions(cs, 0, opts...)
+	// One informer per type, each with its own list hook, so a relist is
+	// known per resource (the factory-wide hook can't tell which one
+	// listed): the gap it opens starts at that informer's last event.
+	c.watch = map[string]*watchState{}
+	idx := cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}
+	for _, x := range []struct {
+		res string
+		obj runtime.Object
+		mk  func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc
+	}{
+		{resPods, &corev1.Pod{}, func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc {
+			return func(k kubernetes.Interface, r time.Duration) cache.SharedIndexInformer {
+				return coreinformers.NewFilteredPodInformer(k, metav1.NamespaceAll, r, idx, tw)
+			}
+		}},
+		{resNodes, &corev1.Node{}, func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc {
+			return func(k kubernetes.Interface, r time.Duration) cache.SharedIndexInformer {
+				return coreinformers.NewFilteredNodeInformer(k, r, idx, tw)
+			}
+		}},
+		{resNamespaces, &corev1.Namespace{}, func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc {
+			return func(k kubernetes.Interface, r time.Duration) cache.SharedIndexInformer {
+				return coreinformers.NewFilteredNamespaceInformer(k, r, idx, tw)
+			}
+		}},
+		{resReplicaSets, &appsv1.ReplicaSet{}, func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc {
+			return func(k kubernetes.Interface, r time.Duration) cache.SharedIndexInformer {
+				return appsinformers.NewFilteredReplicaSetInformer(k, metav1.NamespaceAll, r, idx, tw)
+			}
+		}},
+		{resJobs, &batchv1.Job{}, func(tw func(*metav1.ListOptions)) internalinterfaces.NewInformerFunc {
+			return func(k kubernetes.Interface, r time.Duration) cache.SharedIndexInformer {
+				return batchinformers.NewFilteredJobInformer(k, metav1.NamespaceAll, r, idx, tw)
+			}
+		}},
+	} {
+		res := x.res
+		w := &watchState{}
+		c.watch[res] = w
+		w.inf = c.inf.InformerFor(x.obj, x.mk(func(o *metav1.ListOptions) { c.countList(res, o) }))
+	}
+	c.rvOf = func(res string) string { return c.watch[res].inf.LastSyncResourceVersion() }
+	c.relistPoll, c.relistWait = 100*time.Millisecond, 5*time.Minute
+	// the listers after InformerFor, so they read these informers
 	c.pods = c.inf.Core().V1().Pods().Lister()
 	c.node = c.inf.Core().V1().Nodes().Lister()
 	c.ns = c.inf.Core().V1().Namespaces().Lister()
@@ -117,14 +192,15 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 		}
 	}
 	reg(c.inf.Core().V1().Pods().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(o any) { c.enqueue(o) },
-		UpdateFunc: func(_, o any) { c.enqueue(o) },
-		DeleteFunc: func(o any) { c.podDeleted(o) },
+		AddFunc:    func(o any) { c.seen(resPods); c.enqueue(o) },
+		UpdateFunc: func(_, o any) { c.seen(resPods); c.enqueue(o) },
+		DeleteFunc: func(o any) { c.seen(resPods); c.podDeleted(o) },
 	}))
 	reg(c.inf.Core().V1().Nodes().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    func(o any) { c.nodeChanged(o.(*corev1.Node), false) },
-		UpdateFunc: func(_, o any) { c.nodeChanged(o.(*corev1.Node), false) },
+		AddFunc:    func(o any) { c.seen(resNodes); c.nodeChanged(o.(*corev1.Node), false) },
+		UpdateFunc: func(_, o any) { c.seen(resNodes); c.nodeChanged(o.(*corev1.Node), false) },
 		DeleteFunc: func(o any) {
+			c.seen(resNodes)
 			o = c.unknownFinal(o)
 			if n, ok := o.(*corev1.Node); ok {
 				c.nodeChanged(n, true)
@@ -132,17 +208,25 @@ func New(cfg Config, cs kubernetes.Interface, out *lane.Writer) *Controller {
 		},
 	}))
 	reg(c.inf.Core().V1().Namespaces().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) { c.nsChanged(o.(*corev1.Namespace), false) },
+		AddFunc:    func(o any) { c.seen(resNamespaces); c.nsChanged(o.(*corev1.Namespace), false) },
+		UpdateFunc: func(_, _ any) { c.seen(resNamespaces) },
 		DeleteFunc: func(o any) {
+			c.seen(resNamespaces)
 			o = c.unknownFinal(o)
 			if n, ok := o.(*corev1.Namespace); ok {
 				c.nsChanged(n, true)
 			}
 		},
 	}))
-	// ReplicaSets and Jobs are only looked up (the Deployment / CronJob above a pod).
-	c.inf.Apps().V1().ReplicaSets().Informer()
-	c.inf.Batch().V1().Jobs().Informer()
+	// ReplicaSets and Jobs are only looked up (the Deployment / CronJob
+	// above a pod); their handlers only note that the watch is alive.
+	for _, res := range []string{resReplicaSets, resJobs} {
+		res := res
+		touch := func() { c.seen(res) }
+		reg(c.watch[res].inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
+			AddFunc: func(any) { touch() }, UpdateFunc: func(_, _ any) { touch() }, DeleteFunc: func(any) { touch() },
+		}))
+	}
 	return c
 }
 
@@ -184,15 +268,79 @@ func strip(o any) (any, error) {
 	return o, nil
 }
 
-// countList sees the options of every LIST and WATCH the informers send. A
+// countList sees the options of every LIST and WATCH informer res sends. A
 // LIST has no watch timeout; a watch that starts with the initial state
-// (the streaming "watch list", SendInitialEvents) is a LIST as well.
-func (c *Controller) countList(o *metav1.ListOptions) {
-	if o.TimeoutSeconds == nil || (o.SendInitialEvents != nil && *o.SendInitialEvents) {
-		if n := c.Lists.Add(1); n > informerCount {
-			log.Printf("informer relist (%d lists for %d informers): events in the gap were not observed; closes found by it carry the relist time", n, informerCount)
+// (the streaming "watch list", SendInitialEvents) is a LIST as well. Any
+// LIST after an informer's first is a relist: a gap in its watch.
+func (c *Controller) countList(res string, o *metav1.ListOptions) {
+	if o.TimeoutSeconds != nil && (o.SendInitialEvents == nil || !*o.SendInitialEvents) {
+		return
+	}
+	n := c.Lists.Add(1)
+	w := c.watch[res]
+	if w == nil {
+		return
+	}
+	now := int64(lane.Now())
+	if w.lists.Add(1) == 1 {
+		w.lastEvent.CompareAndSwap(0, now)
+		return
+	}
+	log.Printf("informer relist (%s; %d lists for %d informers): events in the gap were not observed; closes found by it carry the relist time", res, n, informerCount)
+	start := lane.Time(w.lastEvent.Load())
+	if start == 0 {
+		start = lane.Time(now)
+	}
+	go c.awaitRelist(res, start, lane.Time(now), c.rvOf(res))
+}
+
+// seen notes a watch event of informer res: the watch was alive then.
+func (c *Controller) seen(res string) {
+	if w := c.watch[res]; w != nil {
+		w.lastEvent.Store(int64(lane.Now()))
+	}
+}
+
+// awaitRelist waits for the relist of res that began at began to complete
+// (its informer's resource version moves past rv0, then the work queue
+// drains, so the closes the relist revealed are emitted), and writes the
+// gap record: [start, completion]. Past relistWait it writes the gap up to
+// now, marked as not seen to complete.
+func (c *Controller) awaitRelist(res string, start, began lane.Time, rv0 string) {
+	deadline := time.Now().Add(c.relistWait)
+	reason := "relist"
+	for c.rvOf(res) == rv0 {
+		if time.Now().After(deadline) {
+			reason = "relist_incomplete"
+			break
+		}
+		time.Sleep(c.relistPoll)
+	}
+	for quiet := 0; quiet < 3 && time.Now().Before(deadline); {
+		time.Sleep(c.relistPoll)
+		if c.q.Len() == 0 && c.inflight.Load() == 0 {
+			quiet++
+		} else {
+			quiet = 0
 		}
 	}
+	c.gap(res, reason, start, began, lane.Now())
+}
+
+// gap writes a gap record to the lane: in [start, end] informer res saw no
+// events, so a version that opened or closed in it may have done so at any
+// time in it, and one that lived only inside it was never seen. The
+// aggregator marks the versions whose valid_from or closed_at falls in the
+// window as uncertain (sql/aggregator.sql, `gaps`).
+func (c *Controller) gap(res, reason string, start, began, end lane.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Gaps.Add(1)
+	c.emit(lane.Record{Level: lane.LGap, Key: rid.Key("gap", c.clusterUID, res, strconv.FormatInt(int64(began), 10)),
+		Entity: rid.Key("gap", c.clusterUID, res), ClusterKey: c.clusterKey, Kind: res, Name: reason,
+		Attrs:     map[string]string{"k8s.resource": res, "gap.reason": reason, "gap.relist_at": strconv.FormatInt(int64(began), 10)},
+		ValidFrom: start, ClosedAt: end, ObservedAt: end, EventAt: began, Writer: c.cfg.Writer})
+	log.Printf("gap record: %s %s from %d to %d (relist at %d)", res, reason, start, end, began)
 }
 
 // informerCount is the number of informers New starts.
@@ -657,5 +805,5 @@ func (c *Controller) Stats() map[string]int64 {
 	return map[string]int64{"pods": int64(len(c.podsByUID)), "resources": int64(res), "nodes": int64(len(c.nodes)),
 		"workload_versions": int64(len(c.wls)), "events": c.Events.Load(), "emitted": c.Emitted.Load(),
 		"requeues": c.Requeues.Load(), "fallbacks": c.Fallbacks.Load(), "queue": int64(c.q.Len()),
-		"relists": max(c.Lists.Load()-informerCount, 0), "deleted_unknown": c.DeletedUnknown.Load()}
+		"relists": max(c.Lists.Load()-informerCount, 0), "deleted_unknown": c.DeletedUnknown.Load(), "gaps": c.Gaps.Load()}
 }

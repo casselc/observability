@@ -122,6 +122,16 @@ spec:
               value: 1GiB
             - name: MEM_HARD_LIMIT
               value: 1536MiB
+            # Each agent connection gets a GOAWAY after ~5 m (+/-10%): the
+            # agents re-resolve this headless Service, so a scaled-up
+            # publisher gets its share without restarting them
+            # (otap-rs/patches/0004, README §Scaling). The grace stays above
+            # the receiver's 30 s timeout, so a request in flight at the
+            # GOAWAY is always answered, never cut and resent.
+            - name: OTLP_MAX_CONN_AGE
+              value: 5m
+            - name: OTLP_MAX_CONN_AGE_GRACE
+              value: 45s
           ports:
             - name: otlp-grpc
               containerPort: 4317

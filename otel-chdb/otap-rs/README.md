@@ -213,6 +213,7 @@ dependencies resolve to what upstream tests.
 |---|---|
 | `0001-pdata-depend-on-datafusion-leaf-crates.patch` | `pdata` depends on the whole `datafusion` 53 crate for two types, `ScalarValue` and `ColumnarValue`, and there is no feature to turn it off. The patch depends on `datafusion-common` and `datafusion-expr-common` instead. This build's graph shrinks from 424 to 395 crates, and datafusion from 25 crates to 2. Behaviour is unchanged. |
 | `0002-otap-views-u32-parent-id-dictionary16.patch` | **Bug:** `views/otap/common.rs` `build_attribute_index_u32` accepts `UInt32` and `Dictionary(UInt8, UInt32)` parent ids, but upstream's own OTLP→OTAP encoder writes `Dictionary(UInt16, UInt32)` for span event and link attributes. `OtapTracesView` then returns **no attributes for any event or link**. It showed as 750 of 3,000 testgen spans differing, in `Events.Attributes` and `Links.Attributes` [M]. The patch uses `MaybeDictArrayAccessor`, as the u16 variant does. `tests/otap_view.rs` prints the encodings. |
+| `0004-grpc-receivers-max-connection-age.patch` | **Gap:** the OTLP/OTAP gRPC receivers have no `max_connection_age`, so agents never see a scaled-up publisher (../deploy/results/k8s-sim.md §8), and tonic 0.14's own is unusable (U23). The patch adds `max_connection_age` / `max_connection_age_grace` (+/-10% jitter, graceful two-step GOAWAY) and the `receiver.otlp.connections` metrics. Off by default; set in `configs/edge-publisher.yaml`. [Connection age](#connection-age-patches0004-m). Not proposed upstream. |
 
 Found upstream, not patched here:
 
@@ -1320,6 +1321,73 @@ edge; OTAP input costs the edge more, not less.**
     and the column-hash content key replace a walk over bytes that were
     already there. Its gain is on the wire (compression, dictionaries), not
     at a ClickStack edge.
+
+## Connection age (patches/0004) [M]
+
+**A publisher added by a scale-up now gets its share of the agents' traffic
+within one connection age, with no agent restart, and recycling connections
+under load stays exactly once.**
+
+- **The problem** (../deploy/results/k8s-sim.md §8): the agents' OTLP
+  exporter (`dns:///` + `round_robin`) re-resolves the headless Service only
+  when a connection closes, and a healthy publisher never closes one. After
+  3 → 4 the fourth publisher got nothing until `kubectl rollout restart
+  ds/otel-agent`.
+- **The fix:** grpc-go's `MaxConnectionAge` on upstream's receivers
+  (`patches/0004`, both settings under the receiver's `protocols.grpc`):
+  - `max_connection_age`: each connection (age jittered +/-10%) is sent a
+    graceful GOAWAY: last-stream-id 2^31-1 plus a PING, then the real last
+    id. The agent opens a new connection, re-resolving the name, and lets the
+    requests in flight finish on the old one.
+  - `max_connection_age_grace`: how long those may take before the
+    connection is closed under them. It must exceed the receiver's
+    `timeout`: a request cut after its WAL write is resent by the agent, and
+    this publisher batches, so the resend is a duplicate (below). The
+    receiver warns at startup otherwise.
+  - `receiver.otlp.connections`: `aged_out` and `force_closed` counters;
+    a forced close is also logged (`grpc.server.connection_age.force_close`).
+  - `configs/edge-publisher.yaml` and `edge-durable.yaml` set 5 m / 45 s
+    (`OTLP_MAX_CONN_AGE`, `OTLP_MAX_CONN_AGE_GRACE`; `timeout` is 30 s).
+    With 5 m, a new publisher takes traffic within ~5.5 m; an agent restart
+    is still the faster way.
+- **How:** tonic 0.14's `Server::max_connection_age` has one age for every
+  connection, sends no GOAWAY when a grace is set, and panics the
+  connection's task when the connection is busy at the age (U23). So each
+  accepted connection is served by its own clone of the tonic server, whose
+  shutdown signal fires at that connection's age: tonic's own graceful path
+  sends the GOAWAY and drains. The grace is a deadline on the connection's
+  I/O. Without `max_connection_age` the receiver is served exactly as before.
+  About 490 added lines of Rust (half of them comments) and 420 of tests;
+  the patch is 1,355 lines with its docs.
+- **Unit tests** (`connection_age.rs`, 7): a raw HTTP/2 client sees the two
+  GOAWAYs at 0.9-1.1 × the age and then the close; an RPC in flight at the
+  GOAWAY completes while a new one on that connection is refused; an RPC
+  longer than the grace is cut at age + grace and counted; no age, no
+  change; shutdown still drains.
+
+**End to end** (`scripts/goaway_e2e.sh`, `results/goaway/`): two publishers
+behind one DNS name (`scripts/tinydns.py` standing in for the headless
+Service), the stock agent config (`../deploy/base/rust/agent-rust.yaml`,
+otelcol v0.161.0) resolving it, telemetrygen into the agent (~400 spans/s,
+~4 requests/s, each held ~1 s by the publisher's batch, so most GOAWAYs meet
+a request in flight). At 41 s a third publisher starts and joins the DNS
+answer; the agent keeps running. Age 20 s, timeout 10 s, 150 s of load:
+
+| run | 3rd publisher's first request | rows per publisher | GOAWAYs / forced closes | agent export failures | rows / distinct / missing |
+|---|---|---|---|---|---|
+| no age (control) | never (113 s watched) | 29,980 / 30,000 / 0 | 0 / 0 | 0 | 59,980 / 59,980 / 0 |
+| age 20 s, grace 15 s | ~61 s (20 s after it joined) | 23,880 / 24,300 / 11,800 | 54 / 0 | 0 | 59,980 / 59,980 / 0 |
+| age 20 s, grace 0 s | ~61 s | 24,500 / 24,800 / 12,600 | 53 / 54 | 19 (resent) | 61,900 / 60,000 / 0 |
+
+- From its first request on, the third publisher took an equal share
+  (requests per 5 s: 6-7 each).
+- With a grace, every request in flight at a GOAWAY was answered: no export
+  failed, no row is missing or duplicated. The grace-0 run shows what the
+  grace prevents: 19 requests were cut after reaching the WAL and resent,
+  1,900 duplicate rows (never a loss). The counters (at 153 s) include all
+  three of the agent's connections per publisher (one per signal); with no
+  grace an idle connection is closed at the deadline too, so nearly every
+  GOAWAY is also a forced close.
 
 ## Consumer
 

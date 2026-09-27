@@ -301,17 +301,24 @@ consumer reads both with `--depth 2`.
 ## Runbook
 
 - **Scale publishers up** (N → N+1): `kubectl -n otel-edge scale
-  sts/otap-publisher --replicas=N+1` (Go: `sts/otelcol-publisher`), wait
-  for the new pod to be Ready, **then restart the agents**: `kubectl -n
-  otel-edge rollout restart ds/otel-agent`. Until the publishers' OTLP
-  receiver closes connections at a maximum age (the Rust receiver has no
-  such limit yet), a running agent never resolves the new pod: its
-  `dns:///` round robin re-resolves only when a connection fails, and on
-  kind the fourth publisher got no traffic for as long as we watched [M,
-  `results/k8s-sim.md` §8]. A graceful agent restart loses and duplicates
-  nothing (row 6 there). With `components/routing` the gateways watch
-  EndpointSlices and need no restart for traces and logs; metrics go from
-  the agents straight to the publishers, so restart the agents anyway.
+  sts/otap-publisher --replicas=N+1` (Go: `sts/otelcol-publisher`). **Rust
+  publishers: nothing else to do.** Their receiver sends every agent
+  connection a GOAWAY after ~5 min (`OTLP_MAX_CONN_AGE`, ±10% per
+  connection; otap-rs `patches/0004`), the agents re-resolve the headless
+  Service, and the new pod gets its share within ~5.5 min, with no agent
+  restart [M, `../otap-rs/results/goaway/`: the third publisher took an
+  equal share one age after it joined the DNS answer; exactly once]. To
+  spread load sooner, restart the agents: `kubectl -n otel-edge rollout
+  restart ds/otel-agent` (a graceful agent restart loses and duplicates
+  nothing, `results/k8s-sim.md` §8 row 6). Without a max connection age a
+  running agent never resolves the new pod (its `dns:///` round robin
+  re-resolves only when a connection closes; on kind the fourth publisher
+  got no traffic for as long as we watched, §8), which is still the case
+  for the Go publisher unless its OTLP receiver sets
+  `keepalive.server_parameters.max_connection_age`: restart the agents
+  there. With `components/routing` the gateways watch EndpointSlices; the
+  agents' metrics go straight to the publishers and are covered by the
+  connection age.
 - **Scale down** only while S3 is healthy, and keep the removed ordinal's
   PVC until it has been back once or its buffer is empty (§Routing, What
   scaling does).
@@ -515,14 +522,17 @@ metrics on the unbatched path (its merge order is random).
   buffers are then near their floor: watch `storage_bytes_used_bytes`), and
   keep the PVC until that ordinal has been back once or its directory is
   empty.
-- **The agents do not see a new publisher by themselves** [M, kind]:
-  their `dns:///` round robin re-resolves the headless Service only when a
-  connection fails, so after 3 → 4 the fourth publisher got no traffic for
-  as long as we watched (2.5 min) until `kubectl rollout restart
-  ds/otel-agent` (safe: a graceful agent stop loses and duplicates
-  nothing). Scale-down needs nothing: the removed publisher's connections
-  fail and the agents re-resolve. A server-side max connection age on the
-  publisher's receiver would fix this; the Rust receiver has none yet. The
+- **The agents find a new publisher within one connection age** [M,
+  locally]: their `dns:///` round robin re-resolves the headless Service
+  only when a connection closes. On kind, before the fix, the fourth
+  publisher got no traffic for as long as we watched (2.5 min) until
+  `kubectl rollout restart ds/otel-agent`. The Rust publishers now close
+  each agent connection gracefully after ~5 min (`OTLP_MAX_CONN_AGE` /
+  `OTLP_MAX_CONN_AGE_GRACE` in `base/rust/publisher.yaml`, otap-rs
+  `patches/0004`): requests in flight finish (the 45 s grace is above the
+  30 s receiver timeout, so none is cut and resent), and the agent
+  reconnects through a fresh resolution. Scale-down needs nothing: the
+  removed publisher's connections fail and the agents re-resolve. The
   routing gateway watches EndpointSlices and is not affected.
 - **Producer ids are stable** per ordinal (`CLUSTER-otap-publisher-N`), so a
   restarted or rescheduled publisher continues its lanes, and a lane's
@@ -559,6 +569,7 @@ build of this branch and ocb v0.161.0 builds:
 | agent contract | `scripts/agent_test.sh` | `results/agent-queue.txt` |
 | durable buffer full | `scripts/diskfull.sh` | `results/durable-diskfull.txt` |
 | routing, restarts, scaling | `scripts/route_test.sh` (+ `gateway-local.yaml`, `publishers.sh`, `route_check.sh`) | `results/route-*.txt` |
+| scale-up without an agent restart (2026-09-27) | `../otap-rs/scripts/goaway_e2e.sh` (the agent config above, a local DNS name, 2 → 3 publishers, 20 s connection age) | `../otap-rs/results/goaway/`: the third publisher took an equal share one age after joining, never without the age; exactly once (0 missing, 0 duplicates) with a grace, 1,900 duplicate rows with none |
 | Go publisher | `scripts/go_edge_test.sh` | objects checked directly (below) |
 | Go edge batching before the publisher's queue (2026-09-27) | `scripts/go_batch_test.sh` (+ `../parquetgo/s3pqexporter` unit tests) | `results/go-batch.txt`: agent SIGKILL ×2: old configs lost 100,000 of 320,000 rows per signal, new 0; publisher SIGKILL ×2 and a SIGKILL mid-PUT with merged batches: 0 lost, 0 duplicates; rows per object 10,000 = 10,000 (10k-row requests) and 600 → 1,297 (300-row requests, 4 agents) |
 | readiness on a wedged buffer (2026-09-27) | `scripts/wedge_test.sh` (+ `edgeprobe` unit tests) | `results/wedge.txt`: both edges not ready within 1–4 s of a full volume or a buffer at 95% of its cap, ready again when S3 drains it or the volume grows; the Go edge lost 1 of 5 acked requests on a full volume (U22) |

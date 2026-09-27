@@ -61,6 +61,15 @@ groups:
                   wait_for_result: true
                   timeout: "${env:OTLP_TIMEOUT:-30s}"
                   max_decoding_message_size: "${env:OTLP_MAX_BODY:-128MiB}"
+                  # GOAWAY each agent connection after ~5 m (+/-10% per
+                  # connection) so the agents re-resolve the headless
+                  # Service and a scaled-up publisher gets its share
+                  # (patches/0004; without it only an agent restart did).
+                  # Requests in flight at the GOAWAY finish; the grace
+                  # stays above `timeout` so none is cut unanswered (an
+                  # unanswered request is resent: a duplicate here).
+                  max_connection_age: "${env:OTLP_MAX_CONN_AGE:-5m}"
+                  max_connection_age_grace: "${env:OTLP_MAX_CONN_AGE_GRACE:-45s}"
                 http:
                   listening_addr: "${env:OTLP_HTTP:-127.0.0.1:14318}"
                   wait_for_result: true

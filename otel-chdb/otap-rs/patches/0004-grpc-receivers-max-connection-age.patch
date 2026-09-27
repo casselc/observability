@@ -1,0 +1,1355 @@
+OTLP/OTAP gRPC receivers: `max_connection_age` and `max_connection_age_grace`
+(grpc-go's MaxConnectionAge / MaxConnectionAgeGrace), off by default.
+
+gRPC clients re-resolve the server's name only when a connection closes, so
+behind a DNS name that fans out to several receivers (a headless Service with
+`dns:///` + round_robin agents), a receiver added by a scale-up gets no
+traffic until the clients restart. With an age set, each connection is sent a
+graceful GOAWAY at its age (jittered +/-10% per connection); the client moves
+new RPCs to a new connection (re-resolving) and the in-flight ones finish.
+The grace bounds how long they may take; after it the connection is closed.
+
+- otap: `otap_grpc::connection_age`: `ConnectionAge` (validation, jitter),
+  `serve_with_connection_age(server, routes, incoming, signal, age, observer)`,
+  which with no age is exactly `server.add_routes(routes)
+  .serve_with_incoming_shutdown(..)`. With an age, each accepted connection
+  gets its own clone of the tonic `Server` whose shutdown signal fires at the
+  connection's age, so tonic's own graceful-shutdown path sends the GOAWAY
+  (h2's two-step: last-stream-id 2^31-1 + PING, then the real id) and waits
+  for the in-flight RPCs. The grace is a deadline on the connection's I/O
+  (`AgedIo`), which then fails reads/writes and hyper drops the connection
+  (logged, and reported to the observer).
+  tonic 0.14's own `Server::max_connection_age` is not usable: one age for
+  every connection, no GOAWAY at all when a grace is set, and without one it
+  re-polls its finished timer (panic: `async fn` resumed after completion),
+  killing the connection's in-flight RPCs whenever it is busy at that moment.
+- `GrpcServerSettings` gains the two humantime fields (serde default `None`)
+  and `connection_age()` (validated in the OTLP receiver's `from_config`:
+  grace needs an age, age > 0; a warning when grace <= `timeout`).
+- OTLP receiver: builds `Routes` and serves through the helper; new metric
+  set `receiver.otlp.connections` {aged_out, force_closed}.
+- OTAP receiver: the same two config fields and helper (logs only).
+- Tests: validation, jitter bounds, a raw-frame check of the two GOAWAYs at
+  the age, in-flight RPC completes within the grace while a new one is
+  refused, an RPC longer than the grace is cut and counted, no age = no
+  change, shutdown still drains.
+
+Not proposed upstream (otap-s3pq local patch).
+
+diff --git a/rust/otap-dataflow/.chloggen/grpc-receiver-max-connection-age.yaml b/rust/otap-dataflow/.chloggen/grpc-receiver-max-connection-age.yaml
+new file mode 100644
+index 0000000..1bb494d
+--- /dev/null
++++ b/rust/otap-dataflow/.chloggen/grpc-receiver-max-connection-age.yaml
+@@ -0,0 +1,7 @@
++change_type: enhancement
++component: pipeline
++note: OTLP and OTAP gRPC receivers accept `max_connection_age` and `max_connection_age_grace` to recycle client connections, so clients re-resolve and spread onto added receivers
++issues: []
++subtext: |
++  Each connection gets a graceful GOAWAY at its age (+/-10% jitter); in-flight RPCs finish, and the grace bounds how long.
++  Off by default. The OTLP receiver counts recycled and force-closed connections in `receiver.otlp.connections`.
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/README.md b/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/README.md
+index 31ec870..80ace3c 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/README.md
++++ b/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/README.md
+@@ -53,6 +53,15 @@ config:
+   # Optional RPC timeout.
+   timeout: 30s
+ 
++  # Optional: send clients a GOAWAY after this connection age (+/-10% jitter
++  # per connection) so they reconnect and re-resolve the server's name, as
++  # the OTLP receiver's `max_connection_age`. An OTAP stream lasts until the
++  # client ends it, so set the grace above the client's stream lifetime
++  # (the OTel Arrow exporter's `max_stream_lifetime`): streams still open
++  # when it runs out are closed under their in-flight batches.
++  # max_connection_age: 5m
++  # max_connection_age_grace: 2m
++
+   # Optional server TLS or mTLS settings.
+   # tls:
+   #   cert_file: /path/to/server.crt
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/mod.rs b/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/mod.rs
+index 1501f45..817d789 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/mod.rs
++++ b/rust/otap-dataflow/crates/core-nodes/src/receivers/otap_receiver/mod.rs
+@@ -18,6 +18,7 @@ use otel_arrow_dfe_config::tls::TlsServerConfig;
+ use otel_arrow_dfe_otap::OTAP_RECEIVER_FACTORIES;
+ use otel_arrow_dfe_otap::compression::CompressionMethod;
+ use otel_arrow_dfe_otap::memory_pressure_layer::{MemoryPressureLayer, ReceiverRejectionMetrics};
++use otel_arrow_dfe_otap::otap_grpc::connection_age::{ConnectionAge, serve_with_connection_age};
+ use otel_arrow_dfe_otap::otap_grpc::middleware::zstd_header::ZstdRequestHeaderAdapter;
+ use otel_arrow_dfe_otap::otap_grpc::otlp::server::{RouteResponse, SharedState};
+ use otel_arrow_dfe_otap::otap_grpc::{
+@@ -68,6 +69,7 @@ use std::task::Poll;
+ use std::time::{Duration, Instant};
+ use tokio_util::sync::CancellationToken;
+ use tonic::codegen::tokio_stream::wrappers::TcpListenerStream;
++use tonic::service::Routes;
+ use tonic::transport::Server;
+ use tonic_middleware::MiddlewareLayer;
+ 
+@@ -115,6 +117,19 @@ pub struct Config {
+ 
+     /// TLS configuration
+     pub tls: Option<TlsServerConfig>,
++
++    /// Maximum age of a client connection: after it (+/-10% jitter) the server
++    /// sends a GOAWAY and the client reconnects, re-resolving the server's
++    /// name. Same as the OTLP receiver's `max_connection_age`. Default `null`.
++    #[serde(default, with = "humantime_serde")]
++    pub max_connection_age: Option<Duration>,
++
++    /// How long streams may continue after the `max_connection_age` GOAWAY
++    /// before the connection is closed under them. An OTAP stream lives until
++    /// the client ends it, so set this above the client's stream lifetime
++    /// (the OTel Arrow exporter's `max_stream_lifetime`). Default `null`.
++    #[serde(default, with = "humantime_serde")]
++    pub max_connection_age_grace: Option<Duration>,
+ }
+ 
+ const fn default_max_concurrent_requests() -> usize {
+@@ -198,6 +213,12 @@ impl OTAPReceiver {
+             }
+         })?;
+ 
++        let _ = ConnectionAge::from_settings(
++            config.max_connection_age,
++            config.max_connection_age_grace,
++        )
++        .map_err(|error| otel_arrow_dfe_config::error::Error::InvalidUserConfig { error })?;
++
+         // Register OTAP receiver metrics for this node.
+         let metrics = Arc::new(SharedOtapReceiverMetrics::new(
+             OtapReceiverMetrics::register(&pipeline_ctx),
+@@ -579,10 +600,16 @@ impl shared::Receiver<OtapPdata> for OTAPReceiver {
+                 self.admission_state.clone(),
+                 self.metrics.clone(),
+             ))
+-            .layer(MiddlewareLayer::new(ZstdRequestHeaderAdapter::default()))
+-            .add_service(logs_server)
++            .layer(MiddlewareLayer::new(ZstdRequestHeaderAdapter::default()));
++        let routes = Routes::new(logs_server)
+             .add_service(metrics_server)
+             .add_service(traces_server);
++        // Validated in `from_config`.
++        let connection_age = ConnectionAge::from_settings(
++            self.config.max_connection_age,
++            self.config.max_connection_age_grace,
++        )
++        .unwrap_or(None);
+ 
+         let grpc_shutdown = CancellationToken::new();
+         let server_task = {
+@@ -592,18 +619,30 @@ impl shared::Receiver<OtapPdata> for OTAPReceiver {
+                     Some(tls_acceptor) => {
+                         let tls_stream =
+                             create_tls_stream(listener_stream, tls_acceptor, handshake_timeout);
+-                        server
+-                            .serve_with_incoming_shutdown(tls_stream, async move {
++                        serve_with_connection_age(
++                            server,
++                            routes,
++                            tls_stream,
++                            async move {
+                                 grpc_shutdown.cancelled().await;
+-                            })
+-                            .await
++                            },
++                            connection_age,
++                            None,
++                        )
++                        .await
+                     }
+                     None => {
+-                        server
+-                            .serve_with_incoming_shutdown(listener_stream, async move {
++                        serve_with_connection_age(
++                            server,
++                            routes,
++                            listener_stream,
++                            async move {
+                                 grpc_shutdown.cancelled().await;
+-                            })
+-                            .await
++                            },
++                            connection_age,
++                            None,
++                        )
++                        .await
+                     }
+                 }
+             }
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/README.md b/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/README.md
+index 241408f..972beef 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/README.md
++++ b/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/README.md
+@@ -38,6 +38,9 @@ config:
+       listening_addr: "127.0.0.1:4317"
+       wait_for_result: true
+       timeout: 30s
++      # Optional: recycle client connections (see "Connection age" below).
++      # max_connection_age: 5m
++      # max_connection_age_grace: 45s
+     http:
+       # Enables and configures OTLP/HTTP.
+       listening_addr: "127.0.0.1:4318"
+@@ -115,8 +118,33 @@ Common gRPC protocol fields include:
+ - TCP and HTTP/2 tuning fields
+ - `wait_for_result`
+ - `timeout`
++- `max_connection_age`, `max_connection_age_grace`
+ - `tls`
+ 
++### Connection age
++
++gRPC clients keep a connection for as long as it works and usually re-resolve
++the server's name only when a connection closes. Behind a DNS name that
++resolves to several receivers (for example a Kubernetes headless Service with
++clients using `dns:///` and `round_robin`), a receiver added later gets no
++traffic from clients that are already connected. `max_connection_age` fixes
++this the way grpc-go's `MaxConnectionAge` does:
++
++- When a connection reaches `max_connection_age` (each connection's age is
++  jittered by +/-10%, so connections opened together do not reconnect
++  together), the receiver sends a graceful HTTP/2 GOAWAY: first with the last
++  stream id 2^31-1 and a PING, then, one round trip later, with the id of the
++  last stream it accepted. The client starts new RPCs on a new connection,
++  re-resolving the name, while the RPCs already in flight finish on the old
++  one, which then closes.
++- `max_connection_age_grace` bounds how long those RPCs may take. When it runs
++  out the connection is closed under them: they fail without a response, so
++  the client cannot tell whether they were processed and resends them. Set it
++  above `timeout`, so that an RPC still running at the GOAWAY always gets its
++  response first; the receiver logs a warning at startup otherwise.
++- Both default to `null` (connections live forever). The grace requires the
++  age, and the age must be greater than zero.
++
+ Common HTTP protocol fields include:
+ 
+ - `listening_addr`
+@@ -205,6 +233,13 @@ scoped to the configured node entity, but tenant or request identities are
+ never measurement attributes. Protocol-specific enforced rejections remain in
+ `receiver.otlp.requests.rejected`.
+ 
++#### `receiver.otlp.connections`
++
++| Metric | Unit | Attributes | Description |
++| --- | --- | --- | --- |
++| `receiver.otlp.connections.aged_out` | `{connection}` | `protocol` | Connections sent a GOAWAY on reaching `max_connection_age`. |
++| `receiver.otlp.connections.force_closed` | `{connection}` | `protocol` | Connections still open when `max_connection_age_grace` ran out, closed with any RPCs in flight. |
++
+ #### `receiver.otlp.acknowledgements`
+ 
+ | Metric | Unit | Attributes | Description |
+@@ -226,6 +261,9 @@ Attribute values are bounded: `signal` is `traces`, `metrics`, or `logs`;
+ | `otlp.receiver.http.start` | `info` | OTLP/HTTP listener startup. |
+ | `otlp.receiver.drain_ingress` | `info` | Receiver ingress drain started. |
+ | `otlp.receiver.shutdown` | `info` | Receiver shutdown completed. |
++| `otlp.receiver.grpc.connection_age_grace` | `warn` | `max_connection_age_grace` does not exceed the gRPC `timeout`. |
++| `grpc.server.connection_age.goaway` | `debug` | A connection reached its max age and was sent a GOAWAY. |
++| `grpc.server.connection_age.force_close` | `warn` | A connection was still open when the grace ran out and was closed (its in-flight RPCs fail). |
+ 
+ ## Limits
+ 
+diff --git a/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/mod.rs b/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/mod.rs
+index 334a93c..a4aba4a 100644
+--- a/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/mod.rs
++++ b/rust/otap-dataflow/crates/core-nodes/src/receivers/otlp_receiver/mod.rs
+@@ -52,6 +52,9 @@ use otel_arrow_dfe_engine::terminal_state::TerminalState;
+ use otel_arrow_dfe_otap::memory_pressure_layer::MemoryPressureLayer;
+ use otel_arrow_dfe_otap::otap_grpc::common;
+ use otel_arrow_dfe_otap::otap_grpc::common::AckRegistry;
++use otel_arrow_dfe_otap::otap_grpc::connection_age::{
++    ConnectionAgeEvent, ConnectionAgeObserver, serve_with_connection_age,
++};
+ use otel_arrow_dfe_otap::otap_grpc::server_settings::GrpcServerSettings;
+ use otel_arrow_dfe_otap::otlp_http::HttpServerSettings;
+ use otel_arrow_dfe_otap::otlp_metrics::{OtlpProtocol, OtlpReceiverMetrics};
+@@ -69,6 +72,7 @@ use std::task::Poll;
+ use std::time::{Duration, Instant};
+ use tokio::sync::Semaphore;
+ use tokio_util::sync::CancellationToken;
++use tonic::service::Routes;
+ use tonic::transport::Server;
+ use tower::ServiceBuilder;
+ use tower::limit::GlobalConcurrencyLimitLayer;
+@@ -268,6 +272,20 @@ impl OTLPReceiver {
+                     .to_string(),
+             });
+         }
++        if let Some(grpc) = &config.protocols.grpc
++            && let Some(age) = grpc
++                .connection_age()
++                .map_err(|error| otel_arrow_dfe_config::error::Error::InvalidUserConfig { error })?
++            && let Some(grace) = age.grace
++            && grpc.timeout.is_none_or(|timeout| timeout >= grace)
++        {
++            // An RPC still running when the grace ends is cut without a
++            // response, so the client cannot tell whether it was processed.
++            otel_warn!(
++                "otlp.receiver.grpc.connection_age_grace",
++                message = "max_connection_age_grace should exceed the gRPC timeout, or RPCs may be cut after the GOAWAY without a response"
++            );
++        }
+         // Validate that gRPC and HTTP do not have conflicting listening addresses.
+         // Conflicts occur when:
+         // - Same port with either IP being unspecified (0.0.0.0 or ::), since unspecified binds all interfaces
+@@ -623,11 +641,26 @@ impl shared::Receiver<OtapPdata> for OTLPReceiver {
+                 server = server.timeout(timeout);
+             }
+ 
+-            // Add the gRPC services.
+-            let server = server
+-                .add_service(logs_server.expect("gRPC enabled but logs_server is None"))
++            // The gRPC services.
++            let routes = Routes::new(logs_server.expect("gRPC enabled but logs_server is None"))
+                 .add_service(metrics_server.expect("gRPC enabled but metrics_server is None"))
+                 .add_service(traces_server.expect("gRPC enabled but traces_server is None"));
++            // Validated in `from_config`.
++            let connection_age = grpc_config.connection_age().unwrap_or(None);
++            let connection_age_observer: Option<ConnectionAgeObserver> = connection_age.map(|_| {
++                let metrics = self.metrics.clone();
++                Arc::new(move |event| {
++                    let mut metrics = metrics.lock();
++                    match event {
++                        ConnectionAgeEvent::GoAway => {
++                            metrics.record_connection_aged_out(OtlpProtocol::Grpc);
++                        }
++                        ConnectionAgeEvent::ForceClosed => {
++                            metrics.record_connection_force_closed(OtlpProtocol::Grpc);
++                        }
++                    }
++                }) as ConnectionAgeObserver
++            });
+ 
+             let maybe_tls_acceptor =
+                 build_tls_acceptor(grpc_config.tls.as_ref())
+@@ -647,13 +680,27 @@ impl shared::Receiver<OtapPdata> for OTLPReceiver {
+                     Some(tls_acceptor) => {
+                         let tls_stream =
+                             create_tls_stream(incoming, tls_acceptor, handshake_timeout);
+-                        Box::pin(server.serve_with_incoming_shutdown(tls_stream, async move {
+-                            grpc_shutdown.cancelled().await;
+-                        }))
++                        Box::pin(serve_with_connection_age(
++                            server,
++                            routes,
++                            tls_stream,
++                            async move {
++                                grpc_shutdown.cancelled().await;
++                            },
++                            connection_age,
++                            connection_age_observer,
++                        ))
+                     }
+-                    None => Box::pin(server.serve_with_incoming_shutdown(incoming, async move {
+-                        grpc_shutdown.cancelled().await;
+-                    })),
++                    None => Box::pin(serve_with_connection_age(
++                        server,
++                        routes,
++                        incoming,
++                        async move {
++                            grpc_shutdown.cancelled().await;
++                        },
++                        connection_age,
++                        connection_age_observer,
++                    )),
+                 }
+             };
+ 
+@@ -1495,6 +1542,34 @@ mod tests {
+         let receiver = OTLPReceiver::from_config(pipeline_ctx.clone(), &config_default).unwrap();
+         let grpc = receiver.config.protocols.grpc.as_ref().unwrap();
+         assert_eq!(grpc.max_concurrent_requests, 0);
++        assert_eq!(grpc.max_connection_age, None);
++        assert_eq!(grpc.max_connection_age_grace, None);
++
++        // Connection age: parsed, and the grace alone is rejected.
++        let config_age = json!({
++            "protocols": {
++                "grpc": {
++                    "listening_addr": "127.0.0.1:4317",
++                    "max_connection_age": "5m",
++                    "max_connection_age_grace": "30s"
++                }
++            }
++        });
++        let receiver = OTLPReceiver::from_config(pipeline_ctx.clone(), &config_age).unwrap();
++        let grpc = receiver.config.protocols.grpc.as_ref().unwrap();
++        assert_eq!(grpc.max_connection_age, Some(Duration::from_secs(300)));
++        assert_eq!(grpc.max_connection_age_grace, Some(Duration::from_secs(30)));
++        let config_grace_only = json!({
++            "protocols": {
++                "grpc": {
++                    "listening_addr": "127.0.0.1:4317",
++                    "max_connection_age_grace": "30s"
++                }
++            }
++        });
++        assert!(OTLPReceiver::from_config(pipeline_ctx.clone(), &config_grace_only).is_err());
++        let receiver = OTLPReceiver::from_config(pipeline_ctx.clone(), &config_default).unwrap();
++        let grpc = receiver.config.protocols.grpc.as_ref().unwrap();
+         assert!(grpc.request_compression.is_none());
+         assert!(grpc.response_compression.is_none());
+         assert!(grpc.preferred_response_compression().is_none());
+diff --git a/rust/otap-dataflow/crates/otap/Cargo.toml b/rust/otap-dataflow/crates/otap/Cargo.toml
+index 39d3883..b48c30d 100644
+--- a/rust/otap-dataflow/crates/otap/Cargo.toml
++++ b/rust/otap-dataflow/crates/otap/Cargo.toml
+@@ -100,3 +100,5 @@ otel-arrow-dfe-engine = { workspace = true, features = ["test-utils"] }
+ otel-arrow-dfe-pdata = { workspace = true, features = ["testing"] }
+ tracing-subscriber = { workspace = true, features = ["fmt", "std", "env-filter"] }
+ wiremock = { workspace = true }
++hyper = { workspace = true, features = ["http2", "client"] }
++tower = { workspace = true, features = ["util"] }
+diff --git a/rust/otap-dataflow/crates/otap/src/otap_grpc.rs b/rust/otap-dataflow/crates/otap/src/otap_grpc.rs
+index 27b3fdf..6b2493e 100644
+--- a/rust/otap-dataflow/crates/otap/src/otap_grpc.rs
++++ b/rust/otap-dataflow/crates/otap/src/otap_grpc.rs
+@@ -43,6 +43,7 @@ use tonic::{Request, Response, Status, Streaming};
+ 
+ pub mod client_settings;
+ pub mod common;
++pub mod connection_age;
+ pub mod middleware;
+ pub mod otlp;
+ pub mod proxy;
+diff --git a/rust/otap-dataflow/crates/otap/src/otap_grpc/connection_age.rs b/rust/otap-dataflow/crates/otap/src/otap_grpc/connection_age.rs
+new file mode 100644
+index 0000000..4a5bd13
+--- /dev/null
++++ b/rust/otap-dataflow/crates/otap/src/otap_grpc/connection_age.rs
+@@ -0,0 +1,711 @@
++// Copyright The OpenTelemetry Authors
++// SPDX-License-Identifier: Apache-2.0
++
++//! Server-side maximum connection age for the gRPC receivers.
++//!
++//! gRPC clients keep a connection for as long as it works, and most of them
++//! re-resolve their target only when a connection closes. Behind a DNS name
++//! that fans out to several receivers (a Kubernetes headless Service), a
++//! receiver added later therefore gets no traffic until something breaks the
++//! existing connections. The usual fix, `MAX_CONNECTION_AGE` in grpc-go and
++//! grpc-java, is for the server to close every connection after a while:
++//!
++//! - at `max_connection_age` (jittered by +/-10% per connection, so that
++//!   connections opened together do not all reconnect together) the server
++//!   sends an HTTP/2 GOAWAY. The client stops starting RPCs on the connection,
++//!   opens a new one (re-resolving its target) and lets the in-flight RPCs
++//!   finish; the connection closes when the last one has.
++//! - if RPCs are still running `max_connection_age_grace` after the GOAWAY,
++//!   the connection is closed and they fail (retryably, `UNAVAILABLE`).
++//!   Such an RPC may have been processed already, so the client's resend can
++//!   duplicate it: keep the grace above the server's RPC timeout, so that
++//!   every RPC in flight at the GOAWAY gets its response first.
++//!
++//! tonic 0.14 has `Server::max_connection_age`, but it cannot be used: its
++//! age is the same for every connection, with a grace set it never sends the
++//! GOAWAY (it drops the connection at age + grace), and without one it polls
++//! its finished timer again, which panics the connection's task (killing its
++//! in-flight RPCs) whenever the connection is busy at that moment. So each
++//! accepted connection here is served by its own clone of the tonic
++//! [`Server`], whose shutdown signal fires at the connection's jittered age:
++//! tonic then shuts that one connection down gracefully (GOAWAY, wait for the
++//! in-flight RPCs), exactly as it does for a server shutdown. The grace is
++//! enforced below tonic, on the connection's I/O ([`AgedIo`]), which fails
++//! reads and writes once it has passed. Everything else (layers, HTTP/2
++//! settings, connection info) is tonic's own code path.
++//!
++//! With no `max_connection_age` configured the listener is served exactly as
++//! before, by one tonic server.
++
++use futures::stream::{self, FuturesUnordered};
++use futures::{Stream, StreamExt};
++use otel_arrow_dfe_telemetry::{otel_debug, otel_warn};
++use std::future::Future;
++use std::hash::{BuildHasher, Hasher, RandomState};
++use std::io;
++use std::pin::{Pin, pin};
++use std::sync::Arc;
++use std::sync::atomic::{AtomicU64, Ordering};
++use std::task::{Context, Poll};
++use std::time::Duration;
++use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
++use tokio::sync::oneshot;
++use tokio::time::Sleep;
++use tokio_util::sync::CancellationToken;
++use tonic::body::Body;
++use tonic::codegen::{Body as HttpBody, Bytes, Service, StdError};
++use tonic::service::Routes;
++use tonic::transport::Server;
++use tonic::transport::server::Connected;
++use tower::Layer;
++
++/// The spread applied to `max_connection_age`: each connection's age is drawn
++/// uniformly from `[age * (1 - JITTER), age * (1 + JITTER)]` (grpc-go's +/-10%).
++pub const MAX_CONNECTION_AGE_JITTER: f64 = 0.1;
++
++/// What happened to a connection because of its age, for the receiver's
++/// metrics.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ConnectionAgeEvent {
++    /// The connection reached its age and was sent a GOAWAY.
++    GoAway,
++    /// The connection was still open when the grace ran out and was closed.
++    /// RPCs still in flight failed without a response: the client does not
++    /// know whether they were processed, and resends them.
++    ForceClosed,
++}
++
++/// Called on every [`ConnectionAgeEvent`].
++pub type ConnectionAgeObserver = Arc<dyn Fn(ConnectionAgeEvent) + Send + Sync>;
++
++/// A validated `max_connection_age` / `max_connection_age_grace` pair.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct ConnectionAge {
++    /// Nominal age after which a connection is sent a GOAWAY.
++    pub max_age: Duration,
++    /// How long in-flight RPCs may run after the GOAWAY before the connection
++    /// is closed under them. `None`: as long as they take.
++    pub grace: Option<Duration>,
++}
++
++impl ConnectionAge {
++    /// Builds the setting from the two optional config values. `Ok(None)` when
++    /// neither is set (the feature is off).
++    ///
++    /// # Errors
++    /// When the grace is set without an age, or the age is zero.
++    pub fn from_settings(
++        max_age: Option<Duration>,
++        grace: Option<Duration>,
++    ) -> Result<Option<Self>, String> {
++        match (max_age, grace) {
++            (None, None) => Ok(None),
++            (None, Some(_)) => Err(
++                "`max_connection_age_grace` has no effect without `max_connection_age`".to_string(),
++            ),
++            (Some(age), _) if age.is_zero() => {
++                Err("`max_connection_age` must be greater than zero".to_string())
++            }
++            (Some(max_age), grace) => Ok(Some(Self { max_age, grace })),
++        }
++    }
++
++    /// A per-connection age: `max_age` scaled by a uniformly random factor in
++    /// `[1 - JITTER, 1 + JITTER)`.
++    #[must_use]
++    pub fn jittered_age(&self) -> Duration {
++        self.jittered_with(random_unit())
++    }
++
++    /// The age for `unit` in `[0, 1)`: `0` gives the shortest, `1` the longest.
++    #[must_use]
++    pub fn jittered_with(&self, unit: f64) -> Duration {
++        let unit = unit.clamp(0.0, 1.0);
++        let factor = 1.0 - MAX_CONNECTION_AGE_JITTER + 2.0 * MAX_CONNECTION_AGE_JITTER * unit;
++        self.max_age.mul_f64(factor)
++    }
++}
++
++/// A uniform value in `[0, 1)`, from std's randomly keyed SipHash (no extra
++/// dependency; this only has to decorrelate connections, not be secure).
++fn random_unit() -> f64 {
++    static COUNTER: AtomicU64 = AtomicU64::new(0);
++    let mut hasher = RandomState::new().build_hasher();
++    hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
++    (hasher.finish() >> 11) as f64 / (1u64 << 53) as f64
++}
++
++/// A connection's I/O with a hard deadline: once it has passed, every read and
++/// write fails with `TimedOut`, which makes hyper drop the connection. It also
++/// signals its own drop, which is how the per-connection server learns that
++/// the connection is gone.
++pub struct AgedIo<IO> {
++    inner: IO,
++    deadline: Option<Pin<Box<Sleep>>>,
++    expired: bool,
++    observer: Option<ConnectionAgeObserver>,
++    _closed: oneshot::Sender<()>,
++}
++
++impl<IO> AgedIo<IO> {
++    /// Wraps `inner`. `close_after`: when to force the connection closed.
++    /// The receiver resolves when the returned value is dropped.
++    pub fn new(
++        inner: IO,
++        close_after: Option<Duration>,
++        observer: Option<ConnectionAgeObserver>,
++    ) -> (Self, oneshot::Receiver<()>) {
++        let (tx, rx) = oneshot::channel();
++        (
++            Self {
++                inner,
++                deadline: close_after.map(|d| Box::pin(tokio::time::sleep(d))),
++                expired: false,
++                observer,
++                _closed: tx,
++            },
++            rx,
++        )
++    }
++
++    fn check_deadline(&mut self, cx: &mut Context<'_>) -> io::Result<()> {
++        if !self.expired
++            && let Some(deadline) = self.deadline.as_mut()
++            && deadline.as_mut().poll(cx).is_ready()
++        {
++            self.expired = true;
++            otel_warn!(
++                "grpc.server.connection_age.force_close",
++                message = "max_connection_age_grace ran out before the connection closed; closing it (RPCs still in flight fail)"
++            );
++            if let Some(observer) = &self.observer {
++                observer(ConnectionAgeEvent::ForceClosed);
++            }
++        }
++        if self.expired {
++            Err(io::Error::new(
++                io::ErrorKind::TimedOut,
++                "max_connection_age_grace elapsed",
++            ))
++        } else {
++            Ok(())
++        }
++    }
++}
++
++impl<IO: AsyncRead + Unpin> AsyncRead for AgedIo<IO> {
++    fn poll_read(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &mut ReadBuf<'_>,
++    ) -> Poll<io::Result<()>> {
++        let this = self.get_mut();
++        if let Err(e) = this.check_deadline(cx) {
++            return Poll::Ready(Err(e));
++        }
++        Pin::new(&mut this.inner).poll_read(cx, buf)
++    }
++}
++
++impl<IO: AsyncWrite + Unpin> AsyncWrite for AgedIo<IO> {
++    fn poll_write(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        buf: &[u8],
++    ) -> Poll<io::Result<usize>> {
++        let this = self.get_mut();
++        if let Err(e) = this.check_deadline(cx) {
++            return Poll::Ready(Err(e));
++        }
++        Pin::new(&mut this.inner).poll_write(cx, buf)
++    }
++
++    fn poll_write_vectored(
++        self: Pin<&mut Self>,
++        cx: &mut Context<'_>,
++        bufs: &[io::IoSlice<'_>],
++    ) -> Poll<io::Result<usize>> {
++        let this = self.get_mut();
++        if let Err(e) = this.check_deadline(cx) {
++            return Poll::Ready(Err(e));
++        }
++        Pin::new(&mut this.inner).poll_write_vectored(cx, bufs)
++    }
++
++    fn is_write_vectored(&self) -> bool {
++        self.inner.is_write_vectored()
++    }
++
++    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        let this = self.get_mut();
++        if let Err(e) = this.check_deadline(cx) {
++            return Poll::Ready(Err(e));
++        }
++        Pin::new(&mut this.inner).poll_flush(cx)
++    }
++
++    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
++    }
++}
++
++impl<IO: Connected> Connected for AgedIo<IO> {
++    type ConnectInfo = IO::ConnectInfo;
++
++    fn connect_info(&self) -> Self::ConnectInfo {
++        self.inner.connect_info()
++    }
++}
++
++/// Serves `routes` on `incoming` like tonic's
++/// `server.add_routes(routes).serve_with_incoming_shutdown(incoming, signal)`,
++/// adding the connection age when `age` is set (see the module docs).
++/// `observer` is told about every GOAWAY and forced close.
++///
++/// On `signal` it stops accepting, asks every connection to shut down
++/// gracefully and returns once they have all closed, as tonic does.
++///
++/// # Errors
++/// Whatever tonic's serve returns.
++pub async fn serve_with_connection_age<L, I, IO, IE, F, ResBody>(
++    server: Server<L>,
++    routes: Routes,
++    incoming: I,
++    signal: F,
++    age: Option<ConnectionAge>,
++    observer: Option<ConnectionAgeObserver>,
++) -> Result<(), tonic::transport::Error>
++where
++    L: Layer<Routes> + Clone,
++    L::Service:
++        Service<http::Request<Body>, Response = http::Response<ResBody>> + Clone + Send + 'static,
++    <L::Service as Service<http::Request<Body>>>::Future: Send,
++    <L::Service as Service<http::Request<Body>>>::Error: Into<StdError> + Send,
++    I: Stream<Item = Result<IO, IE>>,
++    IO: AsyncRead + AsyncWrite + Connected + Unpin + Send + 'static,
++    IE: Into<StdError>,
++    F: Future<Output = ()>,
++    ResBody: HttpBody<Data = Bytes> + Send + 'static,
++    ResBody::Error: Into<StdError>,
++{
++    let routes = routes.prepare();
++    let Some(age) = age else {
++        return server
++            .serve_with_incoming_shutdown(routes, incoming, signal)
++            .await;
++    };
++
++    let shutdown = CancellationToken::new();
++    let mut connections = FuturesUnordered::new();
++    let mut incoming = pin!(incoming);
++    let mut signal = pin!(signal);
++    let mut result = Ok(());
++
++    loop {
++        tokio::select! {
++            () = &mut signal => break,
++            Some(served) = connections.next() => {
++                if let Err(e) = served {
++                    result = Err(e);
++                    break;
++                }
++            }
++            accepted = incoming.next() => match accepted {
++                None => break,
++                // tonic skips failed accepts (and failed TLS handshakes) too.
++                Some(Err(_)) => continue,
++                Some(Ok(io)) => {
++                    let conn_age = age.jittered_age();
++                    let (io, closed) =
++                        AgedIo::new(io, age.grace.map(|g| conn_age + g), observer.clone());
++                    // One connection, then end the stream when it closes so
++                    // that its server returns; until then, keep it open
++                    // (tonic shuts connections down when `incoming` ends).
++                    let one = stream::once(async move { Ok::<_, IE>(io) }).chain(
++                        stream::once(closed).filter_map(|_| async { None }),
++                    );
++                    // This connection's server shuts it down gracefully (a
++                    // GOAWAY) at its age, or with everything else.
++                    let shutdown = shutdown.clone();
++                    let observer = observer.clone();
++                    let aged = async move {
++                        tokio::select! {
++                            () = shutdown.cancelled() => {}
++                            () = tokio::time::sleep(conn_age) => {
++                                otel_debug!(
++                                    "grpc.server.connection_age.goaway",
++                                    age_ms = conn_age.as_millis() as u64
++                                );
++                                if let Some(observer) = &observer {
++                                    observer(ConnectionAgeEvent::GoAway);
++                                }
++                            }
++                        }
++                    };
++                    connections.push(server.clone().serve_with_incoming_shutdown(
++                        routes.clone(),
++                        one,
++                        aged,
++                    ));
++                }
++            }
++        }
++    }
++
++    shutdown.cancel();
++    while let Some(served) = connections.next().await {
++        if result.is_ok() {
++            result = served;
++        }
++    }
++    result
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use otel_arrow_dfe_pdata::proto::opentelemetry::collector::logs::v1::{
++        ExportLogsServiceRequest, ExportLogsServiceResponse,
++        logs_service_client::LogsServiceClient,
++        logs_service_server::{LogsService, LogsServiceServer},
++    };
++    use std::sync::atomic::AtomicUsize;
++    use std::time::Instant;
++    use tokio::io::{AsyncReadExt, AsyncWriteExt};
++    use tokio::net::{TcpListener, TcpStream};
++    use tonic::transport::server::TcpIncoming;
++    use tonic::{Request, Response, Status};
++
++    /// Scenario: the two settings in every combination, including a zero age
++    /// and a grace without an age.
++    /// Guarantees: unset means off, a grace alone or a zero age is a config
++    /// error, and valid values pass through unchanged.
++    #[test]
++    fn settings_validation() {
++        assert_eq!(ConnectionAge::from_settings(None, None), Ok(None));
++        assert!(ConnectionAge::from_settings(None, Some(Duration::from_secs(1))).is_err());
++        assert!(ConnectionAge::from_settings(Some(Duration::ZERO), None).is_err());
++        assert_eq!(
++            ConnectionAge::from_settings(
++                Some(Duration::from_secs(300)),
++                Some(Duration::from_secs(30))
++            ),
++            Ok(Some(ConnectionAge {
++                max_age: Duration::from_secs(300),
++                grace: Some(Duration::from_secs(30)),
++            }))
++        );
++    }
++
++    /// Scenario: 1000 per-connection ages drawn for a 100 s max age.
++    /// Guarantees: every age is within +/-10% and they spread across the
++    /// range, so connections opened together do not all recycle together.
++    #[test]
++    fn jitter_is_within_ten_percent_and_varies() {
++        let age = ConnectionAge {
++            max_age: Duration::from_secs(100),
++            grace: None,
++        };
++        assert_eq!(age.jittered_with(0.0), Duration::from_secs(90));
++        assert_eq!(age.jittered_with(0.5), Duration::from_secs(100));
++        assert_eq!(age.jittered_with(1.0), Duration::from_secs(110));
++        let samples: Vec<Duration> = (0..1000).map(|_| age.jittered_age()).collect();
++        assert!(
++            samples
++                .iter()
++                .all(|d| *d >= Duration::from_secs(90) && *d < Duration::from_secs(110))
++        );
++        let below = samples
++            .iter()
++            .filter(|d| **d < Duration::from_secs(100))
++            .count();
++        assert!((350..=650).contains(&below), "skewed jitter: {below}/1000");
++    }
++
++    /// Answers every export after `delay`.
++    #[derive(Clone)]
++    struct SlowLogs {
++        delay: Duration,
++    }
++
++    #[tonic::async_trait]
++    impl LogsService for SlowLogs {
++        async fn export(
++            &self,
++            _request: Request<ExportLogsServiceRequest>,
++        ) -> Result<Response<ExportLogsServiceResponse>, Status> {
++            tokio::time::sleep(self.delay).await;
++            Ok(Response::new(ExportLogsServiceResponse::default()))
++        }
++    }
++
++    #[derive(Default)]
++    struct Events {
++        goaway: AtomicUsize,
++        force_closed: AtomicUsize,
++    }
++
++    impl Events {
++        fn get(&self) -> (usize, usize) {
++            (
++                self.goaway.load(Ordering::Relaxed),
++                self.force_closed.load(Ordering::Relaxed),
++            )
++        }
++    }
++
++    struct TestServer {
++        addr: std::net::SocketAddr,
++        events: Arc<Events>,
++        shutdown: CancellationToken,
++        task: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
++    }
++
++    impl TestServer {
++        async fn stop(self) {
++            self.shutdown.cancel();
++            self.task.await.unwrap().unwrap();
++        }
++    }
++
++    async fn start(age: Option<ConnectionAge>, delay: Duration) -> TestServer {
++        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let addr = listener.local_addr().unwrap();
++        let routes = Routes::new(LogsServiceServer::new(SlowLogs { delay }));
++        let events = Arc::new(Events::default());
++        let counted = events.clone();
++        let observer: ConnectionAgeObserver = Arc::new(move |event| {
++            let counter = match event {
++                ConnectionAgeEvent::GoAway => &counted.goaway,
++                ConnectionAgeEvent::ForceClosed => &counted.force_closed,
++            };
++            let _ = counter.fetch_add(1, Ordering::Relaxed);
++        });
++        let shutdown = CancellationToken::new();
++        let signal = shutdown.clone();
++        let task = tokio::spawn(serve_with_connection_age(
++            Server::builder(),
++            routes,
++            TcpIncoming::from(listener),
++            async move { signal.cancelled().await },
++            age,
++            Some(observer),
++        ));
++        TestServer {
++            addr,
++            events,
++            shutdown,
++            task,
++        }
++    }
++
++    type RawChannel = tower::util::BoxCloneService<
++        http::Request<Body>,
++        http::Response<hyper::body::Incoming>,
++        hyper::Error,
++    >;
++
++    /// One raw HTTP/2 connection (no reconnects, unlike a tonic `Channel`).
++    /// Returns a gRPC client on it and a handle that resolves, with the time
++    /// since connecting, once the client has dropped the TCP connection.
++    async fn connect(
++        addr: std::net::SocketAddr,
++    ) -> (
++        LogsServiceClient<RawChannel>,
++        tokio::task::JoinHandle<Duration>,
++    ) {
++        let started = Instant::now();
++        let tcp = TcpStream::connect(addr).await.unwrap();
++        let (tcp, dropped) = AgedIo::new(tcp, None, None);
++        let (send, conn) = hyper::client::conn::http2::handshake(
++            hyper_util::rt::TokioExecutor::new(),
++            hyper_util::rt::TokioIo::new(tcp),
++        )
++        .await
++        .unwrap();
++        drop(tokio::spawn(conn));
++        let closed = tokio::spawn(async move {
++            let _ = dropped.await;
++            started.elapsed()
++        });
++        let channel = RawChannel::new(tower::service_fn(move |req| {
++            let mut send = send.clone();
++            async move { send.send_request(req).await }
++        }));
++        let client = LogsServiceClient::with_origin(channel, "http://127.0.0.1".parse().unwrap());
++        (client, closed)
++    }
++
++    fn secs(s: f64) -> Duration {
++        Duration::from_secs_f64(s)
++    }
++
++    /// Reads one HTTP/2 frame: (type, flags, payload).
++    async fn read_frame(tcp: &mut TcpStream) -> Option<(u8, u8, Vec<u8>)> {
++        let mut head = [0u8; 9];
++        let _ = tcp.read_exact(&mut head).await.ok()?;
++        let len = usize::from(head[0]) << 16 | usize::from(head[1]) << 8 | usize::from(head[2]);
++        let mut payload = vec![0u8; len];
++        let _ = tcp.read_exact(&mut payload).await.ok()?;
++        Some((head[3], head[4], payload))
++    }
++
++    async fn write_frame(tcp: &mut TcpStream, kind: u8, flags: u8, payload: &[u8]) {
++        let len = payload.len();
++        let mut frame = vec![(len >> 16) as u8, (len >> 8) as u8, len as u8, kind, flags];
++        frame.extend_from_slice(&[0, 0, 0, 0]);
++        frame.extend_from_slice(payload);
++        tcp.write_all(&frame).await.unwrap();
++    }
++
++    /// Scenario: an idle HTTP/2 client, speaking raw frames, on a server with
++    /// a 1 s max age.
++    /// Guarantees: at 0.9-1.1 s the server sends the RFC 9113 graceful
++    /// sequence -- a GOAWAY with last-stream-id 2^31-1 and a PING, then, after
++    /// the PING ack, a second GOAWAY with the real last stream id -- and then
++    /// closes the connection.
++    #[tokio::test]
++    async fn goaway_is_two_step_at_the_jittered_age() {
++        const GOAWAY: u8 = 0x7;
++        const PING: u8 = 0x6;
++        const SETTINGS: u8 = 0x4;
++        let server = start(
++            ConnectionAge::from_settings(Some(secs(1.0)), Some(secs(5.0))).unwrap(),
++            Duration::ZERO,
++        )
++        .await;
++        let started = Instant::now();
++        let mut tcp = TcpStream::connect(server.addr).await.unwrap();
++        tcp.write_all(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
++            .await
++            .unwrap();
++        write_frame(&mut tcp, SETTINGS, 0, &[]).await;
++        let mut goaways = Vec::new();
++        while let Some((kind, flags, payload)) = read_frame(&mut tcp).await {
++            match kind {
++                SETTINGS if flags & 1 == 0 => write_frame(&mut tcp, SETTINGS, 1, &[]).await,
++                PING if flags & 1 == 0 => write_frame(&mut tcp, PING, 1, &payload).await,
++                GOAWAY => {
++                    let last = u32::from_be_bytes(payload[0..4].try_into().unwrap()) & 0x7fff_ffff;
++                    let code = u32::from_be_bytes(payload[4..8].try_into().unwrap());
++                    goaways.push((started.elapsed(), last, code));
++                }
++                _ => {}
++            }
++        }
++        let closed = started.elapsed();
++        assert_eq!(goaways.len(), 2, "GOAWAY frames: {goaways:?}");
++        let (first_at, first_last, first_code) = goaways[0];
++        let (second_at, second_last, second_code) = goaways[1];
++        assert!(
++            first_at >= secs(0.85) && first_at < secs(1.6),
++            "first GOAWAY after {first_at:?}"
++        );
++        assert_eq!((first_last, first_code), (0x7fff_ffff, 0));
++        assert_eq!((second_last, second_code), (0, 0));
++        assert!(second_at - first_at < secs(0.5));
++        assert!(closed - second_at < secs(0.5), "closed after {closed:?}");
++        assert_eq!(server.events.get(), (1, 0));
++        server.stop().await;
++    }
++
++    /// Scenario: an RPC that takes 1.5 s starts at 0.5 s on a connection with
++    /// a 1 s max age and a 3 s grace; a second RPC is tried at 1.3 s.
++    /// Guarantees: the RPC in flight at the GOAWAY completes normally (no
++    /// ambiguous outcome), the connection takes no new RPC after the GOAWAY,
++    /// and it closes as soon as the in-flight RPC is done, before the grace.
++    #[tokio::test]
++    async fn in_flight_rpc_finishes_within_the_grace() {
++        let server = start(
++            ConnectionAge::from_settings(Some(secs(1.0)), Some(secs(3.0))).unwrap(),
++            secs(1.5),
++        )
++        .await;
++        let (client, closed) = connect(server.addr).await;
++        tokio::time::sleep(secs(0.5)).await;
++        let mut in_flight = client.clone();
++        let rpc =
++            tokio::spawn(
++                async move { in_flight.export(ExportLogsServiceRequest::default()).await },
++            );
++        tokio::time::sleep(secs(0.8)).await;
++        let late = client
++            .clone()
++            .export(ExportLogsServiceRequest::default())
++            .await;
++        assert!(late.is_err(), "a new RPC was accepted after the GOAWAY");
++        let rpc = rpc.await.unwrap();
++        assert!(rpc.is_ok(), "in-flight RPC failed: {rpc:?}");
++        let elapsed = closed.await.unwrap();
++        assert!(
++            elapsed >= secs(1.9) && elapsed < secs(2.8),
++            "closed after {elapsed:?}"
++        );
++        assert_eq!(server.events.get(), (1, 0));
++        server.stop().await;
++    }
++
++    /// Scenario: an RPC that takes 10 s on a connection with a 1 s max age and
++    /// a 1 s grace.
++    /// Guarantees: the connection is closed at age + grace (1.8-2.8 s), the
++    /// RPC fails instead of hanging, and the forced close is reported.
++    #[tokio::test]
++    async fn rpc_longer_than_the_grace_is_cut() {
++        let server = start(
++            ConnectionAge::from_settings(Some(secs(1.0)), Some(secs(1.0))).unwrap(),
++            secs(10.0),
++        )
++        .await;
++        let (mut client, closed) = connect(server.addr).await;
++        let started = Instant::now();
++        let rpc = client.export(ExportLogsServiceRequest::default()).await;
++        let status = rpc.expect_err("the RPC outlived age + grace");
++        assert!(
++            started.elapsed() >= secs(1.8) && started.elapsed() < secs(2.8),
++            "cut after {:?}: {status:?}",
++            started.elapsed()
++        );
++        let _ = closed.await.unwrap();
++        assert_eq!(server.events.get(), (1, 1));
++        server.stop().await;
++    }
++
++    /// Scenario: no max age configured; the client idles 1.5 s, then calls.
++    /// Guarantees: the connection is kept and still serves RPCs (the default
++    /// behaviour is unchanged).
++    #[tokio::test]
++    async fn no_age_keeps_the_connection() {
++        let server = start(None, Duration::ZERO).await;
++        let (mut client, closed) = connect(server.addr).await;
++        tokio::time::sleep(secs(1.5)).await;
++        assert!(!closed.is_finished());
++        let _ = client
++            .export(ExportLogsServiceRequest::default())
++            .await
++            .unwrap();
++        assert_eq!(server.events.get(), (0, 0));
++        server.stop().await;
++        drop(client);
++        let _ = closed.await.unwrap();
++    }
++
++    /// Scenario: the server is shut down while an RPC is in flight on a
++    /// connection with a max age.
++    /// Guarantees: shutdown waits for the RPC, which succeeds, as tonic's own
++    /// graceful shutdown does.
++    #[tokio::test]
++    async fn shutdown_waits_for_in_flight_rpcs() {
++        let server = start(
++            ConnectionAge::from_settings(Some(secs(60.0)), None).unwrap(),
++            secs(0.5),
++        )
++        .await;
++        let (mut client, closed) = connect(server.addr).await;
++        let rpc =
++            tokio::spawn(async move { client.export(ExportLogsServiceRequest::default()).await });
++        tokio::time::sleep(secs(0.1)).await;
++        server.stop().await;
++        assert!(rpc.await.unwrap().is_ok());
++        let _ = closed.await.unwrap();
++    }
++}
+diff --git a/rust/otap-dataflow/crates/otap/src/otap_grpc/server_settings.rs b/rust/otap-dataflow/crates/otap/src/otap_grpc/server_settings.rs
+index 12d2d49..9802687 100644
+--- a/rust/otap-dataflow/crates/otap/src/otap_grpc/server_settings.rs
++++ b/rust/otap-dataflow/crates/otap/src/otap_grpc/server_settings.rs
+@@ -4,6 +4,7 @@
+ //! Shared configuration for gRPC-based receivers.
+ 
+ use crate::compression::{self, CompressionMethod};
++use crate::otap_grpc::connection_age::ConnectionAge;
+ use crate::otap_grpc::otlp::server_new::OtlpServerSettings;
+ use otel_arrow_dfe_config::byte_units;
+ use otel_arrow_dfe_config::tls::TlsServerConfig;
+@@ -175,6 +176,22 @@ pub struct GrpcServerSettings {
+     #[serde(default, with = "humantime_serde")]
+     pub timeout: Option<Duration>,
+ 
++    /// Maximum age of a client connection (grpc-go's `MaxConnectionAge`).
++    /// Once a connection is this old (+/-10% jitter per connection) the server
++    /// sends it an HTTP/2 GOAWAY: the client finishes its in-flight RPCs there
++    /// and opens a new connection, re-resolving the server's name. Behind a DNS
++    /// name with several receivers, this is what spreads clients onto a
++    /// receiver added later. Defaults to `null`: connections live forever.
++    #[serde(default, with = "humantime_serde")]
++    pub max_connection_age: Option<Duration>,
++
++    /// How long in-flight RPCs may run after the `max_connection_age` GOAWAY
++    /// before the connection is closed under them (grpc-go's
++    /// `MaxConnectionAgeGrace`). Defaults to `null`: as long as they take.
++    /// Requires `max_connection_age`.
++    #[serde(default, with = "humantime_serde")]
++    pub max_connection_age_grace: Option<Duration>,
++
+     /// Optional TLS configuration for the gRPC server.
+     ///
+     /// When configured, the server will use TLS/mTLS for secure connections.
+@@ -183,6 +200,15 @@ pub struct GrpcServerSettings {
+ }
+ 
+ impl GrpcServerSettings {
++    /// The validated connection age settings; `Ok(None)` when not configured.
++    ///
++    /// # Errors
++    /// When `max_connection_age_grace` is set without `max_connection_age`, or
++    /// `max_connection_age` is zero.
++    pub fn connection_age(&self) -> Result<Option<ConnectionAge>, String> {
++        ConnectionAge::from_settings(self.max_connection_age, self.max_connection_age_grace)
++    }
++
+     /// Returns the compression methods accepted for requests.
+     #[must_use]
+     pub fn request_compression_methods(&self) -> Vec<CompressionMethod> {
+@@ -340,6 +366,8 @@ impl Default for GrpcServerSettings {
+             max_concurrent_streams: None,
+             wait_for_result: default_wait_for_result(),
+             timeout: None,
++            max_connection_age: None,
++            max_connection_age_grace: None,
+             tls: None,
+         }
+     }
+@@ -401,6 +429,37 @@ mod tests {
+         assert!(resp.is_enabled(CompressionEncoding::Deflate));
+     }
+ 
++    #[test]
++    fn connection_age_is_off_by_default_and_validated() {
++        let settings = GrpcServerSettings::default();
++        assert_eq!(settings.connection_age(), Ok(None));
++
++        let settings: GrpcServerSettings = serde_json::from_value(serde_json::json!({
++            "listening_addr": "127.0.0.1:4317",
++            "max_connection_age": "5m",
++            "max_connection_age_grace": "30s"
++        }))
++        .unwrap();
++        assert_eq!(
++            settings.connection_age(),
++            Ok(Some(ConnectionAge {
++                max_age: Duration::from_secs(300),
++                grace: Some(Duration::from_secs(30)),
++            }))
++        );
++
++        let grace_only = GrpcServerSettings {
++            max_connection_age_grace: Some(Duration::from_secs(30)),
++            ..Default::default()
++        };
++        assert!(grace_only.connection_age().is_err());
++        let zero = GrpcServerSettings {
++            max_connection_age: Some(Duration::ZERO),
++            ..Default::default()
++        };
++        assert!(zero.connection_age().is_err());
++    }
++
+     #[test]
+     fn default_listening_addr_is_loopback() {
+         // Regression guard against the Windows firewall recurrence: any
+diff --git a/rust/otap-dataflow/crates/otap/src/otlp_metrics.rs b/rust/otap-dataflow/crates/otap/src/otlp_metrics.rs
+index b84d3b6..476397a 100644
+--- a/rust/otap-dataflow/crates/otap/src/otlp_metrics.rs
++++ b/rust/otap-dataflow/crates/otap/src/otlp_metrics.rs
+@@ -55,6 +55,30 @@ pub struct OtlpTransportErrorAttributes {
+     pub protocol: OtlpProtocol,
+ }
+ 
++/// Protocol dimension for connections closed because of their age.
++#[attribute_set(item, measurement)]
++#[derive(Debug, Clone, Copy)]
++pub struct OtlpConnectionAttributes {
++    /// OTLP transport of the connection.
++    pub protocol: OtlpProtocol,
++}
++
++/// Connections closed because of `max_connection_age`.
++#[metric_set(
++    name = "receiver.otlp.connections",
++    measurement_attributes = OtlpConnectionAttributes
++)]
++#[derive(Debug, Default, Clone)]
++pub struct OtlpConnectionMetrics {
++    /// Connections sent a GOAWAY on reaching `max_connection_age`.
++    #[metric(unit = "{connection}")]
++    pub aged_out: Counter<u64>,
++    /// Connections still open when `max_connection_age_grace` ran out, closed
++    /// with any RPCs in flight: those got no response and are resent.
++    #[metric(unit = "{connection}")]
++    pub force_closed: Counter<u64>,
++}
++
+ /// Admitted OTLP requests.
+ #[metric_set(
+     name = "receiver.otlp.requests",
+@@ -112,6 +136,7 @@ pub struct OtlpReceiverMetrics {
+     rejections: MeasurementMetricSet<OtlpRejectionMetrics>,
+     acknowledgements: MeasurementMetricSet<OtlpAcknowledgementMetrics>,
+     transport_errors: MeasurementMetricSet<OtlpTransportErrorMetrics>,
++    connections: MeasurementMetricSet<OtlpConnectionMetrics>,
+ }
+ 
+ impl OtlpReceiverMetrics {
+@@ -124,6 +149,7 @@ impl OtlpReceiverMetrics {
+             rejections: OtlpRejectionMetrics::register(pipeline_ctx),
+             acknowledgements: OtlpAcknowledgementMetrics::register(pipeline_ctx),
+             transport_errors: OtlpTransportErrorMetrics::register(pipeline_ctx),
++            connections: OtlpConnectionMetrics::register(pipeline_ctx),
+         }
+     }
+ 
+@@ -187,6 +213,28 @@ impl OtlpReceiverMetrics {
+             .inc();
+     }
+ 
++    /// Records a connection sent a GOAWAY on reaching its max age.
++    pub fn record_connection_aged_out(&mut self, protocol: OtlpProtocol) {
++        self.connections
++            .with(OtlpConnectionAttributes { protocol })
++            .aged_out
++            .inc();
++    }
++
++    /// Records a connection closed under in-flight RPCs after the grace.
++    pub fn record_connection_force_closed(&mut self, protocol: OtlpProtocol) {
++        self.connections
++            .with(OtlpConnectionAttributes { protocol })
++            .force_closed
++            .inc();
++    }
++
++    /// Returns a connection bucket for inspection without marking it for export.
++    #[must_use]
++    pub fn connections_for(&self, protocol: OtlpProtocol) -> &OtlpConnectionMetrics {
++        self.connections.get(OtlpConnectionAttributes { protocol })
++    }
++
+     /// Returns a transport request bucket without marking it for export.
+     #[must_use]
+     pub fn requests_for(&self, signal: SignalType, protocol: OtlpProtocol) -> &OtlpRequestMetrics {
+@@ -231,7 +279,8 @@ impl OtlpReceiverMetrics {
+         reporter.report_measurement(&mut self.requests)?;
+         reporter.report_measurement(&mut self.rejections)?;
+         reporter.report_measurement(&mut self.acknowledgements)?;
+-        reporter.report_measurement(&mut self.transport_errors)
++        reporter.report_measurement(&mut self.transport_errors)?;
++        reporter.report_measurement(&mut self.connections)
+     }
+ 
+     /// Takes every touched OTLP receiver metric bucket for terminal handoff.
+@@ -241,6 +290,7 @@ impl OtlpReceiverMetrics {
+         snapshots.extend(self.rejections.terminal_snapshots());
+         snapshots.extend(self.acknowledgements.terminal_snapshots());
+         snapshots.extend(self.transport_errors.terminal_snapshots());
++        snapshots.extend(self.connections.terminal_snapshots());
+         snapshots
+     }
+ }
+@@ -315,6 +365,23 @@ mod tests {
+         );
+     }
+ 
++    /// Scenario: Connections aged out (GOAWAY) and force-closed after the grace.
++    /// Guarantees: Each outcome has its own counter under `receiver.otlp.connections`.
++    #[test]
++    fn connection_age_outcomes_are_counted() {
++        let mut metrics = new_test_metrics();
++        metrics.record_connection_aged_out(OtlpProtocol::Grpc);
++        metrics.record_connection_aged_out(OtlpProtocol::Grpc);
++        metrics.record_connection_force_closed(OtlpProtocol::Grpc);
++        let connections = metrics.connections_for(OtlpProtocol::Grpc);
++        assert_eq!(connections.aged_out.get(), 2);
++        assert_eq!(connections.force_closed.get(), 1);
++        assert!(metrics.terminal_snapshots().iter().any(|snapshot| {
++            snapshot.descriptor().name == "receiver.otlp.connections"
++                && snapshot.measurement_attribute_value("protocol") == Some("grpc")
++        }));
++    }
++
+     /// Scenario: An admitted OTLP request has an empty decompressed payload.
+     /// Guarantees: The shared receiver boundary still records the successful message.
+     #[test]

@@ -15,6 +15,7 @@ fi
 git -C "$dir" fetch -q --depth 1 origin "$rev"
 git -C "$dir" checkout -q -f FETCH_HEAD
 git -C "$dir" reset -q --hard
+git -C "$dir" clean -q -fd   # files a patch added on an earlier run (ignored ones, e.g. target/, stay)
 for p in "$here"/patches/*.patch; do
   git -C "$dir" apply "$p"
 done

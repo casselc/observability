@@ -638,3 +638,45 @@ above debug.
 **Workaround here:** cap the queue in bytes well below the volume
 (`deploy/base/go/publisher-config.yaml`), fail readiness below 1 GiB free,
 alert on the volume.
+
+## U23. otap-dataflow gRPC receivers: no max connection age (and tonic's is broken)
+
+- **Status:** patched here, **not proposed yet**:
+  `otap-rs/patches/0004-grpc-receivers-max-connection-age.patch`.
+- **Project / version:** otel-arrow `rust/otap-dataflow` at `otap-rs/UPSTREAM`
+  (OTLP and OTAP receivers); tonic 0.14.6.
+- **Source here:** [`deploy/results/k8s-sim.md`](deploy/results/k8s-sim.md)
+  §8 ("Scale-up gets no traffic"), `otap-rs/scripts/goaway_e2e.sh`,
+  `otap-rs/results/goaway/`, [otap-rs README §Connection age](otap-rs/README.md#connection-age-patches0004-m).
+
+**Gap (otap-dataflow).** `GrpcServerSettings` has no `max_connection_age` /
+`max_connection_age_grace` (grpc-go's `keepalive.ServerParameters`). Agents
+using `dns:///` + round_robin re-resolve only when a connection closes, so a
+receiver added by a scale-up gets no traffic until the agents restart. The
+patch adds both settings (off by default, +/-10% jitter per connection),
+wired into the OTLP and OTAP receivers, with a `receiver.otlp.connections`
+metric set (`aged_out`, `force_closed`).
+
+**Bugs (tonic 0.14.6, `transport/server/mod.rs`), why the patch doesn't use
+`Server::max_connection_age`:**
+
+1. With `max_connection_age_grace` set, `connection_timeout_future` sleeps
+   age + grace and returns `ForcefulShutdown`: the connection never gets a
+   GOAWAY, it is dropped with its in-flight RPCs.
+2. Without a grace it returns `GracefulShutdown`, and the `serve_connection`
+   loop calls `graceful_shutdown()` and polls the same finished `async fn`
+   future again: "`async fn` resumed after completion" panics the
+   connection's task, killing the RPCs in flight. Repro: a tonic server with
+   `max_connection_age(1s)`, one RPC that takes 1.5 s started at 0.5 s; the
+   client gets `Unknown: connection error ... BrokenPipe`.
+3. The age is not jittered, so connections opened together recycle together.
+
+**Expected:** GOAWAY at a jittered age, then a hard close only after the
+grace (grpc-go); fuse the timer.
+
+**What upstream would likely push back on in the patch:** it serves each
+connection with its own clone of the tonic `Server` (shutdown signal = the
+connection's age) to reuse tonic's graceful path, and enforces the grace by
+failing the connection's I/O. Fixing tonic (1-3) and calling its builder
+would be the smaller upstream change; the patch is the workaround that works
+on the pinned tonic.

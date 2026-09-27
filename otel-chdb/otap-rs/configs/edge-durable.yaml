@@ -83,6 +83,9 @@ groups:
                   wait_for_result: true
                   timeout: "${env:OTLP_TIMEOUT:-30s}"
                   max_decoding_message_size: "${env:OTLP_MAX_BODY:-128MiB}"
+                  # See edge-publisher.yaml (patches/0004).
+                  max_connection_age: "${env:OTLP_MAX_CONN_AGE:-5m}"
+                  max_connection_age_grace: "${env:OTLP_MAX_CONN_AGE_GRACE:-45s}"
                 http:
                   listening_addr: "${env:OTLP_HTTP:-127.0.0.1:14318}"
                   wait_for_result: true

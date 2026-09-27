@@ -1,3 +1,20 @@
+# DEPRECATED (2026-09-27): the chDB edge is retired as a publisher
+# (DECISIONS.md D1: chDB rejected for publishing; kept only for an edge that
+# must answer SQL locally). Do not deploy this file. The publishers are the
+# Rust `s3pq` exporter (../otap-rs/configs/edge-publisher.yaml,
+# ../deploy/base/rust) and the Go `s3pq` exporter
+# (../deploy/base/go/publisher-config.yaml, ../parquetgo/s3pqexporter).
+#
+# Known defect, left in place because nothing runs it (DECISIONS.md D4,
+# Open risks): the `batch` processor below sits in front of the persistent
+# queue, and it is asynchronous, so the receiver acknowledges a request once
+# the batcher holds it, before the queue write: a SIGKILL loses acknowledged
+# data (deploy/results/go-batch.txt, k8s-sim.md §8). A revived chDB edge
+# must follow D4 as the Go publisher does: no `batch` processor and no
+# `sending_queue.batch` in front of the queue (a queue item is the sender's
+# request), or a batch step inside the exporter that answers each caller
+# only once the merged request is persisted (s3pqexporter/batch.go).
+#
 # Edge-buffer mode: OTLP in; each batch published to object storage as
 # s3_plain_rewritable MergeTree parts and as a Parquet object, then announced
 # by a manifest. Generations rotate hourly, are sealed, and are detached
@@ -5,8 +22,8 @@
 # reclaim. Credentials come from the environment.
 #
 # Delivery settings follow awss3/README.md §Recommendation (collector config)
-# and DECISIONS.md D4 (2026-09-26): batch BEFORE the persistent queue with the
-# batch processor, never `sending_queue.batch` (it re-batches redelivered
+# and DECISIONS.md D4 as of 2026-09-26 (superseded 2026-09-27, above): batch
+# BEFORE the persistent queue with the batch processor, never `sending_queue.batch` (it re-batches redelivered
 # requests after a restart, so request identity and its content hash change);
 # `retry_on_failure.max_elapsed_time: 0` (the 300 s default deletes the item
 # from the queue after the last failure); `seal_optimize: false` (OPTIMIZE

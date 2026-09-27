@@ -490,9 +490,10 @@ manifest fields in the footer, and stock awss3exporter can use it. The
   `retry_on_failure.max_elapsed_time` ≠ 0 and any `sending_queue.batch`;
   its `batch` block is the batch step before the queue.
 
-**Open risks.** `otelcol/config.edge.yaml` (the chDB edge, not deployed:
-D1) still batches with the `batch` processor before its queue, so it has
-the ack-before-persist window above; `max_elapsed_time: 0` and
+**Open risks.** `otelcol/config.edge.yaml` (the chDB edge, retired as a
+publisher: D1; **marked deprecated** in its header, 2026-09-27, with what a
+revival must change) still batches with the `batch` processor before its
+queue, so it has the ack-before-persist window above; `max_elapsed_time: 0` and
 `seal_optimize: false` are right
 ([§5](#5-contradictions-and-stale-statements), item 16).
 

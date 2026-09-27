@@ -199,10 +199,11 @@ chdb:
   store_tables: true                 # false + parquet = pure Parquet publisher
 ```
 
-[`otelcol/config.edge.yaml`](otelcol/config.edge.yaml) is a complete config.
-It batches before the persistent queue and retries forever
-(`max_elapsed_time: 0`), as [`awss3/README.md`](awss3/README.md)
-§Recommendation requires.
+[`otelcol/config.edge.yaml`](otelcol/config.edge.yaml) is a complete config,
+**deprecated** with the chDB edge (D1, 2026-09-27): it retries forever
+(`max_elapsed_time: 0`), but its `batch` processor in front of the
+persistent queue acknowledges before the queue write, which D4 now forbids.
+The publishers are the Rust and Go `s3pq` exporters (`deploy/`).
 
 ### Layout and commit protocol
 

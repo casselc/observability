@@ -130,7 +130,8 @@ exporter's timeouts, layout B.
 0` and `seal_optimize: false` were right; the `batch` processor before the
 persistent queue was thought right then, but it acknowledges before the
 queue write (`results/k8s-sim.md` §8, 2026-09-27). The chDB edge is not deployed (D1), so
-it is left as is and noted in D4. Two defects fixed: **no memory limiter in
+it is left as is, noted in D4, and marked deprecated in its header
+(2026-09-27). Two defects fixed: **no memory limiter in
 any pipeline** (the build carried it, nothing used it), and **batches of
 5,000–20,000 rows** where the design and the consumer's limits assume
 10,000 (`send_batch_size` / `send_batch_max_size: 10000`). It passes

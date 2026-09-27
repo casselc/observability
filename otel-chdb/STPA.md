@@ -215,7 +215,7 @@ Most of the defects found so far share one control flaw: a controller treated an
 
 - **Ambiguous outcomes treated as definite** (issues 2, 3, 4, 5, 6). The fix pattern is the same each time: name the ambiguous outcome, wait until it cannot change, and model it. The Quint models found three of these before production would have.
 - **Time as identity** (issues 1, 5). Anything that decides placement or safety from a clock needs a stated bound and a runtime check.
-- **Feedback without freshness** (issue 6, and the open LS-6 to LS-8). A controller acting on feedback must know how current it is; this is the same requirement the UI now carries as R-S1.
+- **Feedback without freshness or completeness** (issues 6, 13, 16, and the open LS-6 to LS-8). A controller acting on feedback must know how current it is; this is the same requirement the UI now carries as R-S1.
 - **Test evidence without provenance** (issue 12, and the memory and disk exhaustion that broke runs). Results are only as good as knowing which build and which environment produced them; CI now records both.
 
 ### CAST: bugs found by deterministic simulation (2026-09-27)
@@ -232,6 +232,15 @@ Two consumer bugs survived the Quint models, the model-based tests and the fault
 - **Models abstract away how long a step takes.** Quint actions are atomic and instantaneous, so a model cannot show a round that outlasts a lease or an observation that ages while in flight. The ambiguity audit found the same gap (the consumer model's lease and checkpoint writes are atomic). Remedies: add "slow observation" and "step duration" behaviours to the model template ([model/TEMPLATE.md](model/TEMPLATE.md)) and a mutant that dates observations at the request; keep DST as the check on real durations.
 - **Slow is a different failure from failed.** Every soak injected errors, lost answers and kills against a store that answers in milliseconds; none injected a slow store with a large backlog. The DST fault menu now includes latency, held links and brownouts; the fault proxies should too.
 - **Recovery paths are under-tested.** Both bugs appear after something slow or long (a slow round, an outage's backlog). Tests should include a long outage followed by recovery at fleet scale.
+
+### CAST: bugs found by the ambiguity audit (2026-09-27)
+
+Two more consumer bugs, found by the audit behind [AMBIGUITY.md](AMBIGUITY.md) (rows S3 and C2), both fixed in 034f577 with tests.
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 15 | A 412 on the worker's own lease or checkpoint write dropped the lane | Audit item a2: a proxy that applies the `If-Match` PUT and then answers 500, 503 or 409; object_store's retry carries the old ETag and gets 412 against our own new object | L-1 (the lane stalls for TTL + margin, 95 s) and a misreported `lanes_lost_cas`; safe for data | Consumer `write_lease` / `write_ckpt`: "a 412 means another worker changed the object" | The code handled a lost answer by reading back, but a 412 is a definite-looking answer; the client library's own retry was invisible to it; the model's CAS is atomic | A 412 is read back and compared, like no answer; test `a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane` (fails before the fix) | A definite-looking error can be produced by our own retry; the outcome class depends on the whole call, including the library's retries, not on the last status code |
+| 16 | The count check could silently return short counts | Audit item b: the consumer's own query through a ClickHouse profile with `read_overflow_mode = 'break'` returned 3,932 instead of 8,000 per key with HTTP 200 | H-2 (a short count makes the worker "repair" rows central already holds: duplicates) | Consumer `sql.rs`: "HTTP 200 means a complete answer" | The consumer's settings never set a break mode, and a server or user profile it doesn't control can | Every consumer and audit query pins the eleven `*_overflow_mode` settings to `throw` (`NO_PARTIAL_RESULTS`), so a limit becomes an error; two tests | Feedback the controller acts on must be complete by construction, not by default; pin anything the environment could change. The same flaw exists in HyperDX (AMBIGUITY.md row X7) |
 
 ## What the models showed
 

@@ -50,7 +50,7 @@ after the overlay's, so a value set in a component cannot be overridden.
 
 ```
  app pods ──OTLP──► otel-agent (DaemonSet, one per node)
-                     memory_limiter → batch (≤10k items) → persistent queue (hostPath)
+                     memory_limiter → persistent queue (hostPath); no batch (Rust edge)
                      retry forever
                         │ OTLP/gRPC, round robin over the headless Service
                         ▼
@@ -71,14 +71,14 @@ Central (the consumer) is unchanged and is not deployed here.
 |---|---|---|
 | D1 edge publisher | base/rust (primary), base/go (secondary) | the Go edge is the `s3pq` exporter (`../parquetgo/s3pqexporter`, 2026-09-26): manifest-less for traces, logs and metrics layout B, the Rust edge's objects (`../conformance`); it replaced `awss3inline`, which had no metrics lanes |
 | D3 commit protocol | both publishers | one create-only PUT per object at `{bucket}/edge/{CLUSTER-pod}/{signal}/{epoch}/{seq}`; the IAM policy grants `s3:ListBucket` so a free slot is 404 |
-| D4 / risk #10: batch before any queue, never after | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml | agents: `batch` processor, then `sending_queue` on `file_storage`, no `sending_queue.batch`; Rust publisher: `processor:batch` in front of the WAL, nothing between the WAL and the exporter; Go publisher: no batching (its queue is right behind the receiver) |
+| D4 / risk #10: batch before any queue, never after | agent-rust.yaml, agent-go.yaml, edge-publisher.yaml | Rust-edge agents (2026-09-27): **no batch processor** (it acks before the queue write: acked requests were lost on SIGKILL on kind, `results/k8s-sim.md` §kind), `sending_queue` on `file_storage` sized in items, no `sending_queue.batch`; Go-edge agents: `batch` processor, then the queue (same loss window: the Go publisher does not batch); Rust publisher: `processor:batch` in front of the WAL, nothing between the WAL and the exporter; Go publisher: no batching (its queue is right behind the receiver) |
 | D4: retries never give up | agents, Go publisher, Rust buffer | `retry_on_failure.max_elapsed_time: 0`; Quiver retries NACKs with backoff 1–30 s and no deadline (`max_age` unset) |
 | D7 layout B | edge-publisher.yaml, Go publisher-config.yaml | `metrics_layout: series_table` (per-type points lanes + the series lane) |
 | D16 sorting off | all otap-rs configs | `parquet.sort.by: none` |
 | D16 routing | components/routing | gateway with `routing_key: service`, 8 publishers, ring Service with `publishNotReadyAddresses` (§Routing) |
 | D18 credentials | components/* | no keys in any file; the default chain in both clients (§Targets) |
 | D19 durable buffer | base/rust | on, 40 GiB cap on a 50 Gi PVC, `size_cap_policy: backpressure` (§Durable buffer) |
-| risk #11: 10k-row objects | agents; edge-publisher.yaml | `send_batch_max_size: 10000` splits big requests deterministically; the publisher's `max_size: 8 MiB` bounds a merged batch |
+| risk #11: 10k-row objects | edge-publisher.yaml; Go agents | the Rust publisher's `max_size: 8 MiB` splits big requests deterministically and bounds a merged batch; Go-edge agents: `send_batch_max_size: 10000` |
 | risk #14 disk full | edge-durable.yaml / edge-publisher.yaml | backpressure, cap well below the volume, measured (§Durable buffer) |
 | memory limits | everywhere | Rust: `policies.resources.memory_limiter` (enforce, 1 GiB / 1.5 GiB of a 2 GiB container); Go: `memory_limiter` first in every pipeline, `GOMEMLIMIT` |
 
@@ -225,6 +225,15 @@ consumer reads both with `--depth 2`.
     segment) and the process exits after 5 attempts: a crash loop until the
     volume is grown. After growing it every acked request was committed.
     Stuck, not lost. Hence the cap at 80% of the volume.
+  - on kind [M, `results/k8s-sim.md` §kind] (ordinal 3 on a 40 MiB volume,
+    S3 down): the publisher answered `Unavailable` ("wal io error: No space
+    left on device") and the agents sent those requests to the other
+    publishers; it stayed **Ready** throughout. After S3 came back it could
+    not release committed segments either (its progress file needs room).
+    Growing the volume freed the segments, but one batch whose segment
+    flush had failed was committed only after a pod restart replayed the
+    WAL. End result: every row once. Operationally: grow the PVC, then
+    restart the pod.
 - **Alert** on `storage_bytes_used_bytes` (the publisher's
   `/api/v1/metrics`) against the cap, and on the pod's volume usage.
 - A host crash loses at most the last 25 ms of acknowledged requests (the
@@ -238,7 +247,7 @@ its bytes are identical. Every hop that can resend was checked [M,
 
 | Resend | Same bytes? | Result |
 |---|---|---|
-| agent resends from its queue (publisher down, timeout) | yes: the queue item is the batch | the publisher recognises its own content key, or central does; `agent-queue.txt`: 32 requests acked while the publisher was down, agent SIGKILLed, all 160,000 spans and 160,000 logs once, 10,000 rows per object |
+| agent resends from its queue (publisher down, timeout) | yes: the queue item is the request | the publisher recognises its own content key, or central does; `agent-queue.txt`: 32 requests acked while the publisher was down, agent SIGKILLed, all 160,000 spans and 160,000 logs once, 10,000 rows per object |
 | Quiver replays after a publisher restart | yes: the WAL holds the batch | `durable-diskfull.txt`, `route-pubkill-patched.txt`: 0 duplicates |
 | the gateway's per-publisher retry | yes: the same piece | `route-pubkill-stock.txt`: 0 |
 | the agent resends through a restarted gateway, traces | yes: the split is deterministic for traces | `route-gwkill-stock.txt`: traces 0 |
@@ -418,6 +427,15 @@ metrics on the unbatched path (its merge order is random).
   buffers are then near their floor: watch `storage_bytes_used_bytes`), and
   keep the PVC until that ordinal has been back once or its directory is
   empty.
+- **The agents do not see a new publisher by themselves** [M, kind]:
+  their `dns:///` round robin re-resolves the headless Service only when a
+  connection fails, so after 3 → 4 the fourth publisher got no traffic for
+  as long as we watched (2.5 min) until `kubectl rollout restart
+  ds/otel-agent` (safe: a graceful agent stop loses and duplicates
+  nothing). Scale-down needs nothing: the removed publisher's connections
+  fail and the agents re-resolve. A server-side max connection age on the
+  publisher's receiver would fix this; the Rust receiver has none yet. The
+  routing gateway watches EndpointSlices and is not affected.
 - **Producer ids are stable** per ordinal (`CLUSTER-otap-publisher-N`), so a
   restarted or rescheduled publisher continues its lanes, and a lane's
   consumer lease and checkpoint are reused.
@@ -455,6 +473,7 @@ build of this branch and ocb v0.161.0 builds:
 | routing, restarts, scaling | `scripts/route_test.sh` (+ `gateway-local.yaml`, `publishers.sh`, `route_check.sh`) | `results/route-*.txt` |
 | Go publisher | `scripts/go_edge_test.sh` | objects checked directly (below) |
 | every build against a live API server (2026-09-27) | `kubectl apply --dry-run=server --validate=strict`, Kubernetes 1.36.1 on KWOK | 11 of 11 (the 9 overlays, `kind/edge`, `kind/routing`) |
+| one real cluster, end to end (2026-09-27) | kind v0.31 / Kubernetes 1.35, `kind/edge` then `kind/routing`, SeaweedFS and the consumer on the host | `results/k8s-sim.md` §kind: 17 datasets of 320k spans + 320k logs through agents → publishers → S3 → consumer; exactly once through publisher SIGKILLs, force deletes, rollout restarts, scale 3→4→3 with a retained buffer, a full buffer volume, graceful gateway restarts; duplicates only on gateway SIGKILL (as `route-gwkill-batched`); the agent SIGKILL loss found and fixed (`agent-rust.yaml`) |
 | control-plane behaviour, no containers | `kind/edge` and `kind/routing` applied to a 1,000-node KWOK cluster | `results/k8s-sim.md` §Manifests: PVCs bind and are kept on scale-down and reused on scale-up (3→4→3), rollout restart one ordinal at a time, `system-node-critical` admitted outside kube-system, and the routing switch needs a rollout restart (fixed in `components/routing`) |
 
 Notes:
@@ -473,9 +492,8 @@ Notes:
   objects and drops an object whose rows, in order, equal another's (what
   the consumer's content check skips). On `gwkill-stock` it gives the
   consumer's numbers exactly (18,277 duplicate log rows).
-- Not exercised: a real cluster with running containers (probes, the
-  webhooks, the k8s resolver against live EndpointSlice churn, PVC
-  expansion; a kind run is prepared in `kind/` but did not fit the box), mTLS, OTLP compression between the
+- Not exercised: EKS and its webhooks, real PVC expansion (a tmpfs
+  remount stood in for it on kind), multi-node scheduling, mTLS, OTLP compression between the
   tiers (left off: not measured against the Rust receiver), metrics through
   the routing tier (sent around it by design).
 

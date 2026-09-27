@@ -11,14 +11,13 @@ Two parts were asked for:
 1. **KWOK fleet → prototype entity controller → S3 entity lanes → aggregator →
    ClickHouse catalog.** Done. The code is `../../entities/controller/`
    (README there).
-2. **kind: one real cluster running deploy/.** **Not run.** The box never had
-   the room: free disk stayed at 3.4–4.8 GB against the 6 GB a kind node image
-   plus our images needs (and a 3 GB floor kept for everyone else), memory was
-   often under 2 GB, there is no running docker daemon, and the otap-s3pq
-   release binary was not built (its cargo target is several GB). The
-   control-plane half of the list was run on KWOK instead (§Manifests), which
-   found one procedure bug. **Exactly-once end to end through real pods is
-   still unverified.** `deploy/kind/` holds the kind setup, ready to run.
+2. **kind: one real cluster running deploy/.** Done later the same day,
+   once the owner freed the box (§8). Before that, the control-plane half ran
+   on KWOK (§7), which found one procedure bug. On kind, 17 datasets went
+   end to end through real pods. The run found three bugs in `deploy/`, and
+   **one of them lost acknowledged data** (the agent's batch step, now
+   fixed). With the fix, delivery was exactly once through every fault
+   except a gateway SIGKILL, which duplicates as documented.
 
 ## 1. What ran
 
@@ -117,8 +116,21 @@ purpose, and they are real disagreements:**
 does not have, so the join finds nothing. **The fix is on the controller
 side:** for the covered attributes it must reproduce the agent's heuristics
 exactly, even where they are wrong. It can keep the true owner as an
-uncovered catalog attribute. Not done in the prototype. Everything else
-agreed exactly, including after churn, a controller outage and 14.6k pods.
+uncovered catalog attribute. Everything else agreed exactly, including after
+churn, a controller outage and 14.6k pods.
+
+**Fixed after the run** (`internal/ctrl` `workload()`, test
+`workload_test.go`): the covered attributes now follow the agent's two
+rules.
+
+- `k8s.deployment.name` is the ReplicaSet name minus `-<pod-template-hash>`.
+- `k8s.cronjob.name` is set only for a Job named `-<8 digits>` within a day
+  of the pod's creation.
+
+The version's kind and name still follow the owner chain. The test covers
+both edge cases, a normal Deployment and a scheduled CronJob run. The KWOK
+agreement check was not rerun after the fix (the KWOK clusters were
+already torn down).
 
 ## 4. Controller and aggregator cost [M]
 
@@ -203,8 +215,8 @@ S3 hang**: SeaweedFS stopped answering from ~06:08:44 to ~06:14 while the box's
 load average hit 49.
 
 - **During the hang,** each controller's in-flight create-only PUT simply
-  hung: `retries` stayed 0, because the lane has no per-attempt timeout (a
-  prototype gap). Its object count stood still for ~5.5 min while new records
+  hung: `retries` stayed 0, because the lane had no per-attempt timeout
+  (added since: `--put-timeout`, 20 s). Its object count stood still for ~5.5 min while new records
   queued in memory (`pending` up to 71). When S3 answered again the PUT
   completed and the queue drained to 0 within 30 s. Nothing was lost or
   written twice.
@@ -225,7 +237,7 @@ cluster is stale. That needs a lane heartbeat (the sync object serves if its
 age is watched) and a rule that versions of a cluster whose lane is silent
 beyond N syncs are "unknown", not "open".
 
-## 7. Manifests on KWOK (instead of kind) [M]
+## 7. Manifests on KWOK (before kind) [M]
 
 KWOK runs a real apiserver, controller-manager and scheduler with fake
 kubelets. That exercises everything in `deploy/` except running containers:
@@ -266,29 +278,167 @@ existing install by `kubectl delete sts --cascade=orphan` and re-applying.
   The step is now in `components/routing/kustomization.yaml`, and the README
   validation table lists the KWOK checks.
 
-**Not covered without kind:** probes, image and securityContext behaviour
-(UID 10001 against the hostPath and the PVC), env expansion
-(`$(CLUSTER)-$(POD_NAME)`), and the S3 path: pod kills with data in flight,
-a full buffer volume, and exactly-once through the consumer.
+**Not covered without kind:** probes, image and securityContext behaviour,
+env expansion, and the S3 path. kind covered them (§8).
 
-## 8. What is left
+## 8. kind: deploy/ on one real cluster [M]
 
-1. **kind** once the box has ≥ 8 GB free memory and ≥ 6 GB free disk. The
-   steps are in `deploy/kind/`:
-   - build the otap-s3pq release binary and the ocb collector;
-   - build the runtime images with `prebuilt.Dockerfile` and `kind load` them;
-   - run `relay.py` on the kind gateway, so the pods reach SeaweedFS and the
-     relay can inject S3 outages;
-   - apply `kind/edge`, then `kind/routing`;
-   - drive traffic with telemetrygen, then run the scenarios: pod kills,
-     rollout restart, scale 3→4→3, a publisher PVC filled to its cap, and the
-     consumer outside the cluster counting every request exactly once.
-2. **The controller's covered attributes must follow the agent's heuristics**
-   (§3), with a test on the two edge cases.
-3. **Sync cadence and shape** (§5): at start-up plus hourly, or key-only.
-4. **Lane liveness** (§6): mark a silent cluster's versions unknown.
-5. **The controller-outage loss** (§6): two replicas per cluster, measured.
-6. **ClickHouse-side cost** of the aggregator (inserts and sync-close), on a
+11:00–12:15, once the owner had freed the box.
+
+**Setup:**
+
+- **Cluster:** kind v0.31, Kubernetes 1.35.0, one node. dockerd ran inside
+  the dev container with its data root in the scratchpad.
+- **Images:** built with `kind/prebuilt.Dockerfile` around host builds: the
+  otap-s3pq release binary, and ocb v0.161.0 `otelcol-deploy`, stock for the
+  agent and patched (`patches/0001`) for the gateway. `otlpsend` served as
+  the sender.
+- **Outside the cluster:** SeaweedFS as S3, reached through `kind/relay.py`
+  on the kind gateway (172.18.0.1), which can also cut S3 or slow it. The
+  consumer (`consume`, release build) ran on the host into ClickHouse
+  database `k8s_edge`.
+- **Traffic:** each dataset is `mixgen` output (seed 100+D, its own
+  one-hour timestamp window): 32 traces and 32 logs requests of 10,000 rows
+  each, 120 services. A Job sends it to the `otel-agent` Service with
+  `otlpsend`, which resends on any error, as an SDK with retries does.
+- **The check:** per dataset window in ClickHouse: rows, distinct rows
+  (`TraceId, SpanId` for spans; the whole row for logs), duplicates, and
+  missing rows out of 320,000.
+- **Harness:** `kind/kind_test.sh`, with `kind/kind-config.yaml` and
+  `kind/runc-oom-clamp.sh`.
+
+### Bugs found in deploy/
+
+1. **The Rust agents lost acknowledged data on SIGKILL (fixed).**
+   `agent-rust.yaml` and `agent-routing.yaml` ran `batch` before the
+   persistent queue. The batch processor is asynchronous: the OTLP receiver
+   acks a request as soon as the batcher takes it, before it is written to
+   the queue.
+   - **Evidence:** a SIGKILLed agent lost 1 to 5 acknowledged requests per
+     kill (datasets 2, 4 and 5 below). The queue's own indexes prove where:
+     all 128 trace requests of datasets 1–4 reached the queue, and one
+     request that was being dispatched at a kill was moved back to the queue
+     on restart as designed. The lost requests had been acked to the sender
+     without ever reaching the queue.
+   - **The fix:** drop the batch step from the Rust-edge agents. It is
+     redundant there, because `edge-publisher.yaml` batches in front of the
+     WAL (~3 MiB objects, oversized requests split at 8 MiB). The queue is
+     now sized in items (2.5 M, about the old 250 × 10k).
+   - **Verified:** the same kills lost nothing (datasets 7 and 8).
+   - **Not fixed:** the Go edge's agent (`agent-go.yaml`) has the same
+     window. Its publisher does not batch, so it keeps the batch step with a
+     comment (§9).
+2. **`kind/prebuilt.Dockerfile` used `debian:bookworm-slim` (glibc 2.36)
+   (fixed).** The host builds need glibc 2.39, so every publisher
+   crash-looped with "GLIBC_2.39 not found". The base is now `ubuntu:24.04`,
+   set by `ARG BASE`. `images/otap-s3pq.Dockerfile` builds inside bookworm
+   and is not affected.
+3. **The kind routing overlay could not roll its gateways (fixed).** Their
+   500m CPU requests left no room for the surge pod on a 4-CPU node
+   (FailedScheduling), so `kind/routing` now requests 100m. The base keeps
+   500m: on a real cluster this is only a reminder that `maxSurge` needs
+   headroom.
+
+**Environment quirk, not a deploy/ bug:** no pod sandbox started at first.
+The dev container lacks CAP_SYS_RESOURCE, so runc cannot set kubelet's
+negative `oom_score_adj` and fails with "can't get final child's PID from
+pipe". `kind/runc-oom-clamp.sh` clamps the value, wired in through
+`containerdConfigPatches`.
+
+### Results
+
+| # | Fault while the dataset was in flight | Spans: rows / dup / missing | Logs: rows / dup / missing |
+|---|---|---|---|
+| 1 | none (steady, 3 publishers) | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 2 | SIGKILL publisher-1, force-delete publisher-0, SIGKILL and force-delete the agent | 310,000 / 0 / **10,000** | 320,000 / 0 / 0 |
+| 3 | SIGKILL publisher-0 and publisher-2 | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 4 | SIGKILL the agent twice (old config) | 270,000 / 0 / **50,000** | 270,000 / 0 / **50,000** |
+| 5 | SIGKILL the agent once (old config) | 280,000 / 0 / **40,000** | 290,000 / 0 / **30,000** |
+| 6 | agent rollout restart (SIGTERM) | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 7 | SIGKILL the agent twice, **agent without batch** | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 8 | fixed config: SIGKILL agent, SIGKILL publisher-1, SIGKILL agent | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 9 | publisher rollout restart | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 10 | scale 3→4 at 2 s, 4→3 at 6 s | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 11 | 4 publishers, S3 slowed, 4→3 right after the last ack | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 12 | same, after an agent restart so that ordinal 3 got traffic; then 3→4 again | 320,000 / 0 / 0 (70,000 waited in ordinal 3's retained PVC until it came back) | same |
+| 13 | S3 down, ordinal 3 on a 40 MiB volume that filled | 320,000 / 0 / 0 (after growing the volume and a restart) | 320,000 / 0 / 0 |
+| 14 | routing on (4 publishers, 3 gateways), steady | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 15 | routing: SIGKILL two gateways, force-delete the third | 322,858 / **2,858** / 0 | 341,278 / **21,278** / 0 |
+| 16 | routing: gateway rollout restart (stalled at 1 of 3, bug 3) | 320,000 / 0 / 0 | 320,000 / 0 / 0 |
+| 17 | routing: gateway rollout restart; then S3 out of disk for ~4 min (below) | S3 holds 320,000 distinct, 0 duplicates² | 320,000 / 0 / 0 |
+
+- **Rows 2, 4 and 5 are bug 1.** Row 3 isolates the publishers: SIGKILLs
+  lose nothing, because their WAL replays. Rows 4 and 5 isolate the agent.
+- **Row 12, scale-down:** the removed ordinal's PVC is retained
+  (`whenScaled: Retain`). Its 70k rows per signal were committed 30 s after
+  the ordinal came back, as the README says: late, not lost.
+- **Scale-up gets no traffic:** in rows 10 and 11 the fourth publisher got
+  none. The agents' `dns:///` round robin re-resolves only when a connection
+  fails, so a new publisher is invisible to running agents. Row 12 needed
+  `kubectl rollout restart ds/otel-agent`, which is safe after the fix
+  (row 6). Now in the deploy README §Scaling.
+- **Row 13, full volume:** the publisher answered `Unavailable` ("wal io
+  error: No space left on device"). The agents moved those requests to the
+  other publishers, and the pod stayed Ready.
+  - After S3 returned, the full volume could not release its committed
+    segments, because the progress file needs space. 10,000 spans stayed
+    stuck.
+  - Growing the volume (a tmpfs remount standing in for PVC expansion) freed
+    the segments. The last batch, whose segment flush had failed on ENOSPC,
+    came back only when a pod restart replayed the WAL.
+  - Now in the deploy README §Durable buffer.
+- **Row 15 is the documented batched-publisher duplicate** (README
+  §Duplicates, `route-gwkill-batched.txt`: 70,320 and 61,727 with 8
+  senders). Pieces resent through a restarted gateway are re-batched, so
+  their bytes differ. Nothing was missing.
+- **Routing affinity (row 14):** 120 of 120 services on exactly one
+  publisher for both signals. The skew was 155k / 75k / 58k / 32k spans
+  across the 4 publishers (Zipf services, as D16 measured).
+- **The `serviceName` switch to routing** used the procedure fixed in §7
+  (orphan, apply, rollout restart). All four ring endpoints had their
+  hostnames.
+- **The consumer's horizon audit** (`consume horizon-audit --check-horizon
+  all`) found 0 late copies. Its scope was only the data left after the
+  truncations below.
+- ² **Row 17's central count is not usable, and that is my error.** At about
+  12:08 the host's free disk fell to 1.85 GB, below the 3 GB floor. The
+  growth came from ClickHouse parts, SeaweedFS and the kind node.
+  - SeaweedFS refused writes ("failed to find writable volumes") for about
+    4 minutes. The publishers held dataset 17 in their buffers and committed
+    it once space was back.
+  - I then truncated `k8s_edge` to free space while the consumer was
+    ingesting that backlog, which wiped 4 just-ingested objects (13,788
+    spans) from central.
+  - Counted straight from the S3 objects instead, dataset 17 is complete:
+    320,000 distinct spans and no duplicate across all objects.
+  - Datasets 1–16 had been verified before each truncation. After the first
+    truncation, no row reappeared in windows 1–9, so there were no late
+    copies.
+
+**Not covered:** EKS and its webhooks, real PVC expansion, multi-node
+placement, and metrics (only traces and logs were sent).
+
+## 9. What is left
+
+1. **The Go edge's agent** keeps its batch step. Its loss window on SIGKILL is
+   the same as the one found on kind (§8). The Go publisher does not batch,
+   so the fix there is a batch step in the Go publisher, or accepting the
+   window. This is a decision for D4 (DECISIONS.md still describes the agent
+   batch step).
+2. **New publishers get no traffic** until the agents reconnect (§8). The fix
+   is a server-side max connection age on the Rust OTLP receiver (upstream),
+   or an agent restart after a scale-up.
+3. **A full buffer volume needs an operator**: grow the volume, then restart
+   the pod (§8). The pod stays Ready throughout. A readiness signal on a
+   wedged buffer would take it out of rotation.
+4. **Rerun the KWOK agreement check** with the controller's agent-rule fix
+   (§3).
+5. **Sync cadence and shape** (§5): at start-up plus hourly, or key-only.
+6. **Lane liveness** (§6): mark a silent cluster's versions unknown.
+7. **The controller-outage loss** (§6): two replicas per cluster, measured.
+8. **ClickHouse-side cost** of the aggregator (inserts and sync-close), on a
    quiet server.
-7. **A per-attempt timeout on lane PUTs** (§6). Without one, a hung S3 stalls
-   the lane until the TCP connection breaks.
+
+Done since the first write-up: the kind run (§8), the agent-rule
+`resource_id` fix (§3), and a per-attempt lane PUT timeout (`--put-timeout`,
+default 20 s, test `internal/lane/s3_test.go`).

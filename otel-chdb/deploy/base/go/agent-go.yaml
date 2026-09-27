@@ -11,6 +11,12 @@
 # - send_batch_max_size: 10000 also splits a larger incoming request,
 #   deterministically, so no object goes over 10k rows (U12: objects above
 #   ~100k rows split nondeterministically in ClickHouse).
+# - KNOWN GAP (deploy/results/k8s-sim.md §kind): the batch processor is
+#   asynchronous, so the receiver acks a request before it is in the
+#   persistent queue; a SIGKILL (OOM kill, crash) loses what the batcher
+#   held: 1-5 of 32 10k-item requests per kill with the same agent on the
+#   Rust edge, which dropped the batch step for that reason. Here the Go
+#   publisher does not batch, so dropping it would make ~300-row objects.
 receivers:
   otlp:
     protocols:

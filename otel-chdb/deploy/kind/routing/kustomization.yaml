@@ -20,3 +20,12 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 4
+  # the gateways' 500m requests left no room on one 4-CPU node for the
+  # rolling update's surge pod (FailedScheduling: Insufficient cpu)
+  - target:
+      kind: Deployment
+      name: otel-gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests
+        value: {cpu: 100m, memory: 256Mi}

@@ -34,4 +34,5 @@ configs-correctness.txt scripts/configs_e2e.sh (correctness.py + metrics_correct
 go-edge.txt            scripts/go_edge_test.sh (the Go publisher, SIGKILL mid-stream)
 k8s-sim.md             2026-09-27: KWOK fleet driving the entity controller (../../entities/controller):
                        freshness, cost, volume, resource_id agreement, outages; deploy/ manifests on a
-                       1,005-node KWOK control plane (kind itself did not fit the box)
+                       1,005-node KWOK control plane; then kind (kind/kind_test.sh): 17 datasets end to
+                       end through real pods with kills, restarts, scaling, a full buffer volume, routing

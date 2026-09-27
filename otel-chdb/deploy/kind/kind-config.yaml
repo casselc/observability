@@ -1,13 +1,29 @@
-# One small real cluster for the deploy/ manifests (../../deploy/results/k8s-sim.md).
-#   kind create cluster --config kind-config.yaml --image kindest/node:<version>
-# The dev box runs cgroup v1 (hybrid); kubelet >= 1.35 refuses cgroup v1
-# unless failCgroupV1 is false.
+# One small real cluster for the deploy/ manifests (../results/k8s-sim.md §kind).
+#   kind create cluster --config kind-config.yaml --image kindest/node:v1.35.0
+# (kind v0.31). Edit the two hostPaths below first.
+# - failCgroupV1: the dev box runs cgroup v1 (hybrid); kubelet >= 1.35
+#   refuses cgroup v1 unless it is false.
+# - runc-oom-clamp.sh: only where the container sandbox lacks
+#   CAP_SYS_RESOURCE (the dev box): without it no pod sandbox starts
+#   (see the script). Drop the containerdConfigPatches and its mount elsewhere.
+# - /mix: the test datasets kind_test.sh sends from (hostPath into the sender Job).
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: k8s-edge
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+      BinaryName = "/usr/local/bin/runc-oom-clamp"
 nodes:
   - role: control-plane
     kubeadmConfigPatches:
       - |
         kind: KubeletConfiguration
         failCgroupV1: false
+    extraMounts:
+      - hostPath: /CHANGE-ME/otel-chdb/deploy/kind/runc-oom-clamp.sh
+        containerPath: /usr/local/bin/runc-oom-clamp
+        readOnly: true
+      - hostPath: /CHANGE-ME/work/mix
+        containerPath: /mix
+        readOnly: true

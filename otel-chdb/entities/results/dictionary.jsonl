@@ -1,0 +1,12 @@
+{"rep": 0, "dict": "d_res", "entries": 5102520, "bytes_allocated": 536871376, "tracked_delta": 212013954, "load_s": 2.232, "wall_s": 2.238, "load": [3.2, 2.99, 7.68], "ts": "2026-09-27T02:52:42Z"}
+{"rep": 0, "dict": "d_pod", "entries": 4699830, "bytes_allocated": 3623876416, "tracked_delta": 3624098520, "load_s": 15.34, "wall_s": 15.343, "load": [3.21, 3.0, 7.59], "ts": "2026-09-27T02:53:04Z"}
+{"rep": 0, "dict": "d_wl", "entries": 193409, "bytes_allocated": 159379920, "tracked_delta": 159478552, "load_s": 0.464, "wall_s": 0.469, "load": [3.17, 3.0, 7.54], "ts": "2026-09-27T02:53:10Z"}
+{"rep": 0, "dict": "d_node", "entries": 29033, "bytes_allocated": 9957608, "tracked_delta": 10050600, "load_s": 0.035, "wall_s": 0.037, "load": [3.08, 2.99, 7.51], "ts": "2026-09-27T02:53:16Z"}
+{"rep": 0, "dict": "d_ns", "entries": 800, "bytes_allocated": 110824, "tracked_delta": 204360, "load_s": 0.002, "wall_s": 0.005, "load": [2.99, 2.97, 7.48], "ts": "2026-09-27T02:53:22Z"}
+{"rep": 0, "dict": "d_cluster", "entries": 20, "bytes_allocated": 18664, "tracked_delta": 111048, "load_s": 0.002, "wall_s": 0.003, "load": [2.99, 2.97, 7.45], "ts": "2026-09-27T02:53:28Z"}
+{"rep": 1, "dict": "d_res", "entries": 5102520, "bytes_allocated": 536871376, "tracked_delta": 536968888, "load_s": 2.083, "wall_s": 2.086, "load": [2.92, 2.95, 7.4], "ts": "2026-09-27T02:53:36Z"}
+{"rep": 1, "dict": "d_pod", "entries": 4699830, "bytes_allocated": 3623876416, "tracked_delta": 3624034576, "load_s": 15.902, "wall_s": 15.905, "load": [3.13, 3.0, 7.32], "ts": "2026-09-27T02:53:58Z"}
+{"rep": 1, "dict": "d_wl", "entries": 193409, "bytes_allocated": 159379920, "tracked_delta": 159479000, "load_s": 0.362, "wall_s": 0.365, "load": [3.04, 2.99, 7.29], "ts": "2026-09-27T02:54:05Z"}
+{"rep": 1, "dict": "d_node", "entries": 29033, "bytes_allocated": 9957608, "tracked_delta": 182419006, "load_s": 0.053, "wall_s": 0.056, "load": [2.88, 2.95, 7.24], "ts": "2026-09-27T02:54:11Z"}
+{"rep": 1, "dict": "d_ns", "entries": 800, "bytes_allocated": 110824, "tracked_delta": 200200, "load_s": 0.002, "wall_s": 0.004, "load": [2.81, 2.94, 7.21], "ts": "2026-09-27T02:54:17Z"}
+{"rep": 1, "dict": "d_cluster", "entries": 20, "bytes_allocated": 18664, "tracked_delta": 110824, "load_s": 0.002, "wall_s": 0.004, "load": [2.82, 2.94, 7.18], "ts": "2026-09-27T02:54:23Z"}

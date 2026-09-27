@@ -1,0 +1,18 @@
+# dictmem.sh: MemoryTracking delta after SYSTEM RELOAD (steady state, 4 s), 2026-09-27 ~02:55-03:05Z, loaded box (load 3-8)
+# name	layout	entries	bytes_allocated	load_s	tracked_delta	per_entry_B	what
+flat_c0	HASHED	257584	16777448	3.388	1614142896	6266	cluster 0, 90 days: resource_id -> Map(String,String) covered set (32 keys)
+flatstr_c0	HASHED	257584	415232232	1.021	415326984	1612	same, the map as String (toString(Map))
+flatvals_c0	HASHED	257584	281014504	0.155	281106088	1091	same, values only (\0-joined, fixed key order)
+range_c0	RANGE_HASHED	257592	500740616	1.249	503016200	1953	SCD2 entity variant: xxh3(cluster, pod uid, container) + [valid_from, valid_to) -> String
+d_res	HASHED	5102520	536871376	2.083	536968888	105	fleet 90 days: resource_id -> (pod_key, ct)
+d_res	HASHED_ARRAY	5102520	343933120	1.472	344034592	67	same
+d_res	SPARSE_HASHED	5102520	419430864	2.039	419531352	82	same
+d_pod	HASHED	4699830	3623876416	15.902	3624034576	771	fleet 90 days: pod version -> name, uid, start (String), extra map (String), 4 keys
+d_pod	HASHED_ARRAY	4699830	2013262592	7.228	2013312288	428	same
+d_pod	SPARSE_HASHED	4699830	2464447200	28.259	2524782576	537	same
+d_pod2	HASHED_ARRAY	4699830	1644163840	7.419	1644310136	350	uid as UUID, start as DateTime
+d_pod3	HASHED_ARRAY	4699830	1476391488	6.473	1476524792	314	d_pod2 with 2 keys (wl, node) instead of 4
+d_wl	HASHED	193409	159379920	0.362	159479000	825	workload version -> attrs String, containers String
+d_node	HASHED	29033	9957608	0.053	10050600	346	node -> attrs String
+d_ns	HASHED	800	110824	0.002	200200	-	namespace
+d_cluster	HASHED	20	18664	0.002	110824	-	cluster

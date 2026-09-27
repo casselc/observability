@@ -1,0 +1,69 @@
+{
+ "db": "ent_b2",
+ "tables_in_order": [
+  "otel_logs",
+  "otel_logs_kv_rollup_15m",
+  "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "otel_logs_kv_rollup_15m_mv",
+  "otel_logs_rid",
+  "otel_traces",
+  "otel_traces_kv_rollup_15m",
+  "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "otel_traces_kv_rollup_15m_mv",
+  "otel_traces_rid",
+  "resource_kv_in_logs",
+  "resource_kv_in_traces"
+ ],
+ "logs.ResourceAttributes": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "logs.SeverityText": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "logs.ServiceName": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "logs.ScopeName": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "logs.ScopeVersion": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "logs.LogAttributes": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": false
+ },
+ "logs.ScopeAttributes": {
+  "decided_by": "otel_logs_kv_rollup_15m_0_catalog_mv",
+  "rollup": false
+ },
+ "traces.ResourceAttributes": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "traces.ServiceName": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "traces.SpanName": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "traces.SpanKind": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "traces.StatusCode": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": true
+ },
+ "traces.SpanAttributes": {
+  "decided_by": "otel_traces_kv_rollup_15m_0_catalog_mv",
+  "rollup": false
+ }
+}

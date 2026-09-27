@@ -68,7 +68,7 @@ jobs:
         run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
       - name: Start SeaweedFS and ClickHouse
         run: ci/services.sh start
-      - run: cat ci/test.env >> "$GITHUB_ENV"
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
       - name: go test
         env:
           RACE: "1"
@@ -135,7 +135,7 @@ jobs:
           restore-keys: go-rust-${{ runner.os }}-
       - name: Start SeaweedFS and ClickHouse
         run: ../../ci/services.sh start
-      - run: cat ../../ci/test.env >> "$GITHUB_ENV"
+      - run: grep -Ev '^(#|$)' ../../ci/test.env >> "$GITHUB_ENV"
       - name: clippy (with the allow-list in ci/clippy.sh)
         run: ../../ci/clippy.sh
       - name: Unit tests (lib and bins; the consumer's ClickHouse / S3 tests use the services)

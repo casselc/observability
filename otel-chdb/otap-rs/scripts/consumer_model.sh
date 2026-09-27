@@ -45,12 +45,37 @@ sim $C restamp atMostOnce 20000 60 VIOLATED
 sim $C noHorizonReplays "not(wReplayKeepsDay)" 20000 60 VIOLATED
 sim $C gcReopens neverSkipsCommitted 20000 60 VIOLATED
 # (gcReopensDesignTest needs writer faults: a lost answer)
-for m in s3InlineConsumerDesign designCopies designDays; do runs $m DesignTest all-pass; done
+# (the scripted runs before the durations; the durations' own runs are below)
+for m in s3InlineConsumerDesign designCopies designDays; do
+  runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|restamp|wallRange|errorSettles|gcReopens)DesignTest" all-pass
+done
 for m in designQuiet designShortLease; do runs $m "(releaseInFlight|releaseSettled|keeperOverrun|noHorizon|restamp|wallRange|errorSettles)DesignTest" all-pass; done
 # HORIZON 0: an edge replay is skipped (restampDesignTest); a sender's resend on a later day is not.
 runs noHorizonReplays "(restamp|releaseInFlight|keeperOverrun|errorSettles|gcReopens)DesignTest" all-pass
 runs noHorizon restampDesignTest all-pass
 for m in releaseInFlight keeperOverrun noHorizon restamp wallRange gcReopens errorSettles; do runs $m "${m}BreaksTest" all-pass; done
+# Durations (2026-09-27, the DST CAST: STPA.md issues 13 and 14; AMBIGUITY.md S3):
+# slow LIST answers, HEADs that cost time, ambiguous lease / checkpoint writes.
+# slowSafety = safety (with noLiveTakeover) + workFitsWindow + noOwnDrop.
+for m in designSlow designSlowQuiet designSlowShort; do sim $C $m slowSafety 5000 60 ok; done
+for w in wListRace wRenewMidScan wOwn412Kept wOrphanWrite wCasLost wTakeover wPrevKept; do
+  sim $C designSlow "not($w)" 20000 60 VIOLATED
+done
+sim $C designSlowQuiet "not(wSlowIngest)" 20000 60 VIOLATED
+sim $C observeAtRequest noLiveTakeover 20000 60 VIOLATED
+# (the duplicate needs a slow LIST, a takeover of a live lease and the old
+# holder's statement landing: random runs miss it; observeAtRequestBreaksTest has it)
+sim $C observeAtRequest atMostOnce 20000 60 ok
+# The two liveness mutants: their progress proxy breaks, safety holds.
+sim $C renewOnlyAtInsert workFitsWindow 20000 60 VIOLATED
+sim $C renewOnlyAtInsert safety 5000 60 ok
+sim $C own412IsTakeover noOwnDrop 20000 60 VIOLATED
+sim $C own412IsTakeover safety 5000 60 ok
+for m in designSlow designSlowQuiet; do runs $m observeDesignTest all-pass; done
+runs designSlowShort "(scan|own412)DesignTest" all-pass
+# (an MBT finding, fixed: a lost renewal request keeps the lane, on its old window)
+runs designSlowShort lostRenewalKeepsTest all-pass
+for m in observeAtRequest renewOnlyAtInsert own412IsTakeover; do runs $m "${m}BreaksTest" all-pass; done
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

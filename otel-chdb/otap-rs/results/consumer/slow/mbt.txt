@@ -1,0 +1,62 @@
+QUINT_SEED=0x5eed cargo test --release --offline --test mbt_s3inline_consumer -- <test> --exact --nocapture --test-threads=1 (quint 0.32.0, quint-connect 0.1.2), one test at a time
+== slow MemAvailable 13749768 kB
+exit 0 114s
+      Generating 500 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_slow_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 113.04s
+   actions: cApply 1 cDrop 1 init 500 lApply 1050 lLose 1057 lNewIncarnation 500 lReceive 358 lResolve 996 lSend 2305 lStartPush 1182 lSwitchPayload 658 lTimeout 1767 newDay 500 senderResend 959 tick 10936 wAcquire 958 wAdvanceSend 1 wCasAnswer 77 wCasLand 86 wCasLose 100 wCheck 7 wCrash 4210 wHead 96 wLapse 19 wListAnswer 3660 wListReq 7838 wRelease 379 wRenewSend 190 wSend 2 wTomb 107 
+== slow_quiet (max_samples 500) MemAvailable 13704872 kB
+exit 0 107s
+      Generating 500 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_slow_quiet_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 106.69s
+   actions: cApply 1 init 500 lApply 1050 lNewIncarnation 500 lReceive 939 lSend 1058 lStartPush 1202 tick 11798 wAcquire 1100 wCasAnswer 78 wCasLand 94 wCasLose 95 wCheck 3 wCrash 5595 wHead 99 wLapse 19 wListAnswer 5005 wListReq 10585 wRelease 471 wRenewSend 190 wSend 1 wTomb 117 
+== design MemAvailable 13767328 kB
+exit 0 46s
+      Generating 300 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_design_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 45.74s
+   actions: cApply 3 cDrop 8 init 298 lApply 492 lLose 508 lNewIncarnation 300 lReceive 174 lResolve 391 lSend 1114 lStartPush 640 lSwitchPayload 336 lTimeout 821 newDay 300 sAnnounce 509 sLand 846 sLose 830 sPush 599 sResend 1126 sRestart 300 senderResend 580 step 2 tick 5386 wAcquire 1097 wAdvance 2 wCheck 56 wCrash 506 wLapse 17 wRelease 454 wRenew 476 wSend 14 wTomb 113 
+== quiet MemAvailable 13792572 kB
+exit 0 171s
+      Generating 1000 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_quiet_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 170.44s
+   actions: cApply 56 cDrop 134 gc 2 init 1 lApply 2194 lNewIncarnation 1000 lReceive 2000 lSend 2194 lStartPush 2447 newDay 1000 senderResend 1905 step 999 tick 24000 wAcquire 5320 wAdvance 58 wCheck 538 wCrash 2592 wLapse 158 wRelease 2568 wRenew 2437 wSend 191 wTomb 471 
+== copies MemAvailable 13805216 kB
+exit 0 98s
+      Generating 500 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_copies_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 97.85s
+   actions: cApply 21 cDrop 44 init 86 lApply 1390 lLose 1443 lNewIncarnation 500 lReceive 561 lResolve 1492 lSend 2948 lStartPush 1244 lSwitchPayload 817 lTimeout 2329 newDay 500 senderResend 952 step 414 tick 11986 wAcquire 2609 wAdvance 14 wCheck 214 wCrash 1305 wLapse 57 wRelease 1228 wRenew 1285 wSend 65 wTomb 234 
+== compact_design MemAvailable 13807508 kB
+exit 0 33s
+      Generating 300 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_compact_design_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 32.17s
+   actions: cApply 4 cDrop 10 gcRetire 97 init 293 lApply 506 lLose 512 lNewIncarnation 300 lReceive 214 lResolve 415 lSend 1155 lStartPush 670 lSwitchPayload 326 lTimeout 818 sAnnounce 536 sLand 852 sLose 797 sPush 600 sResend 1087 sRestart 300 step 7 tick 5783 wAcquire 1171 wAdvance 3 wCheck 61 wCompact 37 wCrash 530 wLapse 16 wRelease 522 wRenew 516 wSend 16 wTomb 124 
+== compact_quiet MemAvailable 13683032 kB
+exit 0 121s
+      Generating 1000 traces using `0x5eed` as random seed ...
+      [OK] s3inline_consumer_compact_quiet_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 120.30s
+   actions: cApply 39 cDrop 113 gc 1 gcRetire 466 init 1 lApply 2169 lNewIncarnation 1000 lReceive 2000 lSend 2169 lStartPush 2442 step 999 tick 24000 wAcquire 5340 wAdvance 34 wCheck 519 wCompact 266 wCrash 2582 wLapse 171 wRelease 2587 wRenew 2411 wSend 154 wTomb 466 
+
+# The seed that found the lost-request drop (before the fix: diverged, the code dropped the lane; now OK):
+QUINT_SEED=0x29e8aebd cargo test --release --offline --test mbt_s3inline_consumer -- <test> --exact --nocapture --test-threads=1 (quint 0.32.0, quint-connect 0.1.2), one test at a time
+== slow MemAvailable 13752920 kB
+exit 0 102s
+      Generating 500 traces using `0x29e8aebd` as random seed ...
+      [OK] s3inline_consumer_slow_simulation
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 101.39s
+   actions: cApply 1 cDrop 2 init 500 lApply 977 lLose 1078 lNewIncarnation 500 lReceive 409 lResolve 930 lSend 2259 lStartPush 1160 lSwitchPayload 643 lTimeout 1692 newDay 500 senderResend 956 tick 10847 wAcquire 963 wAdvanceSend 1 wCasAnswer 76 wCasLand 91 wCasLose 81 wCheck 9 wCrash 4244 wHead 96 wLapse 14 wListAnswer 3765 wListReq 8012 wRelease 399 wRenewSend 175 wSend 4 wTomb 116 
+
+# slow_quiet first attempt (max_samples 1000):
+== slow_quiet (max_samples 1000) MemAvailable 13813280 kB
+exit 101 103s
+      Generating 1000 traces using `0x5eed` as random seed ...
+   thread 's3inline_consumer_slow_quiet_simulation' (27945) panicked at tests/mbt_s3inline_consumer.rs:1240:1:
+   FAILED
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 69 filtered out; finished in 102.25s
+   actions: 
+   ("Quint returned non-zero code": quint ran out of its 5 GB heap generating 1000 traces of 80 steps, before any replay; the instance now generates 500)

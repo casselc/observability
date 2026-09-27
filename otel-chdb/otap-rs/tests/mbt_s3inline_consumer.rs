@@ -20,6 +20,9 @@
 //! | `wRelease` | `coord::may_act` must allow it (no statement of the worker can still land: `Held::settled_by`); `coord::release` |
 //! | `newDay`, `senderResend`, the partitions | an object's received time is its request's custody day, stamped once per incarnation (an edge replay keeps it; a sender's resend is new custody, a later day); the check and the verify read the partitions `plan::check_range` / `plan::own_range` give (the verify's recount over the horizon included) |
 //! | series actions | not driven (the edge's cache is `series.rs`; see the model) |
+//! | `wListReq`, `wListAnswer` (instance `designSlow`) | a discovery LIST: the answer's lease version goes to `Observer::observe` dated when the answer came; `takeable` is then `Observer::may_take` on the version the LIST showed |
+//! | `wHead` (`designSlow`) | a HEAD costs a tick; `Held::renew_due` must be false (the scan stops once the renewal is due) |
+//! | `wRenewSend`, `wAdvanceSend`, `wCasLand`, `wCasLose`, `wCasAnswer` (`designSlow`) | the lease renewal (`coord::renew`) and the checkpoint write as PUT If-Match: applied only if the ETag still matches; on a 412 or no answer the doc is read back and the lane kept iff it equals ours (`write_lease` / `write_ckpt` since 034f577), or still has the ETag the write was conditional on (a lost request: kept on the old window, and written again; `NotWritten::Unchanged` since 2026-09-27, found by this driver, seed 0x29e8aebd) |
 //!
 //! After every step the implementation's state is projected onto the
 //! model's variables (the log, the lease, each worker's lease view,
@@ -31,7 +34,9 @@
 //!
 //! Two instances are replayed: `s3InlineConsumerDesign` (the full hostile
 //! environment) and `designQuiet` (no writer faults, no series lane), where
-//! most steps go to the workers.
+//! most steps go to the workers; and `designDays` and `designSlow` (the
+//! same with durations: slow LISTs, HEADs that cost time, ambiguous lease
+//! and checkpoint writes).
 //!
 //! **Checkpoint compaction** (../model/s3InlineConsumerCompact.qnt, the same
 //! consumer plus GC retirement, a floor and compaction; instances
@@ -96,7 +101,7 @@ fn day_ns(d: i64) -> u64 {
 
 // ---- the model's types ------------------------------------------------------------
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct CkptM {
     version: i64,
     #[serde(rename = "leaseEpoch")]
@@ -133,6 +138,43 @@ pub struct WorkerM {
     epoch: i64,
     objs: BTreeSet<ObjM>,
     pending: BTreeSet<ObjM>,
+    /// The version the worker's LISTs last showed (not compared: it only
+    /// feeds the model's `takeable`, which is).
+    #[serde(default)]
+    obs: Option<LeaseM>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "tag")]
+pub enum CasKindM {
+    CRenew,
+    CAdvance,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "tag")]
+pub enum CasStM {
+    CPending,
+    CApplied,
+    CRejected,
+    CLost,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tag")]
+pub enum CasAnsM {
+    A200,
+    ANone,
+    A412,
+}
+
+/// A lease / checkpoint write in flight or unanswered (the model's `Write`).
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WriteM {
+    worker: i64,
+    inc: i64,
+    kind: CasKindM,
+    st: CasStM,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,7 +185,7 @@ pub struct StmtM {
     fence: i64,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LeaseM {
     owner: i64,
     epoch: i64,
@@ -166,30 +208,30 @@ struct Raw {
     l_inflight: BTreeSet<Req>,
     #[serde(rename = "s3InlineConsumer::L::responses", alias = "s3InlineConsumerCompact::L::responses")]
     l_responses: BTreeSet<Resp>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time", alias = "designDays::s3InlineConsumer::time",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::time", alias = "designQuiet::s3InlineConsumer::time", alias = "designDays::s3InlineConsumer::time", alias = "designSlow::s3InlineConsumer::time", alias = "designSlowQuiet::s3InlineConsumer::time",
         alias = "compactDesign::s3InlineConsumerCompact::time", alias = "compactQuiet::s3InlineConsumerCompact::time")]
     time: i64,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease", alias = "designDays::s3InlineConsumer::lease",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::lease", alias = "designQuiet::s3InlineConsumer::lease", alias = "designDays::s3InlineConsumer::lease", alias = "designSlow::s3InlineConsumer::lease", alias = "designSlowQuiet::s3InlineConsumer::lease",
         alias = "compactDesign::s3InlineConsumerCompact::lease", alias = "compactQuiet::s3InlineConsumerCompact::lease")]
     lease: LeaseM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers", alias = "designDays::s3InlineConsumer::workers",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::workers", alias = "designQuiet::s3InlineConsumer::workers", alias = "designDays::s3InlineConsumer::workers", alias = "designSlow::s3InlineConsumer::workers", alias = "designSlowQuiet::s3InlineConsumer::workers",
         alias = "compactDesign::s3InlineConsumerCompact::workers", alias = "compactQuiet::s3InlineConsumerCompact::workers")]
     workers: BTreeMap<i64, WorkerM>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt", alias = "designDays::s3InlineConsumer::ckpt",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::ckpt", alias = "designQuiet::s3InlineConsumer::ckpt", alias = "designDays::s3InlineConsumer::ckpt", alias = "designSlow::s3InlineConsumer::ckpt", alias = "designSlowQuiet::s3InlineConsumer::ckpt",
         alias = "compactDesign::s3InlineConsumerCompact::ckpt", alias = "compactQuiet::s3InlineConsumerCompact::ckpt")]
     ckpt: CkptM,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central", alias = "designDays::s3InlineConsumer::central",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::central", alias = "designQuiet::s3InlineConsumer::central", alias = "designDays::s3InlineConsumer::central", alias = "designSlow::s3InlineConsumer::central", alias = "designSlowQuiet::s3InlineConsumer::central",
         alias = "compactDesign::s3InlineConsumerCompact::central", alias = "compactQuiet::s3InlineConsumerCompact::central")]
     central: BTreeMap<i64, i64>,
-    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts", alias = "designDays::s3InlineConsumer::stmts",
+    #[serde(rename = "s3InlineConsumerDesign::s3InlineConsumer::stmts", alias = "designQuiet::s3InlineConsumer::stmts", alias = "designDays::s3InlineConsumer::stmts", alias = "designSlow::s3InlineConsumer::stmts", alias = "designSlowQuiet::s3InlineConsumer::stmts",
         alias = "compactDesign::s3InlineConsumerCompact::stmts", alias = "compactQuiet::s3InlineConsumerCompact::stmts")]
     stmts: BTreeSet<StmtM>,
     // s3InlineConsumer only (absent: no partitions in the instance)
     #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::crows", alias = "designQuiet::s3InlineConsumer::crows",
-        alias = "designDays::s3InlineConsumer::crows")]
+        alias = "designDays::s3InlineConsumer::crows", alias = "designSlow::s3InlineConsumer::crows", alias = "designSlowQuiet::s3InlineConsumer::crows")]
     crows: Option<BTreeMap<i64, BTreeMap<i64, i64>>>,
     #[serde(default, rename = "s3InlineConsumerDesign::s3InlineConsumer::day", alias = "designQuiet::s3InlineConsumer::day",
-        alias = "designDays::s3InlineConsumer::day")]
+        alias = "designDays::s3InlineConsumer::day", alias = "designSlow::s3InlineConsumer::day", alias = "designSlowQuiet::s3InlineConsumer::day")]
     day: i64,
     // s3InlineConsumerCompact only (absent: no compaction in the instance)
     #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::floor", alias = "compactQuiet::s3InlineConsumerCompact::floor")]
@@ -198,6 +240,9 @@ struct Raw {
     retired: BTreeSet<i64>,
     #[serde(default, rename = "compactDesign::s3InlineConsumerCompact::viewFloor", alias = "compactQuiet::s3InlineConsumerCompact::viewFloor")]
     view_floor: Option<BTreeMap<i64, i64>>,
+    // The instances with durations only (present: SLOW_OBS and CAS_AMBIG are on)
+    #[serde(default, rename = "designSlow::s3InlineConsumer::writes", alias = "designSlowQuiet::s3InlineConsumer::writes")]
+    writes: Option<BTreeSet<WriteM>>,
 }
 
 /// What each worker's clock allows it now, and what compaction may drop.
@@ -233,6 +278,8 @@ pub struct Spec {
     floor: i64,
     retired: BTreeSet<i64>,
     view_floor: BTreeMap<i64, i64>,
+    /// Lease / checkpoint writes in flight or unanswered: (worker, inc, kind, state).
+    writes: BTreeSet<(i64, i64, CasKindM, CasStM)>,
     allowed: Allowed,
 }
 
@@ -241,8 +288,14 @@ impl From<Raw> for Spec {
         // The model's formulas (s3InlineConsumer.qnt: takeable, mayStart, lapsed).
         let t = timing();
         let (ttl, m, b, sl) = (t.ttl_ms as i64, t.margin_ms as i64, t.budget_ms as i64, t.slack_ms as i64);
+        // (SLOW_OBS: only the version its LISTs showed, and a take is a CAS on it)
+        let slow = r.writes.is_some();
         let allowed = Allowed {
-            takeable: r.workers.iter().map(|(w, x)| (*w, !x.holds && (r.lease.owner == 0 || r.time >= x.seen + ttl + m))).collect(),
+            takeable: r
+                .workers
+                .iter()
+                .map(|(w, x)| (*w, !x.holds && (!slow || x.obs == Some(r.lease)) && (r.lease.owner == 0 || r.time >= x.seen + ttl + m)))
+                .collect(),
             may_start: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time + b <= x.sent + ttl - m)).collect(),
             lapsed: r.workers.iter().map(|(w, x)| (*w, x.holds && r.time >= x.sent + ttl - m)).collect(),
             // s3InlineConsumer's mayRelease (the design: RELEASE_GUARD)
@@ -263,6 +316,8 @@ impl From<Raw> for Spec {
             Some(c) => c.iter().flat_map(|(p, ds)| ds.iter().filter(|(_, n)| **n > 0).map(|(d, n)| ((*p, *d), *n))).collect(),
             None => r.central.iter().filter(|(_, n)| **n > 0).map(|(p, n)| ((*p, 0), *n)).collect(),
         };
+        let writes = r.writes.unwrap_or_default().iter().map(|q| (q.worker, q.inc, q.kind, q.st)).collect();
+        let workers = r.workers.into_iter().map(|(w, x)| (w, WorkerM { obs: None, ..x })).collect();
         Spec {
             log: r.l_log,
             writers: r.l_writers,
@@ -273,7 +328,7 @@ impl From<Raw> for Spec {
             responses: r.l_responses,
             time: r.time,
             lease: r.lease,
-            workers: r.workers,
+            workers,
             ckpt: r.ckpt,
             central: r.central,
             crows,
@@ -282,6 +337,7 @@ impl From<Raw> for Spec {
             floor: r.floor,
             retired: r.retired,
             view_floor,
+            writes,
             allowed,
         }
     }
@@ -303,6 +359,32 @@ struct Worker {
     epoch: i64,
     objs: Vec<ObjM>,
     pending: Vec<ObjM>,
+    /// (designSlow) What its last LIST answer showed: None, never listed;
+    /// Some(None), no lease object; Some(Some(etag)).
+    listed: Option<Option<String>>,
+    /// (designSlow) HEADs made per epoch above its checkpoint view.
+    scanned: BTreeMap<i64, u64>,
+}
+
+/// A lease or checkpoint PUT If-Match of the driver's, in flight or unanswered.
+#[derive(Clone, Debug)]
+struct PendW {
+    worker: i64,
+    inc: i64,
+    kind: CasKindM,
+    st: CasStM,
+    /// CRenew: the renewed doc, the ETag it is conditional on, and (applied) its new ETag.
+    lease: Option<LeaseDoc>,
+    prev_etag: Option<String>,
+    etag: Option<String>,
+    /// CAdvance: the new checkpoint, the view's ETag it is conditional on, (applied) its new ETag.
+    ckpt: Option<CkptDoc>,
+    base_etag: u64,
+    ckpt_etag: u64,
+    epoch: i64,
+    from: u64,
+    /// When the PUT was sent (the window counts from it).
+    sent: i64,
 }
 
 impl Worker {
@@ -320,7 +402,21 @@ impl Worker {
             epoch: 0,
             objs: Vec::new(),
             pending: Vec::new(),
+            listed: None,
+            scanned: BTreeMap::new(),
         }
+    }
+    /// It no longer holds the lane (its HEADs go with it).
+    fn drop_lane(&mut self) {
+        self.idle();
+        self.holds = false;
+        self.held = None;
+        self.scanned.clear();
+    }
+    /// HEADs above the new checkpoint are kept (a slot there never changes).
+    fn keep_heads(&mut self, e: i64, from: u64, n: u64) {
+        let c = self.scanned.entry(e).or_default();
+        *c = c.saturating_sub(n - from);
     }
     fn idle(&mut self) {
         self.phase = WPhaseM::WIdle;
@@ -356,6 +452,10 @@ pub struct ConsumerDriver {
     etags: u64,
     /// Epochs GC removed entirely (gc.json's `retired`).
     retired: BTreeSet<String>,
+    /// The instance has durations (`designSlow`): workers see lease
+    /// versions only by listing, and lease / checkpoint writes are ambiguous.
+    slow: bool,
+    writes: Vec<PendW>,
 }
 
 fn ename(e: i64) -> String {
@@ -389,6 +489,7 @@ impl ConsumerDriver {
         self.stmts.clear();
         self.settle.clear();
         self.retired.clear();
+        self.writes.clear();
     }
 
     /// Incarnation e takes payload p: its objects carry p's custody day
@@ -467,10 +568,7 @@ impl ConsumerDriver {
         let etag = self.etag();
         self.lease = Some((doc, etag.clone()));
         self.observe_all(&etag);
-        let x = self.w(w);
-        x.idle();
-        x.holds = false;
-        x.held = None;
+        self.w(w).drop_lane();
     }
 
     /// The epochs a full listing shows the worker (every epoch the writers
@@ -518,8 +616,11 @@ impl ConsumerDriver {
         y.view_etag = ce;
     }
 
-    /// Every worker sees a new lease version now.
+    /// Every worker sees a new lease version now (designSlow: only by listing).
     fn observe_all(&mut self, etag: &str) {
+        if self.slow {
+            return;
+        }
         let now = self.now();
         for (w, x) in self.workers.iter_mut() {
             x.obs.observe(LANE, Some(etag), now);
@@ -539,10 +640,7 @@ impl ConsumerDriver {
     fn acquire(&mut self, w: i64) {
         let t = timing();
         let now = self.now();
-        let may = match &self.lease {
-            None => true,
-            Some((doc, etag)) => self.workers[&w].obs.may_take(LANE, etag, doc, now, t.margin_ms),
-        };
+        let may = self.may_take(w);
         assert!(may, "the model lets worker {w} take the lane at {now}; its observer wouldn't");
         let doc = coord::take(LANE, self.lease.as_ref().map(|l| &l.0), &format!("w{w}"), t.ttl_ms, now);
         let etag = self.etag();
@@ -554,6 +652,7 @@ impl ConsumerDriver {
         let (ck, ce, time) = (self.ckpt.clone(), self.ckpt_etag, self.time);
         let x = self.w(w);
         x.idle();
+        x.scanned.clear();
         x.holds = true;
         x.lease_epoch = doc.epoch as i64;
         x.sent = time;
@@ -583,9 +682,7 @@ impl ConsumerDriver {
         let now = self.now();
         let x = self.w(w);
         assert!(x.held.as_ref().is_some_and(|h| h.lapsed(now, &t)), "the model lapses worker {w}; its clock says the window is open");
-        x.holds = false;
-        x.held = None;
-        x.idle();
+        x.drop_lane();
     }
 
     fn check(&mut self, w: i64, e: i64, k: i64) {
@@ -669,16 +766,15 @@ impl ConsumerDriver {
             self.ckpt = self.ckpt.bumped(x.lease_epoch as u64);
             self.ckpt_etag += 1;
             let (ck, ce) = (self.ckpt.clone(), self.ckpt_etag);
+            let from = x.view.next(&e);
             let y = self.w(w);
             y.idle();
+            y.keep_heads(x.epoch, from, n);
             y.view = ck;
             y.view_etag = ce;
         } else {
             // The CAS failed: another worker took the lane.
-            let y = self.w(w);
-            y.idle();
-            y.holds = false;
-            y.held = None;
+            self.w(w).drop_lane();
         }
     }
 
@@ -715,18 +811,227 @@ impl ConsumerDriver {
 
     fn crash(&mut self, w: i64) {
         let time = self.time;
+        let slow = self.slow;
         let x = self.w(w);
-        x.idle();
-        x.holds = false;
-        x.held = None;
+        x.drop_lane();
         x.inc += 1;
-        // A new process: nothing observed yet; it sees the current lease from now.
+        // A new process: nothing observed yet; it sees the current lease
+        // from now (designSlow: from its first LIST). A write it had in
+        // flight may still apply (an orphan).
         x.obs = Observer::default();
+        x.listed = None;
         let now = time as u64;
-        if let Some((_, etag)) = self.lease.clone() {
+        if let Some((_, etag)) = self.lease.clone().filter(|_| !slow) {
             self.w(w).obs.observe(LANE, Some(&etag), now);
         }
         let _ = self.seen.insert(w, time);
+    }
+
+    /// Would the code take the lane now? Its observer must allow the
+    /// current version (`Observer::may_take`); designSlow: and its LISTs
+    /// must have shown that version (the take is a CAS on it; the model
+    /// folds try_take's GET into the take).
+    fn may_take(&self, w: i64) -> bool {
+        let t = timing();
+        let x = &self.workers[&w];
+        let listed = !self.slow || x.listed == Some(self.lease.as_ref().map(|l| l.1.clone()));
+        listed
+            && match &self.lease {
+                None => true,
+                Some((doc, etag)) => x.obs.may_take(LANE, etag, doc, self.now(), t.margin_ms),
+            }
+    }
+
+    /// A LIST answer arrives: the lease version it shows goes to the
+    /// observer now, when the answer came (worker.rs since 6b1a5f5); a
+    /// version the worker has already seen keeps its first-seen time.
+    fn list_answer(&mut self, w: i64) {
+        let now = self.now();
+        let cur = self.lease.as_ref().map(|l| l.1.clone());
+        let x = self.w(w);
+        if x.listed.as_ref() == Some(&cur) {
+            return;
+        }
+        x.obs.observe(LANE, cur.as_deref(), now);
+        let since = match cur.as_deref() {
+            Some(e) => now - x.obs.unchanged_for(LANE, e, now).expect("just observed"),
+            None => now,
+        };
+        x.listed = Some(cur);
+        let _ = self.seen.insert(w, since as i64);
+    }
+
+    /// A HEAD of the next slot above the view: it takes a tick. The design
+    /// stops a scan once the renewal is due.
+    fn head(&mut self, w: i64, e: i64) {
+        let now = self.now();
+        let x = &self.workers[&w];
+        let h = x.held.as_ref().expect("holds");
+        assert!(!h.renew_due(now), "the model HEADs at {now}; the code's renewal is due (Held::renew_due): its scan stops there");
+        self.assert_above_floor(w, e);
+        let s = x.view.next(&ename(e)) + x.scanned.get(&e).copied().unwrap_or(0);
+        assert!(matches!(self.slot(e, s as i64), Some(Found::Data { .. })), "the model HEADs epoch {e} slot {s}: not data");
+        *self.w(w).scanned.entry(e).or_default() += 1;
+        self.time += 1;
+    }
+
+    fn write_index(&self, q: &WriteM) -> usize {
+        let i = self.writes.iter().position(|p| p.worker == q.worker && p.inc == q.inc).expect("a write in flight");
+        assert_eq!((self.writes[i].kind, self.writes[i].st), (q.kind, q.st), "the write's kind or state differs");
+        i
+    }
+
+    /// The renewal's PUT If-Match goes out; the window will count from now.
+    fn renew_send(&mut self, w: i64) {
+        let t = timing();
+        let now = self.now();
+        let x = &self.workers[&w];
+        let h = x.held.clone().expect("holds");
+        assert!(!h.lapsed(now, &t), "the model renews; the worker's window is over");
+        assert_eq!(self.lease.as_ref().map(|l| &l.1), Some(&h.etag), "the model renews a lease that is no longer the worker's");
+        let p = PendW {
+            worker: w,
+            inc: x.inc,
+            kind: CasKindM::CRenew,
+            st: CasStM::CPending,
+            lease: Some(coord::renew(&h.doc, now)),
+            prev_etag: Some(h.etag),
+            etag: None,
+            ckpt: None,
+            base_etag: 0,
+            ckpt_etag: 0,
+            epoch: 0,
+            from: 0,
+            sent: self.time,
+        };
+        self.writes.push(p);
+    }
+
+    /// The checkpoint's PUT If-Match (on its view's ETag) past the verified done prefix.
+    fn advance_send(&mut self, w: i64) {
+        let t = timing();
+        let x = self.workers[&w].clone();
+        assert!(!self.stmts.iter().any(|s| s.worker == w && s.inc == x.inc), "advance with its statement in flight");
+        let e = ename(x.epoch);
+        let done: HashMap<i64, bool> = x
+            .objs
+            .iter()
+            .map(|o| {
+                let v = plan::verdict(1, self.verify(o));
+                (o.slot, t.mutation == Mutation::NoVerify || matches!(v, Verdict::Present | Verdict::Over(_)))
+            })
+            .collect();
+        let seqs: Vec<u64> = x.objs.iter().map(|o| o.slot as u64).collect();
+        let n = plan::advance_to(x.view.next(&e), &seqs, |s| done[&(s as i64)]);
+        let mut new = x.view.clone();
+        new.advance(&e, n);
+        let p = PendW {
+            worker: w,
+            inc: x.inc,
+            kind: CasKindM::CAdvance,
+            st: CasStM::CPending,
+            lease: None,
+            prev_etag: None,
+            etag: None,
+            ckpt: Some(new.bumped(x.lease_epoch as u64)),
+            base_etag: x.view_etag,
+            ckpt_etag: 0,
+            epoch: x.epoch,
+            from: x.view.next(&e),
+            sent: self.time,
+        };
+        self.writes.push(p);
+    }
+
+    /// The store takes the write iff its If-Match still holds. Nobody hears
+    /// the answer to a dead process's write.
+    fn cas_land(&mut self, q: &WriteM) {
+        let i = self.write_index(q);
+        let mut p = self.writes.remove(i);
+        let ok = match p.kind {
+            CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
+            CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
+        };
+        if ok {
+            match p.kind {
+                CasKindM::CRenew => {
+                    let etag = self.etag();
+                    self.lease = Some((p.lease.clone().expect("doc"), etag.clone()));
+                    self.observe_all(&etag);
+                    p.etag = Some(etag);
+                }
+                CasKindM::CAdvance => {
+                    self.ckpt = p.ckpt.clone().expect("doc");
+                    self.ckpt_etag += 1;
+                    p.ckpt_etag = self.ckpt_etag;
+                }
+            }
+        }
+        p.st = if ok { CasStM::CApplied } else { CasStM::CRejected };
+        if self.workers[&p.worker].inc == p.inc {
+            self.writes.insert(i, p);
+        }
+    }
+
+    fn cas_lose(&mut self, q: &WriteM) {
+        let i = self.write_index(q);
+        if self.workers[&q.worker].inc == q.inc {
+            self.writes[i].st = CasStM::CLost;
+        } else {
+            let _ = self.writes.remove(i);
+        }
+    }
+
+    /// The answer, and the code's rule for it (worker.rs `write_lease`,
+    /// `write_ckpt` since 034f577): a 200 is ours; a 412 (another's write,
+    /// or object_store's retry meeting our own) or no answer is resolved by
+    /// reading the doc back, and the lane is kept iff it equals ours, or
+    /// the object still has the ETag the write was conditional on (our
+    /// request was lost: `NotWritten::Unchanged`, since 2026-09-27; the
+    /// worker keeps its old window and writes again).
+    fn cas_answer(&mut self, q: &WriteM, ans: CasAnsM) {
+        let i = self.write_index(q);
+        let p = self.writes.remove(i);
+        let read_back = match p.kind {
+            CasKindM::CRenew => self.lease.as_ref().filter(|(d, _)| Some(d) == p.lease.as_ref()).map(|(_, e)| e.clone()),
+            CasKindM::CAdvance => (Some(&self.ckpt) == p.ckpt.as_ref()).then(|| format!("{}", self.ckpt_etag)),
+        };
+        let keep = match ans {
+            CasAnsM::A200 => {
+                assert_eq!(p.st, CasStM::CApplied, "a 200 for a write that did not apply");
+                true
+            }
+            CasAnsM::ANone | CasAnsM::A412 => read_back.is_some(),
+        };
+        let unchanged = match p.kind {
+            CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
+            CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
+        };
+        if !keep && unchanged {
+            return;
+        }
+        let x = self.w(p.worker);
+        if !keep {
+            x.drop_lane();
+            return;
+        }
+        match p.kind {
+            CasKindM::CRenew => {
+                let doc = p.lease.expect("doc");
+                // (the 200's ETag, or the one read back)
+                let etag = if ans == CasAnsM::A200 { p.etag } else { read_back }.expect("applied");
+                x.sent = p.sent;
+                x.held = Some(Held { doc, etag, sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
+            }
+            CasKindM::CAdvance => {
+                let ck = p.ckpt.expect("doc");
+                let n = ck.next(&ename(p.epoch));
+                x.idle();
+                x.keep_heads(p.epoch, p.from, n);
+                x.view = ck;
+                x.view_etag = p.ckpt_etag;
+            }
+        }
     }
 
     fn gc(&mut self, e: i64, doomed_m: BTreeSet<i64>) {
@@ -789,6 +1094,14 @@ impl Driver for ConsumerDriver {
                 self.gc(e, doomed)
             },
             gcRetire(e: i64) => self.gc_retire(e),
+            wListReq(w: i64) => { let _ = w; },
+            wListAnswer(w: i64) => self.list_answer(w),
+            wHead(w: i64, e: i64) => self.head(w, e),
+            wRenewSend(w: i64) => self.renew_send(w),
+            wAdvanceSend(w: i64) => self.advance_send(w),
+            wCasLand(q: WriteM) => self.cas_land(&q),
+            wCasLose(q: WriteM) => self.cas_lose(&q),
+            wCasAnswer(q: WriteM, ans: CasAnsM) => self.cas_answer(&q, ans),
             wCompact(w: i64) => self.compact(w),
             sPush => {},
             sResend => {},
@@ -837,22 +1150,13 @@ impl State<ConsumerDriver> for Spec {
                     epoch: x.epoch,
                     objs: x.objs.iter().copied().collect(),
                     pending: x.pending.iter().copied().collect(),
+                    obs: None,
                 })
             })
             .collect();
         // What each worker's own code allows it now.
         let allowed = Allowed {
-            takeable: d
-                .workers
-                .iter()
-                .map(|(w, x)| {
-                    let may = match &d.lease {
-                        None => true,
-                        Some((doc, etag)) => x.obs.may_take(LANE, etag, doc, now, t.margin_ms),
-                    };
-                    (*w, !x.holds && may)
-                })
-                .collect(),
+            takeable: d.workers.iter().map(|(w, x)| (*w, !x.holds && d.may_take(*w))).collect(),
             may_start: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.may_start(now, &t)))).collect(),
             lapsed: d.workers.iter().map(|(w, x)| (*w, x.holds && x.held.as_ref().is_some_and(|h| h.lapsed(now, &t)))).collect(),
             may_release: d.workers.keys().map(|w| (*w, d.may_release(*w))).collect(),
@@ -880,6 +1184,7 @@ impl State<ConsumerDriver> for Spec {
             floor: epoch_num(&d.ckpt.floor),
             retired: d.retired.iter().map(|e| epoch_num(e)).collect(),
             view_floor: d.workers.iter().map(|(w, x)| (*w, epoch_num(&x.view.floor))).collect(),
+            writes: d.writes.iter().map(|p| (p.worker, p.inc, p.kind, p.st)).collect(),
             allowed,
         })
     }
@@ -917,4 +1222,23 @@ fn s3inline_consumer_compact_design_simulation() -> impl Driver {
 #[quint_run(spec = "../model/s3InlineConsumerCompact.qnt", main = "compactQuiet", max_samples = 1000, max_steps = 80)]
 fn s3inline_consumer_compact_quiet_simulation() -> impl Driver {
     ConsumerDriver::default()
+}
+
+/// Durations (2026-09-27; ../model/TEMPLATE.md "slow observation", "step
+/// duration", "own-write conflict on retry"): workers see lease versions
+/// only through LISTs answered later, HEADs cost time against the window,
+/// and lease renewals and checkpoint writes are request, effect and an
+/// answer that may be lost or a 412 for our own write. (`designSlow`:
+/// `designDays`' environment with the three behaviours on.)
+#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designSlow", max_samples = 500, max_steps = 80)]
+fn s3inline_consumer_slow_simulation() -> impl Driver {
+    ConsumerDriver { slow: true, ..Default::default() }
+}
+
+/// The same with no writer faults: the steps go to the workers (LISTs,
+/// HEADs, checks, statements, ambiguous renewals and checkpoint writes).
+/// (500 traces: 1000 of 80 steps exhaust quint's 5 GB heap.)
+#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designSlowQuiet", max_samples = 500, max_steps = 80)]
+fn s3inline_consumer_slow_quiet_simulation() -> impl Driver {
+    ConsumerDriver { slow: true, ..Default::default() }
 }

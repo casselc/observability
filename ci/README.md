@@ -45,6 +45,7 @@ proxy and consumer logs).
 | `build-collectors.sh BIN [s3pq\|chdb\|all]` | ocb v0.161.0 builds of the two collectors |
 | `verdict.sh SUMMARY [MIN]` | fails on any `FAIL` line in an end-to-end summary, or fewer than MIN `PASS` lines (the scripts themselves exit 0) |
 | `model-check.sh` | runs `consumer_model.sh`, fails if a design invariant is violated or a `quint test` group fails; a mutant that random simulation misses (its scripted `*BreaksTest` pins it) or a witness it does not reach is a warning |
+| `install-quint.sh` | `npm install -g` quint `$QUINT_VERSION` and the Rust evaluator it expects into `$QUINT_HOME` (`~/.quint`), from the release download URL rather than the rate-limited API |
 
 ## Running it locally
 
@@ -75,8 +76,11 @@ PBT_QUINT=1 ci/go-modules.sh test chdb` for the libchdb tests.
 
 ## Notes
 
-- **Quint.** 0.32.0 from npm. The Rust evaluator is downloaded by quint on
-  first use and cached (`~/.quint`). The Go model tests run with
+- **Quint.** 0.32.0 from npm, through `ci/install-quint.sh`, which also
+  puts the Rust evaluator that version expects in `~/.quint` (cached) from
+  the release's download URL. Left to itself quint fetches it through the
+  GitHub API unauthenticated, which the runners' shared rate limit turns
+  into "Failed to fetch from GitHub: Forbidden". The Go model tests run with
   `QUINTGO_BACKEND=typescript` (`test.env`), the backend the quintgo README
   documents and its results were produced with: with the Rust evaluator,
   `quintgo/examples/edgepublish/mbt` fails at seed 42 (its trace 0 reaches
@@ -93,7 +97,13 @@ PBT_QUINT=1 ci/go-modules.sh test chdb` for the libchdb tests.
   objects; harmless on a runner, worth cleaning after a local run.
 - **Memory.** A quint run under quint-connect takes 2.5-4 GB (node plus the
   Rust evaluator); the three mbt binaries' tests in parallel peaked near
-  10 GB, hence one runner per binary and one test at a time.
+  10 GB, hence one runner per binary and one test at a time. Node's heap
+  alone reaches 3.5 GB (`s3inline_metrics_design_simulation`, 300 traces)
+  to 4.3 GB (the 1000-trace consumer instances), above its default limit
+  on the 8 GB runners (~2 GB), so `nightly.yml` sets
+  `NODE_OPTIONS=--max-old-space-size=5120`. Without it quint dies with
+  "JavaScript heap out of memory", which quint-connect reports only as
+  "Quint returned non-zero code." (it drops quint's stderr).
 - **Caches.** Cargo (registry and `target/`) is keyed on the toolchain,
   `Cargo.lock`, `UPSTREAM` and the patches; the upstream checkout on
   `UPSTREAM` and the patches; Go per job on the `go.sum` files; libchdb on

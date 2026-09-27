@@ -29,6 +29,11 @@ env:
   NODE_VERSION: "22"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # quint's node process holds every generated trace: 3.5-4.3 GB for the
+  # 300-1000-trace mbt instances. Node's default heap limit on the 8 GB
+  # runners is ~2 GB ("JavaScript heap out of memory", which quint-connect
+  # reports only as "Quint returned non-zero code.").
+  NODE_OPTIONS: --max-old-space-size=5120
 
 jobs:
   # Release binaries (otap-s3pq, consume), the Go tools and the Go edge
@@ -349,12 +354,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install quint
-        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
       - uses: actions/cache@v6
         with:
           path: ~/.quint
           key: quint-${{ runner.os }}-${{ env.QUINT_VERSION }}
+      - name: Install quint and its Rust evaluator
+        run: ../../ci/install-quint.sh
       - name: cargo test --test ${{ matrix.test }}
         env:
           QUINT_SEED: "0x5eed"
@@ -380,14 +385,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - name: Install quint (and bc for the report's timings)
-        run: |
-          npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
-          command -v bc || { sudo apt-get update -q && sudo apt-get install -y -q bc; }
       - uses: actions/cache@v6
         with:
           path: ~/.quint
           key: quint-${{ runner.os }}-${{ env.QUINT_VERSION }}
+      - name: Install quint and its Rust evaluator (and bc for the report's timings)
+        run: |
+          ci/install-quint.sh
+          command -v bc || { sudo apt-get update -q && sudo apt-get install -y -q bc; }
       - name: otap-rs/scripts/consumer_model.sh
         env:
           OUT: ${{ runner.temp }}/out/consumer-model.txt
@@ -425,7 +430,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install quint
-        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+        run: ci/install-quint.sh
       - uses: actions/cache@v6
         id: libchdb
         with:

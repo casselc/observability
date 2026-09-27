@@ -65,7 +65,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install quint
-        run: npm install -g "@informalsystems/quint@${QUINT_VERSION}" && quint --version
+        run: ci/install-quint.sh
       - name: Start SeaweedFS and ClickHouse
         run: ci/services.sh start
       - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"

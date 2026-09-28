@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/query/internal/audit"
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
+	"github.com/casselc/observability/otel-chdb/query/internal/basis"
 	"github.com/casselc/observability/otel-chdb/query/internal/catalog"
 	"github.com/casselc/observability/otel-chdb/query/internal/central"
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
@@ -54,6 +56,23 @@ type Config struct {
 		// MaxLatenessS (default true).
 		CountLate *bool `json:"count_late"`
 	} `json:"watermark"`
+	// Basis (D30): the keys basis tokens are minted and verified with, and
+	// how old a basis may be.
+	Basis struct {
+		// KeysEnv names the variable holding "kid:base64,kid:base64" (at
+		// least 32 bytes each; default QS_BASIS_KEYS). Every replica needs
+		// the same keys. None: a random key per process (bases then do not
+		// survive a restart and are refused by another replica).
+		KeysEnv string `json:"keys_env"`
+		// Current is the kid new bases are minted with (default: the first).
+		Current string `json:"current"`
+		// RetentionS: a basis older than this, or a window starting before
+		// it, is basis_expired (default 90 days: central's custody-age
+		// retention, D19). SkewS: how early a row may be received before
+		// its event time (default the lake's skew_s, 300).
+		RetentionS int `json:"retention_s"`
+		SkewS      int `json:"skew_s"`
+	} `json:"basis"`
 	CORSOrigins  []string `json:"cors_origins"`
 	MaxBodyBytes int64    `json:"max_body_bytes"`
 	// LakeEnabled turns /v1/plan on.
@@ -167,7 +186,12 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	if c.Watermark.MaxLatenessS != nil {
 		wm.SetMaxLateness(time.Duration(*c.Watermark.MaxLatenessS * float64(time.Second)))
 	}
-	s := &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat,
+	bases, err := keyring(c)
+	if err != nil {
+		return nil, err
+	}
+	s := &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat, Bases: bases,
+		Retention: time.Duration(c.Basis.RetentionS) * time.Second, BasisSkew: time.Duration(c.Basis.SkewS) * time.Second,
 		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes,
 		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate}
 	if c.LakeEnabled {
@@ -175,4 +199,22 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	}
 	s.Init()
 	return s, nil
+}
+
+// keyring reads the basis keys from the environment (Config.Basis).
+func keyring(c *Config) (*basis.Keyring, error) {
+	name := c.Basis.KeysEnv
+	if name == "" {
+		name = "QS_BASIS_KEYS"
+	}
+	spec := os.Getenv(name)
+	if spec == "" {
+		log.Printf("basis: no keys in %s: minting with a random per-process key (bases will not survive a restart or reach another replica)", name)
+		return basis.Ephemeral(), nil
+	}
+	cur := c.Basis.Current
+	if v := os.Getenv("QS_BASIS_KEY_CURRENT"); v != "" {
+		cur = v
+	}
+	return basis.ParseKeys(spec, cur)
 }

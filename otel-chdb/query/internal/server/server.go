@@ -25,6 +25,7 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/query/internal/audit"
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
+	"github.com/casselc/observability/otel-chdb/query/internal/basis"
 	"github.com/casselc/observability/otel-chdb/query/internal/catalog"
 	"github.com/casselc/observability/otel-chdb/query/internal/central"
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
@@ -80,6 +81,12 @@ type Server struct {
 	// NoLateCount turns the late-row count off (watermark.count_late:
 	// false); by default a windowed /v1/query counts them (LateInfo).
 	NoLateCount bool
+	// Bases mints and verifies basis tokens (D30); nil disables them.
+	Bases *basis.Keyring
+	// Retention: a basis older than this, or a window starting before it,
+	// is basis_expired (default DefaultRetention). BasisSkew: how early a
+	// row may be received before its event time (default DefaultBasisSkew).
+	Retention, BasisSkew time.Duration
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -148,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/query", s.cors(s.handleQuery))
 	mux.HandleFunc("/v1/plan", s.cors(s.handlePlan))
+	mux.HandleFunc("/v1/basis", s.cors(s.handleBasis))
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -356,6 +364,16 @@ type QueryRequest struct {
 	// rows are filtered to them, and the label is their complete_through.
 	// Default: every cluster in the token's scope.
 	Clusters []string `json:"clusters"`
+	// Basis (D30): a token from an earlier answer or /v1/basis, or
+	// "latest"; the statement then reads, per cluster, only rows received
+	// before the basis's bound, and the same statement at the same basis
+	// answers the same while new data arrives. Omitted: the statement reads
+	// up to now (and the answer names the current basis to pin).
+	Basis string `json:"basis"`
+	// BasisFrom (with Basis): a delta, the rows with BasisFrom's bound <=
+	// received_at < Basis's, per cluster (late data for the alert
+	// evaluator). Both are checked like Basis; neither widens scope.
+	BasisFrom string `json:"basis_from"`
 }
 
 // OutputSettings are the output-format settings a caller may choose (a UI
@@ -369,6 +387,9 @@ var OutputSettings = map[string]map[string]bool{
 type QueryResponse struct {
 	RequestID string `json:"request_id"`
 	completeness.Label
+	basis.Answer
+	// Delta: with basis_from, the rows the delta admits, per table.
+	Delta   *LateInfo       `json:"delta,omitempty"`
 	Catalog catalog.Info    `json:"catalog"`
 	Late    LateInfo        `json:"late"`
 	Query   QueryInfo       `json:"query"`
@@ -476,6 +497,50 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		deny(rejectionCode(rj.Reason), rj.Reason, rj.Detail, base)
 		return
 	}
+	var rb, rbFrom *resolvedBasis
+	if body.BasisFrom != "" && body.Basis == "" {
+		deny(http.StatusBadRequest, basis.ReasonDeltaNeeds, "basis_from needs basis (the delta's upper bound)", base)
+		return
+	}
+	if body.Basis != "" {
+		sigs, tele := telemetrySignals(pr.Tables())
+		var wf *int64
+		if window != nil {
+			wf = &window.FromNs
+		}
+		var asked []string
+		if len(body.Clusters) > 0 {
+			asked = scope.Clusters
+		}
+		var rf *basis.Refusal
+		if rb, rf = s.useBasis(r.Context(), p, body.Basis, asked, sigs, tele, wf); rf != nil {
+			deny(rf.Status, rf.Reason, rf.Detail, base)
+			return
+		}
+		if body.BasisFrom != "" {
+			if body.BasisFrom == Latest {
+				deny(http.StatusBadRequest, basis.ReasonInvalid, "basis_from must be a token (the bound an earlier answer was computed at)", base)
+				return
+			}
+			if rbFrom, rf = s.useBasis(r.Context(), p, body.BasisFrom, rb.clusters, sigs, tele, wf); rf == nil {
+				rf = basis.CheckDelta(rbFrom.b, rb.b, rb.clusters)
+			}
+			if rf != nil {
+				deny(rf.Status, rf.Reason, rf.Detail, base)
+				return
+			}
+		}
+		if rb.clusters != nil {
+			scope.AllClusters, scope.Clusters = false, rb.clusters
+			base.Clusters = rb.clusters
+		}
+		scope.Received = &sqlscope.Received{Before: bounds(rb.b, rb.clusters)}
+		base.Basis = scope.Received.Before
+		if rbFrom != nil {
+			scope.Received.From = bounds(rbFrom.b, rb.clusters)
+			base.BasisFrom = scope.Received.From
+		}
+	}
 	restricted := !scope.AllClusters || !scope.AllNamespaces
 	for _, t := range pr.Tables() {
 		if t.Scope == "catalog" && restricted {
@@ -513,7 +578,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	// the label's watermark is read before the statement runs: rows below it
 	// were in central before the statement started
-	wm := s.Watermark.For(r.Context(), labelScope(scope, pr.Tables()))
+	ls := labelScope(scope, pr.Tables())
+	wm := s.Watermark.For(r.Context(), ls)
 	started := s.Now()
 	comment := "qs:" + rq.id + ":" + p.Subject
 	settings := central.Settings(limits, res.FiltersSetting(), rq.id, truncate(comment, 200))
@@ -547,13 +613,32 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Metrics.Add("qs_query_rows_read_total", float64(sum.ReadRows))
 	maxLate := s.Watermark.MaxLateness()
-	label := completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
+	var label completeness.Label
+	var ans basis.Answer
+	var delta *LateInfo
+	if rb != nil {
+		// at the basis: its own max_lateness, its bound as complete_through
+		maxLate = time.Duration(rb.b.MaxLatenessNs)
+		label = completeness.LabelAt("central", wm, rb.b.MinFor(rb.clusters), window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
+		tok := rb.token
+		ans = basis.Answer{Basis: &tok, AtBasis: true, BasisInfo: rb.b.View()}
+		if rbFrom != nil {
+			ft := rbFrom.token
+			ans.BasisFrom, ans.BasisFromInfo = &ft, rbFrom.b.View()
+			delta = s.countDelta(r.Context(), res, limits, rq.id, comment)
+		}
+	} else {
+		label = completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
+		if b, ok := mintFrom(wm, ls, maxLate, s.Now()); ok && s.Bases != nil {
+			ans = basis.Answer{Basis: s.encode(b), BasisInfo: b.View()}
+		}
+	}
 	late := s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
 	var want []string
 	if !scope.AllClusters {
 		want = scope.Clusters
 	}
-	resp := QueryResponse{RequestID: rq.id, Label: label, Result: out, Late: late,
+	resp := QueryResponse{RequestID: rq.id, Label: label, Answer: ans, Delta: delta, Result: out, Late: late,
 		Catalog: s.Catalog.Lag(r.Context(), p.MayCluster, want),
 		Query: QueryInfo{Hash: res.Hash, Tables: res.Tables, SQL: res.SQL, Scoped: len(res.Filters) > 0, Window: window,
 			RowsRead: sum.ReadRows, ElapsedMs: outcome.ElapsedMs}}
@@ -591,7 +676,33 @@ func (s *Server) countLate(ctx context.Context, res *sqlscope.Result, window *co
 		li.Status = "not_measured"
 		return li
 	}
-	settings := central.Settings(limits, res.FiltersSetting(), reqID+"-late", truncate(comment+":late", 200))
+	return s.runCount(ctx, li, lc, res, limits, reqID+"-late", comment+":late")
+}
+
+// countDelta counts the rows a delta admits (D30), per table, under the
+// statement's own filters (scope, window, [basis_from, basis)). Like the
+// late count, a failure is reported and never fails the result.
+func (s *Server) countDelta(ctx context.Context, res *sqlscope.Result, limits central.Limits, reqID, comment string) *LateInfo {
+	li := LateInfo{}
+	lc, err := s.Policy.DeltaCount(res)
+	if err != nil {
+		li.Status, li.Error = "error", err.Error()
+		return &li
+	}
+	li.Uncounted = lc.Uncounted
+	if lc.SQL == "" {
+		li.Status = "not_measured"
+		return &li
+	}
+	out := s.runCount(ctx, li, lc, res, limits, reqID+"-delta", comment+":delta")
+	return &out
+}
+
+// runCount runs a per-table count statement (late or delta) with the
+// statement's filters and limits.
+func (s *Server) runCount(ctx context.Context, li LateInfo, lc *sqlscope.LateCount, res *sqlscope.Result, limits central.Limits,
+	reqID, comment string) LateInfo {
+	settings := central.Settings(limits, res.FiltersSetting(), reqID, truncate(comment, 200))
 	out, _, err := s.Central.Query(ctx, lc.SQL, settings)
 	var body struct {
 		Data []struct {
@@ -629,7 +740,7 @@ func (s *Server) countLate(ctx context.Context, res *sqlscope.Result, window *co
 
 func rejectionCode(reason string) int {
 	switch reason {
-	case "parse_error", "too_long", "statement_count", "bad_window", "query_param", "bad_literal", "bad_identifier", "bad_output":
+	case "parse_error", "too_long", "statement_count", "bad_window", "query_param", "bad_literal", "bad_identifier", "bad_output", "basis_unservable":
 		return http.StatusBadRequest
 	case "catalog_unavailable":
 		return http.StatusServiceUnavailable
@@ -648,6 +759,10 @@ type PlanRequest struct {
 	// TraceID / Terms: an index filter (lake.Request, D27).
 	TraceID string   `json:"trace_id"`
 	Terms   []string `json:"terms"`
+	// Basis (D30): a token or "latest"; the plan then lists only objects
+	// received before the basis's bound of their cluster, and re-planning
+	// at the same basis lists the same objects.
+	Basis string `json:"basis"`
 }
 
 // PlanResponse is its answer.
@@ -691,9 +806,41 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusBadRequest, "bad_window", "from and to are required: RFC 3339 or integer ns")
 		return
 	}
-	plan, err := s.Planner.Plan(r.Context(), p, lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters,
-		TraceID: body.TraceID, Terms: body.Terms})
+	preq := lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters, TraceID: body.TraceID, Terms: body.Terms}
+	var rb *resolvedBasis
+	if body.Basis != "" {
+		if !lake.Signals[body.Signal] {
+			deny(http.StatusBadRequest, "bad_signal", fmt.Sprintf("signal %q is not a lane namespace", body.Signal))
+			return
+		}
+		for _, c := range body.Clusters {
+			if !sqlscope.ClusterRE.MatchString(c) {
+				deny(http.StatusBadRequest, "bad_cluster", fmt.Sprintf("cluster %q is not a valid name", c))
+				return
+			}
+			if !p.MayCluster(c) {
+				deny(http.StatusForbidden, "cluster_not_in_scope", fmt.Sprintf("cluster %q is not in the token's scope", c))
+				return
+			}
+		}
+		var rf *basis.Refusal
+		if rb, rf = s.useBasis(r.Context(), p, body.Basis, body.Clusters, []string{body.Signal}, true, &from); rf != nil {
+			deny(rf.Status, rf.Reason, rf.Detail)
+			return
+		}
+		preq.Basis = rb.b
+		if len(preq.Clusters) == 0 && rb.clusters != nil {
+			preq.Clusters = rb.clusters
+		}
+		base.Basis = bounds(rb.b, rb.clusters)
+	}
+	plan, err := s.Planner.Plan(r.Context(), p, preq)
 	if err != nil {
+		var rf *basis.Refusal
+		if errors.As(err, &rf) {
+			deny(rf.Status, rf.Reason, rf.Detail)
+			return
+		}
 		var d *lake.Denied
 		var b *lake.BadRequest
 		var tl *lake.TooLarge
@@ -711,6 +858,12 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, ep, rq.id, http.StatusBadGateway, "store_error", err.Error())
 		}
 		return
+	}
+	if rb != nil {
+		tok := rb.token
+		plan.Answer = basis.Answer{Basis: &tok, AtBasis: true, BasisInfo: rb.b.View()}
+	} else if b, ok := mintFrom(plan.State, plan.WmScope, s.Watermark.MaxLateness(), s.Now()); ok && s.Bases != nil {
+		plan.Answer = basis.Answer{Basis: s.encode(b), BasisInfo: b.View()}
 	}
 	allow := base
 	allow.Decision, allow.Objects, allow.Bytes, allow.ObjectsHash, allow.ExpiresAt = "allow", len(plan.Objects), plan.TotalBytes, plan.ObjectsHash, plan.ExpiresAt

@@ -488,6 +488,30 @@ func MakeLabel(source string, s State, w *Window, now time.Time, key string, may
 	return l
 }
 
+// LabelAt labels an answer computed at a basis (D30): only rows with
+// received_at < C of their cluster, minC being the lowest C over the
+// answer's clusters, and maxLateness the policy the basis was issued with.
+// The basis was checked to be at or below complete_through, so what the
+// answer holds does not depend on the watermark's freshness: the label is
+// D26's rule with minC in place of complete_through ("complete" once minC
+// ≥ the window's end + max_lateness, else "partial" from minC −
+// max_lateness), and never "unknown". The watermark block still reports the
+// watermark as it is now (cur), for information: a reader that gates on a
+// current watermark (the alert evaluator) keeps doing so.
+func LabelAt(source string, cur State, minC uint64, w *Window, now time.Time, key string, mayCluster func(string) bool, maxLateness time.Duration) Label {
+	d := Doc{CompleteThroughNs: minC}
+	if cur.Doc != nil {
+		d.WallMs, d.Holding, d.Stale = cur.Doc.WallMs, cur.Doc.Holding, cur.Doc.Stale
+	}
+	l := MakeLabel(source, State{Status: StatusOK, Doc: &d, FetchedAt: cur.FetchedAt, Scope: cur.Scope}, w, now, key, mayCluster, maxLateness)
+	l.Watermark.Status, l.Watermark.Error = cur.Status, cur.Err
+	if cur.Doc == nil {
+		l.Watermark.AgeS = nil
+	}
+	l.Watermark.Note = "labelled at the basis: complete_through is the basis's bound (rows received before it), not the watermark's current value"
+	return l
+}
+
 // SettledNs is complete_through − maxLateness in int64 ns, saturating.
 func SettledNs(ct uint64, maxLateness time.Duration) int64 {
 	v := int64(min(ct, math.MaxInt64))

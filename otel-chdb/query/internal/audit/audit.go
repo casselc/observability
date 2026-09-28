@@ -39,6 +39,11 @@ type Record struct {
 	Tables    []string `json:"tables,omitempty"`
 	Filters   int      `json:"filters,omitempty"`
 
+	// basis (D30): the bounds the answer was computed at ({cluster|"*": ns},
+	// rows received before them), and a delta's lower bounds
+	Basis     map[string]uint64 `json:"basis,omitempty"`
+	BasisFrom map[string]uint64 `json:"basis_from,omitempty"`
+
 	// plan
 	Signal      string   `json:"signal,omitempty"`
 	Objects     int      `json:"objects,omitempty"`

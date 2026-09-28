@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -104,7 +105,11 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 				t.ResourceID = "resource_id"
 			}
 			t.rid = parse(t.ResourceID)
+			// a cluster expression here serves only a basis (D30): the
+			// catalog, not this column, scopes the rows
+			t.cluster = parse(t.Cluster)
 		case "fleet":
+			t.cluster = parse(t.Cluster)
 		case "metadata":
 			// only the system database: a data table configured as metadata
 			// would be read unscoped
@@ -141,6 +146,9 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 var nameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 var signalRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// SignalRE is a lane namespace name (FORMAT.md §1).
+var SignalRE = signalRE
 
 // SignalsOf is the signals a statement over tables reads (D29): the union
 // of their Signals, or nil (every signal) when any table names none.
@@ -389,6 +397,19 @@ type Scope struct {
 	// Window, if set, restricts every table with a time column to
 	// [FromNs, ToNs).
 	Window *Window
+	// Received, if set, restricts every telemetry table to rows whose
+	// received column is below the row's cluster's bound (a basis, D30),
+	// and at or above From's (a delta). A table without a received column,
+	// or without a cluster expression under a per-cluster bound, cannot be
+	// served at a basis: refused (basis_unservable), never read unbounded.
+	Received *Received
+}
+
+// Received is a basis as table filters: Before[c] (and From[c]) for each
+// cluster c the statement reads, or the single key "*" for every cluster.
+type Received struct {
+	Before map[string]uint64
+	From   map[string]uint64 // nil: no lower bound
 }
 
 // Window is a half-open event-time range in ns since the Unix epoch.
@@ -568,6 +589,13 @@ func predicate(t *Table, s Scope) (chp.Expr, error) {
 			&chp.BinaryOperation{LeftExpr: t.tcol, Operation: chp.TokenKindGE, RightExpr: nanos(s.Window.FromNs)},
 			&chp.BinaryOperation{LeftExpr: t.tcol, Operation: chp.TokenKindLT, RightExpr: nanos(s.Window.ToNs)})
 	}
+	if s.Received != nil && t.Scope != "metadata" {
+		p, err := receivedPredicate(t, s.Received)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, p)
+	}
 	if len(parts) == 0 {
 		return nil, nil
 	}
@@ -577,6 +605,63 @@ func predicate(t *Table, s Scope) (chp.Expr, error) {
 	}
 	return out, nil
 }
+
+// receivedPredicate is the basis as a predicate over t's rows:
+// received < C (and >= From), per cluster:
+//
+//	((cluster = 'a' AND received < C_a) OR (cluster = 'b' AND received < C_b))
+//
+// or received < C for a fleet bound ("*").
+func receivedPredicate(t *Table, r *Received) (chp.Expr, error) {
+	if t.rcol == nil {
+		return nil, reject("basis_unservable", "table %s has no received column: it cannot be read at a basis", t.FQN())
+	}
+	bound := func(c string) chp.Expr {
+		e := chp.Expr(&chp.BinaryOperation{LeftExpr: t.rcol, Operation: chp.TokenKindLT, RightExpr: nanos(int64(min(r.Before[c], math.MaxInt64)))})
+		if f, ok := r.From[c]; ok {
+			e = and(e, &chp.BinaryOperation{LeftExpr: t.rcol, Operation: chp.TokenKindGE, RightExpr: nanos(int64(min(f, math.MaxInt64)))})
+		}
+		return e
+	}
+	if _, fleet := r.Before["*"]; fleet {
+		if len(r.Before) != 1 {
+			return nil, reject("basis_unservable", "a fleet bound names no cluster")
+		}
+		return paren(bound("*")), nil
+	}
+	if len(r.Before) == 0 {
+		return nil, reject("basis_unservable", "a basis with no cluster")
+	}
+	if t.cluster == nil {
+		return nil, reject("basis_unservable", "table %s has no cluster expression: a per-cluster basis cannot be applied to it", t.FQN())
+	}
+	names := make([]string, 0, len(r.Before))
+	for c := range r.Before {
+		if !ClusterRE.MatchString(c) {
+			return nil, reject("bad_scope_value", "cluster %q is not a valid name", c)
+		}
+		names = append(names, c)
+	}
+	sort.Strings(names)
+	var out chp.Expr
+	for _, c := range names {
+		term := paren(and(&chp.BinaryOperation{LeftExpr: t.cluster, Operation: chp.TokenKindSingleEQ, RightExpr: &chp.StringLiteral{Literal: escape(c)}}, bound(c)))
+		if out == nil {
+			out = term
+		} else {
+			out = &chp.BinaryOperation{LeftExpr: out, Operation: chp.TokenKind(chp.KeywordOr), RightExpr: term}
+		}
+	}
+	return paren(out), nil
+}
+
+func and(a, b chp.Expr) chp.Expr {
+	return &chp.BinaryOperation{LeftExpr: a, Operation: chp.TokenKind(chp.KeywordAnd), RightExpr: b}
+}
+
+// paren is (e): a one-item list, which the formatter writes with its
+// parentheses (and the fixed-point check re-parses).
+func paren(e chp.Expr) chp.Expr { return list([]chp.Expr{e}) }
 
 func strs(vals []string, re *regexp.Regexp, what string) ([]chp.Expr, error) {
 	if len(vals) == 0 {

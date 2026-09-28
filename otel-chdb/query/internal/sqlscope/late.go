@@ -52,3 +52,37 @@ func (p *Policy) LateCount(r *Result, maxLateness time.Duration) (*LateCount, er
 	}
 	return lc, nil
 }
+
+// DeltaCount is the statement that counts, per table a finished statement
+// reads, the rows its filters admit (D30: run with a delta's filters, the
+// rows with basis_from <= received_at < basis in the scope and window). It
+// is built like LateCount: from configuration, never from the caller's
+// text. Tables without a received column are Uncounted (a statement over
+// them is refused at a basis before this runs).
+func (p *Policy) DeltaCount(r *Result) (*LateCount, error) {
+	lc := &LateCount{}
+	var parts []string
+	tables := append([]string(nil), r.Tables...)
+	sort.Strings(tables)
+	for _, fqn := range tables {
+		t := p.Tables[fqn]
+		if t == nil || t.Scope == "metadata" {
+			continue
+		}
+		if t.rcol == nil {
+			lc.Uncounted = append(lc.Uncounted, fqn)
+			continue
+		}
+		lc.Counted = append(lc.Counted, fqn)
+		parts = append(parts, fmt.Sprintf("SELECT %s AS t, count() AS n FROM %s", Quote(fqn), fqn))
+	}
+	if len(parts) == 0 {
+		return lc, nil
+	}
+	lc.SQL = strings.Join(parts, " UNION ALL ")
+	st, err := chp.NewParser(lc.SQL).ParseStmts()
+	if err != nil || len(st) != 1 {
+		return nil, reject("roundtrip", "the delta count does not parse: %v", err)
+	}
+	return lc, nil
+}

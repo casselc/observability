@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
+	"github.com/casselc/observability/otel-chdb/query/internal/basis"
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
 	"github.com/casselc/observability/otel-chdb/query/internal/lakeidx"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
@@ -157,6 +159,11 @@ type Request struct {
 	// TraceID and Terms narrow the plan through the index (index.go).
 	TraceID string   `json:"trace_id,omitempty"`
 	Terms   []string `json:"terms,omitempty"`
+	// Basis (D30), checked by the caller (scope, signal, watermark,
+	// retention): the plan lists only objects received before the bound of
+	// their cluster, and is refused (basis_expired) when GC may have
+	// deleted some of them.
+	Basis *basis.Basis `json:"-"`
 }
 
 // Denied is a refusal on scope (HTTP 403).
@@ -204,6 +211,14 @@ type Object struct {
 	// read it all). Objects the index rules out are not planned.
 	Index     string `json:"index,omitempty"`
 	RowGroups []int  `json:"row_groups,omitempty"`
+	// BasisCheck (plans at a basis): the object's custody time could not be
+	// read here (not HEADed: over the HEAD budget, or its HEAD failed), and
+	// its LastModified does not prove it was received before the basis.
+	// The reader must read its Parquet footer first and drop the object,
+	// unread, unless the footer's oscope-received is below
+	// ReceivedBeforeNs (FORMAT.md §2: data objects repeat it there).
+	BasisCheck       bool    `json:"basis_check,omitempty"`
+	ReceivedBeforeNs *uint64 `json:"received_before_ns,omitempty"`
 }
 
 // Plan is the answer.
@@ -240,6 +255,18 @@ type Plan struct {
 	ObjectsHash string `json:"objects_hash"`
 	// Index reports the filter's resolution (nil without a filter).
 	Index *IndexReport `json:"index,omitempty"`
+	// The basis block (D30): set by the service.
+	basis.Answer
+	// AfterBasis: objects left out because they were received at or after
+	// the basis's bound (by their metadata, or written too long after the
+	// basis was issued to hold anything below it). BasisUnverified: objects
+	// planned with basis_check.
+	AfterBasis      int `json:"after_basis,omitempty"`
+	BasisUnverified int `json:"basis_unverified,omitempty"`
+	// State and WmScope are the watermark the label was made with (the
+	// service mints the answer's basis from them).
+	State   completeness.State `json:"-"`
+	WmScope completeness.Scope `json:"-"`
 }
 
 // Rules are AMBIGUITY.md X8's, in every plan.
@@ -248,6 +275,12 @@ var Rules = []string{
 	"A 403 (or any error) on a planned object means re-plan, never 'no data': a query that could not read every planned object is incomplete and must say which objects it lacks.",
 	"Rows with an event time at or after incomplete_from (complete_through − max_lateness: complete_through is custody time, the window event time) may still arrive: draw that region as incomplete, and count over it as partial. Objects marked late arrived after that policy; a result over them was not settled when they arrived.",
 	"snapshot is null: this plan lists lanes directly; a later plan may include objects this one did not.",
+}
+
+// BasisRules replace the last rule in a plan at a basis (D30).
+var BasisRules = []string{
+	"This plan is at a basis (at_basis): it lists only objects received before the basis's bound of their cluster; re-planning with the same basis lists the same objects (fresh URLs), however much data arrives meanwhile.",
+	"An object marked basis_check could not be dated here: read its Parquet footer first and drop it, unread, unless its oscope-received key-value is below received_before_ns (a missing key is an error, never a keep).",
 }
 
 var (
@@ -285,6 +318,22 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		wmScope.Clusters = nil
 	}
 	wmState := p.wm.For(ctx, wmScope)
+	b := req.Basis
+	skew := time.Duration(p.cfg.SkewS) * time.Second
+	// A row received before C was ingested before the watermark that
+	// allowed C was written, so before the basis was issued: an object
+	// written (S3's clock) more than two clock skews after the issue holds
+	// nothing below C, and is left out without a HEAD.
+	var afterIssue time.Time
+	if b != nil {
+		for _, c := range clusters {
+			if _, ok := b.C(c); !ok {
+				return nil, &basis.Refusal{Status: 400, Reason: basis.ReasonScope, Detail: fmt.Sprintf("the basis does not cover cluster %q", c)}
+			}
+		}
+		afterIssue = time.Unix(0, b.IssuedNs).Add(2 * skew)
+	}
+	afterBasis := 0
 	listedAt := p.now()
 	lowLM := time.Unix(0, req.FromNs).Add(-time.Duration(p.cfg.SkewS) * time.Second)
 	type cand struct {
@@ -328,6 +377,10 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 				if o.Size == 0 || o.LastModified.Before(lowLM) {
 					continue // heartbeats and tombstones are empty; old objects hold nothing of the window
 				}
+				if b != nil && o.LastModified.After(afterIssue) {
+					afterBasis++
+					continue
+				}
 				seq, _ := strconv.ParseUint(m[1], 10, 64)
 				cands = append(cands, cand{obj: o, cluster: cl, producer: prod, ep: ep, seq: seq})
 			}
@@ -341,6 +394,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	// refine by HEAD: kind, the rows' event-time range, the cluster
 	type refined struct {
 		keep, ok, mismatch bool
+		basisCheck         bool
 		minT, maxT, rows   int64
 		recv               *int64
 	}
@@ -390,6 +444,24 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	wg.Wait()
 
 	var kept []keptObject
+	for i, c := range cands {
+		if b == nil || !res[i].keep || res[i].mismatch {
+			continue
+		}
+		cb, _ := b.C(c.cluster)
+		switch {
+		case res[i].recv != nil:
+			// custody time known: below the bound or out
+			if *res[i].recv < 0 || uint64(*res[i].recv) >= cb {
+				res[i].keep = false
+				afterBasis++
+			}
+		case c.obj.LastModified.Add(skew).UnixNano() < int64(min(cb, math.MaxInt64)):
+			// received_at <= its PUT (edge clock) <= LastModified + skew < C
+		default:
+			res[i].basisCheck = true
+		}
+	}
 	for i, c := range cands {
 		if res[i].keep && !res[i].mismatch {
 			kept = append(kept, keptObject{cluster: c.cluster, obj: c.obj})
@@ -452,6 +524,11 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		if filtered {
 			o.Index, o.RowGroups = ir.Status, ir.RowGroups
 		}
+		if r.basisCheck {
+			cb, _ := b.C(c.cluster)
+			o.BasisCheck, o.ReceivedBeforeNs = true, &cb
+			plan.BasisUnverified++
+		}
 		plan.Objects = append(plan.Objects, o)
 		plan.TotalBytes += o.Size
 		h.Write([]byte(c.obj.Key))
@@ -459,7 +536,14 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	plan.ObjectsHash = hex.EncodeToString(h.Sum(nil))
 	w := &completeness.Window{FromNs: req.FromNs, ToNs: req.ToNs}
-	plan.Label = completeness.MakeLabel("lake", wmState, w, p.now(), p.wm.Key(), pr.MayCluster, maxLate)
+	plan.State, plan.WmScope, plan.AfterBasis = wmState, wmScope, afterBasis
+	if b != nil {
+		// at the basis: its bound is complete_through, its policy the bridge
+		plan.Label = completeness.LabelAt("lake", wmState, b.MinFor(clusters), w, p.now(), p.wm.Key(), pr.MayCluster, time.Duration(b.MaxLatenessNs))
+		plan.Rules = append(append([]string{}, Rules[:len(Rules)-1]...), BasisRules...)
+	} else {
+		plan.Label = completeness.MakeLabel("lake", wmState, w, p.now(), p.wm.Key(), pr.MayCluster, maxLate)
+	}
 
 	// GC deletes ingested slots (D12): the lanes' oldest rows may be gone
 	plan.StartComplete = true
@@ -483,6 +567,15 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 			plan.StartComplete = false
 			plan.GCNote = "GC deleted ingested slots of these lanes, and the window starts before their oldest remaining object: older rows are in central (/v1/query)"
 		}
+	}
+	if b != nil && !plan.StartComplete {
+		// never answered with less data: the rows GC deleted were in the
+		// answer at this basis (or may have been)
+		if gcErr != nil {
+			return nil, &basis.Refusal{Status: 503, Reason: basis.ReasonUnverifiable, Detail: plan.GCNote}
+		}
+		return nil, &basis.Refusal{Status: 410, Reason: basis.ReasonExpired,
+			Detail: "GC deleted ingested slots of " + strings.Join(plan.GCTruncated, ", ") + " before the window's start: the plan at this basis would lack rows (they are in central: /v1/query at the same basis)"}
 	}
 	if !plan.StartComplete {
 		plan.Partial = true

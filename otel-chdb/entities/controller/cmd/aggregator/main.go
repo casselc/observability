@@ -60,7 +60,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &agg{c: c, s3: s3c, db: *db, bucket: *bucket, prefix: *prefix, margin: *margin, progress: map[string]string{}}
+	a := &agg{c: c, s3: s3c, db: *db, bucket: *bucket, prefix: *prefix, margin: *margin, progress: map[string]string{}, bound: map[string]uint64{}}
 	rows, err := c.Query(fmt.Sprintf("SELECT lane, argMax(last_object, updated_at) FROM %s.lane_progress GROUP BY lane", *db))
 	if err != nil {
 		log.Fatal(err)
@@ -97,6 +97,78 @@ type agg struct {
 	prefix   string
 	margin   time.Duration
 	progress map[string]string
+	// bound: per lane, the cluster key its own cluster record names (the
+	// first record a controller incarnation writes). A record whose
+	// cluster_key is another cluster's, in this cluster's prefix, is
+	// rejected (DECISIONS.md D18, STPA R-S7): write access is scoped by the
+	// key's {cluster}, so the key, not the record, says whose it is.
+	bound    map[string]uint64
+	rejected int
+}
+
+// clusterFilter keeps the NDJSON records of lane objects under {entities}/{cluster}/
+// that belong to that cluster: its cluster record (level "cluster", name =
+// the prefix's cluster), which binds the lane's cluster key, and records
+// carrying that key. Everything else is dropped and counted.
+func clusterFilter(plain []byte, cluster string, bound *uint64) ([]byte, int) {
+	var kept bytes.Buffer
+	rejected := 0
+	for _, line := range bytes.SplitAfter(plain, []byte{'\n'}) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var r struct {
+			Level      string `json:"level"`
+			Name       string `json:"name"`
+			ClusterKey uint64 `json:"cluster_key"`
+		}
+		if json.Unmarshal(line, &r) != nil {
+			rejected++
+			continue
+		}
+		if r.Level == "cluster" && r.Name == cluster && *bound == 0 {
+			*bound = r.ClusterKey
+		}
+		if *bound == 0 || r.ClusterKey != *bound || (r.Level == "cluster" && r.Name != cluster) {
+			rejected++
+			continue
+		}
+		kept.Write(line)
+	}
+	return kept.Bytes(), rejected
+}
+
+// bindLane finds a lane's cluster key when the aggregator resumes in the
+// middle of it: the lane's first object holds its controller's cluster record.
+func (a *agg) bindLane(ctx context.Context, cluster, ln string) {
+	if a.bound[ln] != 0 {
+		return
+	}
+	_, objs, err := a.list(ctx, ln, "", "")
+	if err != nil || len(objs) == 0 {
+		return
+	}
+	sort.Slice(objs, func(i, j int) bool { return objs[i].key < objs[j].key })
+	plain, err := a.read(ctx, objs[0].key)
+	if err != nil {
+		return
+	}
+	var b uint64
+	_, _ = clusterFilter(plain, cluster, &b)
+	a.bound[ln] = b
+}
+
+func (a *agg) read(ctx context.Context, key string) ([]byte, error) {
+	out, err := a.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(a.bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+	zr, err := gzip.NewReader(out.Body)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(zr)
 }
 
 func (a *agg) list(ctx context.Context, prefix, delim, after string) (dirs []string, objs []objInfo, err error) {
@@ -175,11 +247,27 @@ func (a *agg) ingest(ctx context.Context, cluster, ln string, o objInfo) error {
 	if err != nil {
 		return err
 	}
+	cl := strings.TrimSuffix(strings.TrimPrefix(cluster, a.prefix+"/"), "/")
+	if a.bound == nil {
+		a.bound = map[string]uint64{}
+	}
+	if a.progress[ln] != "" {
+		a.bindLane(ctx, cl, ln)
+	}
+	b := a.bound[ln]
+	kept, rejected := clusterFilter(plain, cl, &b)
+	a.bound[ln] = b
+	hdr := map[string]string{"Content-Encoding": "gzip"}
+	if rejected > 0 {
+		a.rejected += rejected
+		log.Printf("%s: %d records rejected: not cluster %q's (key %d)", o.key, rejected, cl, b)
+		plain, body, hdr = kept, kept, nil
+	}
 	recs := bytes.Count(plain, []byte{'\n'})
 	set := map[string]string{"insert_deduplication_token": o.key, "deduplicate_blocks_in_dependent_materialized_views": "1",
 		"max_insert_block_size": "10000000", "min_insert_block_size_rows": "0", "min_insert_block_size_bytes": "0"}
 	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.records (level, key, entity, cluster_key, node_key, ns_key, wl_key, pod_key, kind, name, pod_uid, container, attrs, valid_from, closed_at, observed_at, event_at, writer) FORMAT JSONEachRow", a.db),
-		bytes.NewReader(body), set, map[string]string{"Content-Encoding": "gzip"}); err != nil {
+		bytes.NewReader(body), set, hdr); err != nil {
 		return err
 	}
 	kind := "delta"
@@ -218,7 +306,6 @@ WHERE cluster_key = %[3]d AND closed_at = toDateTime64(0, 3, 'UTC') AND last_obs
 	if err := a.markGaps(o.key, plain); err != nil {
 		return err
 	}
-	cl := strings.TrimSuffix(strings.TrimPrefix(cluster, a.prefix+"/"), "/")
 	put := o.mod.UTC().Format("2006-01-02 15:04:05.000")
 	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.ingest_log (object, cluster, kind, bytes, records, put_at, closed_by_sync) VALUES ('%s', '%s', '%s', %d, %d, '%s', %d)",
 		a.db, o.key, cl, kind, len(body), recs, put, closed), nil, nil, nil); err != nil {

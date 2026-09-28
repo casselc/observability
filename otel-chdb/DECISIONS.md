@@ -1414,7 +1414,41 @@ a private-CA TLS proxy** [M] ([`parquetgo/README.md`](parquetgo/README.md) §Cre
 stand-ins issue empty session tokens, because SeaweedFS rejects foreign ones,
 so the token header was never exercised against a store.
 
-**Write-side ABAC (proposed 2026-09-27; closes STPA R-S7, SEC-1..3; not built).**
+**Write-side ABAC: built with format v2 (2026-09-27; STPA R-S7, SEC-1..3).**
+The layout is cluster-first ([D3](#d3-commit-protocol-manifest-less-create-only-slots),
+[FORMAT.md](FORMAT.md)); the policies are in [`deploy/iam/`](deploy/iam/):
+`edge-publisher.json` and `entity-controller.json` (create under
+`${aws:PrincipalTag/cluster}` only, never delete, no `{ctl}`, deny a
+session without the tag), `consumer.json` (read everything, write
+`{ctl}` and tombstones), `gc.json` (delete slots, write its own control
+objects), and `bucket-policy.json` (slots create-only, leases, checkpoints
+and the watermark CAS). The entity aggregator drops a record whose cluster
+key is not the one its lane's own cluster record binds (`clusterFilter`,
+`TestClusterFilterRejectsForeignRecords`, and the gap test with a forged
+record) [M].
+
+- **SeaweedFS 4.47, demonstrated** [M] (`deploy/iam/seaweedfs_abac.sh`,
+  `deploy/results/abac-seaweedfs.txt`, 16 of 16): static identities with an
+  attached policy (`s3.json` `policies` + `policyNames`) and
+  `${aws:username}` in the resource, one identity per cluster named after
+  it. An edge of cluster c1 creates, re-reads (HEAD 200, free slot 404) and
+  gets 412 on its own slots; it gets 403 writing or reading c2's prefix,
+  writing a lease or `watermark.json`, and deleting anything; the
+  consumer identity writes control objects and deletes. The Rust publisher
+  with c1's key registers 7 of 7 lanes as c1 and 0 of 7 claiming c2.
+  Plain `actions` (`Write:bucket/prefix/*`) scope by prefix but include
+  DELETE, so they are not enough. SeaweedFS's STS with `${jwt:…}`
+  variables was not needed and not tested.
+- **AWS:** policies written, **not run on AWS** [D]. With EKS Pod Identity
+  the session carries `eks-cluster-name` as a principal tag
+  automatically: substitute it for `cluster` (then `CLUSTER` must be the
+  EKS cluster name); IRSA has no session tags from the service account, so
+  use a role per cluster or `https://aws.amazon.com/tags` in the token.
+- **Nutanix Objects: unverified** [D]. It has no STS; the fallback is one
+  access key per cluster with a prefix-scoped bucket policy, still to be
+  tried on a cluster.
+
+*The proposal as written before it was built:*
 Today every edge in a bucket can write, and delete, any key its credentials
 reach, so a compromised node can forge or delete another cluster's data or the
 consumer's control objects. The fix is attribute-based access on session

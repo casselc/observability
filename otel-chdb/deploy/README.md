@@ -143,6 +143,23 @@ any pipeline** (the build carried it, nothing used it), and **batches of
 since 2026-09-26 it builds `otelcol-s3pq` with the `s3pq` exporter (the
 image `base/go` runs), the awss3 prototypes kept for their demo.
 
+
+### Write-side ABAC (`iam/`, format v2)
+
+Keys are cluster-first (`{S3_BASE}/{CLUSTER}/{pod}/{signal}/…`), so write
+access is scoped by prefix ([`../DECISIONS.md`](../DECISIONS.md) D18,
+[`../FORMAT.md`](../FORMAT.md) §6). `iam/edge-publisher.json` lets a
+publisher create and read only under its own cluster
+(`${aws:PrincipalTag/cluster}`; with Pod Identity use the automatic
+`eks-cluster-name` tag and set `CLUSTER` to the EKS cluster name) and never
+delete; `iam/entity-controller.json` the same under the entity prefix;
+`iam/consumer.json` and `iam/gc.json` are the consumer's and GC's;
+`iam/bucket-policy.json` makes slots create-only and control objects CAS.
+Replace `BUCKET`, `ROOT` (the path of `S3_BASE`) and `ENTITIES`.
+`iam/seaweedfs_abac.sh` demonstrates the same boundary on SeaweedFS with one
+identity per cluster (`results/abac-seaweedfs.txt`); on Nutanix Objects it
+is unverified (one key per cluster with a prefix-scoped bucket policy).
+
 ## Targets
 
 All three publishers read the same `edge-target` ConfigMap (`envFrom`), and

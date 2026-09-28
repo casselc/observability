@@ -1,0 +1,18 @@
+gateway 18433, root otel/abac1790553901, weed version 30GB 4.47  linux amd64
+PASS c1 creates its own slot: 200
+PASS c1 again on the same slot (create-only): 412
+PASS c1 HEADs its slot: 200
+PASS c1 HEADs its next, free slot (ListBucket): 404
+PASS c2 creates its own slot: 200
+PASS c1 writes into cluster c2's prefix: 403
+PASS c1 reads cluster c2's slot: 403
+PASS c1 writes a control object: 403
+PASS c1 writes the watermark: 403
+PASS c1 deletes its own slot: 403
+PASS c1 deletes cluster c2's slot: 403
+PASS c2's slot is intact: 200
+PASS consumer writes a control object: 200
+PASS consumer deletes an ingested slot (GC): 204
+PASS publisher as c1 with c1's key: births: births: 7 of 7
+PASS publisher claiming c2 with c1's key: births: 0 of 7
+0 failed

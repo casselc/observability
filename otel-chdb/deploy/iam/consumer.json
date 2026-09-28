@@ -1,0 +1,30 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadEveryLaneAndEntityLane",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": ["arn:aws:s3:::BUCKET/ROOT/*", "arn:aws:s3:::BUCKET/ENTITIES/*"]
+    },
+    {
+      "Sid": "List",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLike": {"s3:prefix": ["ROOT/*", "ENTITIES/*", "ROOT", "ENTITIES"]}}
+    },
+    {
+      "Sid": "ControlObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/_consumer/*"
+    },
+    {
+      "Sid": "TombstonesCloseQuietEpochs",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/*/*/*/*/*.parquet"
+    }
+  ]
+}

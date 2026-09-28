@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LaneSlotsAreCreateOnly",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/*/*/*/*/*.parquet",
+      "Condition": {"Null": {"s3:if-none-match": "true"}}
+    },
+    {
+      "Sid": "LeasesAndCheckpointsAreCAS",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": ["arn:aws:s3:::BUCKET/ROOT/_consumer/ckpt/*", "arn:aws:s3:::BUCKET/ROOT/_consumer/lease/*",
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json"],
+      "Condition": {"Null": {"s3:if-match": "true", "s3:if-none-match": "true"}}
+    }
+  ]
+}

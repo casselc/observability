@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadLanesAndControl",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/*"
+    },
+    {
+      "Sid": "List",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLike": {"s3:prefix": ["ROOT/*", "ROOT"]}}
+    },
+    {
+      "Sid": "DeleteIngestedSlotsAndRetiredEpochs",
+      "Effect": "Allow",
+      "Action": "s3:DeleteObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/*/*/*/*/*.parquet"
+    },
+    {
+      "Sid": "GcMarksAuditStateAndTheWatermark",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": ["arn:aws:s3:::BUCKET/ROOT/_consumer/gc.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/audit/*",
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/format.json"]
+    }
+  ]
+}

@@ -64,12 +64,21 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 			Attrs: map[string]string{"k8s.pod.name": fmt.Sprintf("p%d", key)}, ValidFrom: from, ClosedAt: closed,
 			ObservedAt: obs, EventAt: from, Writer: "w"}
 	}
+	// Each lane starts with its controller's cluster record, which binds the
+	// lane's cluster key (the aggregator drops records of another cluster).
+	clusterRec := func(key uint64, name string) lane.Record {
+		return lane.Record{Level: lane.LCluster, Key: key + 100, Entity: key, ClusterKey: key, Name: name,
+			Attrs: map[string]string{"k8s.cluster.name": name}, ValidFrom: t0 - 90*mn, ObservedAt: t0 - 90*mn, EventAt: t0 - 90*mn, Writer: "w"}
+	}
+	w2 := &lane.Writer{S3: s3c, Bucket: "otel", Lane: prefix + "/c2/1-i", PutTimeout: 5 * time.Second}
+	w2.Add(clusterRec(8, "c2"), pod(8, 5, t0-60*mn, gapTo-mn)) // E: another cluster, in its own prefix
 	w.Add(
+		clusterRec(7, "c1"),
 		pod(7, 1, t0-60*mn, gapTo-mn), // A: its deletion found by the relist
 		pod(7, 2, t0-60*mn, t0-30*mn), // B: closed before the gap
 		pod(7, 3, t0+2*mn, 0),         // C: born in the gap
 		pod(7, 4, t0-60*mn, 0),        // D: open throughout
-		pod(8, 5, t0-60*mn, gapTo-mn), // E: another cluster
+		pod(8, 6, t0-60*mn, 0),        // forged: cluster 8's key in cluster c1's prefix: rejected
 	)
 	// The lane writer retries until it lands; a store that refuses writes
 	// (SeaweedFS out of volumes) skips the test instead of hanging it.
@@ -77,6 +86,9 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 	defer cancel()
 	if err := w.Flush(fctx); err != nil {
 		t.Skipf("S3 at %s does not take writes: %v", s3URL, err)
+	}
+	if err := w2.Flush(fctx); err != nil {
+		t.Fatal(err)
 	}
 	w.Add(lane.Record{Level: lane.LGap, Key: 99, Entity: 98, ClusterKey: 7, Kind: "pods", Name: "relist",
 		Attrs: map[string]string{"k8s.resource": "pods"}, ValidFrom: gapFrom, ClosedAt: gapTo, ObservedAt: gapTo,
@@ -86,7 +98,10 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 	}
 	a := &agg{c: c, s3: s3c, db: db, bucket: "otel", prefix: prefix, margin: time.Minute, progress: map[string]string{}}
 	n, err := a.pass(ctx)
-	if err != nil || n != 2 {
+	if err != nil || n != 3 || a.rejected != 1 {
+		t.Fatalf("pass: %d objects, %d rejected, %v", n, a.rejected, err)
+	}
+	if err != nil || n != 3 {
 		t.Fatalf("pass: %d objects, %v", n, err)
 	}
 	state := func() map[string]string {
@@ -135,9 +150,9 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 	// the latest observation decides, and the mark stays.
 	late := pod(7, 1, t0-60*mn, 0)
 	late.ObservedAt = gapTo + 10*mn
-	w2 := &lane.Writer{S3: s3c, Bucket: "otel", Lane: prefix + "/c1/2-i", PutTimeout: 5 * time.Second}
-	w2.Add(late)
-	if err := w2.Flush(fctx); err != nil {
+	w3 := &lane.Writer{S3: s3c, Bucket: "otel", Lane: prefix + "/c1/2-i", PutTimeout: 5 * time.Second}
+	w3.Add(clusterRec(7, "c1"), late) // a new incarnation's lane opens with its cluster record
+	if err := w3.Flush(fctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.pass(ctx); err != nil {
@@ -165,4 +180,25 @@ func env(k, d string) string {
 		return v
 	}
 	return d
+}
+
+// A record under cluster a's prefix that names cluster b's key is dropped;
+// the lane's own cluster record binds the key (R-S7).
+func TestClusterFilterRejectsForeignRecords(t *testing.T) {
+	lines := `{"level":"cluster","name":"a","cluster_key":11}
+{"level":"pod","name":"p1","cluster_key":11}
+{"level":"pod","name":"forged","cluster_key":22}
+{"level":"cluster","name":"b","cluster_key":22}
+not json
+`
+	var b uint64
+	kept, rej := clusterFilter([]byte(lines), "a", &b)
+	if b != 11 || rej != 3 || string(kept) != "{\"level\":\"cluster\",\"name\":\"a\",\"cluster_key\":11}\n{\"level\":\"pod\",\"name\":\"p1\",\"cluster_key\":11}\n" {
+		t.Fatalf("bound %d rejected %d kept %q", b, rej, kept)
+	}
+	// A lane with no cluster record of its own: nothing is taken.
+	var u uint64
+	if kept, rej := clusterFilter([]byte("{\"level\":\"pod\",\"cluster_key\":11}\n"), "a", &u); len(kept) != 0 || rej != 1 {
+		t.Fatalf("unbound lane kept %q", kept)
+	}
 }

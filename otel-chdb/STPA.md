@@ -280,6 +280,14 @@ Two more issues from implementing format v2 ([FORMAT.md](FORMAT.md)): a design f
 
 This is the first bug the simulation caught before it reached the history, which is where it should be caught: the DST runs in the normal test suite.
 
+### CAST: the query service (2026-09-28)
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 24 | The entity aggregator pasted S3 object key, cluster and lane names into the text of its `ingest_log` and `lane_progress` INSERTs; a key with a quote under cluster `c1` forged a `c2` `ingest_log` row (`put_at` 2100), `c2` was never ingested, and every pass stopped at that object | Code reading while adding catalog lag (R-S5) to the query service; `TestHostileKeysAreData` failed before the fix | H-6 (one cluster's controller credentials write another cluster's catalog rows); H-5 (a stale cluster's catalog lag reads as fresh); H-3 (the catalog stalls for every cluster after the bad object) | Entity aggregator: "key names are our own well-formed `{epochMs}-{instance}/{seq}.delta.ndjson.gz` and safe in SQL"; "a failing object succeeds on retry, so stopping the pass is safe" | Our own lane writer makes those keys; D18 confines each controller to its prefix; `clusterFilter` already checked record bodies, so bodies looked like the only attack surface; tests used only well-behaved writers | Rows go as JSONEachRow data; gap-record times are parsed and re-rendered (unreadable ones skipped); a failing lane no longer stops other lanes or clusters (errors collected). `TestHostileKeysAreData` (real ClickHouse + SeaweedFS), `TestGapTimesAreParsed`; commit d96e32d. Remaining: a malformed body still fails its own lane each pass, now confined to that lane | Names a less-trusted writer chooses are data, like bodies: prefix ABAC limits *where* a writer writes, not what its key names say. One tenant's bad object must not stop the pipeline for the others |
+
+The same theme as rows 21 and 22 — a component trusting a property of input it did not produce — now on the security side, which is why R-S7's write-side ABAC is necessary but not sufficient.
+
 ## What the models showed
 
 Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.

@@ -362,7 +362,7 @@ later `UNION` branch is refused as an unknown table.
 | X5 | alert evaluation | **open**; this service's labels are the input the evaluator needs |
 | X6 | paging | **open** (no code) |
 | X7 | UI queries: partial results with HTTP 200 | **handled for this service**: every overflow mode `throw`, `wait_end_of_query`, a limit is a 422; unknown completeness is labelled |
-| X8 | presigned URL expiry | **partly**: the plan carries expiry, `replan_after` and the rules; the lake UI that must follow them is not built |
+| X8 | presigned URL expiry | **partly**: the plan carries expiry, `replan_after` and the rules; the lake UI ([`../lakeui/`](../lakeui/README.md)) follows them, tested in Chromium against this service |
 
 ## 6. Tests
 
@@ -424,9 +424,11 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
    `{HYPERDX_PARAM_…}` placeholders need binding before parsing (rwproxy's
    masking shows how), and the entity rewrite (rwproxy) belongs before the
    scope step in the same pipeline.
-2. **The lake UI on `/v1/plan`**: hyparquet range reads with the plan's
-   sizes, DuckDB-WASM over them, re-plan before `replan_after`, a 403 as
-   re-plan, the incomplete region drawn after `incomplete_from` (X8).
+2. **The lake UI on `/v1/plan`**: first slice built in
+   [`../lakeui/`](../lakeui/README.md) (hyparquet range reads with the plan's
+   sizes, re-plan before `replan_after`, a 403 as re-plan, the incomplete
+   region drawn after `incomplete_from`); next: snapshots, the maplet and term
+   index in plans, namespace-scoped viewers through `/v1/query`.
 3. **The alert evaluator** (X5, R-S3): evaluate only windows that end at or
    before `complete_through` with `completeness: complete`, page on
    `unknown` for longer than a bound and on a failed evaluation, and never

@@ -13,6 +13,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 |---|---|
 | `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`) |
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
+| `lakeui` | `otel-chdb/lakeui`: `npm ci`, `npm run vendor:check` (vendor/ matches the pinned packages), `npm test` (node:test + fast-check: the planner client, range reader, completeness math, re-plan state machine, queries over edge Parquet fixtures, SVG) |
 | `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
 
 **`nightly.yml`: 03:17 UTC daily and on demand** (`workflow_dispatch`, with
@@ -24,6 +25,7 @@ or after it.
 | `build` | `cargo build --release` (otap-s3pq, consume), the Go tools, both collectors with ocb (`ci/build-collectors.sh`: otelcol-s3pq, otelcol-chdb); one `bin` artifact |
 | `conformance` | `conformance/run.sh` for layout B and for the ClickStack metrics tables, then `conformance/go_faults.sh` |
 | `query-integration` | `otel-chdb/query/integration`: the query service against the Go edge (two clusters) → SeaweedFS → the Rust consumer → ClickHouse, with `QS_IT_BIN` pointing at the `bin` artifact (the unit and property tests run in `go-test`, where the integration test skips) |
+| `lakeui-e2e` | `otel-chdb/lakeui/e2e`: Playwright (Chromium) on the lake UI against the query service's `/v1/plan` (`query/integration/lakeuirig`: the Go edge, clusters `lui-a`/`lui-b` → SeaweedFS → the Rust consumer → ClickHouse, a code + PKCE front on the test issuer, a counting pass-through in front of SeaweedFS); results equal ClickHouse counts, refusals render as refused, a real expired-URL 403 re-plans, bytes per object; `test-results/` (numbers, screenshots) as the `lakeui-e2e` artifact |
 | `faults-soak` | `otap-rs/scripts/faults.sh`, then `otap-rs/scripts/consumer_soak.sh` for 300 s |
 | `rust-integration` | `tests/series.rs` with the Go prototype's fleet objects, `tests/creds.rs` against credstubs |
 | `dst` | the deterministic simulation (`otap-rs/DST.md`): 10,000 new level-1 seeds and 200 new turmoil seeds a night (base = run number × 100,000), the meta tests with 20 seeds, the emulators against the services; failing seeds' traces as the `dst-traces` artifact |

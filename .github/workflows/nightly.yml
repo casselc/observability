@@ -205,6 +205,103 @@ jobs:
         if: failure()
         run: ci/services.sh logs || true
 
+  # The lake UI in Chromium (otel-chdb/lakeui/e2e): the Go edge (two
+  # clusters) -> SeaweedFS -> the Rust consumer -> ClickHouse, the query
+  # service's /v1/plan (query/integration/lakeuirig), sign-in by code + PKCE on
+  # the test issuer; results against ClickHouse counts, refusals, a real
+  # expired-URL 403 and re-plan, bytes fetched per object.
+  lakeui-e2e:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: otel-chdb/lakeui/package-lock.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: npm ci, Chromium
+        working-directory: otel-chdb/lakeui
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Build the rig
+        working-directory: otel-chdb/query
+        run: go build -o "$RUNNER_TEMP/lakeuirig" ./integration/lakeuirig
+      - name: playwright test (otel-chdb/lakeui)
+        working-directory: otel-chdb/lakeui
+        env:
+          QS_IT_BIN: ${{ runner.temp }}/bin
+          LAKEUI_RIG_BIN: ${{ runner.temp }}/lakeuirig
+        run: npm run e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lakeui-e2e
+          path: otel-chdb/lakeui/test-results
+          if-no-files-found: ignore
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
+
+  # The alert evaluator against the real pipeline and the query service
+  # (built from otel-chdb/query): rules fire and resolve, a stalled lane
+  # pages "cannot evaluate", the missed windows are evaluated once the
+  # watermark advances; two replicas share their state on S3 (otel-chdb/alerts).
+  alerts-integration:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: go test ./integration (otel-chdb/alerts)
+        working-directory: otel-chdb/alerts
+        env:
+          ALR_IT_BIN: ${{ runner.temp }}/bin
+        run: go test -count=1 -timeout 15m -v ./integration
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
+
   # The Rust edge under faults, then the consumer fleet under chaos (short).
   faults-soak:
     needs: build
@@ -566,6 +663,8 @@ jobs:
         env:
           OUT: ${{ runner.temp }}/out/consumer-model.txt
         run: mkdir -p "$RUNNER_TEMP/out" && ci/model-check.sh
+      - name: model/alertEvaluator.qnt (the alert evaluator, otel-chdb/alerts)
+        run: mkdir -p "$RUNNER_TEMP/out" && otel-chdb/model/alert_model.sh | tee "$RUNNER_TEMP/out/alert-model.txt"
       - name: parquetgo/modelcheck
         run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV" && set -a && . ci/test.env && set +a && LOG_DIR="$RUNNER_TEMP/out" ci/go-modules.sh test slow
       - uses: actions/upload-artifact@v7

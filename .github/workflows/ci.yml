@@ -84,6 +84,27 @@ jobs:
           path: ${{ runner.temp }}/go-logs
           if-no-files-found: ignore
 
+  # The lake UI's plain modules (planner client, range reader, completeness,
+  # re-plan state machine, queries over edge Parquet fixtures), with their
+  # property tests; and that vendor/ is what package-lock.json pins. No browser.
+  lakeui:
+    name: lake UI (node unit + property tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: otel-chdb/lakeui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: otel-chdb/lakeui/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run vendor:check
+      - run: npm test
+
   # otap-rs. This job owns the cargo cache (clippy's and the tests' release
   # artifacts); the nightly Rust jobs only restore it.
   rust:

@@ -63,6 +63,7 @@ disagreed with each other, and how each was resolved.
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 | [D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object) | Entity catalog: `resource_id` at both edges, announcements in the data object | **built** (2026-09-28): `resource_id` on every trace/log row and the announcement lane; central keeps `ResourceAttributes` (the schema switch and the rewrite proxy not decided) |
 | [D22](#d22-query-service-sql-rebuilt-from-the-tree-scope-as-table-filters-labels-on-every-result) | Query service: OIDC + audit, SQL rebuilt from the tree, scope as `additional_table_filters`, `complete_through` on every result, a presigned lake plan | **first slice built** (2026-09-28, [`query/`](query/README.md)): central queries and lake plans for both UIs; the UIs and the alert evaluator are not wired yet |
+| [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
 
 ---
 
@@ -1882,6 +1883,63 @@ count of rows without an entity match (R-S5's second half); no rate limit
 beyond per-caller concurrency; no STS session-tag signing on AWS.
 
 ---
+
+### D24. Lake UI, first slice: plan, range-read in the page, completeness on every view
+
+**Status:** built (2026-09-28): [`lakeui/`](lakeui/README.md), on D22's
+`/v1/plan`. The spike ([`lake-ui/`](lake-ui/)) is kept as it was.
+
+**Context.** The owner chose a dedicated lake-first UI next to the HyperDX
+fork (2026-09-27); research/lake-ui.md recommended the hybrid: the server
+plans and signs, the browser reads the planned objects, big scans go to a
+reader tier. X8 set the rules for presigned URLs, and R-S1/R-S2 require
+every view to show its source and complete-through and to draw what is not
+settled as such.
+
+**Decision.**
+
+1. **A static page with plain ES modules**, no framework, no build step, no
+   CDN: hyparquet 1.31.2 and fzstd 0.1.1 are vendored and checked against
+   `package-lock.json` in CI. Sign-in is OIDC code + PKCE from the page; the
+   query service verifies the token.
+2. **hyparquet only, for now.** The footer is one tail read sized from the
+   plan's `size` (no HEAD); then only the needed column chunks of the row
+   groups whose statistics can match; logs read display columns in a second
+   pass, only from the objects holding the rows shown. DuckDB-WASM is not
+   loaded: these views need no SQL, and it reads HTTP objects whole.
+3. **X8 as a state machine** (`src/runner.js`): reuse a plan only before
+   `replan_after`; start no read past it; any failed read re-plans, at most 3
+   times; then the view shows the objects it lacks and **no result**. A plan
+   refusal is shown as a refusal with its reason. Results are kept by object
+   key across re-plans and cover exactly the last plan's objects.
+4. **Completeness is computed, not styled**: one pure module
+   (`src/completeness.js`) decides the state of every row, bucket, point and
+   total from the plan's label; a bucket that straddles `incomplete_from` is
+   incomplete; `unknown` settles nothing; a GC-truncated start is incomplete.
+5. **Exact time**: every `*_ns` is a BigInt parsed from the JSON text
+   (nanoseconds exceed 2^53); a plan whose `*_ns` came through a double is
+   refused.
+
+**Evidence** [M]: 31 unit and property tests (completeness and re-plan
+properties; queries against real Go-edge objects equal brute force); the
+browser test against the Go edge → SeaweedFS → the Rust consumer →
+ClickHouse and the real service: counts equal ClickHouse's for the same
+scope and window (18,000 / 508 / 18 logs, 12 and 6 spans, 360 gauge points
+with the same sum), rows past `complete_through` drawn incomplete, two
+refusals shown as refused, a real expired-URL 403 re-planned, persistent
+failures shown as "not read" with the objects, an absent watermark shown as
+unknown; a count query read 8.0 % of the planned bytes in one GET per object.
+
+**Found while building it.** A string column's max statistic may be cut to
+a prefix by the edges' writer (`Body`'s is 64 bytes); pruning with it as a
+bound would drop row groups holding values that extend the prefix. The
+reader never prunes a value that extends the max (`test/queries.test.js`).
+Not a defect in shipped code: nothing pruned on statistics before.
+
+**Open.** No snapshot to pin (the plan lists lanes); namespace-scoped viewers
+are refused by the service; trace by id and text search read the `TraceId` /
+`Body` column of every planned object until plans carry the maplet and term
+index; the watermark is the fleet minimum.
 
 ## 3. Current sizing summary
 

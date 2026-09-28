@@ -1,0 +1,21 @@
+{
+  "name": "otel-chdb-lakeui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The lake-first UI, first slice: /v1/plan, hyparquet range reads, completeness on every view",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "vendor": "node scripts/vendor.mjs",
+    "vendor:check": "node scripts/vendor.mjs --check",
+    "e2e": "playwright test -c e2e/playwright.config.mjs"
+  },
+  "dependencies": {
+    "hyparquet": "1.31.2",
+    "fzstd": "0.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "fast-check": "4.10.2"
+  }
+}

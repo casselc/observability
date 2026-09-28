@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lake Explorer</title>
+<link rel="stylesheet" href="app.css">
+<script type="importmap">
+{"imports": {"hyparquet": "./vendor/hyparquet/src/index.js", "fzstd": "./vendor/fzstd/esm/index.mjs"}}
+</script>
+</head>
+<body>
+<header>
+  <h1>Lake Explorer</h1>
+  <div id="who" data-testid="who">not signed in</div>
+  <button id="signin" type="button">Sign in</button>
+  <button id="signout" type="button" hidden>Sign out</button>
+</header>
+<main>
+  <details id="token-paste"><summary>Use a token instead (development)</summary>
+    <textarea id="token-input" rows="2" placeholder="an OIDC access token for the query service"></textarea>
+    <button id="token-use" type="button">Use token</button>
+  </details>
+  <form id="scope" class="row" onsubmit="return false">
+    <label>Cluster <select id="cluster" data-testid="cluster"><option value="">all in my scope</option></select></label>
+    <label>Range <select id="range" data-testid="range">
+      <option value="900">last 15 min</option><option value="1800">last 30 min</option><option value="3600" selected>last 1 h</option>
+      <option value="21600">last 6 h</option><option value="86400">last 24 h</option><option value="custom">custom</option></select></label>
+    <label class="custom">From <input id="from" data-testid="from" placeholder="2026-09-28T12:00:00Z" size="24"></label>
+    <label class="custom">To <input id="to" data-testid="to" placeholder="2026-09-28T13:00:00Z" size="24"></label>
+  </form>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="logs" aria-selected="true">Logs</button>
+    <button role="tab" data-view="trace" aria-selected="false">Trace</button>
+    <button role="tab" data-view="metric" aria-selected="false">Metric</button>
+  </nav>
+  <form id="view-logs" class="row view" onsubmit="return false">
+    <label>Body contains <input id="log-text" data-testid="log-text" size="24"></label>
+    <fieldset id="log-sev"><legend>Severity</legend>
+      <label><input type="checkbox" value="DEBUG">DEBUG</label><label><input type="checkbox" value="INFO">INFO</label>
+      <label><input type="checkbox" value="WARN">WARN</label><label><input type="checkbox" value="ERROR">ERROR</label></fieldset>
+    <label>Rows <select id="log-limit" data-testid="log-limit"><option>0</option><option>20</option><option selected>50</option><option>200</option></select></label>
+    <button id="run-logs" data-testid="run-logs">Search</button>
+  </form>
+  <form id="view-trace" class="row view" hidden onsubmit="return false">
+    <label>Trace id <input id="trace-id" data-testid="trace-id" size="36" placeholder="32 hex digits"></label>
+    <button id="run-trace" data-testid="run-trace">Find trace</button>
+  </form>
+  <form id="view-metric" class="row view" hidden onsubmit="return false">
+    <label>Gauge <input id="metric-name" data-testid="metric-name" size="24"></label>
+    <button id="run-metric" data-testid="run-metric">Chart</button>
+  </form>
+  <section id="result" aria-live="polite">
+    <div id="banner" class="banner" data-testid="banner" data-state="idle">Sign in, pick a range and run a query.</div>
+    <div id="stats" class="stats" data-testid="stats"></div>
+    <div id="chart"></div>
+    <div id="table"></div>
+    <details id="events"><summary>Plan and read log</summary><pre id="event-log" data-testid="event-log"></pre></details>
+  </section>
+</main>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

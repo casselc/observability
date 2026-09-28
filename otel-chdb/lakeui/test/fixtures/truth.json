@@ -1,0 +1,12 @@
+{
+ "trace_ids": [
+  "009a0f49dfb9cd76e758fb4d94f1547a",
+  "291338588dc6c5cd04397b15cc7f1d72",
+  "8b441c72a06bffbfc0ac3eb7684955ab",
+  "99f22bfb058f605c71c6baf92e6086ca",
+  "451722d281e967e00b70207e21ca72af",
+  "29b5b6e8b4f3552d6e0b424fd594c1cb"
+ ],
+ "metric": "lui.queue.depth",
+ "needle": "needle-7f3a"
+}

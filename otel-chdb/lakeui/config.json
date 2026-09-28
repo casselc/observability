@@ -1,0 +1,7 @@
+{
+  "query_url": "https://query.example.com",
+  "issuer": "https://idp.example.com/realms/observability",
+  "client_id": "lakeui",
+  "clusters": ["prod-eu-1"],
+  "metric": "system.cpu.utilization"
+}

@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -94,6 +95,16 @@ func main() {
 		case <-time.After(*poll):
 		}
 	}
+}
+
+// gapTime parses a record's time ("2006-01-02 15:04:05.000", as lane.Time
+// writes it) and renders it again.
+func gapTime(s string) (string, error) {
+	t, err := time.Parse("2006-01-02 15:04:05.000", s)
+	if err != nil {
+		return "", err
+	}
+	return t.UTC().Format("2006-01-02 15:04:05.000"), nil
 }
 
 // applyAnnounced merges the consumer's resource announcements ({ann}) into
@@ -223,27 +234,35 @@ func (a *agg) pass(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// A lane that fails stops at its failing object (its progress stays
+	// before it, so the next pass retries it); the other lanes, and the
+	// other clusters, go on. One cluster's controller must not be able to
+	// stop the catalog for every cluster listed after it.
 	n := 0
+	var errs []error
 	for _, cl := range clusters {
 		lanes, _, err := a.list(ctx, cl, "/", "")
 		if err != nil {
-			return n, err
+			errs = append(errs, err)
+			continue
 		}
 		for _, ln := range lanes {
 			_, objs, err := a.list(ctx, ln, "", a.progress[ln])
 			if err != nil {
-				return n, err
+				errs = append(errs, err)
+				continue
 			}
 			sort.Slice(objs, func(i, j int) bool { return objs[i].key < objs[j].key })
 			for _, o := range objs {
 				if err := a.ingest(ctx, cl, ln, o); err != nil {
-					return n, fmt.Errorf("%s: %w", o.key, err)
+					errs = append(errs, fmt.Errorf("%s: %w", o.key, err))
+					break
 				}
 				n++
 			}
 		}
 	}
-	return n, nil
+	return n, errors.Join(errs...)
 }
 
 func (a *agg) ingest(ctx context.Context, cluster, ln string, o objInfo) error {
@@ -323,12 +342,19 @@ WHERE cluster_key = %[3]d AND closed_at = toDateTime64(0, 3, 'UTC') AND last_obs
 	if err := a.markGaps(o.key, plain); err != nil {
 		return err
 	}
+	// The key, the cluster and the lane come from S3 key names, which a
+	// cluster's controller chooses: they travel as JSON data, never as SQL
+	// text.
 	put := o.mod.UTC().Format("2006-01-02 15:04:05.000")
-	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.ingest_log (object, cluster, kind, bytes, records, put_at, closed_by_sync) VALUES ('%s', '%s', '%s', %d, %d, '%s', %d)",
-		a.db, o.key, cl, kind, len(body), recs, put, closed), nil, nil, nil); err != nil {
+	row, _ := json.Marshal(map[string]any{"object": o.key, "cluster": cl, "kind": kind, "bytes": len(body), "records": recs,
+		"put_at": put, "closed_by_sync": closed})
+	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.ingest_log (object, cluster, kind, bytes, records, put_at, closed_by_sync) FORMAT JSONEachRow", a.db),
+		bytes.NewReader(row), nil, nil); err != nil {
 		return err
 	}
-	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.lane_progress (lane, last_object, objects) VALUES ('%s', '%s', 1)", a.db, ln, o.key), nil, nil, nil); err != nil {
+	row, _ = json.Marshal(map[string]any{"lane": ln, "last_object": o.key, "objects": 1})
+	if _, _, err := a.c.Exec(fmt.Sprintf("INSERT INTO %s.lane_progress (lane, last_object, objects) FORMAT JSONEachRow", a.db),
+		bytes.NewReader(row), nil, nil); err != nil {
 		return err
 	}
 	a.progress[ln] = o.key
@@ -360,6 +386,15 @@ func (a *agg) markGaps(key string, plain []byte) error {
 		if err := json.Unmarshal(line, &g); err != nil || g.Level != lane.LGap {
 			return fmt.Errorf("gap record: %v", err)
 		}
+		// the window's ends are read as times and written back by us: a
+		// record's text never reaches the statement
+		from, err1 := gapTime(g.ValidFrom)
+		to, err2 := gapTime(g.ClosedAt)
+		if err1 != nil || err2 != nil {
+			log.Printf("%s: gap record with unreadable times skipped: %q %q", key, g.ValidFrom, g.ClosedAt)
+			continue
+		}
+		g.ValidFrom, g.ClosedAt = from, to
 		q := fmt.Sprintf(`INSERT INTO %[1]s.records (level, key, entity, cluster_key, node_key, ns_key, wl_key, pod_key, kind, name, pod_uid, container, attrs, valid_from, closed_at, observed_at, event_at, writer, uncertain)
 SELECT level, key, entity, cluster_key, node_key, ns_key, wl_key, pod_key, kind, name, pod_uid, container, attrs, valid_from, closed_at, last_observed, first_event, 'gap-mark', 1
 FROM %[1]s.versions_final

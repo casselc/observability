@@ -52,6 +52,7 @@ async function finishSignIn() {
 
 function setToken(t) {
   state.token = t
+  state.basis = null // a basis is the caller's scope's: a new sign-in pins anew
   if (t) store.set('lakeui.token', t)
   else store.del('lakeui.token')
   planner.clear()
@@ -116,13 +117,16 @@ async function run(view) {
     const q = buildQuery(view, w)
     const cl = $('cluster').value
     const out = await execute(q, {
-      planner, request: { ...w, clusters: cl ? [cl] : [], useIndex: $('use-index').checked },
+      // D30: one basis per run; "hold" reuses the last run's
+      planner, request: { ...w, clusters: cl ? [cl] : [], useIndex: $('use-index').checked,
+        basis: $('hold-basis').checked && state.basis ? state.basis : 'latest' },
       onEvent: ev => {
         log.push(`${new Date().toISOString().slice(11, 23)} ${ev.type} ${ev.key ?? ''} ${ev.kind ?? ''} ${ev.status || ''} ${ev.why ?? ''} ${ev.requestId ?? ''} ${ev.message ?? ''}`.replace(/\s+/g, ' '))
         $('event-log').textContent = log.join('\n')
         if (ev.type === 'replan') setBanner('running', `re-planning (${ev.why})…`)
       },
     })
+    if (out.basis) state.basis = out.basis
     rec = render(view, q, out)
   } catch (e) {
     rec = renderError(e)
@@ -147,7 +151,16 @@ function statsLine(out) {
   const pct = p.totalBytes ? ((100 * out.stats.bytes) / p.totalBytes).toFixed(1) : '0'
   return `source ${esc(p.source)} · plan ${esc(p.requestId.slice(0, 8))} · ${p.objects.length} object(s), ${p.totalBytes} B planned · fetched ${out.stats.bytes} B (${pct}%) in ${out.stats.requests} range GET(s) · ${out.replans} re-plan(s) · ${out.elapsedMs} ms` +
     ` · ${p.snapshot ? 'snapshot ' + esc(p.snapshot) : 'no snapshot (lanes listed ' + esc(p.listedAt.slice(11, 19)) + ')'}` +
-    indexLine(p)
+    basisLine(out) + indexLine(p)
+}
+
+/** Which basis the run read at (D30): never hidden. */
+function basisLine(out) {
+  const p = out.plan
+  if (!p.atBasis) return ' · <span class="warn" data-testid="basis">not at a basis: this service does not pin one; a re-run may read other objects</span>'
+  const cl = (p.basisInfo?.clusters ?? []).map(c => `${c.cluster === '*' ? 'all clusters' : esc(c.cluster)} before ${esc(shortTime(BigInt(c.received_before_ns)))}`).join(', ')
+  return ` · <span data-testid="basis">basis: rows received ${cl || '(bounds not shown)'}${out.cached ? ' (cached: the same answer at the same basis)' : ''}` +
+    `${p.afterBasis ? `; ${p.afterBasis} newer object(s) left out` : ''}${out.stats.basisExcluded ? `; ${out.stats.basisExcluded} left out by their footer` : ''}</span>`
 }
 
 /** What the index did for a filtered plan: never hidden, errors included. */
@@ -215,6 +228,8 @@ function summaryOf(out) {
     objects: p.objects.length, plannedBytes: p.totalBytes, fetchedBytes: out.stats.bytes, requests: out.stats.requests,
     perObject: [...out.stats.perKey].map(([k, v]) => ({ key: k, bytes: v.bytes, requests: v.requests, size: p.objects.find(o => o.key === k)?.size ?? null })),
     replans: out.replans, missing: out.missing, reason: out.reason ?? '',
+    basis: out.basis ?? null, atBasis: p.atBasis === true, cached: out.cached === true, afterBasis: p.afterBasis ?? 0,
+    objectsHash: [...p.objects].map(o => o.key).sort().join(','),
     count: r?.count ?? r?.spans?.length ?? r?.points ?? null,
     sum: r?.sum ?? null,
     buckets: r?.buckets?.map(b => ({ from: formatTimeNs(b.fromNs), count: b.count ?? null, state: b.state })) ?? null,

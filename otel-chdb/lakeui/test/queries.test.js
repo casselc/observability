@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { parquetMetadata, parquetReadObjects } from 'hyparquet'
-import { execute } from '../src/engine.js'
+import { execute, footerReceivedNs, ResultCache } from '../src/engine.js'
 import { cachedPlanner } from '../src/planclient.js'
 import { MetaCache, compressors, parsers, pruneByRange } from '../src/parquet.js'
 import { logSearch, metricChart, traceById } from '../src/queries.js'
@@ -135,4 +135,66 @@ test('pruning never drops a row group whose truncated string max may still match
   const st = md.row_groups[0].columns.find(c => c.meta_data.path_in_schema[0] === 'Body').meta_data.statistics
   const lo = st.max_value + 'zzzz'
   assert.equal(pruneByRange(md, 'Body', lo, null).length, 1)
+})
+
+// ---- the basis (D30) -----------------------------------------------------------
+
+const recvOf = u8 => footerReceivedNs(parquetMetadata(ab(u8), { parsers }))
+
+test('one basis per view load: the first plan asks for the latest, every re-plan and the detail pass for the basis that answered', async () => {
+  const s = fakeStore(new Map([['old', files.logs], ['new', files.logs]]))
+  s.expired.add('old')
+  const asked = []
+  let n = 0
+  const planner = cachedPlanner(async req => {
+    asked.push(req.basis)
+    return { ...planOf([{ key: 'k', url: n++ ? 'new' : 'old', size: files.logs.length }], { requestId: 'p' + n }), atBasis: true, basis: 'b1.pinned.mac' }
+  })
+  const results = new ResultCache()
+  const r = await execute(logSearch({ fromNs: 0n, toNs: 10n ** 19n, limit: 3 }), { planner, request: { fromNs: 0n, toNs: 10n ** 19n }, fetch: s.fetch, metaCache: new MetaCache(), results })
+  assert.equal(r.status, 'ok')
+  assert.equal(r.basis, 'b1.pinned.mac')
+  assert.equal(asked[0], 'latest')
+  assert.ok(asked.length >= 2 && asked.slice(1).every(b => b === 'b1.pinned.mac'), JSON.stringify(asked))
+  // the same query at the same basis: the cached answer, no read
+  const reads = s.log.length
+  const again = await execute(logSearch({ fromNs: 0n, toNs: 10n ** 19n, limit: 3 }), { planner, request: { fromNs: 0n, toNs: 10n ** 19n, basis: 'b1.pinned.mac' }, fetch: s.fetch, metaCache: new MetaCache(), results })
+  assert.equal(again.cached, true)
+  assert.equal(again.result.count, r.result.count)
+  assert.equal(s.log.length, reads)
+  // a plan that is not at the pinned basis is refused, never mixed in
+  const other = cachedPlanner(async () => ({ ...planOf([{ key: 'k', url: 'new', size: files.logs.length }]), atBasis: true, basis: 'b1.other.mac' }))
+  await assert.rejects(execute(logSearch({ fromNs: 0n, toNs: 10n ** 19n }), { planner: other, request: { fromNs: 0n, toNs: 10n ** 19n, basis: 'b1.pinned.mac' }, fetch: s.fetch, metaCache: new MetaCache(), results: new ResultCache() }),
+    e => e.kind === 'bad_plan')
+})
+
+test('nothing is cached without a basis', async () => {
+  const { s, planner } = world('logs')
+  const results = new ResultCache()
+  const q = () => logSearch({ fromNs: 0n, toNs: 10n ** 19n, limit: 0 })
+  const r = await execute(q(), { planner, request: { fromNs: 0n, toNs: 10n ** 19n }, fetch: s.fetch, metaCache: new MetaCache(), results })
+  assert.equal(r.status, 'ok')
+  assert.equal(r.basis, null) // a service without bases: unpinned, and the result says so
+  assert.equal(results.size, 0)
+})
+
+test('an object the plan could not date: its footer decides, and no footer bound is an error, never a keep', async () => {
+  const recv = recvOf(files.logs)
+  assert.equal(typeof recv, 'bigint')
+  const s = fakeStore(new Map([['u1', files.logs], ['u2', files.logs]]))
+  const mk = bound => cachedPlanner(async () => ({ ...planOf([
+    { key: 'in', url: 'u1', size: files.logs.length },
+    { key: 'check', url: 'u2', size: files.logs.length, basisCheck: true, receivedBeforeNs: bound },
+  ]), atBasis: true, basis: 'b1.b.m' }))
+  const run = planner => execute(logSearch({ fromNs: 0n, toNs: 10n ** 19n, limit: 0 }), { planner, request: { fromNs: 0n, toNs: 10n ** 19n }, fetch: s.fetch, metaCache: new MetaCache(), results: new ResultCache() })
+  const kept = await run(mk(recv + 1n)) // received before the bound: read
+  assert.equal(kept.result.count, 2 * logRows.length)
+  const dropped = await run(mk(recv)) // at the bound: received after the basis (strict)
+  assert.equal(dropped.result.count, logRows.length)
+  assert.equal(dropped.stats.basisExcluded, 1)
+  // a footer without oscope-received: the query fails naming the object
+  const bare = await parquetReadObjects({ file: ab(files.logs), columns: ['Timestamp'], compressors, parsers })
+  assert.ok(bare.length > 0)
+  assert.equal(footerReceivedNs({ key_value_metadata: [] }), null)
+  assert.equal(footerReceivedNs({ key_value_metadata: [{ key: 'oscope-received', value: '12x' }] }), null)
 })

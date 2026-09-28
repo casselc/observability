@@ -566,6 +566,95 @@ func TestIntegration(t *testing.T) {
 		t.Logf("after the bound: complete_through %v, %s row, complete", ctOf(out), n)
 	})
 
+	t.Run("basis", func(t *testing.T) {
+		c.t = t
+		// D30: an answer at a basis does not change while new data arrives
+		// (a late row into the same window included); a newer basis has it;
+		// the delta between the two is exactly the late row; the lake plan
+		// at the basis lists the same objects; a basis never widens scope
+		win := map[string]any{"from": at.Add(-time.Minute).UnixNano(), "to": at.Add(time.Minute).UnixNano()}
+		q := func(body map[string]any) (string, map[string]any) {
+			t.Helper()
+			body["sql"], body["window"] = "SELECT count() AS n FROM otel_logs", win
+			code, out := c.post("/v1/query", qaTok, body)
+			if code != 200 {
+				t.Fatalf("%v: %d %v", body["basis"], code, out)
+			}
+			return fmt.Sprint(out["result"].(map[string]any)["data"].([]any)[0].(map[string]any)["n"]), out
+		}
+		n1, out1 := q(map[string]any{"basis": "latest"})
+		b1 := out1["basis"].(string)
+		if out1["at_basis"] != true || out1["completeness"] != "complete" {
+			t.Fatalf("at the latest basis: %v %v", out1["at_basis"], out1["completeness"])
+		}
+		planReq := map[string]any{"signal": "logs", "from": at.Add(-time.Minute).UnixNano(), "to": at.Add(time.Minute).UnixNano(), "basis": b1}
+		code, p1 := c.post("/v1/plan", qaTok, planReq)
+		if code != 200 || p1["at_basis"] != true {
+			t.Fatalf("plan at the basis: %d %v", code, p1)
+		}
+		t.Logf("basis %v: %s rows, plan %d objects", out1["basis_info"], n1, len(p1["objects"].([]any)))
+
+		// more data: a late row into the same window (event time in it,
+		// received now), and current rows, through the real edges
+		r.publish(bin, "qa", []resource{{"qa", "shop", "cart-1", 1, 0, at.Add(20 * time.Second)}, {"qa", "shop", "cart-1", 1, 1, time.Now()}}, time.Time{})
+		r.publish(bin, "qb", []resource{{"qb", "shop", "cart-9", 1, 1, time.Now()}}, time.Time{})
+		r.consume(bin, "run", "--ch", r.ch, "--db", r.db, "--exit-after-idle", "8s", "--poll", "300ms", "--full-list", "1s")
+		r.consume(bin, "watermark", "--wm-skew", "1s")
+		time.Sleep(1100 * time.Millisecond) // the service's watermark cache
+		all := r.sql(fmt.Sprintf("SELECT count() FROM %s.otel_logs WHERE `__hdx_materialized_k8s.cluster.name` = 'qa' AND Timestamp >= fromUnixTimestamp64Nano(toInt64(%d)) AND Timestamp < fromUnixTimestamp64Nano(toInt64(%d))",
+			r.db, win["from"], win["to"]))
+
+		// the same statement at the same basis: the same answer
+		n, out := q(map[string]any{"basis": b1})
+		if n != n1 || out["completeness"] != out1["completeness"] || out["complete_through"] != out1["complete_through"] {
+			t.Fatalf("at basis %v after new data: %s rows %v (was %s %v); central now holds %s", out1["basis_info"], n, out["completeness"], n1, out1["completeness"], all)
+		}
+		// a newer basis includes the late row
+		n2, out2 := q(map[string]any{"basis": "latest"})
+		b2 := out2["basis"].(string)
+		if n2 != all || n2 == n1 {
+			t.Fatalf("at the newer basis: %s rows, central holds %s, the old basis %s", n2, all, n1)
+		}
+		// the delta between the two is exactly the late row, and it is late
+		_, d := q(map[string]any{"basis": b2, "basis_from": b1})
+		if dl := d["delta"].(map[string]any); dl["status"] != "counted" || dl["rows"] != 1.0 {
+			t.Fatalf("delta %v", dl)
+		}
+		if l := d["late"].(map[string]any); l["rows"] != 1.0 {
+			t.Fatalf("the delta's row is not late: %v", l)
+		}
+		// a regressed pair is refused: a delta never re-counts
+		code, rr := c.post("/v1/query", qaTok, map[string]any{"sql": "SELECT count() FROM otel_logs", "window": win, "basis": b1, "basis_from": b2})
+		if code != 409 || rr["error"] != "basis_regressed" {
+			t.Fatalf("regressed delta: %d %v", code, rr)
+		}
+		// the lake plan at the basis lists the same objects; the newer one more
+		code, p := c.post("/v1/plan", qaTok, planReq)
+		if code != 200 || p["objects_hash"] != p1["objects_hash"] {
+			t.Fatalf("plan at the basis after new data: %d %v (was %v)", code, p["objects_hash"], p1["objects_hash"])
+		}
+		planReq["basis"] = b2
+		code, p = c.post("/v1/plan", qaTok, planReq)
+		if code != 200 || len(p["objects"].([]any)) <= len(p1["objects"].([]any)) {
+			t.Fatalf("plan at the newer basis: %d %d objects (was %d)", code, len(p["objects"].([]any)), len(p1["objects"].([]any)))
+		}
+		// a basis never widens scope: the fleet's two-cluster basis is refused
+		// to qa's token, and qa's own is qa's rows only
+		code, fb := c.post("/v1/basis", fleet, map[string]any{"clusters": []string{"qa", "qb"}})
+		if code != 200 {
+			t.Fatalf("mint: %d %v", code, fb)
+		}
+		code, rr = c.post("/v1/query", qaTok, map[string]any{"sql": "SELECT count() FROM otel_logs", "basis": fb["basis"]})
+		if code != 403 || rr["error"] != "basis_not_in_scope" {
+			t.Fatalf("qa with the fleet's basis: %d %v", code, rr)
+		}
+		code, rr = c.post("/v1/query", fleet, map[string]any{"sql": "SELECT count() FROM otel_logs", "window": win, "basis": fb["basis"], "clusters": []string{"qb"}})
+		if code != 200 {
+			t.Fatalf("fleet narrowing its basis: %d %v", code, rr)
+		}
+		t.Logf("same basis after new data: %s rows (twice); newer basis %s; delta 1 late row; plan hash unchanged", n1, n2)
+	})
+
 	t.Run("plan", func(t *testing.T) {
 		c.t = t
 		req := map[string]any{"signal": "logs", "from": at.Add(-time.Minute).Format(time.RFC3339), "to": time.Now().Format(time.RFC3339)}

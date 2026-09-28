@@ -27,6 +27,8 @@ export function indexedGroups(md, obj) {
 }
 
 function objectMayOverlap(obj, q) {
+  // excluded by its footer at the plan's basis (engine.js): holds nothing here
+  if (obj.excluded) return false
   // the plan's per-object range (from the slot's metadata) prunes whole objects
   if (obj.minTimeNs !== null && obj.maxTimeNs !== null && obj.minTimeNs !== undefined) {
     return obj.maxTimeNs >= q.fromNs && obj.minTimeNs < q.toNs
@@ -48,6 +50,8 @@ export function logSearch({ fromNs, toNs, text = '', severities = [], limit = 50
     kind: 'logs',
     signal: 'logs',
     q,
+    // what decides the answer (with the plan's basis: the result cache's key)
+    key: JSON.stringify(['logs', String(q.fromNs), String(q.toNs), q.text, [...q.severities].sort(), q.limit, String(q.stepNs)]),
     // the plan filter: the index narrows a text search (the page still tests
     // every row itself; the index only drops what cannot match)
     filter: q.text ? { terms: [text.trim()] } : null,
@@ -156,6 +160,7 @@ export function traceById({ traceId, fromNs, toNs }) {
   return {
     kind: 'trace',
     signal: 'traces',
+    key: JSON.stringify(['trace', traceId, String(fromNs), String(toNs)]),
     q,
     filter: { traceId: id },
     async scan(file, obj, md) {
@@ -199,6 +204,7 @@ export function metricChart({ metric, fromNs, toNs, stepNs }) {
   return {
     kind: 'metric',
     signal: 'metrics_gauge',
+    key: JSON.stringify(['metric', metric, String(fromNs), String(toNs), String(stepNs ?? '')]),
     q,
     async scan(file, obj, md) {
       const out = { series: new Map(), points: 0, key: obj.key }

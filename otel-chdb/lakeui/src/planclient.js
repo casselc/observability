@@ -32,6 +32,10 @@ export function classify(status) {
 
 const COMPLETENESS = new Set(['complete', 'partial', 'unknown'])
 
+/** A basis token (D30): what a plan was computed at, and what pins the next. */
+export const BASIS_TOKEN = /^b1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+export const isBasisToken = b => typeof b === 'string' && BASIS_TOKEN.test(b)
+
 function bigOrNull(v) {
   if (v === null || v === undefined) return null
   if (typeof v === 'bigint') return v
@@ -91,12 +95,20 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     } else if (o.index === 'scan') {
       index = 'scan'
     }
+    // a plan at a basis marks the objects it could not date: the reader
+    // checks the footer's oscope-received against the bound (plan rule)
+    const basisCheck = o.basis_check === true
+    const receivedBeforeNs = bigOrNull(o.received_before_ns)
+    if (basisCheck && typeof receivedBeforeNs !== 'bigint') {
+      throw new PlanError('bad_plan', `plan: object ${o.key} needs a basis check without received_before_ns`)
+    }
     return {
       key: o.key, url: o.url, size: o.size, cluster: o.cluster ?? '', producer: o.producer ?? '',
       minTimeNs: minT ?? null, maxTimeNs: maxT ?? null,
       rows: typeof o.rows === 'number' ? o.rows : bigOrNull(o.rows) ?? null, refined: o.refined === true,
       late: o.late === true,
       index, rowGroups,
+      basisCheck, receivedBeforeNs: basisCheck ? receivedBeforeNs : null,
     }
   })
   const keys = new Set()
@@ -133,6 +145,12 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     unrefined: raw.unrefined ?? 0,
     rules: raw.rules ?? [],
     index: raw.index && typeof raw.index === 'object' ? raw.index : null,
+    // D30: the basis the plan was computed at (atBasis), or the current one
+    basis: isBasisToken(raw.basis) ? raw.basis : null,
+    atBasis: raw.at_basis === true && isBasisToken(raw.basis),
+    basisInfo: raw.basis_info && typeof raw.basis_info === 'object' ? raw.basis_info : null,
+    afterBasis: Number.isSafeInteger(raw.after_basis) ? raw.after_basis : 0,
+    basisUnverified: Number.isSafeInteger(raw.basis_unverified) ? raw.basis_unverified : 0,
   }
 }
 
@@ -145,6 +163,7 @@ export async function requestPlan(req, { fetch = globalThis.fetch, now = Date.no
   if (req.clusters && req.clusters.length) body.clusters = req.clusters
   if (req.traceId) body.trace_id = req.traceId
   if (req.terms && req.terms.length) body.terms = req.terms
+  if (req.basis) body.basis = req.basis
   let resp
   try {
     resp = await fetch(req.queryUrl.replace(/\/$/, '') + '/v1/plan', {
@@ -174,23 +193,32 @@ export async function requestPlan(req, { fetch = globalThis.fetch, now = Date.no
 
 /** The key a plan answers: the same key → the same plan while it is valid. */
 export function planKey(req) {
-  return JSON.stringify([req.signal, String(req.fromNs), String(req.toNs), [...(req.clusters ?? [])].sort(), req.traceId ?? '', req.terms ?? []])
+  return JSON.stringify([req.signal, String(req.fromNs), String(req.toNs), [...(req.clusters ?? [])].sort(), req.traceId ?? '', req.terms ?? [],
+    req.basis ?? ''])
 }
 
 /**
- * A plan cache: a plan is reused only while now < replan_after (X8 rule 1);
- * `force` asks again whatever the cache holds (after a failed read).
+ * A plan cache keyed on the basis (D30): only a plan AT a basis is cached,
+ * under that basis, because only there does the same request list the same
+ * objects; a request for "latest" or for no basis is never answered from
+ * the cache, and its answer is kept under the basis it came back at. A
+ * cached plan is still reused only while now < replan_after (X8 rule 1: its
+ * URLs expire); `force` asks again (after a failed read). A plan asked at a
+ * basis that comes back at another is refused, never cached.
  */
 export function cachedPlanner(ask, { now = Date.now } = {}) {
   const cache = new Map()
   let calls = 0
   const plan = async (req, { force = false } = {}) => {
-    const k = planKey(req)
-    const hit = cache.get(k)
+    const pinned = isBasisToken(req.basis)
+    const hit = pinned ? cache.get(planKey(req)) : undefined
     if (!force && hit && now() < hit.replanAfterMs) return hit
     calls++
     const p = await ask(req)
-    cache.set(k, p)
+    if (pinned && (!p.atBasis || p.basis !== req.basis)) {
+      throw new PlanError('bad_plan', 'plan: asked at a basis, answered at another (or at none)')
+    }
+    if (p.atBasis) cache.set(planKey({ ...req, basis: p.basis }), p)
     return p
   }
   plan.calls = () => calls

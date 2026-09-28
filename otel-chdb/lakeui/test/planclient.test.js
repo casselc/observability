@@ -85,18 +85,48 @@ test('requestPlan: ns precision over the wire, and refusals are errors of their 
   await assert.rejects(requestPlan(base, { fetch: respond(200, 'not json') }), e => e.kind === 'bad_plan')
 })
 
-test('cachedPlanner reuses a plan only before replan_after; force asks again', async () => {
+test('cachedPlanner caches only plans at a basis, under it, until replan_after (D30)', async () => {
   let t = 0
   let n = 0
-  const ask = async () => ({ n: ++n, replanAfterMs: t + 100 })
+  const B1 = 'b1.one.mac'
+  const B2 = 'b1.two.mac'
+  // the service answers "latest" at B1; a token at itself
+  const ask = async req => ({ n: ++n, replanAfterMs: t + 100, atBasis: true, basis: req.basis === 'latest' ? B1 : req.basis })
   const plan = cachedPlanner(ask, { now: () => t })
   const req = { signal: 'logs', fromNs: 1n, toNs: 2n }
-  assert.equal((await plan(req)).n, 1)
+  // no basis, or "latest": never answered from the cache
+  assert.equal((await plan({ ...req, basis: 'latest' })).n, 1)
+  assert.equal((await plan({ ...req, basis: 'latest' })).n, 2)
+  // ... but kept under the basis it came back at
+  assert.equal((await plan({ ...req, basis: B1 })).n, 2)
   t = 99
-  assert.equal((await plan(req)).n, 1)
+  assert.equal((await plan({ ...req, basis: B1 })).n, 2)
   t = 100
-  assert.equal((await plan(req)).n, 2) // at replan_after: a new plan
-  assert.equal((await plan(req, { force: true })).n, 3)
-  assert.equal((await plan({ ...req, toNs: 3n })).n, 4) // another window, another plan
-  assert.equal(plan.calls(), 4)
+  assert.equal((await plan({ ...req, basis: B1 })).n, 3) // at replan_after: a new plan (fresh URLs)
+  assert.equal((await plan({ ...req, basis: B1 }, { force: true })).n, 4)
+  assert.equal((await plan({ ...req, basis: B2 })).n, 5) // another basis, another plan
+  assert.equal((await plan({ ...req, toNs: 3n, basis: B1 })).n, 6) // another window, another plan
+  const none = cachedPlanner(async () => ({ n: ++n, replanAfterMs: Infinity }), { now: () => t })
+  const a = await none(req)
+  assert.notEqual((await none(req)).n, a.n) // no basis: nothing cached
+  // asked at a basis, answered at another: refused, not cached
+  const liar = cachedPlanner(async () => ({ replanAfterMs: Infinity, atBasis: true, basis: B2 }), { now: () => t })
+  await assert.rejects(liar({ ...req, basis: B1 }), e => e.kind === 'bad_plan')
+  assert.equal(plan.calls(), 6)
+})
+
+test('a plan at a basis: its basis, and the objects it could not date', () => {
+  const p = normalizePlan(parseJSONNs(wire(answer({ basis: 'b1.x.y', at_basis: true, basis_info: { clusters: [] }, after_basis: 2, basis_unverified: 1,
+    objects: [{ url: 'u', size: 1, key: 'k', basis_check: true, received_before_ns: '1790600371200000000' }] }))), 0)
+  assert.equal(p.basis, 'b1.x.y')
+  assert.equal(p.atBasis, true)
+  assert.equal(p.afterBasis, 2)
+  assert.equal(p.objects[0].basisCheck, true)
+  assert.equal(p.objects[0].receivedBeforeNs, 1790600371200000000n)
+  // a basis the plan was not computed at is not "at" it; garbage is no basis
+  assert.equal(normalizePlan(parseJSONNs(wire(answer({ basis: 'b1.x.y', at_basis: false }))), 0).atBasis, false)
+  assert.equal(normalizePlan(parseJSONNs(wire(answer({ basis: 'nope', at_basis: true }))), 0).atBasis, false)
+  // a footer check without its bound cannot be done: refused
+  assert.throws(() => normalizePlan(parseJSONNs(wire(answer({ objects: [{ url: 'u', size: 1, key: 'k', basis_check: true }] }))), 0),
+    e => e.kind === 'bad_plan')
 })

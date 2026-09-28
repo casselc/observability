@@ -1,0 +1,193 @@
+{
+ "run": "1790563114",
+ "lifetime_s": [
+  30,
+  60
+ ],
+ "dict_at_start": 1,
+ "visible_s": {
+  "orphan": 0.5,
+  "silent": 0.5,
+  "probe": 0.5,
+  "known": 0.5
+ },
+ "exact_s": {
+  "known": 0.5,
+  "orphan": 59.6,
+  "probe": 59.6
+ },
+ "orphan_gap_s": 59.1,
+ "silent_exact": false,
+ "catalog": [
+  {
+   "pod": "known",
+   "source": "controller",
+   "uncertain": "0"
+  },
+  {
+   "pod": "orphan",
+   "source": "announce",
+   "uncertain": "1"
+  },
+  {
+   "pod": "probe",
+   "source": "announce",
+   "uncertain": "1"
+  }
+ ],
+ "announcements": [
+  {
+   "pod": "known",
+   "rows_final": "1",
+   "producers": "1"
+  },
+  {
+   "pod": "orphan",
+   "rows_final": "1",
+   "producers": "1"
+  },
+  {
+   "pod": "probe",
+   "rows_final": "1",
+   "producers": "1"
+  }
+ ],
+ "residual_announced": 0,
+ "lanes": {
+  "e2e/edge-ann/logs": {
+   "objects": 6,
+   "bytes": 39257,
+   "sizes": [
+    0,
+    8189,
+    7788,
+    7881,
+    7889,
+    7510
+   ]
+  },
+  "e2e/edge-ann/metrics_exponential_histogram_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-ann/metrics_histogram_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-ann/metrics_number_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-ann/metrics_series": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-ann/metrics_summary_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-ann/traces": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/logs": {
+   "objects": 3,
+   "bytes": 15290,
+   "sizes": [
+    0,
+    7796,
+    7494
+   ]
+  },
+  "e2e/edge-noann/metrics_exponential_histogram_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/metrics_histogram_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/metrics_number_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/metrics_series": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/metrics_summary_points": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  },
+  "e2e/edge-noann/traces": {
+   "objects": 1,
+   "bytes": 0,
+   "sizes": [
+    0
+   ]
+  }
+ },
+ "log_objects": {
+  "announce-e2e/1790563114/edges/e2e/edge-ann/logs/20260928T023834.656Z-fdda15b0/00000000000000000001.parquet": {
+   "size": 8189,
+   "announce": 1
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-ann/logs/20260928T023834.656Z-fdda15b0/00000000000000000002.parquet": {
+   "size": 7788,
+   "announce": 0
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-ann/logs/20260928T023834.656Z-fdda15b0/00000000000000000003.parquet": {
+   "size": 7881,
+   "announce": 1
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-ann/logs/20260928T023834.656Z-fdda15b0/00000000000000000004.parquet": {
+   "size": 7889,
+   "announce": 1
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-ann/logs/20260928T023834.656Z-fdda15b0/00000000000000000005.parquet": {
+   "size": 7510,
+   "announce": 0
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-noann/logs/20260928T023834.651Z-f9c038c3/00000000000000000001.parquet": {
+   "size": 7796,
+   "announce": 0
+  },
+  "announce-e2e/1790563114/edges/e2e/edge-noann/logs/20260928T023834.651Z-f9c038c3/00000000000000000002.parquet": {
+   "size": 7494,
+   "announce": 0
+  }
+ }
+}

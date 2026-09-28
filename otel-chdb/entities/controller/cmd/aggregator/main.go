@@ -18,6 +18,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +40,7 @@ func main() {
 	poll := flag.Duration("poll", 5*time.Second, "poll interval")
 	margin := flag.Duration("margin", 60*time.Second, "a sync closes versions last observed before sync_at - margin")
 	create := flag.String("create", "", "apply this DDL file first")
+	announced := flag.String("announced", "", "the consumer's announcements table (db.otel_resources): merge it into {db}.resources (sql/announced.sql, next to -create)")
 	once := flag.Bool("once", false, "one pass, then exit")
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -54,6 +56,11 @@ func main() {
 		}
 		if err := c.Script(string(b), *db); err != nil {
 			log.Fatal(err)
+		}
+		if *announced != "" {
+			if err := applyAnnounced(c, filepath.Join(filepath.Dir(*create), "announced.sql"), *db, *announced); err != nil {
+				log.Fatal(err)
+			}
 		}
 	}
 	s3c, err := lane.NewS3(ctx, *endpoint, "us-east-1")
@@ -87,6 +94,16 @@ func main() {
 		case <-time.After(*poll):
 		}
 	}
+}
+
+// applyAnnounced merges the consumer's resource announcements ({ann}) into
+// the catalog's resources view (sql/announced.sql).
+func applyAnnounced(c *ch.Client, path, db, ann string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return c.Script(strings.ReplaceAll(string(b), "{ann}", ann), db)
 }
 
 type agg struct {

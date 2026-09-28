@@ -54,6 +54,10 @@ type Table struct {
 	// Columns: for a metadata table, the only columns a statement may read
 	// (default: MetadataColumns[name]). Not allowed on other scopes.
 	Columns []string `json:"columns"`
+	// RestrictedColumns: for a metadata table, columns served to a caller
+	// without every cluster and namespace as an expression instead (default
+	// MetadataRestricted[name]: system.tables' total_rows as 0/1).
+	RestrictedColumns map[string]string `json:"restricted_columns"`
 	// Signals: the lane namespaces (FORMAT.md §1) whose rows this table
 	// holds, e.g. ["logs"] for otel_logs. A result over the table is
 	// labelled with the watermark of those signals only (D29); a table
@@ -63,6 +67,7 @@ type Table struct {
 
 	cluster, namespace, rid, tcol, rcol chp.Expr
 	projection                          string // metadata: SELECT <Columns> FROM system.<name>
+	restrictedProjection                string // the same, with RestrictedColumns
 }
 
 // FQN is the table's canonical database.table name.
@@ -73,6 +78,9 @@ type Policy struct {
 	DefaultDatabase string
 	Tables          map[string]*Table // by FQN
 	MaxSQLBytes     int
+	// Dictionaries a statement may read with dictGet / dictHas, by name
+	// (dict.go; SetDictionaries). Empty: every dictionary function is refused.
+	Dictionaries map[string]*Dictionary
 }
 
 // NewPolicy parses each table's configured expressions (trusted config).
@@ -122,7 +130,7 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 		default:
 			return nil, fmt.Errorf("table %s: scope must be columns, catalog, fleet or metadata, not %q", t.FQN(), t.Scope)
 		}
-		if t.Scope != "metadata" && len(t.Columns) > 0 {
+		if t.Scope != "metadata" && (len(t.Columns) > 0 || len(t.RestrictedColumns) > 0) {
 			return nil, fmt.Errorf("table %s: columns is an allow-list for metadata tables only", t.FQN())
 		}
 		for _, s := range t.Signals {
@@ -342,8 +350,15 @@ func (pr *Prepared) checkNode(n chp.Expr, visible map[string]bool) error {
 			return reject("bad_identifier", "identifier %q contains a character the service does not pass", x.Name)
 		}
 	case *chp.FunctionExpr:
-		if x.Name != nil && deniedFunction(x.Name.Name) {
-			return reject("denied_function", "function %s is not allowed", x.Name.Name)
+		if x.Name != nil {
+			if _, dict := isDictFunc(x.Name.Name); dict {
+				// an allow-listed dictionary, by a literal name (dict.go)
+				_, err := pr.policy.asDictCall(x)
+				return err
+			}
+			if deniedFunction(x.Name.Name) {
+				return reject("denied_function", "function %s is not allowed", x.Name.Name)
+			}
 		}
 	case *chp.BinaryOperation:
 		if strings.EqualFold(string(x.Operation), "IN") || strings.EqualFold(string(x.Operation), "NOT IN") {
@@ -482,7 +497,11 @@ func (pr *Prepared) Finish(s Scope) (*Result, error) {
 			res.Filters[t.FQN()] = text
 		}
 	}
-	pr.projectMetadata()
+	if err := pr.guardDictionaries(s); err != nil {
+		return nil, err
+	}
+	restricted := !s.AllClusters || !s.AllNamespaces
+	pr.projectMetadata(restricted)
 	res.SQL = chp.Format(pr.root)
 	again, err := pr.policy.Prepare(res.SQL)
 	if err != nil {
@@ -496,7 +515,7 @@ func (pr *Prepared) Finish(s Scope) (*Result, error) {
 	}
 	// what ClickHouse receives reads each metadata table only through its
 	// allow-listed projection
-	if err := pr.policy.checkProjected(again.root); err != nil {
+	if err := pr.policy.checkProjected(again.root, restricted); err != nil {
 		return nil, err
 	}
 	h := sha256.New()

@@ -1,0 +1,37 @@
+{
+ "counts": {
+  "after fleet": {
+   "equal": 69,
+   "equal, non-empty": 61,
+   "refused:explain": 13
+  },
+  "after qa": {
+   "equal": 69,
+   "equal, narrower than the fleet's": 37,
+   "equal, non-empty": 58,
+   "refused:explain": 13
+  },
+  "after qa/shop": {
+   "equal": 69,
+   "equal, narrower than the fleet's": 37,
+   "equal, non-empty": 58,
+   "refused:explain": 13
+  },
+  "before fleet": {
+   "refused:denied_function": 23,
+   "refused:explain": 13,
+   "refused:table_not_allowed": 46
+  },
+  "before qa": {
+   "refused:denied_function": 23,
+   "refused:explain": 13,
+   "refused:table_not_allowed": 46
+  },
+  "before qa/shop": {
+   "refused:denied_function": 23,
+   "refused:explain": 13,
+   "refused:table_not_allowed": 46
+  }
+ },
+ "statements": 82
+}

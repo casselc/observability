@@ -356,7 +356,15 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 				Cluster: "ResourceAttributes['k8s.cluster.name']", Namespace: "ResourceAttributes['k8s.namespace.name']"})
 			timeCols[db+"."+tb] = "Timestamp"
 		}
-		if db != "hdx_it_old" {
+		switch db {
+		case "hdx_it_new":
+			// option 2's rollups carry a cluster column (D33): scoped like
+			// the tables, for fleet and cluster-restricted callers alike
+			for _, tb := range []string{"otel_logs_kv_rollup_15m", "otel_traces_kv_rollup_15m"} {
+				tables = append(tables, &sqlscope.Table{Database: db, Name: tb, Scope: "columns", Cluster: "cluster"})
+			}
+		case "hdx_it_full":
+			// ClickStack's own rollups have none: fleet callers only
 			for _, tb := range []string{"otel_logs_kv_rollup_15m", "otel_traces_kv_rollup_15m"} {
 				tables = append(tables, &sqlscope.Table{Database: db, Name: tb, Scope: "fleet"})
 			}
@@ -377,7 +385,13 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 		return b, err
 	}, "edges/_consumer/watermark.json", time.Minute, time.Hour)
 	sink := &audit.Memory{}
-	srv := &server.Server{Verifier: v, Audit: sink, Policy: policy, Watermark: wm,
+	perf := shippedPerformance(t, root)
+	var pass []string
+	for n := range perf {
+		pass = append(pass, n)
+	}
+	srv := &server.Server{Verifier: v, Audit: sink, Policy: policy, Watermark: wm, Performance: perf,
+		SampleDefaultRows: 3_000_000, SampleMaxRows: 10_000_000,
 		Central: central.New(central.Config{URL: c.url, User: roUser, Password: roPass, Database: "hdx_it_new"}),
 		Mapping: &auth.Mapping{ClustersClaim: "clusters", NamespacesClaim: "namespaces", RolesClaim: "roles", GroupsClaim: "groups",
 			Groups: map[string]auth.Grant{"sre": {Clusters: []string{"*"}, Namespaces: []string{"*"}, Roles: []string{"query"}}}},
@@ -385,7 +399,8 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 	srv.Init()
 	qs := httptest.NewServer(srv.Handler())
 	defer qs.Close()
-	ad := httptest.NewServer(hdxadapter.New(hdxadapter.Config{QueryURL: qs.URL + "/v1/query", DefaultDatabase: "hdx_it_new", TimeColumns: timeCols}, nil))
+	ad := httptest.NewServer(hdxadapter.New(hdxadapter.Config{QueryURL: qs.URL + "/v1/query", DefaultDatabase: "hdx_it_new", TimeColumns: timeCols,
+		PassSettings: pass}, nil))
 	defer ad.Close()
 	mint := func(cl jwt.MapClaims) string {
 		cl["aud"], cl["sub"] = "otel-query", "it-user"
@@ -399,7 +414,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 	var qaFilter []string
 	for _, tb := range tables {
 		if tb.Scope == "columns" {
-			qaFilter = append(qaFilter, fmt.Sprintf("'%s.%s':'ResourceAttributes[\\'k8s.cluster.name\\'] IN (\\'qa\\')'", tb.Database, tb.Name))
+			qaFilter = append(qaFilter, fmt.Sprintf("'%s.%s':'%s IN (\\'qa\\')'", tb.Database, tb.Name, strings.ReplaceAll(tb.Cluster, "'", "\\'")))
 		}
 	}
 	sort.Strings(qaFilter)
@@ -489,6 +504,10 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 				n2, _ := parse(format, again)
 				if e2, r2 := same(n, n2); !e2 && !r2 {
 					o.Outcome = "nondeterministic"
+				} else if sameUpToArrayOrder(a, n) {
+					// groupUniqArray and friends: ClickHouse does not define
+					// the order of their elements (threads merge in any order)
+					o.Outcome = "equal-up-to-array-order"
 				} else {
 					o.Outcome = "MISMATCH"
 					o.Detail = firstN(fmt.Sprintf("rows %d/%d; differing columns %v", len(a.rows), len(n.rows), diffCols(a, n)), 600)
@@ -542,8 +561,10 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 				n, _ := parse(format, nb2)
 				if r2.Header.Get("X-Otel-Source") == "metadata" {
 					n, a, _ = project(n, a)
+					// a restricted caller reads total_rows as 0/1 (D33)
+					n = totalRowsAsFlag(n)
 				}
-				if e, r := same(a, n); e || r {
+				if e, r := same(a, n); e || r || sameUpToArrayOrder(a, n) {
 					counts["qa:equal"]++
 					f, _ := parse(format, body)
 					if e2, r3 := same(a, f); !e2 && !r3 && r2.Header.Get("X-Otel-Source") != "metadata" {
@@ -610,6 +631,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 		}
 	}
 	metadataColumns(t, ad.URL, qa)
+	sampleThroughAdapter(t, ad.URL, qa, fleet)
 	if nm := os.Getenv("HDXA_IT_NODE_MODULES"); nm != "" {
 		nodeClient(t, nm, ad.URL, qa)
 	}

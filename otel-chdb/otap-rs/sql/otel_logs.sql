@@ -60,50 +60,58 @@ PARTITION BY toDate(received_at)
 ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
 SETTINGS non_replicated_deduplication_window = 1000, index_granularity = 8192, ttl_only_drop_parts = 1, enable_block_number_column = 1, enable_block_offset_column = 1;
 
+-- The key-value rollup has a `cluster` column (the row's k8s.cluster.name;
+-- owner decision 2026-09-28, DECISIONS.md D33): ClickStack's has none, so it
+-- could be served only to callers with every cluster. `cluster` ends the
+-- sort key (SummingMergeTree sums per cluster; the primary key is
+-- ClickStack's), which is what an existing table can be altered to:
+-- migrate_kv_rollup_cluster.sql migrates tables created before it.
 CREATE TABLE IF NOT EXISTS {table}_kv_rollup_15m
 (
     `Timestamp` DateTime,
     `ColumnIdentifier` LowCardinality(String),
     `Key` LowCardinality(String),
     `Value` String,
+    `cluster` LowCardinality(String),
     `count` UInt64,
     INDEX idx_count_minmax count TYPE minmax GRANULARITY 1,
     INDEX idx_timestamp_minmax Timestamp TYPE minmax GRANULARITY 1
 )
 ENGINE = SummingMergeTree
 PARTITION BY toDate(Timestamp)
-ORDER BY (ColumnIdentifier, Key, Timestamp, Value)
+ORDER BY (ColumnIdentifier, Key, Timestamp, Value, cluster)
+PRIMARY KEY (ColumnIdentifier, Key, Timestamp, Value)
 SETTINGS non_replicated_deduplication_window = 1000, index_granularity = 8192, ttl_only_drop_parts = 1;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table}_attr_kv_rollup_15m_mv TO {table}_kv_rollup_15m
 AS WITH elements AS (
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SeverityText' AS Key, CAST(SeverityText AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SeverityText' AS Key, CAST(SeverityText AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ResourceSchemaUrl' AS Key, CAST(ResourceSchemaUrl AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ResourceSchemaUrl' AS Key, CAST(ResourceSchemaUrl AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeSchemaUrl' AS Key, CAST(ScopeSchemaUrl AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeSchemaUrl' AS Key, CAST(ScopeSchemaUrl AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.cluster.name' AS Key, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.cluster.name' AS Key, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.container.name' AS Key, CAST(`__hdx_materialized_k8s.container.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.container.name' AS Key, CAST(`__hdx_materialized_k8s.container.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.deployment.name' AS Key, CAST(`__hdx_materialized_k8s.deployment.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.deployment.name' AS Key, CAST(`__hdx_materialized_k8s.deployment.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.namespace.name' AS Key, CAST(`__hdx_materialized_k8s.namespace.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.namespace.name' AS Key, CAST(`__hdx_materialized_k8s.namespace.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.node.name' AS Key, CAST(`__hdx_materialized_k8s.node.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.node.name' AS Key, CAST(`__hdx_materialized_k8s.node.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.name' AS Key, CAST(`__hdx_materialized_k8s.pod.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.name' AS Key, CAST(`__hdx_materialized_k8s.pod.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.uid' AS Key, CAST(`__hdx_materialized_k8s.pod.uid` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.uid' AS Key, CAST(`__hdx_materialized_k8s.pod.uid` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_deployment.environment.name' AS Key, CAST(`__hdx_materialized_deployment.environment.name` AS String) AS Value FROM {table}
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_deployment.environment.name' AS Key, CAST(`__hdx_materialized_deployment.environment.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM {table}
 )
-SELECT Timestamp, ColumnIdentifier, Key, Value, count() AS count FROM elements
-GROUP BY Timestamp, ColumnIdentifier, Key, Value;
+SELECT Timestamp, ColumnIdentifier, Key, Value, cluster, count() AS count FROM elements
+GROUP BY Timestamp, ColumnIdentifier, Key, Value, cluster;

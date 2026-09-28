@@ -88,6 +88,13 @@ type Server struct {
 	// is basis_expired (default DefaultRetention). BasisSkew: how early a
 	// row may be received before its event time (default DefaultBasisSkew).
 	Retention, BasisSkew time.Duration
+	// Performance is the allow-list of settings a caller may set per
+	// statement (central.performance_settings; D33). Empty: none.
+	Performance central.SettingsPolicy
+	// Sample bounds labelled samples (D33): a request with "sample" stops
+	// reading at min(its rows, SampleMaxRows, the caller's
+	// max_rows_to_read) rows. SampleMaxRows 0: samples are refused.
+	SampleDefaultRows, SampleMaxRows int64
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -120,6 +127,8 @@ func (s *Server) Init() {
 	m.Counter("qs_late_count_errors_total", "Late-row counts that failed (the result was served with late.status error).")
 	m.Counter("qs_basis_signer_calls_total", "Basis signer calls (KMS or static; cache hits make none), by op (mint, verify) and result (ok, mismatch, error).", "op", "result")
 	m.Counter("qs_basis_unavailable_total", "Answers served without a basis because the signer could not mint one (basis_unavailable in the answer).", "endpoint")
+	m.Counter("qs_samples_total", "Labelled samples served (D33), by whether reading reached the bound.", "reached_bound")
+	m.Counter("qs_settings_total", "Performance settings callers set (D33), by name.", "name")
 	m.Gauge("qs_max_lateness_seconds", "The max_lateness policy the labels are made with.", func() []metrics.Sample {
 		return []metrics.Sample{{Value: s.Watermark.MaxLateness().Seconds()}}
 	})
@@ -377,6 +386,37 @@ type QueryRequest struct {
 	// received_at < Basis's, per cluster (late data for the alert
 	// evaluator). Both are checked like Basis; neither widens scope.
 	BasisFrom string `json:"basis_from"`
+	// Settings are ClickHouse settings for this statement, each in the
+	// service's performance-settings allow-list (D33): settings that change
+	// how fast it runs, never what it reads or answers, nor the caller's
+	// limits. Anything else is 400 bad_setting and nothing runs.
+	Settings map[string]string `json:"settings"`
+	// Sample asks for a labelled sample (D33): reading stops at a row bound
+	// instead of failing with a limit error, and the answer says
+	// completeness "sample" and how much was read. For suggestion lists
+	// (HyperDX typeahead), never for a count, a chart or an alert.
+	Sample *SampleRequest `json:"sample"`
+}
+
+// SampleRequest is a sample's bound: Rows (default: the service's
+// sample.default_rows), at most sample.max_rows and the caller's
+// max_rows_to_read.
+type SampleRequest struct {
+	Rows int64 `json:"rows"`
+}
+
+// SampleInfo describes a labelled sample: how much was read, the bound, and
+// whether reading reached it (then the answer is over part of the rows the
+// statement would read; if not, it read them all, but is still labelled a
+// sample: nothing tells it apart from one that stopped a row short).
+type SampleInfo struct {
+	Sample        bool  `json:"sample"`
+	RowsRead      int64 `json:"rows_read"`
+	MaxRowsToRead int64 `json:"max_rows_to_read"`
+	ReachedBound  bool  `json:"reached_bound"`
+	// DataCompleteness is the label the rows it read would have had
+	// (complete / partial / unknown): the watermark's part of the story.
+	DataCompleteness string `json:"data_completeness"`
 }
 
 // OutputSettings are the output-format settings a caller may choose (a UI
@@ -392,11 +432,16 @@ type QueryResponse struct {
 	completeness.Label
 	basis.Answer
 	// Delta: with basis_from, the rows the delta admits, per table.
-	Delta   *LateInfo       `json:"delta,omitempty"`
-	Catalog catalog.Info    `json:"catalog"`
-	Late    LateInfo        `json:"late"`
-	Query   QueryInfo       `json:"query"`
-	Result  json.RawMessage `json:"result"`
+	Delta *LateInfo `json:"delta,omitempty"`
+	// Sample: set when the request asked for a sample (D33); completeness
+	// is then "sample".
+	Sample *SampleInfo `json:"sample,omitempty"`
+	// Settings: the performance settings applied, as sent.
+	Settings map[string]string `json:"settings,omitempty"`
+	Catalog  catalog.Info      `json:"catalog"`
+	Late     LateInfo          `json:"late"`
+	Query    QueryInfo         `json:"query"`
+	Result   json.RawMessage   `json:"result"`
 }
 
 // LateInfo makes late data visible (STPA CAST row 26): rows of the
@@ -494,6 +539,15 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	perf := map[string]string{}
+	for k, v := range body.Settings {
+		val, err := s.Performance.Check(k, v)
+		if err != nil {
+			deny(http.StatusBadRequest, "bad_setting", err.Error(), base)
+			return
+		}
+		perf[k] = val
+	}
 	pr, err := s.Policy.Prepare(body.SQL)
 	if err != nil {
 		rj, _ := sqlscope.AsRejection(err)
@@ -568,6 +622,39 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	base.QueryHash, base.SQL, base.Tables, base.Filters = res.Hash, truncate(res.SQL, 8192), res.Tables, len(res.Filters)
 	limits := s.Limits.For(p)
+	var sampleBound int64
+	if body.Sample != nil {
+		if s.SampleMaxRows <= 0 {
+			deny(http.StatusBadRequest, "sample_disabled", "this service serves no samples (sample.max_rows)", base)
+			return
+		}
+		if body.Sample.Rows < 0 {
+			deny(http.StatusBadRequest, "bad_sample", "sample.rows must be positive", base)
+			return
+		}
+		sampleBound = body.Sample.Rows
+		if sampleBound == 0 {
+			sampleBound = s.SampleDefaultRows
+		}
+		if sampleBound <= 0 || sampleBound > s.SampleMaxRows {
+			sampleBound = s.SampleMaxRows
+		}
+		if limits.MaxRowsToRead > 0 && sampleBound > limits.MaxRowsToRead {
+			sampleBound = limits.MaxRowsToRead
+		}
+		base.Detail = fmt.Sprintf("sample: max_rows_to_read %d", sampleBound)
+	}
+	if len(perf) > 0 {
+		names := make([]string, 0, len(perf))
+		for k, v := range perf {
+			names = append(names, k+"="+v)
+		}
+		sort.Strings(names)
+		if base.Detail != "" {
+			base.Detail += "; "
+		}
+		base.Detail += "settings: " + strings.Join(names, ", ")
+	}
 	if !s.acquire(p.Subject, limits.MaxConcurrent) {
 		deny(http.StatusTooManyRequests, "too_many_concurrent", fmt.Sprintf("at most %d concurrent queries per caller", limits.MaxConcurrent), base)
 		return
@@ -588,6 +675,19 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	settings := central.Settings(limits, res.FiltersSetting(), rq.id, truncate(comment, 200))
 	for k, v := range body.Output {
 		settings.Set(k, v)
+	}
+	for k, v := range perf {
+		// never over a setting the service pinned (the allow-list's classes
+		// exclude them; this is the second fence)
+		if settings.Has(k) {
+			s.fail(w, ep, rq.id, http.StatusInternalServerError, "bad_setting", "setting "+k+" collides with one the service sets")
+			return
+		}
+		settings.Set(k, v)
+		s.Metrics.Inc("qs_settings_total", k)
+	}
+	if sampleBound > 0 {
+		central.Sample(settings, sampleBound)
 	}
 	out, sum, err := s.Central.Query(r.Context(), res.SQL, settings)
 	elapsed := s.Now().Sub(started)
@@ -636,12 +736,28 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			ans = s.currentAnswer(r.Context(), ep, b)
 		}
 	}
-	late := s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
+	var late LateInfo
+	var sample *SampleInfo
+	if sampleBound > 0 {
+		// a sample's rows are part of what the statement reads: its late
+		// rows count nothing, and its label is "sample", whatever the
+		// watermark says (the watermark's label is kept beside it)
+		late = LateInfo{MaxLatenessS: maxLate.Seconds(), Status: "sample"}
+		sample = &SampleInfo{Sample: true, RowsRead: sum.ReadRows, MaxRowsToRead: sampleBound,
+			ReachedBound: sum.ReadRows >= sampleBound, DataCompleteness: label.Completeness}
+		label.Completeness, label.Partial = "sample", true
+		s.Metrics.Inc("qs_samples_total", strconv.FormatBool(sample.ReachedBound))
+	} else {
+		late = s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
+	}
 	var want []string
 	if !scope.AllClusters {
 		want = scope.Clusters
 	}
-	resp := QueryResponse{RequestID: rq.id, Label: label, Answer: ans, Delta: delta, Result: out, Late: late,
+	if len(perf) == 0 {
+		perf = nil
+	}
+	resp := QueryResponse{RequestID: rq.id, Label: label, Answer: ans, Delta: delta, Result: out, Late: late, Sample: sample, Settings: perf,
 		Catalog: s.Catalog.Lag(r.Context(), p.MayCluster, want),
 		Query: QueryInfo{Hash: res.Hash, Tables: res.Tables, SQL: res.SQL, Scoped: len(res.Filters) > 0, Window: window,
 			RowsRead: sum.ReadRows, ElapsedMs: outcome.ElapsedMs}}

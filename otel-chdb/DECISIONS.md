@@ -67,6 +67,7 @@ disagreed with each other, and how each was resolved.
 | [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
 | [D28](#d28-mosaic-vgplot--duckdb-wasm-for-the-lake-uis-analytical-views-fed-by-the-range-reader-proposed) | Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical, cross-filtered views, fed by lakeui's range reader; hyparquet-only stays for search and trace | **deferred** by the owner (2026-09-28); spike kept as evidence: [`lakeui/mosaic/`](lakeui/mosaic/README.md), [research/mosaic.md](research/mosaic.md) |
 | [D30](#d30-the-basis-answers-at-a-named-custody-time) | The basis: every query and plan answer names a custody time per cluster (an HMAC-protected token); a request at a basis reads only rows received before it (strictly), so its answer never changes; deltas between bases; the alert evaluator re-checks evaluated windows for late rows (`on_late`); one basis per dashboard refresh and per lake UI run; caches keyed on it | **built** (2026-09-28): `query/internal/basis`, the service, the lake plan, the adapter and fork patch 0003, the lake UI, the evaluator; [research/bitemporal.md](research/bitemporal.md) §3 |
+| [D33](#d33-hyperdx-through-the-query-service-fully-scoped-dictionaries-labelled-samples-a-performance-settings-allow-list-cluster-on-the-rollups-the-users-token-server-side) | HyperDX through the query service, fully: the catalog's dictionaries by name with every lookup guarded per caller, `resource_kv` served, a labelled sample mode, a performance-settings allow-list in configuration, a cluster column on the key/value rollups, the user's token on user-started server-side queries, `total_rows` as 0/1 for restricted callers | **built** (2026-09-28): owner decisions of 2026-09-28; the rwproxy chain 69/69 through the service |
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 
 ---
@@ -1928,6 +1929,7 @@ The owner took the coordinator's recommendations:
     that user's token, not the service identity.
   - Withhold **`system.tables.total_rows`** from cluster-restricted callers
     unless HyperDX's onboarding needs it for them.
+  - *Built (D33):* all six.
 - Also from the same review: **Mosaic deferred** (D28); the D30 defaults and
   evaluator concurrency 16 accepted (D30).
 
@@ -2370,6 +2372,13 @@ The banner is page-wide; per-chart incomplete regions (R-S2) are not built.
 
 **Amended by D26:** the `metadata` scope serves an allow-list of columns per
 system table, not every column.
+
+**Amended by D33 (2026-09-28):** the catalog's dictionaries and
+`resource_kv` are served (the rewrite proxy's 69 non-EXPLAIN rewrites all
+answer), typeahead samples are labelled samples, performance settings and
+sources' `querySettings` pass through an allow-list, the rollups have a
+cluster column, server-side queries a user started carry that user's token,
+and `system.tables.total_rows` is 0/1 for restricted callers.
 
 ### D26. Event-time completeness: `max_lateness`, late rows counted; metadata columns allow-listed
 
@@ -3208,6 +3217,148 @@ maintained by the aggregator); what the overseer should ever write (today it
 writes nothing but the sync closes, which the mapping attributes to the
 controller). Not built: the storage, a query-service endpoint for as-of
 lifecycle questions, overseer events.
+
+---
+
+### D33. HyperDX through the query service, fully: scoped dictionaries, labelled samples, a performance-settings allow-list, cluster on the rollups, the user's token server-side
+
+**Status:** built (2026-09-28), implementing the owner decisions of
+2026-09-28 on the query service and HyperDX. `query/internal/sqlscope`
+(`dict.go`, `metadata.go`), `query/internal/central/perf.go`, the server,
+the adapter, `query/internal/rollupmig` + `cmd/kvrollupmigrate`,
+`otap-rs/sql/otel_{logs,traces}.sql` (the rollups), fork patch 0004. Amends
+D22 (the allow-list), D25 (what HyperDX can do through the service).
+
+**Context.** D25 left HyperDX features that break under the service's rules
+(query README §8.5): the entity rewrite proxy (0 of its 69 non-EXPLAIN
+rewrites passed: 23 read the catalog's dictionaries, 46 `resource_kv`),
+typeahead samples (fail past `max_rows_to_read`), performance settings and
+sources' `querySettings` (dropped or refused), the key/value rollups (fleet
+only: 38 statements refused for a one-cluster token), server-side queries
+(one service identity for everyone), and `system.tables.total_rows` (every
+cluster's row counts, to anyone).
+
+**Decision.**
+
+1. **Dictionaries by name, every lookup guarded.** `dictGet(name, 'attr',
+   key)` and `dictHas(name, key)` are allowed for configured dictionaries
+   and attributes only, named by plain string literals
+   (`central.dictionaries`); every other `dict*`/`joinGet` stays refused.
+   Names are data (CAST rows 24/32). A dictionary key is a hash
+   (`resource_id` is the content hash of a resource's attributes), so a
+   caller who knows or guesses another cluster's attributes can compute a
+   key and probe it; the rows a statement reads are scoped, a literal key
+   is not. So for a caller without every cluster and namespace every
+   lookup whose value reaches the result is rewritten in the tree:
+   `if(<key's cluster> IN (…) AND <key's namespace> IN (…), dictGet(…),
+   CAST(<the attribute's declared default>, '<type>'))`, `dictHas` as
+   `and(<guard>, dictHas(…))`. An out-of-scope key reads exactly as an
+   absent one (value and type). "The key's cluster" comes from the
+   dictionaries themselves: the root dictionary (`d_res`) has configured
+   `cluster_expr` / `namespace_expr` over `{key}` (through `d_pod` to
+   `d_cluster`'s and `d_ns`'s names); the others are **derived**: their key
+   must be the value of an allow-listed key attribute (`ref`:
+   `d_res.pod_key → d_pod`, `d_pod.ns_key → d_ns`, …) and the lookup is
+   guarded with the guard of the lookup that made its key. A literal or
+   computed key on a derived dictionary is refused for everyone
+   (`dict_key`): nothing ties it to a cluster. Fleet callers get the
+   statement unchanged. The rejected alternative, scoping the dictionary's
+   source per cluster, needs one dictionary per cluster (or per caller) and
+   the rewrite proxy's SQL names one.
+2. **`resource_kv` as a served table** with scope `columns` on two new
+   columns, `cluster` and `namespace`, filled from the resource's
+   attributes (`entities/rwproxy/scripts/setup.py`).
+3. **Labelled sample mode.** A request's `"sample": {"rows": N}` runs with
+   `read_overflow_mode = break` at `max_rows_to_read` = min(N or
+   `sample.default_rows`, `sample.max_rows`, the caller's limit); every
+   other overflow mode stays `throw`. The answer is `completeness:
+   "sample"` (never `complete`), `partial: true`, with `sample`: rows read,
+   the bound, `reached_bound`, and the data's own label; the late count is
+   skipped (`late.status: "sample"`). The adapter maps HyperDX's flagged
+   read sample (fork 0001's `allowSampledRead`: `read_overflow_mode=break`
+   at `max_rows_to_read`) to it and returns `X-Otel-Sample`; fork 0004
+   shows samples on a banner line of their own. Without the flag a limit is
+   an error, as before (X7).
+4. **Performance settings from an allow-list in configuration**
+   (`central.performance_settings`: name → type, range or values, and why
+   it cannot change the rows). A request's `settings` must all be in it
+   (400 `bad_setting` otherwise, audited, nothing runs). The code refuses,
+   whatever the configuration says, the classes that change what is read
+   or answered: limits (`max_*`, `min_*`, timeouts, speed, priority,
+   workload), every overflow mode, access (`readonly`, `allow_ddl`, …),
+   scope (`additional_*`, parallel replicas, …), output and framing,
+   the query result cache, identity (`query_id`, `log_comment`), and known
+   result-semantics settings (`final`, `join_use_nulls`, the analyzer, …).
+   The adapter passes allow-listed URL settings (`pass_settings`) and lifts
+   a statement's trailing `SETTINGS` (a source's `querySettings`) into
+   `settings`; the service decides.
+5. **A cluster column on the key/value rollups** (option 2's DDL,
+   `otap-rs/sql`): `cluster` (the row's `k8s.cluster.name`) ends the sort
+   key (SummingMergeTree sums per cluster; the primary key stays
+   ClickStack's), and the materialized views write it. Existing tables are
+   migrated by `kvrollupmigrate` with the consumer stopped: the column
+   added (metadata only), the view replaced, every day the table holds
+   rebuilt from the table and swapped in by `REPLACE PARTITION`; a day only
+   the rollup holds is kept without a cluster (fleet callers see it). The
+   service serves the rollups with scope `columns` on `cluster`. No
+   namespace column: namespace-restricted callers are still refused (a
+   namespace column multiplies the rollup by namespaces; the owner to
+   decide).
+6. **Server-side HyperDX queries a user started carry that user's token**
+   (fork 0004): the API runs each request's work in an AsyncLocalStorage
+   context holding the token from `HDX_QUERY_SERVICE_TOKEN_HEADER` (an MCP
+   or external API client sends it beside its access key); the node client
+   sends it on every query made in that work. Without it the query fails;
+   it is **never** sent as the service identity, which is left to work no
+   user started (the alert task, usage stats).
+7. **`system.tables.total_rows` for restricted callers is 0/1.** HyperDX
+   reads it in one place, the onboarding checklist's "is there data"
+   (`useOnboardingCompletion.ts`: `sum(total_rows) > 0` over the sources'
+   tables); a restricted caller gets `toUInt64(total_rows > 0)` (NULL stays
+   NULL), which keeps onboarding working without the fleet's volumes. The
+   metadata projection is per caller (`restricted_columns`, default for
+   `system.tables`), and a restricted caller who writes the fleet
+   projection out gets it projected again.
+
+**Evidence** [M, `HDXA_IT=1 go test ./integration/hdxadapter`, 50 s]:
+the rwproxy chain (82 rewritten statements through the adapter and the
+service, against a two-cluster catalog and variant-c tables): **before**
+0 of 69 answered (23 `denied_function`, 46 `table_not_allowed`), **after**
+69 of 69 equal to ClickHouse for a fleet token, and for `qa` and `qa/shop`
+tokens equal to ClickHouse with the service's filters applied by hand (37
+narrower than the fleet's); 13 EXPLAIN refused. Probes of `qb`'s entities by
+a `qa` token: `dictHas` 0, `pod_key` 0, pod name '', namespace and cluster
+attributes `{}`, uid the zero UUID, a sweep of all 12 ids finds 6 (the
+fleet 12, `qa/shop` 3); a literal key on `d_pod` is 403 `dict_key`; every
+configured default equals the dictionary's answer for an absent key, type
+included. The HyperDX replay: fleet 620 answered, all equal (613 + 7 as
+row sets), 77 EXPLAIN and 102 `mergeTreeTextIndex` refused, as before;
+a `qa` token **559 equal, 11 refused** (before: 532 / 38; the 11 are the
+full-ClickStack side's rollups, ClickStack's own DDL), 0 different;
+HyperDX's own performance settings now reach ClickHouse. A sample through
+the adapter is `completeness: sample` with `reached_bound=true`. The
+migration on tables made with the old DDL: fleet sums unchanged, per-cluster
+sums equal to the table's, new rows attributed, idempotent. Unit and
+property tests: a rapid property that no dictionary value reaches a
+restricted caller's statement outside a guard (a mutant leaving `dictHas`
+unguarded is caught); refusals of every forbidden setting class (config
+and request); the sample and settings paths through the server and the
+adapter. Fork 0004: common-utils `tsc --noEmit` clean and jest 39 suites /
+2,674 tests pass; the banner's test (9) under jest + jsdom and strict
+type check; the API's token tests (8) and strict type check (with a stub
+for the common-utils import). It fixes 0003's one missed test expectation.
+
+**Consequences / open.** Namespace-restricted callers cannot use the
+rollups; the full ClickStack DDL (not ours) has no cluster column. The
+guard costs a dictionary chain per lookup for restricted callers. The
+dictionaries' defaults are configuration: a DDL change must change them
+(the integration test compares them). `resource_kv`'s new columns and the
+migration need the consumer stopped (the rollup) and a `resource_kv`
+rebuild (the spike's `setup.py kv`). `central-replicated/sql/central_zc.sql`
+is generated from the consumer's DDL and must be regenerated. An MCP or
+external API client must send an OIDC token; HyperDX does not check that
+its subject is the access key's user (the service scopes by the token). A
+sample that read everything is still labelled a sample.
 
 ## 6. Upstream bugs found
 

@@ -44,6 +44,15 @@ source (HyperDX at `885d30c`, `CODE_VERSION=2.39.1`), **[E]** estimate.
   balancer; catalog mode once the announcement lane lands; the same rewrite
   proposed upstream in HyperDX's `metadata.ts` / `queryParser.ts` /
   `renderChartConfig.ts` (§9).
+- **Through the query service** (2026-09-28, DECISIONS.md D33): in front of
+  the HyperDX adapter, all 69 of its non-EXPLAIN rewrites of the captured
+  statements answer, for fleet and cluster- or namespace-scoped tokens,
+  equal to ClickHouse with the service's filters (before: 0). The service
+  allows the catalog's dictionaries by name and guards every lookup per
+  caller (another cluster's `resource_id` reads as absent), and serves
+  `resource_kv` scoped by two columns `setup.py kv` now writes, `cluster`
+  and `namespace` ([`../../query/README.md`](../../query/README.md) §3,
+  §8.4).
 
 ## 2. Design
 

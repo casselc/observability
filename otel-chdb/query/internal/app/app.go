@@ -42,7 +42,18 @@ type Config struct {
 		PasswordEnv string            `json:"password_env"`
 		Tables      []*sqlscope.Table `json:"tables"`
 		MaxSQLBytes int               `json:"max_sql_bytes"`
+		// Dictionaries: the entity catalog's dictionaries a statement may
+		// read, scoped per caller (D33, sqlscope/dict.go).
+		Dictionaries []*sqlscope.Dictionary `json:"dictionaries"`
+		// PerformanceSettings: what a caller may set per statement (D33).
+		PerformanceSettings central.SettingsPolicy `json:"performance_settings"`
 	} `json:"central"`
+	// Sample bounds labelled samples (D33): default_rows when a request
+	// names none, max_rows at most (0: samples refused).
+	Sample struct {
+		DefaultRows int64 `json:"default_rows"`
+		MaxRows     int64 `json:"max_rows"`
+	} `json:"sample"`
 	Limits    server.Limits  `json:"limits"`
 	Catalog   catalog.Config `json:"catalog"`
 	S3        store.S3Config `json:"s3"`
@@ -205,6 +216,12 @@ func Load(path string) (*Config, error) {
 	if c.S3.Bucket == "" {
 		return nil, errors.New("s3.bucket is required: complete_through is read from {ctl}/watermark.json")
 	}
+	if err := c.Central.PerformanceSettings.Validate(); err != nil {
+		return nil, fmt.Errorf("central.performance_settings: %w", err)
+	}
+	if c.Sample.MaxRows < 0 || c.Sample.DefaultRows < 0 || c.Sample.DefaultRows > c.Sample.MaxRows {
+		return nil, fmt.Errorf("sample: want 0 <= default_rows <= max_rows")
+	}
 	if c.Watermark.CacheS <= 0 {
 		c.Watermark.CacheS = 15
 	}
@@ -219,6 +236,9 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	policy, err := sqlscope.NewPolicy(c.Central.Database, c.Central.Tables, c.Central.MaxSQLBytes)
 	if err != nil {
 		return nil, err
+	}
+	if err := policy.SetDictionaries(c.Central.Dictionaries); err != nil {
+		return nil, fmt.Errorf("central.dictionaries: %w", err)
 	}
 	ch := central.New(c.Central.Config)
 	cat, err := catalog.New(c.Catalog, ch)
@@ -251,7 +271,8 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	s = &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat, Bases: bases,
 		Retention: time.Duration(c.Basis.RetentionS) * time.Second, BasisSkew: time.Duration(c.Basis.SkewS) * time.Second,
 		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes,
-		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate}
+		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate,
+		Performance: c.Central.PerformanceSettings, SampleDefaultRows: c.Sample.DefaultRows, SampleMaxRows: c.Sample.MaxRows}
 	if c.LakeEnabled {
 		s.Planner = lake.New(lc, st, wm)
 	}

@@ -124,10 +124,14 @@ def kv():
     flat = (f"(SELECT resource_id, attrs, valid_from, valid_to FROM {CAT}.resources WHERE resource_id IN (SELECT resource_id FROM {CAT}.res_index) "
             f"UNION ALL SELECT resource_id, attrs, valid_from, valid_to FROM {SRC}.res_all WHERE resource_id IN (SELECT resource_id FROM {CAT}.res_index) "
             f"AND resource_id NOT IN (SELECT resource_id FROM {CAT}.resources))")
-    c.q(f"CREATE TABLE IF NOT EXISTS {CAT}.resource_kv (Key LowCardinality(String), Value String, resource_id UInt64) "
+    # cluster and namespace: the query service serves resource_kv scoped by
+    # them (DECISIONS.md D33); rwproxy reads only Key, Value, resource_id
+    c.q(f"CREATE TABLE IF NOT EXISTS {CAT}.resource_kv (Key LowCardinality(String), Value String, resource_id UInt64, "
+        f"cluster LowCardinality(String), namespace LowCardinality(String)) "
         f"ENGINE = ReplacingMergeTree ORDER BY (Key, Value, resource_id)")
     c.q(f"TRUNCATE TABLE {CAT}.resource_kv")
-    c.q(f"INSERT INTO {CAT}.resource_kv SELECT kv.1, kv.2, resource_id FROM {flat} ARRAY JOIN CAST(attrs, 'Array(Tuple(String, String))') AS kv")
+    c.q(f"INSERT INTO {CAT}.resource_kv SELECT kv.1, kv.2, resource_id, attrs['k8s.cluster.name'], attrs['k8s.namespace.name'] "
+        f"FROM {flat} ARRAY JOIN CAST(attrs, 'Array(Tuple(String, String))') AS kv")
     c.q(f"OPTIMIZE TABLE {CAT}.resource_kv FINAL")
     w1 = "toDateTime('2026-09-27 00:00:00', 'UTC')"
     w0 = f"({w1} - toIntervalHour(3))"

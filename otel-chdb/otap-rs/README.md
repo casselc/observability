@@ -1594,7 +1594,14 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   same `non_replicated_deduplication_window`) and the materialized view
   that fills it, which HyperDX's filter panel reads; metrics get none. Each
   is `IF NOT EXISTS`, so a table made by an earlier consumer gets its
-  rollup on the next start, without its earlier rows. With `--no-ddl`
+  rollup on the next start, without its earlier rows. **Since 2026-09-28
+  (DECISIONS.md D33) the rollup has a `cluster` column** (the row's
+  `k8s.cluster.name`, ending the sort key), so the query service can serve
+  it to cluster-restricted callers; `IF NOT EXISTS` does not change an
+  existing rollup: stop the consumer and run
+  `query/cmd/kvrollupmigrate -ddl sql/otel_logs.sql -table otel.otel_logs`
+  (and traces) once; `../central-replicated/sql/central_zc.sql` is to be
+  regenerated with `ddl.py`. With `--no-ddl`
   (replicated central: the operator's tables) the consumer only checks:
   a missing table is an error, a missing rollup a warning (ingest is
   exactly-once without it). `consume --print-ddl SIGNAL` prints the

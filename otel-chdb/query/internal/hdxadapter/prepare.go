@@ -19,6 +19,12 @@ type Statement struct {
 	// Metadata: the statement reads only system tables (or none): its answer
 	// is schema, and carries no completeness label.
 	Metadata bool
+	// Settings: the statement's own trailing SETTINGS clause (a source's
+	// querySettings, joinQuerySettings), lifted out of the text; the adapter
+	// sends them as the request's settings, which the service checks
+	// against its performance-settings allow-list (D33). SETTINGS anywhere
+	// else stays in the text, and the service refuses it.
+	Settings map[string]string
 }
 
 // Formats the adapter renders from the service's FORMAT JSON answer.
@@ -88,7 +94,11 @@ func (t Tables) Prepare(sql string, params map[string]string, defaultFormat stri
 	}
 	switch x := root.(type) {
 	case *chp.SelectQuery:
-		st := &Statement{Kind: "select", SQL: chp.Format(x), Format: format, Metadata: t.onlySystem(x)}
+		settings, err := liftSettings(x)
+		if err != nil {
+			return nil, err
+		}
+		st := &Statement{Kind: "select", SQL: chp.Format(x), Format: format, Metadata: t.onlySystem(x), Settings: settings}
 		if !st.Metadata && !hasJoin(x) {
 			st.Window = t.DeriveWindow(x)
 		}
@@ -165,4 +175,40 @@ func hasJoin(root chp.Expr) bool {
 		}
 	})
 	return found
+}
+
+// liftSettings takes the outermost SELECT's SETTINGS clause off the tree
+// and returns it as name -> value. A value that is not a plain number,
+// string or word is refused (the service would refuse the name anyway, but
+// a value is never re-quoted by guesswork).
+func liftSettings(x *chp.SelectQuery) (map[string]string, error) {
+	if x.Settings == nil {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, it := range x.Settings.Items {
+		if it == nil || it.Name == nil {
+			return nil, syntaxErr("a SETTINGS item without a name")
+		}
+		var v string
+		switch e := it.Expr.(type) {
+		case *chp.NumberLiteral:
+			v = e.Literal
+		case *chp.StringLiteral:
+			if strings.ContainsAny(e.Literal, `\'`) {
+				return nil, notAllowed("settings_clause", "SETTINGS %s: an escaped string value is not passed", it.Name.Name)
+			}
+			v = e.Literal
+		case *chp.Ident:
+			v = e.Name
+		default:
+			return nil, notAllowed("settings_clause", "SETTINGS %s: only a number, a string or a word is passed", it.Name.Name)
+		}
+		if _, dup := out[it.Name.Name]; dup {
+			return nil, notAllowed("settings_clause", "SETTINGS %s is set twice", it.Name.Name)
+		}
+		out[it.Name.Name] = v
+	}
+	x.Settings = nil
+	return out, nil
 }

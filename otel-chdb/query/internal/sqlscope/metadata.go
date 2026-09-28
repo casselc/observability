@@ -32,6 +32,19 @@ var MetadataColumns = map[string][]string{
 	"databases":             {"name", "engine", "comment"},
 }
 
+// MetadataRestricted are the metadata columns served differently to a
+// caller without every cluster and namespace (a table's
+// restricted_columns overrides it): column -> the expression served under
+// its name. system.tables' total_rows counts every cluster's rows; a
+// cluster-restricted caller gets 1 for a table with rows, 0 for an empty
+// one (NULL stays NULL). HyperDX reads total_rows in one place only, the
+// onboarding checklist's "is there data" (useOnboardingCompletion.ts:
+// sum(total_rows) > 0 over the sources' tables), which this keeps working
+// without disclosing the fleet's volumes (query README §3).
+var MetadataRestricted = map[string]map[string]string{
+	"tables": {"total_rows": "toUInt64(total_rows > 0)"},
+}
+
 // metadataProjection fixes t's columns and the projection every read of it
 // is replaced with.
 func (t *Table) metadataProjection() error {
@@ -48,12 +61,37 @@ func (t *Table) metadataProjection() error {
 		}
 		seen[c] = true
 	}
-	sql := "SELECT " + strings.Join(t.Columns, ", ") + " FROM " + t.Database + "." + t.Name
-	st, err := chp.NewParser(sql).ParseStmts()
-	if err != nil || len(st) != 1 || chp.Format(st[0]) != sql {
-		return fmt.Errorf("table %s: the projection %q does not parse to itself: %v", t.FQN(), sql, err)
+	if t.RestrictedColumns == nil {
+		t.RestrictedColumns = MetadataRestricted[t.Name]
 	}
-	t.projection = sql
+	restricted := make([]string, len(t.Columns))
+	for i, c := range t.Columns {
+		restricted[i] = c
+		if x, ok := t.RestrictedColumns[c]; ok {
+			e, err := parseExpr(x)
+			if err != nil {
+				return fmt.Errorf("table %s: restricted column %s: %w", t.FQN(), c, err)
+			}
+			restricted[i] = chp.Format(e) + " AS " + c
+		}
+	}
+	for c := range t.RestrictedColumns {
+		if !seen[c] {
+			return fmt.Errorf("table %s: restricted column %q is not one of its columns", t.FQN(), c)
+		}
+	}
+	for i, cols := range [][]string{t.Columns, restricted} {
+		sql := "SELECT " + strings.Join(cols, ", ") + " FROM " + t.Database + "." + t.Name
+		st, err := chp.NewParser(sql).ParseStmts()
+		if err != nil || len(st) != 1 || chp.Format(st[0]) != sql {
+			return fmt.Errorf("table %s: the projection %q does not parse to itself: %v", t.FQN(), sql, err)
+		}
+		if i == 0 {
+			t.projection = sql
+		} else {
+			t.restrictedProjection = sql
+		}
+	}
 	return nil
 }
 
@@ -69,8 +107,10 @@ func (p *Policy) metaTable(ti *chp.TableIdentifier) *Table {
 	return t
 }
 
-// isProjection: sq is exactly some metadata table's projection.
-func (p *Policy) isProjection(sq *chp.SelectQuery) bool {
+// isProjection: sq is exactly some metadata table's projection (for a
+// restricted caller, its restricted projection: a caller who writes the
+// full projection out gets it projected again, restricted).
+func (p *Policy) isProjection(sq *chp.SelectQuery, restricted bool) bool {
 	if sq.From == nil {
 		return false
 	}
@@ -79,7 +119,14 @@ func (p *Policy) isProjection(sq *chp.SelectQuery) bool {
 		ti, _ = j.Table.Expr.(*chp.TableIdentifier)
 	}
 	t := p.metaTable(ti)
-	return t != nil && chp.Format(sq) == t.projection
+	return t != nil && chp.Format(sq) == t.projectionFor(restricted)
+}
+
+func (t *Table) projectionFor(restricted bool) string {
+	if restricted {
+		return t.restrictedProjection
+	}
+	return t.projection
 }
 
 // projectMetadata replaces each read of a metadata table, `system.tables`
@@ -87,23 +134,23 @@ func (p *Policy) isProjection(sq *chp.SelectQuery) bool {
 // tables` (or AS t). A `*` then expands to the allow-listed columns only,
 // and a name outside them is ClickHouse's UNKNOWN_IDENTIFIER: the columns
 // are cut where the rows are read, whatever the statement does with them.
-func (pr *Prepared) projectMetadata() {
+func (pr *Prepared) projectMetadata(restricted bool) {
 	p := pr.policy
 	visit(reflect.ValueOf(pr.root), func(n chp.Expr) bool {
 		switch x := n.(type) {
 		case *chp.SelectQuery:
-			return !p.isProjection(x) // already projected: idempotent
+			return !p.isProjection(x, restricted) // already projected: idempotent
 		case *chp.TableExpr:
 			switch e := x.Expr.(type) {
 			case *chp.TableIdentifier:
 				if t := p.metaTable(e); t != nil {
-					x.Expr = &chp.AliasExpr{Expr: projectionOf(t), Alias: &chp.Ident{Name: t.Name, QuoteType: chp.BackTicks}}
+					x.Expr = &chp.AliasExpr{Expr: projectionOf(t, restricted), Alias: &chp.Ident{Name: t.Name, QuoteType: chp.BackTicks}}
 					return false
 				}
 			case *chp.AliasExpr:
 				if ti, ok := e.Expr.(*chp.TableIdentifier); ok {
 					if t := p.metaTable(ti); t != nil {
-						e.Expr = projectionOf(t)
+						e.Expr = projectionOf(t, restricted)
 						return false
 					}
 				}
@@ -113,14 +160,14 @@ func (pr *Prepared) projectMetadata() {
 	})
 }
 
-func projectionOf(t *Table) chp.Expr {
-	st, _ := chp.NewParser(t.projection).ParseStmts() // checked in NewPolicy
+func projectionOf(t *Table, restricted bool) chp.Expr {
+	st, _ := chp.NewParser(t.projectionFor(restricted)).ParseStmts() // checked in NewPolicy
 	return &chp.SubQuery{HasParen: true, Select: st[0].(*chp.SelectQuery)}
 }
 
 // checkProjected refuses a statement that reads a metadata table other than
 // through its projection (fail closed: a place the rewrite did not reach).
-func (p *Policy) checkProjected(root chp.Expr) error {
+func (p *Policy) checkProjected(root chp.Expr, restricted bool) error {
 	var bad string
 	visit(reflect.ValueOf(root), func(n chp.Expr) bool {
 		if bad != "" {
@@ -128,7 +175,7 @@ func (p *Policy) checkProjected(root chp.Expr) error {
 		}
 		switch x := n.(type) {
 		case *chp.SelectQuery:
-			return !p.isProjection(x)
+			return !p.isProjection(x, restricted)
 		case *chp.TableIdentifier:
 			if t := p.metaTable(x); t != nil {
 				bad = t.FQN()

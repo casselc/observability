@@ -12,12 +12,20 @@ func TestExampleConfigLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Central.Password != "x" || len(c.Central.Tables) != 9 || !c.LakeEnabled || c.Limits.Groups["sre"].MaxConcurrent != 8 {
+	if c.Central.Password != "x" || len(c.Central.Tables) != 12 || !c.LakeEnabled || c.Limits.Groups["sre"].MaxConcurrent != 8 {
 		t.Fatalf("%+v", c)
 	}
 	// the example's policy builds (the metadata tables included)
-	if _, err := sqlscope.NewPolicy(c.Central.Database, c.Central.Tables, c.Central.MaxSQLBytes); err != nil {
+	p, err := sqlscope.NewPolicy(c.Central.Database, c.Central.Tables, c.Central.MaxSQLBytes)
+	if err != nil {
 		t.Fatal(err)
+	}
+	// its dictionaries (D33) and performance settings are accepted
+	if err := p.SetDictionaries(c.Central.Dictionaries); err != nil || len(p.Dictionaries) != 6 {
+		t.Fatalf("dictionaries: %v %d", err, len(p.Dictionaries))
+	}
+	if len(c.Central.PerformanceSettings) < 10 || c.Sample.MaxRows != 10_000_000 || c.Sample.DefaultRows != 3_000_000 {
+		t.Fatalf("performance settings %d, sample %+v", len(c.Central.PerformanceSettings), c.Sample)
 	}
 	if _, err := Load(""); err == nil {
 		t.Fatal("a config without an audit path must be refused")

@@ -131,7 +131,7 @@ func TestMetadataProjectedProperty(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", r.SQL, err)
 		}
-		if err := p.checkProjected(st[0]); err != nil {
+		if err := p.checkProjected(st[0], false); err != nil {
 			t.Fatalf("%s -> %s: %v", q, r.SQL, err)
 		}
 		if strings.HasPrefix(tbl, "system.") && !strings.Contains(r.SQL, p.Tables[tbl].projection) {
@@ -146,7 +146,7 @@ func TestCheckProjectedRefuses(t *testing.T) {
 	p := metaPolicy(t)
 	for _, q := range []string{"SELECT * FROM system.tables", "SELECT name FROM (SELECT name, uuid FROM system.tables)"} {
 		st, _ := chp.NewParser(q).ParseStmts()
-		if err := p.checkProjected(st[0]); err == nil {
+		if err := p.checkProjected(st[0], false); err == nil {
 			t.Errorf("%s: passed", q)
 		}
 	}
@@ -168,5 +168,38 @@ func TestLateCount(t *testing.T) {
 	r = mustFinish(t, p, "SELECT count() FROM otel_traces", Scope{AllClusters: true, AllNamespaces: true})
 	if lc, _ := p.LateCount(r, time.Minute); lc.SQL != "" || len(lc.Uncounted) != 1 {
 		t.Fatalf("%+v", lc)
+	}
+}
+
+// TestTotalRowsRestricted: system.tables' total_rows counts every cluster's
+// rows; a caller without every cluster and namespace reads it as 0/1 (what
+// HyperDX's onboarding check needs: sum(total_rows) > 0), however the
+// statement names it, even through the fleet projection written out.
+func TestTotalRowsRestricted(t *testing.T) {
+	p := metaPolicy(t)
+	restrictedProj := strings.Replace(tablesProj, "sampling_key, total_rows, comment", "sampling_key, toUInt64(total_rows > 0) AS total_rows, comment", 1)
+	onboarding := "SELECT sum(total_rows) AS total_rows FROM system.tables WHERE (table = 'otel_logs' AND database = 'otel')"
+	for _, sc := range []Scope{{Clusters: []string{"qa"}, AllNamespaces: true}, {AllClusters: true, Namespaces: []string{"shop"}}} {
+		r := mustFinish(t, p, onboarding, sc)
+		want := "SELECT sum(total_rows) AS total_rows FROM " + restrictedProj + " AS `tables` WHERE (table = 'otel_logs' AND database = 'otel')"
+		if r.SQL != want {
+			t.Errorf("%+v\n got %s\nwant %s", sc, r.SQL, want)
+		}
+		// the fleet projection written out is projected again
+		r = mustFinish(t, p, "SELECT total_rows FROM "+tablesProj+" AS x", sc)
+		if !strings.Contains(r.SQL, "toUInt64(total_rows > 0) AS total_rows, comment FROM system.tables") || strings.Contains(r.SQL, "sampling_key, total_rows, comment FROM system.tables") {
+			t.Errorf("written-out projection: %s", r.SQL)
+		}
+	}
+	r := mustFinish(t, p, onboarding, Scope{AllClusters: true, AllNamespaces: true})
+	if !strings.Contains(r.SQL, tablesProj) {
+		t.Errorf("fleet: %s", r.SQL)
+	}
+	// a configured override; a restricted column that is not a column
+	if _, err := NewPolicy("otel", []*Table{{Database: "system", Name: "tables", Scope: "metadata", RestrictedColumns: map[string]string{"nope": "0"}}}, 0); err == nil {
+		t.Error("restricted column outside the columns accepted")
+	}
+	if _, err := NewPolicy("otel", []*Table{{Name: "otel_logs", Scope: "fleet", RestrictedColumns: map[string]string{"x": "0"}}}, 0); err == nil {
+		t.Error("restricted_columns on a data table accepted")
 	}
 }

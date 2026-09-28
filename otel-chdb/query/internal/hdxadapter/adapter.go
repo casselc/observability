@@ -39,6 +39,11 @@ type Config struct {
 	BasisURL       string `json:"basis_url"`
 	BasisGroupTTLS int    `json:"basis_group_ttl_s"`
 	BasisGroups    int    `json:"basis_groups"`
+	// PassSettings mirrors the service's central.performance_settings: the
+	// URL settings passed on as the request's settings (D33). Every other
+	// URL setting is dropped and named in X-Otel-Dropped-Settings, as
+	// before; the service checks each value.
+	PassSettings []string `json:"pass_settings"`
 }
 
 // Adapter is the HTTP handler.
@@ -46,6 +51,7 @@ type Adapter struct {
 	cfg    Config
 	tables Tables
 	client *http.Client
+	pass   map[string]bool
 
 	mu     sync.Mutex
 	counts map[string]int64
@@ -79,7 +85,11 @@ func New(cfg Config, client *http.Client) *Adapter {
 	if cfg.BasisGroups <= 0 {
 		cfg.BasisGroups = 10_000
 	}
-	return &Adapter{cfg: cfg, client: client, tables: Tables{DefaultDatabase: cfg.DefaultDatabase, TimeColumns: tc}, counts: map[string]int64{},
+	pass := map[string]bool{}
+	for _, n := range cfg.PassSettings {
+		pass[n] = true
+	}
+	return &Adapter{cfg: cfg, client: client, pass: pass, tables: Tables{DefaultDatabase: cfg.DefaultDatabase, TimeColumns: tc}, counts: map[string]int64{},
 		groups: &basisGroups{entries: map[string]*groupEntry{}, ttl: time.Duration(cfg.BasisGroupTTLS) * time.Second, max: cfg.BasisGroups, now: time.Now}}
 }
 
@@ -95,7 +105,7 @@ var LabelHeaders = []string{"X-Otel-Request-Id", "X-Otel-Source", "X-Otel-Comple
 	"X-Otel-Incomplete-From", "X-Otel-Watermark-Status", "X-Otel-Watermark-Lag-S", "X-Otel-Watermark-Note",
 	"X-Otel-Window-From", "X-Otel-Window-To", "X-Otel-Dropped-Settings", "X-Otel-Statement",
 	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows", "X-Otel-Watermark-Scope", "X-Otel-Watermark-Holding",
-	"X-Otel-Basis", "X-Otel-At-Basis", "X-Otel-Basis-Info"}
+	"X-Otel-Basis", "X-Otel-At-Basis", "X-Otel-Basis-Info", "X-Otel-Sample", "X-Otel-Settings"}
 
 // clientKeys are URL parameters of the HTTP interface that are not settings.
 var clientKeys = map[string]bool{"query": true, "query_id": true, "database": true, "default_format": true,
@@ -141,19 +151,43 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var dropped []string
 	output := map[string]string{}
+	settings := map[string]string{}
+	// HyperDX's flagged read sample (fork patch 0001's allowSampledRead:
+	// read_overflow_mode 'break' at max_rows_to_read) becomes the service's
+	// labelled sample (D33): the answer says completeness "sample"
+	sampled := strings.EqualFold(req.values.Get("read_overflow_mode"), "break")
+	if sampled {
+		smp := map[string]int64{}
+		if n, err := strconv.ParseInt(req.values.Get("max_rows_to_read"), 10, 64); err == nil && n > 0 {
+			smp["rows"] = n
+		}
+		body["sample"] = smp
+	}
 	for k := range req.values {
 		if clientKeys[k] || strings.HasPrefix(k, "param_") {
 			continue
 		}
-		if k == "date_time_output_format" {
+		switch {
+		case k == "date_time_output_format":
 			output[k] = req.values.Get(k)
-			continue
+		case sampled && (k == "read_overflow_mode" || k == "max_rows_to_read"):
+		case a.pass[k]:
+			settings[k] = req.values.Get(k)
+		default:
+			dropped = append(dropped, k)
 		}
-		dropped = append(dropped, k)
+	}
+	// the statement's own SETTINGS (a source's querySettings) over the URL's,
+	// as ClickHouse applies them; the service refuses any it does not allow
+	for k, v := range st.Settings {
+		settings[k] = v
 	}
 	sort.Strings(dropped)
 	if len(output) > 0 {
 		body["output"] = output
+	}
+	if len(settings) > 0 {
+		body["settings"] = settings
 	}
 	basis, group, err := a.requestBasis(r.Context(), r, req.token)
 	if err != nil {
@@ -192,6 +226,14 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(dropped) > 0 {
 		h.Set("X-Otel-Dropped-Settings", strings.Join(dropped, ","))
 	}
+	if len(resp.Settings) > 0 {
+		var kv []string
+		for k, v := range resp.Settings {
+			kv = append(kv, k+"="+v)
+		}
+		sort.Strings(kv)
+		h.Set("X-Otel-Settings", headerSafe(strings.Join(kv, ",")))
+	}
 	if st.Metadata {
 		h.Set("X-Otel-Source", "metadata")
 	} else {
@@ -218,6 +260,11 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.Set("X-Otel-Late-Rows", resp.Late.Status)
 		}
 		h.Set("X-Otel-Watermark-Status", resp.Watermark.Status)
+		// a labelled sample (D33): how much it read, and whether it stopped
+		if sm := resp.Sample; sm != nil && sm.Sample {
+			h.Set("X-Otel-Sample", fmt.Sprintf("rows_read=%d; max_rows_to_read=%d; reached_bound=%t; data_completeness=%s",
+				sm.RowsRead, sm.MaxRowsToRead, sm.ReachedBound, headerSafe(sm.DataCompleteness)))
+		}
 		if resp.Watermark.LagS != nil {
 			h.Set("X-Otel-Watermark-Lag-S", strconv.FormatFloat(*resp.Watermark.LagS, 'f', 1, 64))
 		}
@@ -382,6 +429,15 @@ type serviceAnswer struct {
 		ElapsedMs float64 `json:"elapsed_ms"`
 	} `json:"query"`
 	Result json.RawMessage `json:"result"`
+	// D33
+	Sample *struct {
+		Sample           bool   `json:"sample"`
+		RowsRead         int64  `json:"rows_read"`
+		MaxRowsToRead    int64  `json:"max_rows_to_read"`
+		ReachedBound     bool   `json:"reached_bound"`
+		DataCompleteness string `json:"data_completeness"`
+	} `json:"sample"`
+	Settings map[string]string `json:"settings"`
 	// D30
 	Basis     *string `json:"basis"`
 	AtBasis   bool    `json:"at_basis"`

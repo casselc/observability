@@ -233,7 +233,10 @@ jobs:
   # 2.39.1's 799 captured statements through the adapter and the query service
   # onto ClickHouse, each answer compared with ClickHouse's own; the same for
   # a one-cluster token against the scope filter; labels; and
-  # @clickhouse/client (HyperDX's pin) driving the adapter.
+  # @clickhouse/client (HyperDX's pin) driving the adapter. Since D33 also the
+  # entity rewrite proxy's statements through adapter and service (a
+  # two-cluster catalog, the dictionary leak probe), labelled samples, and the
+  # key/value rollup migration.
   hdxadapter-integration:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

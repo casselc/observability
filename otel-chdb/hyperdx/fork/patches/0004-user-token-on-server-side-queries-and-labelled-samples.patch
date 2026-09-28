@@ -1,0 +1,666 @@
+From 675d77498c32ad61c503c04f39b037ac39831b46 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 28 Sep 2026 22:20:11 +0000
+Subject: [PATCH 4/4] The user's token on server-side queries a user started;
+ labelled samples in the banner
+
+otel-chdb owner decisions of 2026-09-28 (DECISIONS.md D33):
+
+- Server-side queries a user started carry that user's token. The API runs
+  every request's work inside runAsQueryServiceUser (an AsyncLocalStorage
+  in common-utils' node client), with the token from the header the OIDC
+  proxy sets (HDX_QUERY_SERVICE_TOKEN_HEADER; an MCP or external API client
+  sends it beside its access key). Every query the node client sends in
+  that work (MCP tools, the external API, the API's own routes: AI
+  summaries, Prometheus) goes out with the user's token, so the query
+  service scopes and audits it as the user. If the user's token did not
+  reach the API, the query fails: it is never sent as the service
+  identity. HDX_QUERY_SERVICE_TOKEN_FILE's service identity is left to
+  work no user started (the alert task, usage stats).
+- Labelled samples: the query service answers HyperDX's flagged read
+  samples (allowSampledRead, patch 0001) with completeness "sample" and
+  X-Otel-Sample (rows read, the bound, whether reading stopped at it). The
+  store records them as samples, never complete, apart from the page's
+  label; the banner says on a line of its own that the page's suggestion
+  lists are samples and whether they stopped at the bound.
+- Fixes patch 0003's completeness.test.ts: the "reads the adapter headers"
+  expectation missed atBasis: false (found by running the suite).
+---
+ packages/api/src/api-app.ts                   |   4 +
+ .../__tests__/queryServiceUser.test.ts        |  40 ++++++
+ .../api/src/middleware/queryServiceUser.ts    |  23 ++++
+ .../app/src/components/CompletenessBanner.tsx |  37 +++++-
+ .../__tests__/CompletenessBanner.test.tsx     |  55 ++++++++
+ .../src/__tests__/completeness.test.ts        | 122 +++++++++++++++++-
+ .../src/clickhouse/completeness.ts            |  69 +++++++++-
+ packages/common-utils/src/clickhouse/node.ts  |  69 +++++++++-
+ 8 files changed, 407 insertions(+), 12 deletions(-)
+ create mode 100644 packages/api/src/middleware/__tests__/queryServiceUser.test.ts
+ create mode 100644 packages/api/src/middleware/queryServiceUser.ts
+
+diff --git a/packages/api/src/api-app.ts b/packages/api/src/api-app.ts
+index 5e336d0..1e2396e 100644
+--- a/packages/api/src/api-app.ts
++++ b/packages/api/src/api-app.ts
+@@ -8,6 +8,7 @@ import * as config from './config';
+ import mcpRouter from './mcp/app';
+ import { isUserAuthenticated } from './middleware/auth';
+ import defaultCors from './middleware/cors';
++import { queryServiceUser } from './middleware/queryServiceUser';
+ import { appErrorHandler } from './middleware/error';
+ import routers from './routers/api';
+ import clickhouseProxyRouter from './routers/api/clickhouseProxy';
+@@ -78,6 +79,9 @@ app.use(function (req, res, next) {
+   next();
+ });
+ app.use(defaultCors);
++// otel-chdb fork: queries the API sends while handling a request carry the
++// requesting user's token (MCP, the external API, the API's own routes)
++app.use(queryServiceUser());
+ 
+ // ---------------------------------------------------------------------
+ // ----------------------- Background Jobs -----------------------------
+diff --git a/packages/api/src/middleware/__tests__/queryServiceUser.test.ts b/packages/api/src/middleware/__tests__/queryServiceUser.test.ts
+new file mode 100644
+index 0000000..45a0bb1
+--- /dev/null
++++ b/packages/api/src/middleware/__tests__/queryServiceUser.test.ts
+@@ -0,0 +1,40 @@
++import { queryServiceAuth } from '@hyperdx/common-utils/dist/clickhouse/node';
++
++import { queryServiceUser } from '@/middleware/queryServiceUser';
++
++describe('queryServiceUser (otel-chdb fork)', () => {
++  const H = 'x-forwarded-access-token';
++  const run = (headers: Record<string, string>) =>
++    new Promise<ReturnType<typeof queryServiceAuth> | Error>(resolve => {
++      queryServiceUser(H)({ headers } as any, {} as any, () => {
++        // later, asynchronously, as a route handler or an MCP tool queries
++        setTimeout(() => {
++          try {
++            resolve(queryServiceAuth('/svc', () => 'service.token'));
++          } catch (e) {
++            resolve(e as Error);
++          }
++        }, 1);
++      });
++    });
++
++  it("gives the request's work the user's token", async () => {
++    expect(await run({ [H]: 'alice.jwt.sig' })).toEqual({
++      access_token: 'alice.jwt.sig',
++    });
++  });
++
++  it('fails a query started by a user without a token, never using the service identity', async () => {
++    const r = await run({});
++    expect(r).toBeInstanceOf(Error);
++    expect((r as Error).message).toMatch(/started by a user/);
++    const bad = await run({ [H]: 'two tokens' });
++    expect(bad).toBeInstanceOf(Error);
++  });
++
++  it('leaves work no request started to the service identity', () => {
++    expect(queryServiceAuth('/svc', () => 'service.token')).toEqual({
++      access_token: 'service.token',
++    });
++  });
++});
+diff --git a/packages/api/src/middleware/queryServiceUser.ts b/packages/api/src/middleware/queryServiceUser.ts
+new file mode 100644
+index 0000000..c19d595
+--- /dev/null
++++ b/packages/api/src/middleware/queryServiceUser.ts
+@@ -0,0 +1,23 @@
++import { runAsQueryServiceUser } from '@hyperdx/common-utils/dist/clickhouse/node';
++import type { NextFunction, Request, Response } from 'express';
++
++import { QUERY_SERVICE_TOKEN_HEADER } from '@/config';
++import { queryServiceToken } from '@/utils/queryServiceToken';
++
++/**
++ * otel-chdb fork: everything the API does while handling a request was
++ * started by that request's user (MCP tools, the external API, the API's
++ * own routes), so every ClickHouse query it sends carries the user's OIDC
++ * token, from the header the OIDC proxy sets (HDX_QUERY_SERVICE_TOKEN_HEADER;
++ * an MCP or external API client sends it beside its access key). The query
++ * service then scopes and audits it as that user. Without the user's
++ * token such a query fails; the service identity (HDX_QUERY_SERVICE_TOKEN_FILE)
++ * is only for work no user started: the alert task.
++ */
++export function queryServiceUser(
++  headerName: string = QUERY_SERVICE_TOKEN_HEADER,
++) {
++  return (req: Request, _res: Response, next: NextFunction) => {
++    runAsQueryServiceUser(queryServiceToken(req.headers, headerName), next);
++  };
++}
+diff --git a/packages/app/src/components/CompletenessBanner.tsx b/packages/app/src/components/CompletenessBanner.tsx
+index b206b68..38103de 100644
+--- a/packages/app/src/components/CompletenessBanner.tsx
++++ b/packages/app/src/components/CompletenessBanner.tsx
+@@ -41,6 +41,25 @@ export function basisMessage(s: CompletenessSummary): string {
+   return parts.join(' ');
+ }
+ 
++/**
++ * The page's labelled samples (D33): suggestion lists (typeahead keys and
++ * values) read up to a row bound. Never empty when there is one: a sample
++ * is never shown as complete, and says whether it stopped at its bound.
++ */
++export function sampleMessage(s: CompletenessSummary): string {
++  if (!s.samples) return '';
++  const lists =
++    s.samples === 1 ? 'One suggestion list' : `${s.samples} suggestion lists`;
++  const read =
++    s.sampleRowsRead != null
++      ? ` (up to ${s.sampleRowsRead.toLocaleString()} rows read)`
++      : '';
++  if (s.samplesAtBound > 0) {
++    return `${lists} on this page ${s.samples === 1 ? 'is a sample' : 'are samples'}: ${s.samplesAtBound === s.samples ? '' : `${s.samplesAtBound} of them `}stopped reading at the row bound${read}, so values beyond it are not listed.`;
++  }
++  return `${lists} on this page ${s.samples === 1 ? 'was' : 'were'} read as ${s.samples === 1 ? 'a sample' : 'samples'}${read}: under the row bound, but not labelled complete.`;
++}
++
+ /**
+  * The banner's text for a page's results (otel-chdb fork). Never empty when
+  * there is a result that is not complete: a partial, unknown or unlabelled
+@@ -72,6 +91,10 @@ export function completenessMessage(s: CompletenessSummary): {
+         title: `Unknown — watermark ${s.watermarkStatus ?? 'missing'}`,
+         text: `Completeness cannot be established${s.completeThrough ? ` (last known complete through ${fmt(s.completeThrough)})` : ''}: nothing on this page may be read as settled.${s.watermarkNote ? ` ${s.watermarkNote}` : ''}`,
+       };
++    case 'sample':
++      // samples are never the page's worst label: summarize keeps them apart
++      // and sampleMessage reports them
++      return null;
+     case 'unlabelled':
+       return {
+         color: 'red',
+@@ -86,7 +109,10 @@ export function CompletenessBannerView({
+ }: {
+   summary: CompletenessSummary;
+ }) {
+-  const m = completenessMessage(summary);
++  const sm = sampleMessage(summary);
++  const m =
++    completenessMessage(summary) ??
++    (sm ? { color: 'yellow', title: 'Sampled suggestions', text: '' } : null);
+   if (m == null) return null;
+   const b = basisMessage(summary);
+   return (
+@@ -96,14 +122,19 @@ export function CompletenessBannerView({
+       variant="light"
+       py={4}
+       data-testid="completeness-banner"
+-      data-completeness={summary.worst}
++      data-completeness={summary.worst ?? 'sample'}
+     >
+-      <Text size="xs">{m.text}</Text>
++      {m.text && <Text size="xs">{m.text}</Text>}
+       {b && (
+         <Text size="xs" c="dimmed" data-testid="completeness-basis">
+           {b}
+         </Text>
+       )}
++      {sm && (
++        <Text size="xs" data-testid="completeness-sample">
++          {sm}
++        </Text>
++      )}
+     </Alert>
+   );
+ }
+diff --git a/packages/app/src/components/__tests__/CompletenessBanner.test.tsx b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+index 7556d49..2da8fd7 100644
+--- a/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
++++ b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+@@ -8,6 +8,7 @@ import { act, screen } from '@testing-library/react';
+ import CompletenessBanner, {
+   basisMessage,
+   completenessMessage,
++  sampleMessage,
+ } from '@/components/CompletenessBanner';
+ 
+ const lab = (completeness: any, t?: string, extra: object = {}) => ({
+@@ -97,3 +98,57 @@ describe('CompletenessBanner (otel-chdb fork)', () => {
+     expect(screen.queryByTestId('completeness-banner')).toBeNull();
+   });
+ });
++
++describe('labelled samples (otel-chdb fork, D33)', () => {
++  const sample = (reachedBound: boolean, rowsRead = 3000123) =>
++    lab('sample', undefined, {
++      sample: { reachedBound, rowsRead, maxRowsToRead: 3000000 },
++    });
++
++  it('says a sampled suggestion list is a sample, never complete', () => {
++    const s = CompletenessStore.summarize([
++      lab('complete', '2026-09-28T12:00:00Z'),
++      sample(true),
++    ]);
++    // the charts' label is theirs; the sample has a line of its own
++    expect(completenessMessage(s)?.title).toMatch(/^Complete/);
++    expect(s.results).toBe(1);
++    const m = sampleMessage(s);
++    expect(m).toMatch(/One suggestion list on this page is a sample/);
++    expect(m).toMatch(/stopped reading at the row bound/);
++    expect(m).toMatch(/3,000,123 rows read/);
++  });
++
++  it('is shown even when the page has nothing else', () => {
++    const s = CompletenessStore.summarize([sample(false, 12)]);
++    expect(completenessMessage(s)).toBeNull();
++    expect(sampleMessage(s)).toMatch(
++      /under the row bound, but not labelled complete/,
++    );
++    const store = getCompletenessStore();
++    store.reset();
++    renderWithMantine(<CompletenessBanner />);
++    act(() => store.record('k', sample(true)));
++    expect(screen.getByTestId('completeness-banner').dataset.completeness).toBe(
++      'sample',
++    );
++    expect(screen.getByTestId('completeness-sample').textContent).toMatch(
++      /is a sample/,
++    );
++    act(() => store.reset());
++  });
++
++  it('counts several', () => {
++    const m = sampleMessage(
++      CompletenessStore.summarize([
++        sample(true),
++        sample(false, 5),
++        sample(true),
++      ]),
++    );
++    expect(m).toMatch(
++      /^3 suggestion lists on this page are samples: 2 of them stopped/,
++    );
++    expect(sampleMessage(CompletenessStore.summarize([]))).toBe('');
++  });
++});
+diff --git a/packages/common-utils/src/__tests__/completeness.test.ts b/packages/common-utils/src/__tests__/completeness.test.ts
+index 50f3c5e..1a1aacc 100644
+--- a/packages/common-utils/src/__tests__/completeness.test.ts
++++ b/packages/common-utils/src/__tests__/completeness.test.ts
+@@ -7,7 +7,12 @@ import {
+   getCompletenessStore,
+   labelFromHeaders,
+ } from '@/clickhouse/completeness';
+-import { ClickhouseClient, queryServiceAuth } from '@/clickhouse/node';
++import {
++  ClickhouseClient,
++  currentQueryServiceUser,
++  queryServiceAuth,
++  runAsQueryServiceUser,
++} from '@/clickhouse/node';
+ 
+ describe('completeness labels (otel-chdb fork)', () => {
+   const ct = '2026-09-28T12:00:00Z';
+@@ -31,6 +36,8 @@ describe('completeness labels (otel-chdb fork)', () => {
+       watermarkStatus: 'ok',
+       watermarkNote: undefined,
+       requestId: 'r1',
++      // not at a basis (D30): patch 0003 added the field, not the expectation
++      atBasis: false,
+       receivedAt: 1,
+     });
+   });
+@@ -209,3 +216,116 @@ describe('queryServiceAuth (otel-chdb fork)', () => {
+     expect(() => queryServiceAuth('/t', () => ' \n')).toThrow(/is empty/);
+   });
+ });
++
++describe('labelled samples (otel-chdb fork, D33)', () => {
++  const sampleHeaders = {
++    'x-otel-source': 'central',
++    'x-otel-completeness': 'sample',
++    'x-otel-sample':
++      'rows_read=3000123; max_rows_to_read=3000000; reached_bound=true; data_completeness=complete',
++  };
++
++  it('reads a sample as a sample, with what it read', () => {
++    const l = labelFromHeaders(sampleHeaders, 5);
++    expect(l?.completeness).toBe('sample');
++    expect(l?.sample).toEqual({
++      rowsRead: 3000123,
++      maxRowsToRead: 3000000,
++      reachedBound: true,
++    });
++    // a sample without the detail header is taken to have reached its bound
++    expect(
++      labelFromHeaders({ ...sampleHeaders, 'x-otel-sample': undefined } as any)
++        ?.sample?.reachedBound,
++    ).toBe(true);
++  });
++
++  it('keeps samples out of the page label, and counts them', () => {
++    const store = new CompletenessStore();
++    store.record('a', labelFromHeaders(sampleHeaders));
++    let s = store.getSummary();
++    expect(s.worst).toBeNull();
++    expect(s.samples).toBe(1);
++    expect(s.samplesAtBound).toBe(1);
++    expect(s.sampleRowsRead).toBe(3000123);
++    store.record(
++      'b',
++      labelFromHeaders({
++        'x-otel-source': 'central',
++        'x-otel-completeness': 'complete',
++        'x-otel-complete-through': '2026-09-28T12:00:00Z',
++      }),
++    );
++    s = store.getSummary();
++    expect(s.worst).toBe('complete');
++    expect(s.results).toBe(1);
++    expect(s.counts.sample).toBe(1);
++  });
++});
++
++describe("server-side queries carry the user's token (otel-chdb fork)", () => {
++  it('uses the token of the user who started the work', () => {
++    const read = () => 'service.token';
++    expect(queryServiceAuth('/t', read, { token: 'user.token' })).toEqual({
++      access_token: 'user.token',
++    });
++    // no user: the service identity (the alert task)
++    expect(queryServiceAuth('/t', read, undefined)).toEqual({
++      access_token: 'service.token',
++    });
++  });
++
++  it("never sends a user's work as the service identity", () => {
++    expect(() =>
++      queryServiceAuth('/t', () => 'service.token', { token: undefined }),
++    ).toThrow(/started by a user/);
++    // upstream mode (no query service): nothing is sent either way
++    expect(
++      queryServiceAuth('', () => 'x', { token: undefined }),
++    ).toBeUndefined();
++  });
++
++  it('follows the work through async code', async () => {
++    expect(currentQueryServiceUser()).toBeUndefined();
++    const seen = await runAsQueryServiceUser('u.1', async () => {
++      await new Promise(r => setTimeout(r, 1));
++      const inner = await Promise.all([
++        Promise.resolve().then(() => currentQueryServiceUser()?.token),
++        runAsQueryServiceUser(
++          'u.2',
++          async () => currentQueryServiceUser()?.token,
++        ),
++      ]);
++      return [currentQueryServiceUser()?.token, ...inner];
++    });
++    expect(seen).toEqual(['u.1', 'u.1', 'u.2']);
++    expect(currentQueryServiceUser()).toBeUndefined();
++  });
++
++  it("sends the user's token as the query's auth", async () => {
++    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qs-')), 'tok');
++    fs.writeFileSync(f, 'svc.token.1\n');
++    const prev = process.env.HDX_QUERY_SERVICE_TOKEN_FILE;
++    process.env.HDX_QUERY_SERVICE_TOKEN_FILE = f;
++    try {
++      const client = new ClickhouseClient({ host: 'http://localhost:1' });
++      const q = jest.fn().mockResolvedValue({ response_headers: {} });
++      (client as any).client.query = q;
++      await runAsQueryServiceUser('alice.jwt', () =>
++        client.query({ query: 'SELECT 1', shouldSkipApplySettings: true }),
++      );
++      expect(q.mock.calls[0][0].auth).toEqual({ access_token: 'alice.jwt' });
++      await client.query({ query: 'SELECT 1', shouldSkipApplySettings: true });
++      expect(q.mock.calls[1][0].auth).toEqual({ access_token: 'svc.token.1' });
++      await expect(
++        runAsQueryServiceUser(undefined, () =>
++          client.query({ query: 'SELECT 1', shouldSkipApplySettings: true }),
++        ),
++      ).rejects.toThrow(/started by a user/);
++      expect(q).toHaveBeenCalledTimes(2);
++    } finally {
++      if (prev === undefined) delete process.env.HDX_QUERY_SERVICE_TOKEN_FILE;
++      else process.env.HDX_QUERY_SERVICE_TOKEN_FILE = prev;
++    }
++  });
++});
+diff --git a/packages/common-utils/src/clickhouse/completeness.ts b/packages/common-utils/src/clickhouse/completeness.ts
+index 777af6f..b74b5d2 100644
+--- a/packages/common-utils/src/clickhouse/completeness.ts
++++ b/packages/common-utils/src/clickhouse/completeness.ts
+@@ -14,6 +14,16 @@
+  *   X-Otel-Basis             the basis token the result was computed at (D30)
+  *   X-Otel-At-Basis          true | false: whether the rows were cut at it
+  *   X-Otel-Basis-Info        per cluster, "cluster<T": rows received before T
++ *   X-Otel-Sample            a labelled sample (D33): "rows_read=N;
++ *                            max_rows_to_read=M; reached_bound=true|false;
++ *                            data_completeness=…"; X-Otel-Completeness is
++ *                            then "sample"
++ *
++ * A sample (the suggestion lists HyperDX reads with allowSampledRead: typeahead
++ * keys and values) stopped reading at a row bound: it is recorded as
++ * `sample`, never as complete, and the banner says so on a line of its own
++ * (a sampled suggestion list says nothing about the charts beside it, so it
++ * does not change the page's label; it is never hidden either).
+  *
+  * One basis per page load and dashboard refresh (otel-chdb D30): the store
+  * keeps a basis group, sent with every statement as X-Otel-Basis-Group; the
+@@ -32,7 +42,20 @@
+  */
+ import type { ResponseHeaders } from '@clickhouse/client-common';
+ 
+-export type Completeness = 'complete' | 'partial' | 'unknown' | 'unlabelled';
++export type Completeness =
++  | 'complete'
++  | 'partial'
++  | 'unknown'
++  | 'unlabelled'
++  | 'sample';
++
++/** What a labelled sample read (D33). */
++export type SampleInfo = {
++  rowsRead?: number;
++  maxRowsToRead?: number;
++  /** Reading stopped at the bound: the answer is over part of the rows. */
++  reachedBound: boolean;
++};
+ 
+ export type CompletenessLabel = {
+   completeness: Completeness;
+@@ -47,16 +70,34 @@ export type CompletenessLabel = {
+   basis?: string;
+   atBasis?: boolean;
+   basisInfo?: string;
++  /** Set for a labelled sample (completeness 'sample'). */
++  sample?: SampleInfo;
+   receivedAt: number;
+ };
+ 
++// a sample is ranked apart: it never makes the page's label better or
++// worse, and it is reported on its own (summarize)
+ const RANK: Record<Completeness, number> = {
+   complete: 0,
+   partial: 1,
+   unknown: 2,
+   unlabelled: 3,
++  sample: -1,
+ };
+ 
++/** Parses X-Otel-Sample; a sample without it reached its bound, as far as anyone knows. */
++export function parseSample(v: string | undefined): SampleInfo {
++  const out: SampleInfo = { reachedBound: true };
++  for (const part of (v ?? '').split(';')) {
++    const [k, x] = part.split('=').map(t => t.trim());
++    const n = Number(x);
++    if (k === 'rows_read' && Number.isFinite(n)) out.rowsRead = n;
++    if (k === 'max_rows_to_read' && Number.isFinite(n)) out.maxRowsToRead = n;
++    if (k === 'reached_bound') out.reachedBound = x !== 'false';
++  }
++  return out;
++}
++
+ function header(headers: ResponseHeaders | undefined, name: string) {
+   const v = headers?.[name.toLowerCase()];
+   return Array.isArray(v) ? v[0] : v;
+@@ -79,9 +120,13 @@ export function labelFromHeaders(
+     return { completeness: 'unlabelled', receivedAt: now };
+   }
+   const completeness: Completeness =
+-    c === 'complete' || c === 'partial' ? c : 'unknown';
++    c === 'complete' || c === 'partial' || c === 'sample' ? c : 'unknown';
+   return {
+     completeness,
++    sample:
++      completeness === 'sample'
++        ? parseSample(header(headers, 'x-otel-sample'))
++        : undefined,
+     completeThrough: header(headers, 'x-otel-complete-through') || undefined,
+     incompleteFrom: header(headers, 'x-otel-incomplete-from') || undefined,
+     watermarkStatus: header(headers, 'x-otel-watermark-status') || undefined,
+@@ -111,6 +156,13 @@ export type CompletenessSummary = {
+   basisInfo?: string;
+   /** Results not computed at a basis (they read up to now). */
+   unpinned: number;
++  /**
++   * Labelled samples among the results (D33): how many, how many stopped at
++   * their bound, and the most rows one read. They are not in `worst`.
++   */
++  samples: number;
++  samplesAtBound: number;
++  sampleRowsRead?: number;
+ };
+ 
+ const MAX_ENTRIES = 500;
+@@ -202,6 +254,7 @@ export class CompletenessStore {
+       partial: 0,
+       unknown: 0,
+       unlabelled: 0,
++      sample: 0,
+     };
+     const s: CompletenessSummary = {
+       worst: null,
+@@ -209,9 +262,20 @@ export class CompletenessStore {
+       counts,
+       bases: 0,
+       unpinned: 0,
++      samples: 0,
++      samplesAtBound: 0,
+     };
+     const bases = new Map<string, string | undefined>();
+     for (const l of labels) {
++      if (l.completeness === 'sample') {
++        counts.sample++;
++        s.samples++;
++        if (l.sample?.reachedBound !== false) s.samplesAtBound++;
++        if (l.sample?.rowsRead != null) {
++          s.sampleRowsRead = Math.max(s.sampleRowsRead ?? 0, l.sample.rowsRead);
++        }
++        continue;
++      }
+       if (l.completeness !== 'unlabelled') {
+         if (l.atBasis && l.basis) bases.set(l.basis, l.basisInfo);
+         else s.unpinned++;
+@@ -229,6 +293,7 @@ export class CompletenessStore {
+         s.watermarkNote = l.watermarkNote;
+       }
+     }
++    s.results -= s.samples;
+     s.bases = bases.size;
+     if (bases.size === 1) s.basisInfo = [...bases.values()][0];
+     return s;
+diff --git a/packages/common-utils/src/clickhouse/node.ts b/packages/common-utils/src/clickhouse/node.ts
+index 4c25cf7..c01130b 100644
+--- a/packages/common-utils/src/clickhouse/node.ts
++++ b/packages/common-utils/src/clickhouse/node.ts
+@@ -5,6 +5,7 @@ import type {
+   DataFormat,
+ } from '@clickhouse/client';
+ import { createClient } from '@clickhouse/client';
++import { AsyncLocalStorage } from 'async_hooks';
+ import { readFileSync } from 'fs';
+ 
+ import {
+@@ -16,13 +17,59 @@ import {
+ // for api fixtures
+ export { createClient as createNativeClient };
+ 
++/** Who started the work a server-side query belongs to (otel-chdb fork). */
++export type QueryServiceUser = {
++  /** The user's OIDC token, as the API received it; undefined if it did not. */
++  token: string | undefined;
++};
++
++const USER_KEY = Symbol.for('otel-chdb.hyperdx.query-service-user');
++
++function userStorage(): AsyncLocalStorage<QueryServiceUser> {
++  const g = globalThis as unknown as Record<
++    symbol,
++    AsyncLocalStorage<QueryServiceUser>
++  >;
++  // one store for every bundled copy of this module
++  // eslint-disable-next-line security/detect-object-injection
++  g[USER_KEY] ??= new AsyncLocalStorage<QueryServiceUser>();
++  // eslint-disable-next-line security/detect-object-injection
++  return g[USER_KEY];
++}
++
+ /**
+- * The otel-chdb fork: server-side queries (alerts, the API's own queries, MCP
+- * tools) reach ClickHouse through the query service's adapter, which needs an
+- * OIDC token. HDX_QUERY_SERVICE_TOKEN_FILE names a file holding the service
+- * identity's current token (a projected service-account token, or a file a
+- * sidecar refreshes); it is re-read on every query, so rotation needs no
+- * restart. Unset: no override (upstream behaviour).
++ * Runs fn as work a user started (an API request: MCP tools, the external
++ * API, the API's own routes): every query the node client sends inside it,
++ * however deep and however asynchronous, carries that user's token, so the
++ * query service scopes and audits it as that user (otel-chdb D25, owner
++ * decision 2026-09-28). A query started by a user whose token did not
++ * reach the API fails; it is never sent as the service identity.
++ */
++export function runAsQueryServiceUser<T>(
++  token: string | undefined,
++  fn: () => T,
++): T {
++  return userStorage().run({ token }, fn);
++}
++
++/** The user the current work was started by, if a user started it. */
++export function currentQueryServiceUser(): QueryServiceUser | undefined {
++  return userStorage().getStore();
++}
++
++/**
++ * The otel-chdb fork: server-side queries reach ClickHouse through the
++ * query service's adapter, which needs an OIDC token.
++ *
++ * - Work a user started (inside runAsQueryServiceUser: MCP tools, the
++ *   external API, the API's own routes) carries **that user's** token. If
++ *   the user's token did not reach the API while the service identity is
++ *   configured, the query fails: it is never run as the service identity.
++ * - Work no user started (the alert task, usage stats) carries the service
++ *   identity's: HDX_QUERY_SERVICE_TOKEN_FILE names a file holding its
++ *   current token (a projected service-account token, or a file a sidecar
++ *   refreshes); it is re-read on every query, so rotation needs no restart.
++ *   Unset: no override (upstream behaviour).
+  *
+  * The token goes in the query's `auth` (the client then sends
+  * Authorization: Bearer): a per-query `http_headers` Authorization is
+@@ -31,7 +78,17 @@ export { createClient as createNativeClient };
+ export function queryServiceAuth(
+   path: string | undefined = process.env.HDX_QUERY_SERVICE_TOKEN_FILE,
+   read: (p: string) => string = p => readFileSync(p, 'utf8'),
++  user: QueryServiceUser | undefined = currentQueryServiceUser(),
+ ): { access_token: string } | undefined {
++  if (user) {
++    if (user.token) return { access_token: user.token };
++    if (path) {
++      throw new Error(
++        'this query was started by a user whose token did not reach the API (HDX_QUERY_SERVICE_TOKEN_HEADER): it is not sent as the service identity',
++      );
++    }
++    return undefined;
++  }
+   if (!path) return undefined;
+   const token = read(path).trim();
+   if (!token) {

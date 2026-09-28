@@ -5,5 +5,11 @@
   "time_columns": {"otel_logs": "Timestamp", "otel_traces": "Timestamp"},
   "token_header": "X-Forwarded-Access-Token",
   "max_body_bytes": 33554432,
-  "timeout_s": 300
+  "timeout_s": 300,
+  "pass_settings": ["query_plan_optimize_lazy_materialization", "query_plan_max_limit_for_lazy_materialization",
+                    "use_skip_indexes_for_top_k", "query_plan_max_limit_for_top_k_optimization", "use_skip_indexes_on_data_read",
+                    "use_skip_indexes_for_disjunctions", "use_skip_indexes", "enable_full_text_index",
+                    "allow_calculating_subcolumns_sizes_for_merge_tree_reading", "use_query_condition_cache",
+                    "optimize_read_in_order", "optimize_aggregation_in_order", "optimize_move_to_prewhere",
+                    "move_all_conditions_to_prewhere"]
 }

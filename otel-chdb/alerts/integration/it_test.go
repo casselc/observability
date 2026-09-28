@@ -389,6 +389,10 @@ func TestIntegration(t *testing.T) {
 		"lake": map[string]any{"root": r.run},
 		// max_lateness 1 s + the rules' lateness 1 s: the 2 s the story was timed with
 		"watermark": map[string]any{"cache_s": 1, "max_age_s": 30, "max_lateness_s": 1},
+		// two replicas run every rule of an identity at once (team-aa has
+		// three, with late checks): above the default 4 a 429 is a failed
+		// evaluation, which pages
+		"limits": map[string]any{"default": map[string]any{"max_concurrent": 16}},
 	}
 	qb, _ := json.Marshal(qcfg)
 	qpath := filepath.Join(r.dir, "queryd.json")
@@ -442,6 +446,23 @@ rules:
     condition: {op: ">", threshold: 0}
     identity: fleet
     clusters: [aa]
+  # late data (D30): WARN rows the test sends into windows already evaluated
+  - name: aa_late_reeval
+    sql: SELECT ServiceName AS service, count() AS value FROM otel_logs WHERE SeverityText = 'WARN' GROUP BY service
+    window: 10s
+    condition: {op: ">", threshold: 2}
+    identity: team-aa
+    on_late: reevaluate
+    late_every: 2s
+    late_horizon: 10m
+  - name: aa_late_page
+    sql: SELECT ServiceName AS service, count() AS value FROM otel_logs WHERE SeverityText = 'WARN' GROUP BY service
+    window: 10s
+    condition: {op: ">", threshold: 2}
+    identity: team-aa
+    on_late: page
+    late_every: 2s
+    late_horizon: 10m
 `
 	t.Setenv("ALR_IT_SECRET_FLEET", "fleet-secret")
 	t.Setenv("ALR_IT_SECRET_AA", "aa-secret")
@@ -509,6 +530,54 @@ rules:
 	// the unanswered first send was re-sent with the same key
 	checkResent(t, am)
 	t.Logf("phase 1: %d alerts in %d requests; dropped %d", len(am.find(func(got) bool { return true })), am.requests, am.dropped.Load())
+
+	// 4b. late data (D30): rows whose event time is in a window both late
+	// rules already evaluated (at a basis, with nothing holding), received
+	// now. The late check finds them as a delta from that window's basis:
+	// reevaluate pages a late episode (then resolves it), page sends "late
+	// data changed window W"; neither fires a live alert.
+	tPast := time.Now().Add(-15 * time.Second)
+	endPast := (tPast.UnixNano()/int64(10*time.Second) + 1) * int64(10*time.Second)
+	for _, name := range []string{"aa_late_reeval", "aa_late_page"} {
+		waitFor(t, name+" evaluated the past window", 60*time.Second, func() bool {
+			st, _, err := r1.Load(context.Background(), name)
+			if err != nil || st == nil || st.NextEndNs <= endPast {
+				return false
+			}
+			for _, w := range st.Recent {
+				if w.EndNs == endPast && w.Basis != "" && len(w.Holds) == 0 {
+					return true
+				}
+			}
+			return false
+		})
+	}
+	tLate := time.Now()
+	r.logs(aa, "latesvc", "WARN", 3, tPast)
+	lateEp := func(x got) bool {
+		return x.alert.Labels["alertname"] == "aa_late_reeval" && x.alert.Labels["service"] == "latesvc" && x.alert.Labels["alert_late"] == "true"
+	}
+	waitFor(t, "the late episode (reevaluate) fired and resolved", 90*time.Second, func() bool {
+		return len(am.find(lateEp)) > 0 && len(am.find(func(x got) bool { return lateEp(x) && resolved(x) })) > 0
+	})
+	waitFor(t, "late data changed window (page)", 60*time.Second, func() bool {
+		return len(am.find(func(x got) bool {
+			return x.alert.Labels["alertname"] == "AlertLateData" && x.alert.Labels["alert_rule"] == "aa_late_page"
+		})) > 0
+	})
+	ld := am.find(func(x got) bool { return x.alert.Labels["alertname"] == "AlertLateData" })[0].alert
+	le := am.find(lateEp)[0].alert
+	if live := am.find(func(x got) bool {
+		return x.alert.Labels["service"] == "latesvc" && x.alert.Labels["alert_late"] != "true"
+	}); len(live) != 0 {
+		t.Fatalf("late rows fired a live alert: %v", live[0].alert.Labels)
+	}
+	st, _, _ := r1.Load(context.Background(), "aa_late_reeval")
+	t.Logf("late rows found %v after they were sent: episode %s (%s); page %q (late_rows %s); state late_rows %d",
+		time.Since(tLate).Round(time.Second), le.Labels["alert_episode"], le.Annotations["late"], ld.Annotations["summary"], ld.Annotations["late_rows"], st.LateRows)
+	if st.LateRows != 3 {
+		t.Fatalf("aa_late_reeval counted %d late rows, want 3 (once each)", st.LateRows)
+	}
 
 	// 5. cluster ab's edge stops: complete_through stalls
 	ab.stop()

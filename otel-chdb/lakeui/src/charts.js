@@ -45,8 +45,8 @@ function settledMarks(label, x) {
   return `<rect x="${px}" y="${PAD.t}" width="${Math.max(0, W - PAD.r - px)}" height="${H - PAD.t - PAD.b}" fill="var(--inc-region)" data-region="incomplete"/>` +
     `<line x1="${px}" x2="${px}" y1="${PAD.t}" y2="${H - PAD.b}" stroke="var(--text-secondary)" stroke-dasharray="4 3" data-marker="complete-through"/>` +
     (px > W / 2
-      ? `<text x="${px - 4}" y="14" text-anchor="end" class="annot">complete through ${esc(shortTime(label.completeThroughNs ?? s))} · after: incomplete →</text>`
-      : `<text x="${px + 4}" y="14" class="annot">← complete through ${esc(shortTime(label.completeThroughNs ?? s))} · after: incomplete</text>`)
+      ? `<text x="${px - 4}" y="14" text-anchor="end" class="annot">settled through ${esc(shortTime(s))} (event time) · after: incomplete →</text>`
+      : `<text x="${px + 4}" y="14" class="annot">← settled through ${esc(shortTime(s))} (event time) · after: incomplete</text>`)
 }
 
 /** Log volume histogram. buckets: [{fromNs,toNs,count,state}] */

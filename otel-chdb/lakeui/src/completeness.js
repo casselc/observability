@@ -11,6 +11,15 @@
 //
 // A read that failed makes the whole result incomplete whatever the label
 // (X8 rule 2); `resultState` folds that in.
+//
+// Two clocks (STPA CAST row 26): complete_through is CUSTODY time (rows
+// received before it are in); the window and the rows' timestamps are EVENT
+// time. The service bridges them with max_lateness: event time is settled
+// through complete_through − max_lateness. This module applies the same
+// rule itself rather than trusting the word "complete": a label that says
+// complete while complete_through < to + max_lateness, or that does not
+// report max_lateness at all (a service from before the fix), is read as
+// partial.
 
 /** The label's facts, from a normalised plan. */
 export function labelOf(plan) {
@@ -18,23 +27,38 @@ export function labelOf(plan) {
     state: plan.completeness, // complete | partial | unknown
     fromNs: plan.fromNs,
     toNs: plan.toNs,
-    completeThroughNs: plan.completeThroughNs, // bigint | null
-    incompleteFromNs: plan.incompleteFromNs, // bigint | null
+    completeThroughNs: plan.completeThroughNs, // bigint | null: custody time
+    incompleteFromNs: plan.incompleteFromNs, // bigint | null: event time
+    maxLatenessNs: plan.maxLatenessNs ?? null, // bigint | null (not reported)
+    lateObjects: plan.lateObjects ?? 0,
     startComplete: plan.startComplete !== false,
     watermarkStatus: plan.watermark?.status ?? '',
     note: plan.watermark?.note ?? '',
   }
 }
 
+/** Event time settled through (complete_through − max_lateness), or null. */
+export function settledThrough(label) {
+  if (label.completeThroughNs === null || label.completeThroughNs === undefined) return null
+  if (label.maxLatenessNs === null || label.maxLatenessNs === undefined) return null
+  return label.completeThroughNs - label.maxLatenessNs
+}
+
 /**
  * Where the incomplete region starts inside [fromNs, toNs), or null when the
- * whole window is settled. Unknown: fromNs (nothing settled). Partial with no
- * incomplete_from given: complete_through, or fromNs if that is missing too.
+ * whole window is settled. Unknown: fromNs (nothing settled). Complete only
+ * when settled_through reaches toNs; otherwise, or when partial,
+ * incomplete_from, else settled_through, else fromNs (complete_through
+ * alone is custody time and never marks event time settled).
  */
 export function incompleteStart(label) {
   if (label.state === 'unknown') return label.fromNs
-  if (label.state === 'complete') return null
-  let s = label.incompleteFromNs ?? label.completeThroughNs ?? label.fromNs
+  const settled = settledThrough(label)
+  // no complete_through or no max_lateness: no event time is settled
+  if (settled === null) return label.fromNs
+  if (label.state === 'complete' && settled >= label.toNs) return null
+  let s = label.state === 'complete' ? settled : (label.incompleteFromNs ?? settled)
+  if (s > settled) s = settled // never later than the bound the label itself reports
   if (s < label.fromNs) s = label.fromNs
   if (s >= label.toNs) return null
   return s
@@ -123,7 +147,13 @@ export function bannerText(label, read = {}, fmt = String) {
   } else if (label.completeThroughNs !== null && label.completeThroughNs !== undefined) {
     const s = incompleteStart(label)
     parts.push(`Complete through ${fmt(label.completeThroughNs)}` + (s !== null ? `; incomplete from ${fmt(s)} (rows may still arrive)` : ''))
+    if (label.maxLatenessNs === null || label.maxLatenessNs === undefined) {
+      parts.push('the service did not report max_lateness: complete_through is receive time, so no event time is shown as settled')
+    } else {
+      parts.push(`receive time; event time settled through ${fmt(settledThrough(label))} (max lateness ${Number(label.maxLatenessNs) / 1e9} s)`)
+    }
   }
+  if (label.lateObjects > 0) parts.push(`${label.lateObjects} object(s) arrived later than max lateness: late data, which a result drawn earlier did not have`)
   if (!label.startComplete) parts.push('the start of the window may be missing (GC): older rows are in central')
   return { state: st, text: parts.join(' · ') }
 }

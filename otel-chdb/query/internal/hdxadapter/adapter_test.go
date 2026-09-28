@@ -39,7 +39,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 const okAnswer = `{"request_id":"r1","source":"central","complete_through":"2026-09-28T12:00:00Z","complete_through_ns":1,
- "completeness":"partial","partial":true,"incomplete_from":"2026-09-28T12:00:00Z",
+ "max_lateness_s":60,"settled_through":"2026-09-28T11:59:00Z","late":{"status":"counted","rows":4},
+ "completeness":"partial","partial":true,"incomplete_from":"2026-09-28T11:59:00Z",
  "watermark":{"status":"ok","lag_s":28.84},"query":{"rows_read":5,"elapsed_ms":1.5},
  "result":{"meta":[{"name":"b","type":"String"},{"name":"a","type":"UInt64"},{"name":"b","type":"Array(String)"}],
   "data":[{"b":"x/y","a":"7","b":["p", "q"]},{"b":"é","a":"8","b":[]}],"rows":2,"statistics":{"elapsed":0.001}}}`
@@ -97,7 +98,9 @@ func TestAdapterForwardsWithTokenAndLabels(t *testing.T) {
 	for k, want := range map[string]string{"X-Otel-Completeness": "partial", "X-Otel-Complete-Through": "2026-09-28T12:00:00Z",
 		"X-Otel-Source": "central", "X-Otel-Watermark-Status": "ok", "X-Otel-Watermark-Lag-S": "28.8", "X-Otel-Request-Id": "r1",
 		"X-Otel-Dropped-Settings": "add_http_cors_header,max_execution_time,result_overflow_mode", "X-Clickhouse-Query-Id": "q-1",
-		"X-Otel-Window-From": "1970-01-01T00:00:01Z", "X-Otel-Window-To": "1970-01-01T00:00:02.000000001Z"} {
+		"X-Otel-Window-From": "1970-01-01T00:00:01Z", "X-Otel-Window-To": "1970-01-01T00:00:02.000000001Z",
+		"X-Otel-Max-Lateness-S": "60", "X-Otel-Settled-Through": "2026-09-28T11:59:00Z", "X-Otel-Incomplete-From": "2026-09-28T11:59:00Z",
+		"X-Otel-Late-Rows": "4"} {
 		if h.Get(k) != want {
 			t.Errorf("%s = %q, want %q", k, h.Get(k), want)
 		}

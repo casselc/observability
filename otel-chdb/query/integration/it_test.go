@@ -98,6 +98,7 @@ func freePort(t *testing.T) int {
 type resource struct {
 	cluster, namespace, pod string
 	logs, spans             int
+	at                      time.Time // if set, this resource's records are at at+1s, at+2s, … (not publish's at)
 }
 
 func attrs(r resource) []map[string]any {
@@ -154,14 +155,19 @@ func (r *rig) publish(bin, cluster string, res []resource, at time.Time) {
 	n := 0
 	for _, x := range res {
 		var recs, spans []map[string]any
+		base, k := at, &n
+		if !x.at.IsZero() {
+			own := 0
+			base, k = x.at, &own
+		}
 		for i := 0; i < x.logs; i++ {
-			n++
-			recs = append(recs, map[string]any{"timeUnixNano": fmt.Sprint(at.Add(time.Duration(n) * time.Second).UnixNano()),
+			*k++
+			recs = append(recs, map[string]any{"timeUnixNano": fmt.Sprint(base.Add(time.Duration(*k) * time.Second).UnixNano()),
 				"severityText": "INFO", "body": map[string]any{"stringValue": fmt.Sprintf("%s %s log %d", x.cluster, x.namespace, i)}})
 		}
 		for i := 0; i < x.spans; i++ {
-			n++
-			s := at.Add(time.Duration(n) * time.Second)
+			*k++
+			s := base.Add(time.Duration(*k) * time.Second)
 			spans = append(spans, map[string]any{"traceId": fmt.Sprintf("%032x", rand.Uint64()), "spanId": fmt.Sprintf("%016x", rand.Uint64()),
 				"name": "op", "kind": 2, "startTimeUnixNano": fmt.Sprint(s.UnixNano()), "endTimeUnixNano": fmt.Sprint(s.Add(time.Millisecond).UnixNano())})
 		}
@@ -288,8 +294,8 @@ func TestIntegration(t *testing.T) {
 
 	// 1. two clusters' edges publish
 	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
-	qa := []resource{{"qa", "shop", "cart-1", 3, 2}, {"qa", "pay", "pay-1", 2, 1}}
-	qb := []resource{{"qb", "shop", "cart-9", 4, 2}, {"qb", "pay", "pay-9", 3, 3}}
+	qa := []resource{{"qa", "shop", "cart-1", 3, 2, time.Time{}}, {"qa", "pay", "pay-1", 2, 1, time.Time{}}}
+	qb := []resource{{"qb", "shop", "cart-9", 4, 2, time.Time{}}, {"qb", "pay", "pay-9", 3, 3, time.Time{}}}
 	r.publish(bin, "qa", qa, at)
 	r.publish(bin, "qb", qb, at)
 
@@ -329,8 +335,8 @@ func TestIntegration(t *testing.T) {
 			"small": {}}}
 	cfg.Central.Config = central.Config{URL: r.ch, User: r.ro, Password: r.roPass, Database: r.db}
 	cfg.Central.Tables = []*sqlscope.Table{
-		{Name: "otel_logs", TimeColumn: "Timestamp", Scope: "columns", Cluster: "`__hdx_materialized_k8s.cluster.name`", Namespace: "`__hdx_materialized_k8s.namespace.name`"},
-		{Name: "otel_traces", TimeColumn: "Timestamp", Scope: "catalog"},
+		{Name: "otel_logs", TimeColumn: "Timestamp", ReceivedColumn: "received_at", Scope: "columns", Cluster: "`__hdx_materialized_k8s.cluster.name`", Namespace: "`__hdx_materialized_k8s.namespace.name`"},
+		{Name: "otel_traces", TimeColumn: "Timestamp", ReceivedColumn: "received_at", Scope: "catalog"},
 	}
 	cfg.Limits.Default = central.DefaultLimits
 	cfg.Catalog.Database = r.cat
@@ -437,15 +443,127 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("catalog lag for qa only: %v", cat)
 		}
 		ct, _ := time.Parse(time.RFC3339Nano, out["complete_through"].(string))
-		if !ct.After(at) {
-			t.Logf("complete_through %v is not after the data (%v): no closed-window check", ct, at)
+		settled := ct.Add(-srv.Watermark.MaxLateness())
+		if !settled.After(at) {
+			t.Logf("complete_through − max_lateness %v is not after the data (%v): no closed-window check", settled, at)
 			return
 		}
-		window := map[string]any{"from": at.Add(-time.Minute).Format(time.RFC3339), "to": ct.Format(time.RFC3339Nano)}
+		window := map[string]any{"from": at.Add(-time.Minute).Format(time.RFC3339), "to": settled.Format(time.RFC3339Nano)}
 		code, out = c.post("/v1/query", qaTok, map[string]any{"sql": "SELECT count() FROM otel_logs", "window": window})
 		if code != 200 || out["completeness"] != "complete" || out["partial"] != false {
-			t.Fatalf("a window closed before complete_through is complete: %d %v", code, out)
+			t.Fatalf("a window closed before complete_through − max_lateness is complete: %d %v", code, out)
 		}
+		// the fixture's records are stamped 10 minutes before the edge
+		// receives them: every one of qa's 5 is later than max_lateness,
+		// and says so
+		if l := out["late"].(map[string]any); l["status"] != "counted" || l["rows"] != 5.0 {
+			t.Fatalf("late rows: %v", l)
+		}
+	})
+
+	// CAST row 26: complete_through bounds receive time, windows are event
+	// time. A row whose event time is in a window but which the edge
+	// receives after the window's end must not be missing from a result
+	// labelled complete: the window stays partial until complete_through
+	// passes its end + max_lateness. A row later than that (event time in
+	// an old window, received now) cannot be promised by any label; it is
+	// counted instead.
+	t.Run("late rows", func(t *testing.T) {
+		c.t = t
+		L := srv.Watermark.MaxLateness()
+		t0 := time.Now().Truncate(time.Second)
+		w := map[string]any{"from": t0.Add(-time.Minute).UnixNano(), "to": t0.UnixNano()}
+		old := map[string]any{"from": at.Add(-6 * time.Minute).UnixNano(), "to": at.Add(-4 * time.Minute).UnixNano()}
+		ask := func(win map[string]any) (string, map[string]any) {
+			t.Helper()
+			code, got, out := func() (int, string, map[string]any) {
+				code, out := c.post("/v1/query", qaTok, map[string]any{"sql": "SELECT count() FROM otel_logs", "window": win})
+				if code != 200 {
+					return code, "", out
+				}
+				return code, fmt.Sprint(out["result"].(map[string]any)["data"].([]any)[0].(map[string]any)["count()"]), out
+			}()
+			if code != 200 {
+				t.Fatalf("%d %v", code, out)
+			}
+			return got, out
+		}
+		ctOf := func(out map[string]any) time.Time {
+			ct, _ := time.Parse(time.RFC3339Nano, out["complete_through"].(string))
+			return ct
+		}
+		// both clusters beat (every lane must advance for complete_through
+		// to), with records after the window
+		round := func(extra ...resource) {
+			r.publish(bin, "qa", append(extra, resource{"qa", "shop", "cart-1", 1, 1, time.Now()}), time.Time{})
+			r.publish(bin, "qb", []resource{{"qb", "shop", "cart-9", 1, 1, time.Now()}}, time.Time{})
+			r.consume(bin, "run", "--ch", r.ch, "--db", r.db, "--exit-after-idle", "8s", "--poll", "300ms", "--full-list", "1s")
+			r.consume(bin, "watermark", "--wm-skew", "1s")
+			time.Sleep(1100 * time.Millisecond) // the service's watermark cache
+		}
+
+		// 1. complete_through passes the window's end, and the row with event
+		// time t0 − 1 s is still at its producer: by custody time alone the
+		// window was complete; it is partial
+		for time.Now().Before(t0.Add(time.Second)) {
+			time.Sleep(100 * time.Millisecond)
+		}
+		round()
+		n, out := ask(w)
+		ct := ctOf(out)
+		if ct.Before(t0) {
+			t.Fatalf("complete_through %v did not pass the window's end %v", ct, t0)
+		}
+		if ct.After(t0.Add(L - 15*time.Second)) {
+			t.Skipf("round 1 took until complete_through %v; the late row cannot arrive within max_lateness %v of t0", ct, L)
+		}
+		if n != "0" || out["completeness"] != "partial" || out["incomplete_from"] != ct.Add(-L).UTC().Format(time.RFC3339Nano) {
+			t.Fatalf("complete_through %v ≥ the window's end %v, the late row not yet sent: want partial from complete_through − %v, got %s rows, %v from %v",
+				ct, t0, L, n, out["completeness"], out["incomplete_from"])
+		}
+		t.Logf("before the late row: complete_through %v (end + %v), %s rows, %v from %v", ct, ct.Sub(t0), n, out["completeness"], out["incomplete_from"])
+		// the old window is complete, and empty
+		if n, out := ask(old); n != "0" || out["completeness"] != "complete" || out["late"].(map[string]any)["rows"] != 0.0 {
+			t.Fatalf("old window before: %s %v %v", n, out["completeness"], out["late"])
+		}
+
+		// 2. the late row (within max_lateness of its event time) and one
+		// far outside it, through the real Go edge
+		round(resource{"qa", "shop", "cart-1", 1, 0, t0.Add(-2 * time.Second)}, resource{"qa", "pay", "pay-1", 1, 0, at.Add(-5 * time.Minute)})
+		lag := r.sql(fmt.Sprintf("SELECT toUnixTimestamp64Milli(received_at) - toUnixTimestamp64Milli(Timestamp) FROM %s.otel_logs WHERE Timestamp = fromUnixTimestamp64Nano(toInt64(%d))",
+			r.db, t0.Add(-time.Second).UnixNano()))
+		t.Logf("the late row: received %s ms after its event time (max_lateness %v)", lag, L)
+		n, out = ask(w)
+		ct = ctOf(out)
+		switch {
+		case n != "1":
+			t.Fatalf("the late row is not in central: %s rows", n)
+		case !ct.Before(t0.Add(L)):
+			t.Logf("complete_through %v already past end + max_lateness", ct)
+		case out["completeness"] != "partial":
+			t.Fatalf("complete_through %v < end + max_lateness %v: want partial, got %v", ct, t0.Add(L), out["completeness"])
+		}
+		if l := out["late"].(map[string]any); l["rows"] != 0.0 {
+			t.Fatalf("a row within max_lateness counted late: %v", l)
+		}
+		// the old window: still complete by the policy, and the row that
+		// broke it is counted, not silent
+		n, out = ask(old)
+		if l := out["late"].(map[string]any); n != "1" || out["completeness"] != "complete" || l["status"] != "counted" || l["rows"] != 1.0 {
+			t.Fatalf("old window after the late row: %s rows %v late %v", n, out["completeness"], l)
+		}
+		t.Logf("old window: %s row, %v, late %v", n, out["completeness"], out["late"])
+
+		// 3. once complete_through passes end + max_lateness: complete, with the late row
+		for time.Now().Before(t0.Add(L + 2*time.Second)) {
+			time.Sleep(200 * time.Millisecond)
+		}
+		round()
+		n, out = ask(w)
+		if ct := ctOf(out); ct.Before(t0.Add(L)) || n != "1" || out["completeness"] != "complete" {
+			t.Fatalf("complete_through %v, end + max_lateness %v: %s rows, %v", ct, t0.Add(L), n, out["completeness"])
+		}
+		t.Logf("after the bound: complete_through %v, %s row, complete", ctOf(out), n)
 	})
 
 	t.Run("plan", func(t *testing.T) {

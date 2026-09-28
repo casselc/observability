@@ -4,7 +4,7 @@ import { buckets, incompleteStart } from '../src/completeness.js'
 import { esc, histogramSVG, lineSVG } from '../src/charts.js'
 
 const label = over => {
-  const l = { state: 'partial', fromNs: 0n, toNs: 100_000_000_000n, completeThroughNs: 60_000_000_000n, incompleteFromNs: 60_000_000_000n, startComplete: true, ...over }
+  const l = { state: 'partial', fromNs: 0n, toNs: 100_000_000_000n, completeThroughNs: 60_000_000_000n, incompleteFromNs: 60_000_000_000n, maxLatenessNs: 0n, startComplete: true, ...over }
   return { ...l, incompleteStartNs: incompleteStart(l) }
 }
 

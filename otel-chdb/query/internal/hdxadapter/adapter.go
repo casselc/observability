@@ -79,7 +79,8 @@ func (a *Adapter) count(k string) {
 // client reads them (and a browser may, through the API's proxy).
 var LabelHeaders = []string{"X-Otel-Request-Id", "X-Otel-Source", "X-Otel-Completeness", "X-Otel-Complete-Through",
 	"X-Otel-Incomplete-From", "X-Otel-Watermark-Status", "X-Otel-Watermark-Lag-S", "X-Otel-Watermark-Note",
-	"X-Otel-Window-From", "X-Otel-Window-To", "X-Otel-Dropped-Settings", "X-Otel-Statement"}
+	"X-Otel-Window-From", "X-Otel-Window-To", "X-Otel-Dropped-Settings", "X-Otel-Statement",
+	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows"}
 
 // clientKeys are URL parameters of the HTTP interface that are not settings.
 var clientKeys = map[string]bool{"query": true, "query_id": true, "database": true, "default_format": true,
@@ -169,6 +170,20 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if resp.IncompleteFrom != nil {
 			h.Set("X-Otel-Incomplete-From", *resp.IncompleteFrom)
+		}
+		// the two clocks (CAST row 26): complete_through is custody time;
+		// settled_through = complete_through − max_lateness is event time
+		if resp.MaxLatenessS != nil {
+			h.Set("X-Otel-Max-Lateness-S", strconv.FormatFloat(*resp.MaxLatenessS, 'f', -1, 64))
+		}
+		if resp.SettledThrough != nil {
+			h.Set("X-Otel-Settled-Through", *resp.SettledThrough)
+		}
+		// rows later than max_lateness: a count, or why there is none
+		if resp.Late.Rows != nil {
+			h.Set("X-Otel-Late-Rows", strconv.FormatInt(*resp.Late.Rows, 10))
+		} else if resp.Late.Status != "" {
+			h.Set("X-Otel-Late-Rows", resp.Late.Status)
 		}
 		h.Set("X-Otel-Watermark-Status", resp.Watermark.Status)
 		if resp.Watermark.LagS != nil {
@@ -293,17 +308,23 @@ func bearer(h string) (string, bool) {
 
 // serviceAnswer is the part of /v1/query's answer the adapter uses.
 type serviceAnswer struct {
-	RequestID       string  `json:"request_id"`
-	Source          string  `json:"source"`
-	CompleteThrough *string `json:"complete_through"`
-	Completeness    string  `json:"completeness"`
-	Partial         bool    `json:"partial"`
-	IncompleteFrom  *string `json:"incomplete_from"`
+	RequestID       string   `json:"request_id"`
+	Source          string   `json:"source"`
+	CompleteThrough *string  `json:"complete_through"`
+	MaxLatenessS    *float64 `json:"max_lateness_s"`
+	SettledThrough  *string  `json:"settled_through"`
+	Completeness    string   `json:"completeness"`
+	Partial         bool     `json:"partial"`
+	IncompleteFrom  *string  `json:"incomplete_from"`
 	Watermark       struct {
 		Status string   `json:"status"`
 		LagS   *float64 `json:"lag_s"`
 		Note   string   `json:"note"`
 	} `json:"watermark"`
+	Late struct {
+		Status string `json:"status"`
+		Rows   *int64 `json:"rows"`
+	} `json:"late"`
 	Query struct {
 		RowsRead  int64   `json:"rows_read"`
 		ElapsedMs float64 `json:"elapsed_ms"`

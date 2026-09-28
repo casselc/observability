@@ -42,6 +42,15 @@ test('a plan it cannot trust is refused, not read partly', () => {
   }
   // an unknown completeness word is unknown, never complete
   assert.equal(normalizePlan(answer({ completeness: 'mostly' })).completeness, 'unknown')
+  // max_lateness (CAST row 26) and late objects are carried; absent, max_lateness is null (nothing settles)
+  const late = normalizePlan(answer({ max_lateness_s: 60, settled_through_ns: '1790600311200000000', late_objects: 1,
+    objects: [{ ...answer().objects[0], late: true }] }))
+  assert.equal(late.maxLatenessNs, 60_000_000_000n)
+  assert.equal(late.settledThroughNs, 1790600311200000000n)
+  assert.equal(late.lateObjects, 1)
+  assert.equal(late.objects[0].late, true)
+  assert.equal(normalizePlan(answer()).maxLatenessNs, null)
+  assert.equal(normalizePlan(answer({ max_lateness_s: -1 })).maxLatenessNs, null)
 })
 
 const respond = (status, body) => async () => new Response(typeof body === 'string' ? body : wire(body), { status })

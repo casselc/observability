@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -149,7 +150,10 @@ func setup(t *testing.T, c chc, root string) {
 	// redis, trace 7016c445…) among others; deterministic (no rand())
 	span := t1Ms - t0Ms
 	for _, db := range sides {
-		c.exec(fmt.Sprintf(`INSERT INTO %s.otel_logs (Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, ServiceName, Body, ResourceAttributes, ScopeName, LogAttributes)
+		// received_at trails Timestamp by 0 to 90 s: a third of the rows
+		// are later than the service's max_lateness (60 s), so the
+		// late-row count has something to count
+		c.exec(fmt.Sprintf(`INSERT INTO %s.otel_logs (Timestamp, TraceId, SpanId, TraceFlags, SeverityText, SeverityNumber, ServiceName, Body, ResourceAttributes, ScopeName, LogAttributes, received_at)
 SELECT fromUnixTimestamp64Milli(toInt64(%d + (cityHash64(number) %% %d))) AS ts,
   if(number %% 500 = 0, '7016c445d992e445e6d36e08529e9487', hex(cityHash64(number, 1))), hex(cityHash64(number, 2)), 1,
   ['INFO', 'ERROR', 'WARN'][1 + number %% 3], [9, 17, 13][1 + number %% 3],
@@ -159,10 +163,11 @@ SELECT fromUnixTimestamp64Milli(toInt64(%d + (cityHash64(number) %% %d))) AS ts,
       'k8s.pod.name', ['frontend-f778-0', 'payment-5c9d-1', 'cart-77aa-2'][1 + number %% 3], 'service.name', ['frontend', 'payment', 'cart'][1 + number %% 3],
       'cloud.region', ['us-east-1', 'us-west-2'][1 + intDiv(number, 7) %% 2], 'telemetry.sdk.language', ['java', 'go'][1 + intDiv(number, 5) %% 2],
       'k8s.node.name', 'node-' || toString(number %% 4), 'host.name', 'host-' || toString(number %% 4)),
-  'scope', map('http.route', ['/api/cart', '/api/v1/orders'][1 + number %% 2], 'payment.method', ['card', 'paypal'][1 + number %% 2])
+  'scope', map('http.route', ['/api/cart', '/api/v1/orders'][1 + number %% 2], 'payment.method', ['card', 'paypal'][1 + number %% 2]),
+  ts + toIntervalMillisecond(cityHash64(number, 7) %% 90000)
 FROM numbers(%d)`, db, t0Ms, span, nRows))
-		c.exec(fmt.Sprintf(`INSERT INTO %s.otel_traces (Timestamp, TraceId, SpanId, ParentSpanId, SpanName, SpanKind, ServiceName, ResourceAttributes, SpanAttributes, Duration, StatusCode)
-SELECT fromUnixTimestamp64Milli(toInt64(%d + (cityHash64(number, 9) %% %d))),
+		c.exec(fmt.Sprintf(`INSERT INTO %s.otel_traces (Timestamp, TraceId, SpanId, ParentSpanId, SpanName, SpanKind, ServiceName, ResourceAttributes, SpanAttributes, Duration, StatusCode, received_at)
+SELECT fromUnixTimestamp64Milli(toInt64(%d + (cityHash64(number, 9) %% %d))) AS ts,
   if(number %% 500 < 5, '7016c445d992e445e6d36e08529e9487', hex(cityHash64(number, 3))), hex(cityHash64(number, 4)),
   if(number %% 500 = 0, '', hex(cityHash64(number - 1, 4))), ['GET /api/cart', 'charge', 'redis GET'][1 + number %% 3], 'Server',
   ['frontend', 'payment', 'cart'][1 + number %% 3],
@@ -171,7 +176,8 @@ SELECT fromUnixTimestamp64Milli(toInt64(%d + (cityHash64(number, 9) %% %d))),
       'cloud.region', ['us-east-1', 'us-west-2'][1 + intDiv(number, 7) %% 2], 'telemetry.sdk.language', ['java', 'go'][1 + intDiv(number, 5) %% 2]),
   map('http.route', ['/api/cart', '/api/v1/orders'][1 + number %% 2], 'db.system', ['redis', 'postgres'][1 + number %% 2],
       'http.response.status_code', ['200', '500'][1 + intDiv(number, 11) %% 2]),
-  1000 + cityHash64(number, 5) %% 5000000000, ['Ok', 'Error', 'Unset'][1 + number %% 3]
+  1000 + cityHash64(number, 5) %% 5000000000, ['Ok', 'Error', 'Unset'][1 + number %% 3],
+  ts + toIntervalMillisecond(cityHash64(number, 8) %% 90000)
 FROM numbers(%d)`, db, t0Ms, span, nRows))
 	}
 	c.exec("DROP USER IF EXISTS " + roUser)
@@ -346,7 +352,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 	timeCols := map[string]string{}
 	for _, db := range sides {
 		for _, tb := range []string{"otel_logs", "otel_traces"} {
-			tables = append(tables, &sqlscope.Table{Database: db, Name: tb, TimeColumn: "Timestamp", Scope: "columns",
+			tables = append(tables, &sqlscope.Table{Database: db, Name: tb, TimeColumn: "Timestamp", ReceivedColumn: "received_at", Scope: "columns",
 				Cluster: "ResourceAttributes['k8s.cluster.name']", Namespace: "ResourceAttributes['k8s.namespace.name']"})
 			timeCols[db+"."+tb] = "Timestamp"
 		}
@@ -457,6 +463,15 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 		default:
 			a, err1 := parse(format, body)
 			n, err2 := parse(format, nbody)
+			if resp.Header.Get("X-Otel-Source") == "metadata" && err1 == nil && err2 == nil {
+				// the service answers a metadata table's allow-listed
+				// columns only: compare with ClickHouse's answer cut to them
+				var diff []string
+				n, a, diff = project(n, a)
+				for _, d := range diff {
+					counts["metadata: column "+d]++
+				}
+			}
 			exact, rows := same(a, n)
 			switch {
 			case err1 != nil || err2 != nil:
@@ -479,15 +494,29 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 					o.Detail = firstN(fmt.Sprintf("rows %d/%d; differing columns %v", len(a.rows), len(n.rows), diffCols(a, n)), 600)
 				}
 			}
-			// the label: complete only for a window that ends by complete_through
+			// the label: complete only for a window that ends by
+			// complete_through − max_lateness (event time; CAST row 26)
 			if o.Kind == "select" && resp.Header.Get("X-Otel-Source") == "central" {
 				to := resp.Header.Get("X-Otel-Window-To")
 				want := "partial"
 				if to != "" {
 					tt, _ := time.Parse(time.RFC3339Nano, to)
-					if tt.UnixNano() <= ctMs*1_000_000 {
+					if tt.UnixNano()+int64(wm.MaxLateness()) <= ctMs*1_000_000 {
 						want = "complete"
 					}
+				}
+				if got := resp.Header.Get("X-Otel-Max-Lateness-S"); got != "60" {
+					t.Errorf("#%d: X-Otel-Max-Lateness-S %q", i, got)
+				}
+				// late rows: counted for a window, "no_window" otherwise
+				lr := resp.Header.Get("X-Otel-Late-Rows")
+				if n, err := strconv.ParseInt(lr, 10, 64); err == nil {
+					counts[map[bool]string{true: "late rows: counted, > 0", false: "late rows: counted, 0"}[n > 0]]++
+				} else {
+					counts["late rows: "+lr]++
+				}
+				if o.Window == (lr == "no_window") {
+					t.Errorf("#%d: window %v but X-Otel-Late-Rows %q", i, o.Window, lr)
 				}
 				if o.Completeness != want {
 					t.Errorf("#%d: completeness %q, want %q (window to %q)", i, o.Completeness, want, to)
@@ -511,10 +540,13 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 			default:
 				a, _ := parse(format, b2)
 				n, _ := parse(format, nb2)
+				if r2.Header.Get("X-Otel-Source") == "metadata" {
+					n, a, _ = project(n, a)
+				}
 				if e, r := same(a, n); e || r {
 					counts["qa:equal"]++
 					f, _ := parse(format, body)
-					if e2, r2 := same(a, f); !e2 && !r2 {
+					if e2, r3 := same(a, f); !e2 && !r3 && r2.Header.Get("X-Otel-Source") != "metadata" {
 						counts["qa:equal, narrower than fleet"]++
 					}
 				} else {
@@ -577,6 +609,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	metadataColumns(t, ad.URL, qa)
 	if nm := os.Getenv("HDXA_IT_NODE_MODULES"); nm != "" {
 		nodeClient(t, nm, ad.URL, qa)
 	}
@@ -585,6 +618,108 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 	}
 	if n := len(sink.Snapshot()); n == 0 {
 		t.Fatal("nothing audited")
+	}
+}
+
+// project cuts two JSON-format answers to the columns both have, in via's
+// order: the native columns the service withheld, and the columns via
+// adds (system.tables' alias `table`, which a subquery's * includes and
+// the table's own * does not), are named in diff ("-x", "+x").
+func project(native, via canon) (canon, canon, []string) {
+	if len(native.cols) == 0 || len(via.cols) == 0 {
+		return native, via, nil
+	}
+	idx := map[string]int{}
+	for i, c := range native.cols {
+		idx[c] = i
+	}
+	var keepN, keepV []int
+	var diff []string
+	inVia := map[string]bool{}
+	for j, c := range via.cols {
+		inVia[c] = true
+		if i, ok := idx[c]; ok {
+			keepN, keepV = append(keepN, i), append(keepV, j)
+		} else {
+			diff = append(diff, "+"+strings.Fields(c)[0])
+		}
+	}
+	for _, c := range native.cols {
+		if !inVia[c] {
+			diff = append(diff, "-"+strings.Fields(c)[0])
+		}
+	}
+	if len(diff) == 0 {
+		return native, via, nil
+	}
+	cut := func(x canon, keep []int) canon {
+		out := canon{}
+		for _, i := range keep {
+			out.cols = append(out.cols, x.cols[i])
+		}
+		for _, r := range x.rows {
+			var vals []json.RawMessage
+			if err := json.Unmarshal([]byte(r), &vals); err != nil {
+				return x
+			}
+			row := make([]json.RawMessage, 0, len(keep))
+			for _, i := range keep {
+				row = append(row, vals[i])
+			}
+			b, _ := json.Marshal(row)
+			out.rows = append(out.rows, string(b))
+		}
+		return out
+	}
+	return cut(native, keepN), cut(via, keepV), diff
+}
+
+// metadataColumns checks the metadata scope's allow-list against ClickHouse
+// through the adapter: every served system table answers SELECT * (so every
+// allow-listed column exists in this ClickHouse), with exactly the
+// allow-list, and a withheld column is an error, not a value.
+func metadataColumns(t *testing.T, adapterURL, token string) {
+	ask := func(sql string) (int, string) {
+		q := url.Values{"default_format": {"JSON"}}
+		req, _ := http.NewRequest(http.MethodPost, adapterURL+"/?"+q.Encode(), strings.NewReader(sql))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode, string(b)
+	}
+	for name, cols := range sqlscope.MetadataColumns {
+		code, body := ask("SELECT * FROM system." + name + " LIMIT 1 FORMAT JSON")
+		if code != 200 {
+			t.Errorf("system.%s: %d %s", name, code, firstN(body, 300))
+			continue
+		}
+		var r struct{ Meta []struct{ Name string } }
+		if err := json.Unmarshal([]byte(body), &r); err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, m := range r.Meta {
+			got = append(got, m.Name)
+		}
+		if strings.Join(got, ",") != strings.Join(cols, ",") {
+			t.Errorf("system.%s: SELECT * answered %v, want %v", name, got, cols)
+		}
+	}
+	code, body := ask("SELECT * FROM system.tables WHERE database = 'hdx_it_new' FORMAT JSON")
+	for _, leak := range []string{"data_paths", "metadata_path", "/store/", "uuid"} {
+		if code != 200 || strings.Contains(body, leak) {
+			t.Errorf("SELECT * FROM system.tables: %d, %s in the answer", code, leak)
+		}
+	}
+	for _, sql := range []string{"SELECT data_paths FROM system.tables", "SELECT t.metadata_path FROM system.tables AS t",
+		"SELECT name FROM system.tables WHERE has(data_paths, '')", "SELECT data_path FROM system.databases"} {
+		if code, body := ask(sql + " FORMAT JSON"); code == 200 || strings.Contains(body, "/store/") {
+			t.Errorf("%s: %d %s", sql, code, firstN(body, 200))
+		}
 	}
 }
 

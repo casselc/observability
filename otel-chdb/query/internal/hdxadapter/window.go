@@ -29,7 +29,10 @@ type Tables struct {
 // WHERE conjuncts (col >= / > / <= / < fromUnixTimestamp64Milli(n)), and
 // every such SELECT has the same bounds. Otherwise nil: the label then
 // covers everything up to now (partial or unknown), never "complete" for a
-// window the rows were not restricted to.
+// window the rows were not restricted to. The window is event time; the
+// service labels it complete only once complete_through (custody time) ≥
+// its end + max_lateness, and reports the rows later than that
+// (X-Otel-Late-Rows), so a derived window inherits both.
 func (t Tables) DeriveWindow(root chp.Expr) *Window {
 	ctes := map[string]bool{}
 	var selects []*chp.SelectQuery

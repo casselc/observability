@@ -50,7 +50,14 @@ localhost), **[E]** estimate.
   the boundary counts as incomplete. `completeness: unknown` (no, a stale or an
   unreadable watermark) draws everything grey-hatched and says so. A plan
   with `start_complete: false` (GC truncated a lane) makes the result
-  incomplete.
+  incomplete. **Two clocks** (STPA CAST row 26, D26): `complete_through` is
+  receive (custody) time; rows are placed by event time. `src/completeness.js`
+  settles event time only through `complete_through − max_lateness` (the
+  plan's `max_lateness_s`), whatever the label's word says; a plan without
+  `max_lateness_s` (an older service) settles nothing. The marker is labelled
+  "settled through" that event time, and the banner names both times and
+  the number of objects that arrived later than `max_lateness`
+  (`late_objects`).
 - **Re-plan (X8 rules 1–2)** in `src/runner.js`: a plan is reused only before
   `replan_after`; no read *starts* at or after it; any failed read (a 403
   above all) re-plans; re-plans are bounded (3), and then the page shows
@@ -149,7 +156,10 @@ it (URL TTL 60 s, replan margin 20 s) with the test issuer from
 pass-through in front of SeaweedFS that the URLs are signed for; the page. It
 removes everything on SIGTERM.
 
-Results [M] (one run, 2026-09-28):
+Results [M] (one run, 2026-09-28, before D26; since D26 the spec draws and
+closes windows at `complete_through − max_lateness` (60 s) instead of
+`complete_through`, and has not been re-run: the rig's data ends 5 minutes
+before `complete_through`, so the counts below should not change):
 
 | check | lake UI | ClickHouse |
 |---|---|---|

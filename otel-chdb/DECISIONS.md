@@ -1933,7 +1933,10 @@ authenticates viewers, scopes what they read by cluster and namespace
 4. **Labels.** `{ctl}/watermark.json` is read through S3 with a short cache
    and its own freshness; a missing, unreadable or stale document makes a
    result's completeness `unknown`, never `complete`. The plan reads it
-   before it lists, and marks a start GC may have truncated.
+   before it lists, and marks a start GC may have truncated. *Amended by
+   D26 (CAST row 26):* `complete_through` is custody time and windows are
+   event time; a window is `complete` only once `complete_through ≥ to +
+   max_lateness`, and late rows are counted in every windowed answer.
 5. **The lake plan lists v2 lanes directly** until the sealer exists: per
    cluster prefix (cluster-first keys make the scope a prefix), HEAD for the
    time range, presigned GETs (300 s, 60–900), `replan_after`, X8's rules in
@@ -2329,6 +2332,103 @@ mode), performance settings (an allow-list), sources' `querySettings`, CSV
 alert samples, and the entity rewrite proxy (0 of its 69 non-EXPLAIN
 rewrites pass). Server-side HyperDX queries run as one service identity.
 The banner is page-wide; per-chart incomplete regions (R-S2) are not built.
+
+**Amended by D26:** the `metadata` scope serves an allow-list of columns per
+system table, not every column.
+
+### D26. Event-time completeness: `max_lateness`, late rows counted; metadata columns allow-listed
+
+**Status:** built (2026-09-28): `query/internal/completeness`,
+`query/internal/sqlscope` (`late.go`, `metadata.go`), the server, the plan,
+the HyperDX adapter's headers, the lake UI's completeness math and the alert
+evaluator's gate. Amends D22 (the label) and D25 (the `metadata` scope).
+
+**Context.** STPA CAST row 26: `complete_through` bounds `received_at`
+(custody time, D19); results are over event-time windows. D22's label said
+`complete` once `complete_through ≥ to`, so a row with its event time in the
+window, still in an edge's custody when the window closed, was missing from
+a result labelled complete. Every earlier test published rows whose event
+time ≈ receive time. Separately, `SELECT * FROM system.tables` through D25's
+`metadata` scope answered `data_paths` and `metadata_path` (server file
+paths, [M] on 26.10), `uuid`, storage policy and byte counts.
+
+**Decision.**
+
+- **One policy value bridges the clocks: `max_lateness`** (config
+  `watermark.max_lateness_s`, env `QS_MAX_LATENESS_S`, default 60 s; 0 is
+  allowed and means "the clocks are one"). A row is assumed received within
+  `max_lateness` of its event time. The label says `max_lateness_s` and
+  `settled_through` (= `complete_through − max_lateness`, event time); a
+  window is `complete` only when `complete_through ≥ to + max_lateness`, and
+  `incomplete_from` is `settled_through` clamped to the window. The lake plan
+  uses the same function (so the same label); its `from − skew_s` LIST
+  cut-off bounds *early* receipt and is unchanged (a late object is written
+  after the window and kept by its rows' event-time range).
+- **Late data is visible, not silent.** Central's tables carry a per-row
+  `received_at` (the consumer's schema, FORMAT.md §1), so the gap is
+  measurable where it matters: a table config names `received_column`, and a
+  windowed `/v1/query` is followed by one count statement (`UNION ALL` per
+  table) of rows with `received_at > time + max_lateness`, run under the
+  statement's own `additional_table_filters` (scope and window) and limits.
+  The answer's `late` block has the count per table, or why there is none
+  (`no_window`, `not_measured`, `disabled`, `error`: a failed count never
+  fails the result). Metric `qs_late_results_total{source,completeness}`.
+  The plan marks objects whose `oscope-received` is more than
+  `max_lateness` after their `oscope-min-time` (`late`, `late_objects`).
+  A non-zero count on a complete window says `max_lateness` is too short
+  for that data; the policy, not the code, is what to change.
+- **Consumers apply the rule themselves.** The adapter forwards
+  `X-Otel-Max-Lateness-S`, `X-Otel-Settled-Through`, `X-Otel-Late-Rows`.
+  The lake UI draws event time as settled only through
+  `complete_through − max_lateness`, whatever the word says, and a label
+  without `max_lateness_s` (an older service) settles nothing. The alert
+  evaluator's own `lateness` is an extra margin *on top*: a window is
+  evaluated when the label is complete and `complete_through ≥ end +
+  max_lateness + lateness`; a label without `max_lateness_s` is `unknown`.
+  So `max_lateness` is the fleet's policy for "how late data may be", and
+  `lateness` a rule's own caution; the evaluator's `cannot_evaluate_after`
+  must exceed both.
+- **Metadata columns are an allow-list, enforced by projection.** Each
+  `metadata` table has `columns` (default: what HyperDX reads,
+  `sqlscope.MetadataColumns`). At `Finish` every read of such a table,
+  anywhere in the tree, is replaced by `(SELECT <columns> FROM system.t) AS
+  t`; `*` then expands to the allow-list, and naming another column is
+  ClickHouse's `UNKNOWN_IDENTIFIER`. The rebuilt text is re-parsed and every
+  metadata table must appear only as the FROM of its exact projection
+  (`metadata_unprojected` otherwise). `create_table_query`, `engine_full`
+  and `as_select` stay (HyperDX finds rollups and Distributed targets
+  through them); ClickHouse masks the secrets in them (`[HIDDEN]` for S3
+  keys and URL passwords, [M] on 26.10). The alias column `table` is
+  served too (HyperDX's onboarding check filters on it).
+
+**Alternatives.** Labelling by `received_at` windows (custody time) instead:
+honest, but no user asks for "rows received between"; counting late rows at
+the consumer only: a metric, but not in the result it affects; an AST
+column check instead of a projection: ClickHouse's name resolution
+(aliases, `COLUMNS()`, `t.*`, nested names) is larger than any checker;
+ClickHouse column grants on system tables: a second fence worth adding
+(deploy), not the only one.
+
+**Measured.** Rapid property (`completeness`): over generated rows whose
+receive time runs from 5 s early to twice `max_lateness` late, a window
+labelled complete holds every row with its event time in it received before
+`to + max_lateness`; with `max_lateness` 0 (D22's rule) it fails at once.
+Integration test (`query/integration`, real Go edge and consumer): a row with
+event time `t0 − 1 s` published after `complete_through` passed `t0` keeps
+`[t0 − 1 min, t0)` partial until `complete_through ≥ t0 + 60 s`, then complete
+with the row; a row stamped 15 minutes back lands in an old window that stays
+complete, and its `late.rows` goes 0 → 1. HyperDX replay: 620 answered, 617
+equal and 3 equal as row sets (order ties), 0 mismatches; `SELECT *` on
+`system.tables` withholds 29 columns and adds the alias `table`; 350
+windowed answers carry a late-row count (254 non-zero on the replay's
+synthetic 0–90 s delays).
+
+**Consequences / open.** Rows later than `max_lateness` are counted after
+the fact; no label can promise them, and a result served before they came
+stays wrong (AMBIGUITY X12). The late count is one more statement per
+windowed query (same limits; `count_late: false` turns it off). No count at
+ingest (consumer or edge) yet. Per-object lateness in the plan is judged on
+the earliest row only.
 
 ## 6. Upstream bugs found
 

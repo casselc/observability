@@ -30,6 +30,7 @@ type fakeCH struct {
 	calls   []url.Values
 	sqls    []string
 	err     error
+	late    string // the answer to a late-row count
 	block   chan struct{}
 	started chan struct{}
 }
@@ -48,6 +49,9 @@ func (f *fakeCH) Query(ctx context.Context, sql string, settings url.Values) ([]
 	}
 	if f.err != nil {
 		return nil, central.Summary{}, f.err
+	}
+	if f.late != "" && strings.Contains(sql, "toIntervalNanosecond") {
+		return []byte(f.late), central.Summary{}, nil
 	}
 	return []byte(`{"meta":[{"name":"c","type":"UInt64"}],"data":[{"c":"7"}],"rows":1}`), central.Summary{ReadRows: 10}, nil
 }
@@ -203,8 +207,14 @@ func TestQueryScopedLabelledAudited(t *testing.T) {
 	if out["source"] != "central" || out["complete_through"] == nil || out["completeness"] != "partial" || out["partial"] != true {
 		t.Fatalf("label %v", out)
 	}
-	if out["incomplete_from"] != t0.Add(-40*time.Second).Format(time.RFC3339Nano) {
-		t.Fatalf("incomplete_from %v", out["incomplete_from"])
+	// incomplete from complete_through − max_lateness (event time)
+	if out["incomplete_from"] != t0.Add(-100*time.Second).Format(time.RFC3339Nano) || out["max_lateness_s"] != 60.0 ||
+		out["settled_through"] != out["incomplete_from"] {
+		t.Fatalf("incomplete_from %v max_lateness_s %v settled_through %v", out["incomplete_from"], out["max_lateness_s"], out["settled_through"])
+	}
+	// the fixture's tables have no received column: late rows unmeasured, and said so
+	if l := out["late"].(map[string]any); l["status"] != "not_measured" || l["rows"] != nil || len(f.ch.sqls) != 1 {
+		t.Fatalf("late %v, ran %d", l, len(f.ch.sqls))
 	}
 	wm := out["watermark"].(map[string]any)
 	if h := wm["holding"].([]any); len(h) != 1 || !strings.HasPrefix(h[0].(map[string]any)["lane"].(string), "prod-a/") {
@@ -218,11 +228,74 @@ func TestQueryScopedLabelledAudited(t *testing.T) {
 		recs[0].QueryHash == "" || recs[0].QueryHash != recs[1].QueryHash || strings.Join(recs[0].Clusters, ",") != "prod-a" {
 		t.Fatalf("audit %+v", recs)
 	}
-	// a closed window before complete_through is complete
+	// a closed window that ends before complete_through, but not by
+	// max_lateness, is not complete (CAST row 26): rows of it may still be
+	// in custody
 	window = map[string]any{"from": t0.Add(-time.Hour).UnixNano(), "to": t0.Add(-time.Minute).UnixNano()}
+	_, out = f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": "SELECT count() FROM otel_logs", "window": window})
+	if out["completeness"] != "partial" || out["incomplete_from"] != t0.Add(-100*time.Second).Format(time.RFC3339Nano) {
+		t.Fatalf("window ending 20 s before complete_through: %v", out)
+	}
+	// one ending max_lateness before complete_through is complete
+	window = map[string]any{"from": t0.Add(-time.Hour).UnixNano(), "to": t0.Add(-100 * time.Second).UnixNano()}
 	_, out = f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": "SELECT count() FROM otel_logs", "window": window})
 	if out["completeness"] != "complete" || out["partial"] != false {
 		t.Fatalf("closed window: %v", out)
+	}
+}
+
+// TestLateRowsCounted: with a received column, a windowed statement is
+// followed by a count of its late rows, under the same filters (scope and
+// window) and limits; the count is in the answer and a failure of it is
+// reported, not fatal.
+func TestLateRowsCounted(t *testing.T) {
+	f := newFixture(t)
+	p, err := sqlscope.NewPolicy("otel", []*sqlscope.Table{
+		{Name: "otel_logs", TimeColumn: "Timestamp", ReceivedColumn: "received_at", Scope: "columns", Cluster: "`__hdx_materialized_k8s.cluster.name`", Namespace: "`__hdx_materialized_k8s.namespace.name`"},
+		{Name: "otel_traces", TimeColumn: "Timestamp", Scope: "columns", Cluster: "ResourceAttributes['k8s.cluster.name']", Namespace: "ResourceAttributes['k8s.namespace.name']"},
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.Policy = p
+	f.ch.late = `{"meta":[{"name":"t","type":"String"},{"name":"n","type":"UInt64"}],"data":[{"t":"otel.otel_logs","n":"3"}],"rows":1}`
+	window := map[string]any{"from": t0.Add(-time.Hour).UnixNano(), "to": t0.Add(-2 * time.Minute).UnixNano()}
+	sql := "SELECT count() FROM otel_logs WHERE TraceId IN (SELECT TraceId FROM otel_traces)"
+	code, out := f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": sql, "window": window})
+	if code != 200 || out["completeness"] != "complete" {
+		t.Fatalf("%d %v", code, out)
+	}
+	l := out["late"].(map[string]any)
+	if l["status"] != "counted" || l["rows"] != 3.0 || l["max_lateness_s"] != 60.0 || l["tables"].(map[string]any)["otel.otel_logs"] != 3.0 ||
+		fmt.Sprint(l["uncounted"]) != "[otel.otel_traces]" {
+		t.Fatalf("late %v", l)
+	}
+	if len(f.ch.sqls) != 2 || !strings.Contains(f.ch.sqls[1], "received_at > (Timestamp + toIntervalNanosecond(60000000000))") {
+		t.Fatalf("%q", f.ch.sqls)
+	}
+	main, late := f.ch.calls[0], f.ch.calls[1]
+	if late.Get("additional_table_filters") != main.Get("additional_table_filters") || late.Get("max_result_rows") != "1000" ||
+		late.Get("query_id") != out["request_id"].(string)+"-late" {
+		t.Fatalf("the late count must run under the statement's filters and limits: %v", late)
+	}
+	if v := f.srv.Metrics.Get("qs_late_results_total", "central", "complete"); v != 1 {
+		t.Fatalf("qs_late_results_total %v", v)
+	}
+	// no window: not counted (an unbounded count would scan everything)
+	_, out = f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": sql})
+	if out["late"].(map[string]any)["status"] != "no_window" || len(f.ch.sqls) != 3 {
+		t.Fatalf("%v", out["late"])
+	}
+	// an unreadable count: the result stands, the late rows are unknown
+	f.ch.late = `{"data":[{"t":"otel.otel_logs","n":"x"}]}`
+	code, out = f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": sql, "window": window})
+	if l := out["late"].(map[string]any); code != 200 || l["status"] != "error" || l["rows"] != nil {
+		t.Fatalf("%d %v", code, l)
+	}
+	f.srv.NoLateCount = true
+	_, out = f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": sql, "window": window})
+	if out["late"].(map[string]any)["status"] != "disabled" {
+		t.Fatalf("%v", out["late"])
 	}
 }
 
@@ -344,6 +417,48 @@ func TestPlanScoped(t *testing.T) {
 	}
 	if got := f.srv.Metrics.Get("qs_planned_objects_total"); got != 1 {
 		t.Fatalf("planned objects metric %v", got)
+	}
+}
+
+// TestPlanLateness: the plan's label uses max_lateness like /v1/query's,
+// and an object received more than max_lateness after its earliest row is
+// marked late and counted (late data visible in the lake too).
+func TestPlanLateness(t *testing.T) {
+	f := newFixture(t)
+	lm := t0.Add(-time.Minute)
+	// rows from 9 to 6 minutes ago, received a minute ago: 8 minutes late
+	m := dataMeta("prod-a", t0.Add(-9*time.Minute), t0.Add(-6*time.Minute))
+	m["oscope-received"] = fmt.Sprint(lm.UnixNano())
+	f.mem.Put(key("prod-a", "pub-0", "logs", 5), make([]byte, 100), m, lm)
+	// and one received 30 s after its earliest row: within the policy
+	m = dataMeta("prod-a", t0.Add(-9*time.Minute), t0.Add(-6*time.Minute))
+	m["oscope-received"] = fmt.Sprint(t0.Add(-9*time.Minute + 30*time.Second).UnixNano())
+	f.mem.Put(key("prod-a", "pub-0", "logs", 6), make([]byte, 100), m, lm)
+	req := map[string]any{"signal": "logs", "from": t0.Add(-time.Hour).UnixNano(), "to": t0.Add(-time.Minute).UnixNano()}
+	code, out := f.post(t, "/v1/plan", f.token(teamA), req)
+	if code != 200 {
+		t.Fatalf("%d %v", code, out)
+	}
+	if out["completeness"] != "partial" || out["incomplete_from"] != t0.Add(-100*time.Second).Format(time.RFC3339Nano) || out["max_lateness_s"] != 60.0 {
+		t.Fatalf("label %v", out)
+	}
+	if out["late_objects"] != 1.0 {
+		t.Fatalf("late_objects %v", out["late_objects"])
+	}
+	for _, o := range out["objects"].([]any) {
+		o := o.(map[string]any)
+		want := o["key"] == key("prod-a", "pub-0", "logs", 5)
+		if (o["late"] == true) != want {
+			t.Errorf("%v: late %v", o["key"], o["late"])
+		}
+	}
+	if v := f.srv.Metrics.Get("qs_late_results_total", "lake", "partial"); v != 1 {
+		t.Fatalf("metric %v", v)
+	}
+	// a window ending max_lateness before complete_through is complete
+	req["to"] = t0.Add(-100 * time.Second).UnixNano()
+	if _, out = f.post(t, "/v1/plan", f.token(teamA), req); out["completeness"] != "complete" {
+		t.Fatalf("%v", out)
 	}
 }
 

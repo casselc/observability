@@ -68,7 +68,7 @@ rules:
     for: 2m             # must hold this long (in windows' event time) before firing
     condition: {column: value, op: ">", threshold: 100}
     on_no_rows: ok      # or fire: an absence alert
-    lateness: 30s       # default evaluation.lateness_s
+    lateness: 30s       # default evaluation.lateness_s; a margin on top of the service's max_lateness
     severity: page
     identity: default
     labels: {team: sre}
@@ -106,15 +106,24 @@ Per rule and tick (`tick_s`), each replica:
    `max_windows_per_tick` windows), asks the query service for it;
 3. **only a complete answer advances**: 200, `completeness: complete`,
    `partial: false`, watermark `ok`, the window the service applied equal to
-   the one asked for, and `complete_through` ≥ the window's end +
-   `lateness`. Then each group whose row meets the condition is pending or
+   the one asked for, the label reports `max_lateness_s`, and
+   `complete_through` ≥ the window's end + `max_lateness` + `lateness`.
+   **How the two combine** (STPA CAST row 26, D26): `complete_through` is
+   custody time, windows are event time. The service's `max_lateness` is
+   the fleet's policy for how late a row may be received after its event
+   time; its label is `complete` only past end + `max_lateness`. The
+   rule's `lateness` is an extra margin the evaluator waits on top of that
+   (0 is allowed: trust the policy). A label without `max_lateness_s` (a
+   service from before 2026-09-28, whose `complete` meant custody time only)
+   is `unknown`, never complete. `cannot_evaluate_after` must exceed
+   `max_lateness + lateness`, or every window pages before it can settle. Then each group whose row meets the condition is pending or
    firing, and each group that no longer does is dropped or resolved. "No
    rows" is therefore "nothing holds" only in a complete window;
 4. anything else is an **attempt** on the same window, which stays next:
 
    | answer | outcome | counts as |
    |---|---|---|
-   | `partial` (the window extends past `complete_through`, or into the lateness allowance) | `partial` | waiting |
+   | `partial` (the window extends past `complete_through − max_lateness`, or into the rule's `lateness` margin) | `partial` | waiting |
    | `unknown` (the watermark is stale, missing or unreadable), or a label the evaluator cannot confirm | `unknown` | waiting |
    | no answer within `query.timeout_s` | `timeout` | failure |
    | 5xx, 408, 429, 422 (a pinned limit), a transport error, an unreadable body | `error` | failure |
@@ -313,10 +322,11 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
 ## 8. What it does not do
 
 1. **Late rows.** `complete_through` bounds `received_at`; windows are event
-   time. A row received more than `lateness` after its event time is not in
-   its window's evaluation, and nothing counts it (the query service could
-   report rows with `Timestamp` in a closed window and a later
-   `received_at`; not built).
+   time. A row received more than `max_lateness + lateness` after its event
+   time is not in its window's evaluation. Since 2026-09-28 the query service
+   counts such rows in every windowed answer (`late`, D26), but the
+   evaluator does not yet act on the count (e.g. re-evaluate a window whose
+   late rows appeared, or page on them).
 2. **The fleet minimum.** `complete_through` is the minimum over every
    lane, so one cluster's stalled edge stops every rule, a single-cluster
    rule included (the integration test's `aa` rule paged for `ab`'s stall).

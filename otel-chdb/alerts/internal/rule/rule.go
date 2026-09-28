@@ -105,11 +105,13 @@ type Rule struct {
 	// window that page before CannotEvaluateAfter (default: the config's).
 	// A refusal (4xx from the query service) pages at once.
 	FailuresToPage int `yaml:"failures_to_page"`
-	// Lateness: how long after a window's end its rows may still be
-	// received (the edge stamps received_at; the event time is the
+	// Lateness: a margin on top of the query service's max_lateness (the
+	// fleet's policy for how long after its event time a row may still be
+	// received; the edge stamps received_at, the event time is the
 	// sender's). complete_through is a bound on received_at, so a window is
-	// evaluated only once complete_through ≥ its end + Lateness. Rows that
-	// arrive later than that are not in the evaluation (AMBIGUITY.md X5).
+	// evaluated only once complete_through ≥ its end + max_lateness +
+	// Lateness (D26). Rows that arrive later than that are not in the
+	// evaluation; the service counts them (AMBIGUITY.md X5, X12).
 	// Default: the config's evaluation.lateness_s.
 	Lateness Duration `yaml:"lateness"`
 	// MaxGroups bounds the rows one evaluation may return (default 1000);

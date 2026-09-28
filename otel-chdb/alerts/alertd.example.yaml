@@ -29,7 +29,7 @@ sink:
 evaluation:
   tick_s: 15
   max_windows_per_tick: 20      # the catch-up rate after downtime
-  lateness_s: 30                # a window is evaluated once complete_through >= its end + this
+  lateness_s: 30                # a window is evaluated once complete_through >= its end + the service's max_lateness + this
   cannot_evaluate_after_s: 300  # DECISIONS "owner decisions": alerts ~5 min behind accepted
   failures_to_page: 3
   max_backlog_s: 21600          # windows older than this after an outage are skipped (and counted)

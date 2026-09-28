@@ -35,6 +35,7 @@ type resp struct {
 	Partial      bool
 	Status       string
 	CT           *int64
+	ML           *float64 // max_lateness_s
 	WinFrom      int64
 	WinTo        int64
 	NoWindow     bool
@@ -48,6 +49,9 @@ func (r resp) body() []byte {
 	if r.CT != nil {
 		m["complete_through_ns"] = *r.CT
 	}
+	if r.ML != nil {
+		m["max_lateness_s"] = *r.ML
+	}
 	if !r.NoWindow {
 		m["query"] = map[string]any{"window": map[string]any{"from_ns": r.WinFrom, "to_ns": r.WinTo}}
 	}
@@ -57,8 +61,10 @@ func (r resp) body() []byte {
 
 func i64(v int64) *int64 { return &v }
 
+func f64(v float64) *float64 { return &v }
+
 func good() resp {
-	return resp{Completeness: "complete", Status: "ok", CT: i64(win.ToNs + 5e9), WinFrom: win.FromNs, WinTo: win.ToNs,
+	return resp{Completeness: "complete", Status: "ok", CT: i64(win.ToNs + 5e9), ML: f64(2), WinFrom: win.FromNs, WinTo: win.ToNs,
 		Data: []map[string]any{{"service": "a", "value": "7"}, {"service": "b", "value": 1}}}
 }
 
@@ -72,18 +78,22 @@ func TestInterpret(t *testing.T) {
 		mod  func(*resp)
 		want engine.Outcome
 	}{
-		"partial":                   {func(r *resp) { r.Completeness, r.Partial = "partial", true }, engine.Partial},
-		"unknown":                   {func(r *resp) { r.Completeness, r.Status, r.CT = "unknown", "stale", nil }, engine.Unknown},
-		"complete but stale":        {func(r *resp) { r.Status = "stale" }, engine.Unknown},
-		"complete, ct too low":      {func(r *resp) { r.CT = i64(win.ToNs - 1) }, engine.Unknown},
-		"complete, no ct":           {func(r *resp) { r.CT = nil }, engine.Unknown},
-		"other window":              {func(r *resp) { r.WinTo = win.ToNs + 1 }, engine.Unknown},
-		"no window applied":         {func(r *resp) { r.NoWindow = true }, engine.Unknown},
-		"complete, flagged partial": {func(r *resp) { r.Partial = true }, engine.Unknown},
-		"null value":                {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": nil}} }, engine.BadResult},
-		"nan value":                 {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": "nan"}} }, engine.BadResult},
-		"no value column":           {func(r *resp) { r.Data = []map[string]any{{"service": "a"}} }, engine.BadResult},
-		"duplicate group":           {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": 1}, {"service": "a", "value": 2}} }, engine.BadResult},
+		"partial":              {func(r *resp) { r.Completeness, r.Partial = "partial", true }, engine.Partial},
+		"unknown":              {func(r *resp) { r.Completeness, r.Status, r.CT = "unknown", "stale", nil }, engine.Unknown},
+		"complete but stale":   {func(r *resp) { r.Status = "stale" }, engine.Unknown},
+		"complete, ct too low": {func(r *resp) { r.CT = i64(win.ToNs - 1) }, engine.Unknown},
+		"complete, no ct":      {func(r *resp) { r.CT = nil }, engine.Unknown},
+		// CAST row 26: a label without max_lateness may be custody-time complete only
+		"complete, no max_lateness": {func(r *resp) { r.ML = nil }, engine.Unknown},
+		// the service's own bound not reached: its label is wrong, never trusted
+		"complete, ct < end + max_lateness": {func(r *resp) { r.ML = f64(6) }, engine.Unknown},
+		"other window":                      {func(r *resp) { r.WinTo = win.ToNs + 1 }, engine.Unknown},
+		"no window applied":                 {func(r *resp) { r.NoWindow = true }, engine.Unknown},
+		"complete, flagged partial":         {func(r *resp) { r.Partial = true }, engine.Unknown},
+		"null value":                        {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": nil}} }, engine.BadResult},
+		"nan value":                         {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": "nan"}} }, engine.BadResult},
+		"no value column":                   {func(r *resp) { r.Data = []map[string]any{{"service": "a"}} }, engine.BadResult},
+		"duplicate group":                   {func(r *resp) { r.Data = []map[string]any{{"service": "a", "value": 1}, {"service": "a", "value": 2}} }, engine.BadResult},
 	} {
 		g := good()
 		x.mod(&g)
@@ -101,6 +111,16 @@ func TestInterpret(t *testing.T) {
 	late.Lateness = rule.Duration(10 * time.Second)
 	if got := Interpret(200, good().body(), late, win); got.Outcome != engine.Partial {
 		t.Errorf("complete_through within the lateness allowance must wait: %s", got.Outcome)
+	}
+	// the two add: complete_through 5 s past the end, max_lateness 2 s,
+	// lateness 3 s is exactly enough, 3 s + 1 ns is not
+	late.Lateness = rule.Duration(3 * time.Second)
+	if got := Interpret(200, good().body(), late, win); got.Outcome != engine.Complete {
+		t.Errorf("end + max_lateness + lateness reached: %s %s", got.Outcome, got.Err)
+	}
+	late.Lateness = rule.Duration(3*time.Second + 1)
+	if got := Interpret(200, good().body(), late, win); got.Outcome != engine.Partial {
+		t.Errorf("one ns short: %s", got.Outcome)
 	}
 	if got := Interpret(200, []byte("<html>"), r, win); got.Outcome != engine.Failed {
 		t.Errorf("garbage: %s", got.Outcome)
@@ -133,11 +153,15 @@ func TestPropInterpretGate(tt *testing.T) {
 			Data:         []map[string]any{{"service": "a", "value": rapid.IntRange(0, 9).Draw(t, "v")}},
 		}
 		if rapid.Bool().Draw(t, "hasct") {
-			x.CT = i64(win.ToNs + int64(rapid.IntRange(-2, 2).Draw(t, "ct"))*1e9)
+			x.CT = i64(win.ToNs + int64(rapid.IntRange(-2, 5).Draw(t, "ct"))*1e9)
+		}
+		if rapid.IntRange(0, 3).Draw(t, "hasml") > 0 {
+			x.ML = f64(float64(rapid.IntRange(0, 2).Draw(t, "ml")))
 		}
 		status := rapid.SampledFrom([]int{200, 200, 200, 400, 401, 403, 422, 429, 500, 502, 503}).Draw(t, "http")
 		got := Interpret(status, x.body(), r, win)
-		gate := status == 200 && x.Completeness == "complete" && !x.Partial && x.Status == "ok" && x.CT != nil && *x.CT >= win.ToNs+int64(r.Lateness) &&
+		gate := status == 200 && x.Completeness == "complete" && !x.Partial && x.Status == "ok" && x.CT != nil && x.ML != nil &&
+			*x.CT >= win.ToNs+int64(*x.ML*1e9)+int64(r.Lateness) &&
 			!x.NoWindow && x.WinFrom == win.FromNs && x.WinTo == win.ToNs
 		if (got.Outcome == engine.Complete) != gate {
 			t.Fatalf("status %d %+v: %s (gate %v)", status, x, got.Outcome, gate)

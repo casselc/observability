@@ -45,6 +45,10 @@ type Config struct {
 	HeadConcurrency int `json:"head_concurrency"`
 	// SkewS: an event at time t is received no earlier than t − SkewS, so
 	// an object written before from − SkewS holds nothing of the window.
+	// This bounds EARLY receipt (a producer clock ahead); late receipt
+	// (max_lateness, the watermark's policy) is the other direction and
+	// never drops an object here: a late object is written after the
+	// window, and is kept by its rows' event-time range.
 	SkewS      int `json:"skew_s"`
 	ListMax    int `json:"list_max"`
 	MaxWindowS int `json:"max_window_s"`
@@ -179,6 +183,11 @@ type Object struct {
 	MinTimeNs *int64 `json:"min_time_ns,omitempty"`
 	MaxTimeNs *int64 `json:"max_time_ns,omitempty"`
 	Rows      *int64 `json:"rows,omitempty"`
+	// ReceivedNs is the slot's oscope-received (custody time); Late is
+	// true when it is more than max_lateness after min_time_ns: the object
+	// holds at least one row later than the label's policy allows.
+	ReceivedNs *int64 `json:"received_ns,omitempty"`
+	Late       bool   `json:"late,omitempty"`
 	// Refined is false when the HEAD budget ran out: the object is planned
 	// on its LIST entry alone (a superset, never a loss).
 	Refined bool `json:"refined"`
@@ -209,7 +218,11 @@ type Plan struct {
 	TotalBytes    int64    `json:"total_bytes"`
 	Unrefined     int      `json:"unrefined"`
 	Mismatched    int      `json:"mismatched"`
-	Rules         []string `json:"rules"`
+	// LateObjects counts planned objects received more than max_lateness
+	// after their earliest row's event time (Object.Late): late data made
+	// visible. An object without oscope-received is not judged.
+	LateObjects int      `json:"late_objects"`
+	Rules       []string `json:"rules"`
 	// ObjectsHash is sha256 over the planned keys, in order (audit).
 	ObjectsHash string `json:"objects_hash"`
 }
@@ -218,7 +231,7 @@ type Plan struct {
 var Rules = []string{
 	"Each URL is valid until expires_at. Re-plan before replan_after; never start reading an object whose URL expires within the margin.",
 	"A 403 (or any error) on a planned object means re-plan, never 'no data': a query that could not read every planned object is incomplete and must say which objects it lacks.",
-	"Rows after complete_through (incomplete_from) may still arrive: draw that region as incomplete, and count over it as partial.",
+	"Rows with an event time at or after incomplete_from (complete_through − max_lateness: complete_through is custody time, the window event time) may still arrive: draw that region as incomplete, and count over it as partial. Objects marked late arrived after that policy; a result over them was not settled when they arrived.",
 	"snapshot is null: this plan lists lanes directly; a later plan may include objects this one did not.",
 }
 
@@ -306,6 +319,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	type refined struct {
 		keep, ok, mismatch bool
 		minT, maxT, rows   int64
+		recv               *int64
 	}
 	res := make([]refined, len(cands))
 	sem := make(chan struct{}, p.cfg.HeadConcurrency)
@@ -343,6 +357,9 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 				res[i] = refined{keep: true}
 				return
 			}
+			if v, err := strconv.ParseInt(meta["oscope-received"], 10, 64); err == nil && v > 0 {
+				r.recv = &v
+			}
 			r.keep = r.maxT >= req.FromNs && r.minT < req.ToNs
 			res[i] = r
 		}(i)
@@ -363,6 +380,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		Rules:        Rules,
 		Objects:      []Object{},
 	}
+	maxLate := p.wm.MaxLateness()
 	h := sha256.New()
 	for i, c := range cands {
 		r := res[i]
@@ -385,6 +403,13 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		if r.ok {
 			minT, maxT, rows := r.minT, r.maxT, r.rows
 			o.MinTimeNs, o.MaxTimeNs, o.Rows = &minT, &maxT, &rows
+			if r.recv != nil {
+				o.ReceivedNs = r.recv
+				// received − min_time > max_lateness, without overflow
+				if o.Late = *r.recv > minT && uint64(*r.recv-minT) > uint64(maxLate); o.Late {
+					plan.LateObjects++
+				}
+			}
 		} else {
 			plan.Unrefined++
 		}
@@ -395,7 +420,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	plan.ObjectsHash = hex.EncodeToString(h.Sum(nil))
 	w := &completeness.Window{FromNs: req.FromNs, ToNs: req.ToNs}
-	plan.Label = completeness.MakeLabel("lake", wmState, w, p.now(), p.wm.Key(), pr.MayCluster)
+	plan.Label = completeness.MakeLabel("lake", wmState, w, p.now(), p.wm.Key(), pr.MayCluster, maxLate)
 
 	// GC deletes ingested slots (D12): the lanes' oldest rows may be gone
 	plan.StartComplete = true

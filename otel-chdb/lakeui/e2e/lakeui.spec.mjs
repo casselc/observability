@@ -108,13 +108,16 @@ async function tap(method = 'GET') {
 
 const shot = (p, name) => p.screenshot({ path: join(here, '..', 'test-results', `lakeui-${name}.png`), fullPage: true })
 let page
-let ct // complete_through (ns) as the plans report it
+let ct // complete_through (ns, custody time) as the plans report it
+let settled // complete_through − max_lateness (ns, event time): what the UI may draw as settled
 test('sign in with PKCE, then logs over data before and after complete_through', async ({ browser }) => {
   page = await signedIn(browser, 'alice')
   const s = await runView(page, 'logs', { from: info.truth.at, to: info.truth.late_to })
   expect(s.status).toBe('ok')
   expect(s.completeness).toBe('partial')
   ct = nsOf(s.completeThrough)
+  settled = nsOf(s.settledThrough)
+  expect(settled < ct).toBe(true) // max_lateness > 0 (CAST row 26)
   const lateFrom = nsOf(info.truth.late_from)
   expect(ct < lateFrom).toBe(true)
   const fromNs = nsOf(info.truth.at)
@@ -126,19 +129,19 @@ test('sign in with PKCE, then logs over data before and after complete_through',
   // the late rows are the incomplete ones
   await expect(page.locator('#banner')).toHaveAttribute('data-state', 'incomplete')
   expect(s.rows.length).toBe(50)
-  for (const r of s.rows) expect(r.state).toBe(nsOf(r.ts) >= ct ? 'incomplete' : 'complete')
+  for (const r of s.rows) expect(r.state).toBe(nsOf(r.ts) >= settled ? 'incomplete' : 'complete')
   expect(s.rows.every(r => r.state === 'incomplete')).toBe(true) // the newest 50 are late
   const inc = s.buckets.filter(b => b.state === 'incomplete')
   expect(inc.length).toBeGreaterThan(0)
-  expect(s.buckets.filter(b => b.state === 'complete').every(b => nsOf(b.from) < ct)).toBe(true)
+  expect(s.buckets.filter(b => b.state === 'complete').every(b => nsOf(b.from) < settled)).toBe(true)
   await expect(page.locator('svg [data-marker="complete-through"]')).toHaveCount(1)
   await shot(page, 'logs-partial')
   measured.full_window = { lake: s.count, central, late: info.truth.late_logs, objects: s.objects, fetched: s.fetchedBytes, planned: s.plannedBytes }
 })
 
-test('a window closed before complete_through is complete and equals ClickHouse, with and without filters', async () => {
+test('a window closed before complete_through − max_lateness is complete and equals ClickHouse, with and without filters', async () => {
   const from = info.truth.at
-  const toNs = ct
+  const toNs = settled
   const to = new Date(Number(toNs / 1_000_000n)).toISOString().slice(0, 19) + '.' + String(toNs % 1_000_000_000n).padStart(9, '0') + 'Z'
   const fromNs = nsOf(from)
   const cases = [

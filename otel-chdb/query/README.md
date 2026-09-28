@@ -12,7 +12,10 @@ share ([`../research/lake-ui.md`](../research/lake-ui.md) §3, "Shared pieces";
   window in the caller's clusters, each with a presigned GET URL, its size
   and its time range;
 - every answer carries its **source** and that source's
-  **`complete_through`**, and marks what extends past it (STPA R-S1, R-S2);
+  **`complete_through`** (custody time), the **`max_lateness`** policy that
+  bridges it to event time, and marks what extends past it (STPA R-S1, R-S2,
+  CAST row 26); a windowed answer counts its **late rows** (received more than
+  `max_lateness` after their event time);
 - **OIDC** bearer tokens (RS256, the issuer's JWKS), claims mapped to
   clusters, namespaces and roles, **deny by default**; every decision is
   **audited** before anything runs (R-S8);
@@ -45,7 +48,9 @@ in `QS_CH_PASSWORD` (or the variable `central.password_env` names),
 `QS_S3_ENDPOINT`, `QS_S3_PUBLIC_ENDPOINT`, `QS_S3_BUCKET`, `QS_S3_REGION`,
 `QS_S3_KEY` / `QS_S3_SECRET` (otherwise the AWS SDK's default chain: web
 identity, instance role, `AWS_*`), `QS_LAKE_ROOT`, `QS_LAKE_CTL`,
-`QS_CATALOG_DB`, `QS_LAKE_ENABLED`. An audit path and a bucket are
+`QS_CATALOG_DB`, `QS_LAKE_ENABLED`, and the completeness policy
+`QS_MAX_LATENESS_S` (`watermark.max_lateness_s`, default 60) and
+`QS_COUNT_LATE` (`watermark.count_late`, default true), §2.1. An audit path and a bucket are
 required: the service does not start without somewhere to record decisions,
 or without `{ctl}/watermark.json` to label results with.
 
@@ -102,22 +107,47 @@ runs.
 {"request_id": "5c0f…",
  "source": "central",
  "complete_through": "2026-09-28T12:59:31.2Z", "complete_through_ns": 1790…,
+ "max_lateness_s": 60, "settled_through": "2026-09-28T12:58:31.2Z", "settled_through_ns": 1790…,
  "completeness": "partial", "partial": true,
- "incomplete_from": "2026-09-28T12:59:31.2Z", "incomplete_from_ns": 1790…,
+ "incomplete_from": "2026-09-28T12:58:31.2Z", "incomplete_from_ns": 1790…,
  "watermark": {"status": "ok", "key": "edges/_consumer/watermark.json", "age_s": 12.1, "lag_s": 28.8,
                "fetched_at": "…", "holding": [{"lane": "prod-eu-1/pub-0/logs", "wm_ns": 1790…, "lag_s": 28.8}]},
  "catalog": {"status": "ok", "clusters": {"prod-eu-1": {"last_put": "…", "lag_s": 41.0, "status": "ok"}}},
+ "late": {"max_lateness_s": 60, "status": "counted", "rows": 0, "tables": {"otel.otel_logs": 0}},
  "query": {"hash": "9e1d…", "tables": ["otel.otel_logs"], "sql": "SELECT ServiceName, count() FROM otel.otel_logs GROUP BY ServiceName",
            "scoped": true, "window": {"from_ns": …, "to_ns": …}, "rows_read": 5120, "elapsed_ms": 18.2},
  "result": { ClickHouse's FORMAT JSON: meta, data, rows, statistics }}
 ```
 
+- **Two clocks** (STPA CAST row 26, D26). `complete_through` is **custody
+  time**: every row *received* (`received_at`, the edge's custody stamp)
+  before it is in central. A `window` is **event time** (the rows'
+  `Timestamp`). `max_lateness_s` is the policy that bridges them: a row is
+  assumed received within `max_lateness` of its event time, so event time
+  is settled through `settled_through` = `complete_through − max_lateness`.
 - **`completeness`**: `complete` (the window ends at or before
-  `complete_through` and the watermark is current), `partial` (it extends
-  past it: draw from `incomplete_from` on as incomplete, count over it as
-  partial), or `unknown` (the watermark is missing, unreadable or stale:
-  **nothing in the result may be read as settled**). A statement without a
-  window runs up to now, so it is always `partial` or `unknown`.
+  `settled_through`, i.e. `complete_through ≥ to + max_lateness`, and the
+  watermark is current), `partial` (it extends past it: draw from
+  `incomplete_from` = `settled_through`, clamped to the window, on as
+  incomplete, count over it as partial), or `unknown` (the watermark is
+  missing, unreadable or stale: **nothing in the result may be read as
+  settled**). A statement without a window runs up to now, so it is always
+  `partial` or `unknown`. Until 2026-09-28 a window was `complete` once
+  `complete_through ≥ to`: a row with its event time in the window, still at
+  an edge when the window closed, was missing from a result labelled complete.
+- **`late`**: rows later than the policy are **counted, not hidden**. For a
+  windowed statement the service runs one more statement after it, under the
+  same filters (scope and window) and limits: per table read that has a
+  `received_column` (table config; `received_at` in the consumer's schema,
+  every central table has it per row), `count()` of rows with `received_at > time_column +
+  max_lateness`. `status`: `counted` (`rows`, per table in `tables`;
+  `uncounted` lists tables without a received column), `no_window` (an
+  unbounded statement is not counted), `not_measured` (no table read has
+  both columns), `disabled` (`watermark.count_late: false`), `error` (the
+  count failed; the result stands, `rows` is null). Late rows are *in* this
+  result; a non-zero count on a `complete` window means a result over it
+  served before they came lacked them, and that `max_lateness` is too
+  short for this data (the policy to change, not the code).
 - **`watermark`**: the document's own freshness: `status` (`ok`, `stale`:
   the consumer last published more than `watermark.max_age_s` ago, `missing`,
   `error`: unreadable, or the last good copy is older than `max_age_s`),
@@ -154,7 +184,8 @@ never silently dropped**. `signal` is a lane namespace (FORMAT.md §1).
 
 ```json
 {"request_id": "…", "source": "lake", "signal": "logs", "clusters": ["prod-eu-1"],
- "from": "…", "to": "…", "complete_through": "…", "completeness": "partial", "partial": true, "incomplete_from": "…",
+ "from": "…", "to": "…", "complete_through": "…", "max_lateness_s": 60, "settled_through": "…",
+ "completeness": "partial", "partial": true, "incomplete_from": "…", "late_objects": 0,
  "watermark": {…},
  "snapshot": null, "snapshot_note": "no sealer snapshots exist yet: planned from a LIST of the v2 lanes at listed_at",
  "listed_at": "…", "start_complete": true,
@@ -173,9 +204,13 @@ the planner **lists the v2 lanes directly**: for each cluster,
 (cluster-first keys, FORMAT.md §1, so a cluster's objects are exactly a
 prefix). It skips empty slots (heartbeats, tombstones) and objects written
 before `from − skew_s` (an event is received no earlier than its time minus
-the skew), then HEADs the rest (up to `max_heads`, 16 at a time) for
-`oscope-kind`, `oscope-min-time`, `oscope-max-time`, `oscope-rows` and
-`oscope-cluster`, and keeps data objects whose rows overlap the window. An
+the skew: this bounds *early* receipt; late receipt never drops an object,
+which is kept by its rows' event-time range), then HEADs the rest (up to `max_heads`, 16 at a time) for
+`oscope-kind`, `oscope-min-time`, `oscope-max-time`, `oscope-rows`,
+`oscope-cluster` and `oscope-received`, and keeps data objects whose rows
+overlap the window. An object received more than `max_lateness` after its
+earliest row is marked `late` (and counted in `late_objects`): late data,
+visible in the lake too. An
 object whose `oscope-cluster` names another cluster than its prefix is never
 planned (`mismatched`, and a metric). Past the HEAD budget, objects are
 planned on their LIST entry alone (`refined: false`: a superset, never a
@@ -191,7 +226,8 @@ before the LIST, which is strongly consistent on SeaweedFS and AWS
 `{ctl}/gc.json` shows deletions in a planned lane and the window starts
 before that lane's oldest remaining object, the plan says
 `start_complete: false`, names the lanes in `gc_truncated_lanes`, and is
-`partial`: the older rows are in central.
+`partial`: the older rows are in central. The label is the same function as
+`/v1/query`'s: event time settles at `complete_through − max_lateness`.
 
 **Namespaces.** A raw lane object holds every namespace of its cluster, and
 a presigned URL grants the whole object (research/lake-ui.md §6.1), so a
@@ -209,8 +245,10 @@ would lift this for older data.
 2. **A 403 (or any error) on a planned object means re-plan, never "no
    data"**: a query that could not read every planned object is incomplete
    and must say which objects it lacks.
-3. Rows after `complete_through` may still arrive: draw that region as
-   incomplete, and count over it as partial.
+3. Rows with an event time at or after `incomplete_from`
+   (`complete_through − max_lateness`) may still arrive: draw that region as
+   incomplete, and count over it as partial. Objects marked `late` arrived
+   after that policy.
 4. `snapshot` is null: this plan lists lanes directly; a later plan may
    include objects this one did not.
 
@@ -241,6 +279,9 @@ watermark labels results; it does not stop them). `GET /metrics`
 | `qs_clickhouse_errors_total{code}` | ClickHouse errors (limits included), `transport` for no answer |
 | `qs_audit_errors_total{event}` | audit writes that failed (a failed `decision` refused its request) |
 | `qs_results_total{source,completeness}` | results by label: a rising `unknown` is the pipeline's watermark failing |
+| `qs_late_results_total{source,completeness}` | results holding rows (query) or objects (plan) later than `max_lateness`: rising on `complete`, the policy is too short |
+| `qs_late_count_errors_total` | late-row counts that failed (the result was served with `late.status: error`) |
+| `qs_max_lateness_seconds` | the policy the labels are made with |
 | `qs_watermark_age_seconds`, `qs_complete_through_seconds`, `qs_watermark_status{status}` | the watermark as the service sees it |
 
 No credentials appear in any answer except the presigned URLs themselves.
@@ -285,7 +326,20 @@ No credentials appear in any answer except the presigned URLs themselves.
      `settings`, `table_engines`, `databases`); no per-row scope, any caller
      with the `query` role. ClickHouse cuts what they show to the tables the
      read-only user may see (the served ones). Configuring a table outside
-     `system`, or one with a time column, as `metadata` is refused at start;
+     `system`, or one with a time column, as `metadata` is refused at start.
+     **Only allow-listed columns** are served: each metadata table has
+     `columns` (default `sqlscope.MetadataColumns`: what HyperDX reads), and
+     every read of it, anywhere in the statement, is rebuilt as `(SELECT
+     <columns> FROM system.t) AS t`, so `SELECT *` expands to the allow-list
+     and naming `data_paths`, `metadata_path`, `uuid` or any other column is
+     ClickHouse's `UNKNOWN_IDENTIFIER` (400 `central_rejected`). The rebuilt
+     text is checked to read each metadata table only as the FROM of its
+     projection (`metadata_unprojected` otherwise). `system.tables` serves
+     `database, name, table, engine, is_temporary, create_table_query,
+     engine_full, as_select, partition_key, sorting_key, primary_key,
+     sampling_key, total_rows, comment` (ClickHouse masks the secrets in the
+     DDL columns: `[HIDDEN]` [M]); `system.databases` `name, engine,
+     comment` (not `data_path`, `metadata_path`, `engine_full`);
    - with a `window`, `time_column >= … AND time_column < …`.
    Cluster names must match FORMAT.md's `[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?`
    and namespaces Kubernetes' label pattern, or the token is refused.
@@ -375,7 +429,7 @@ later `UNION` branch is refused as an unknown table.
 | | Requirement | Status |
 |---|---|---|
 | R-S1 | every result carries its source and complete-through | **met for this service's answers**: `source`, `complete_through`, the watermark's freshness; on every `/v1/query` and `/v1/plan` answer. **HyperDX**: the adapter (§8) returns the label in `X-Otel-*` headers and the fork's patch 0002 shows it as a banner (built and unit-tested; not run in a live HyperDX) |
-| R-S2 | windows not yet complete drawn as incomplete, counts marked partial | **met at the API**: `partial`, `incomplete_from`, `completeness`; a missing, unreadable or stale watermark is `unknown`, never `complete` (unit tests for each). Per-bucket marking is the UI's |
+| R-S2 | windows not yet complete drawn as incomplete, counts marked partial | **met at the API**: `partial`, `incomplete_from`, `completeness`, in event time (`complete_through − max_lateness`, CAST row 26); a missing, unreadable or stale watermark is `unknown`, never `complete` (unit tests for each); rows later than `max_lateness` are counted (`late`). Per-bucket marking is the UI's |
 | R-S3 | alerts evaluate only up to complete-through; a failed evaluation pages | **not this service's**: the alert evaluator can use `completeness`/`incomplete_from` to pick its windows (X5) |
 | R-S5 | views show catalog lag and rows without an entity match | **partly**: catalog lag per cluster from the aggregator's `ingest_log`; rows without an entity match are not counted yet |
 | R-S8 | reads role-scoped by cluster and namespace; every query audit-logged | **met for this service**: deny by default, per-row scope on central, per-object (cluster) scope on the lake, namespace-restricted plans refused; every decision audited before it acts. HyperDX reaches it through the adapter (§8) with the user's own token once the fork's patch 0002 is deployed; the adapter holds no ClickHouse credentials |
@@ -412,15 +466,34 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
   JWKS once; claims mapping denies by default.
 - **`internal/completeness`**: labels for closed, open, after and unbounded
   windows; caching; missing, unreadable, garbage and stale documents are
-  `unknown`; a good copy ages out when the store stops answering.
+  `unknown`; a good copy ages out when the store stops answering. CAST row
+  26's regression (`TestLateRowNotComplete`: a row received after its
+  window's end keeps the window partial until `complete_through ≥ end +
+  max_lateness`; with `max_lateness` 0, D22's rule, it was complete) and a
+  **rapid property over rows whose receive time diverges from their event
+  time** (from 5 s early to twice `max_lateness` late): a window labelled
+  complete holds every row with its event time in it received before its end
+  + `max_lateness`; a partial one every such row before `incomplete_from`.
+  With the label computed as before the fix the property fails at once.
+- **`internal/sqlscope`** (metadata, late): every read of a metadata table
+  is projected to its allow-list (`*`, aliases, subqueries, joins, `IN`,
+  idempotent), config refusals, and a rapid property that the rebuilt text
+  reads metadata tables only through their projection; the late-row count
+  statement (only tables with both columns, metadata excluded).
 - **`internal/server`** (fakes for ClickHouse and S3, the local issuer): 401
   and 403 are audited and run nothing; the filter, overflow modes and limits
   reach ClickHouse; the label; refusals; an audit failure refuses both
   endpoints; a missing watermark; the concurrency limit; a limit error is
   422; plans: scope, heartbeats, old objects and a cross-cluster object
   excluded, expiry, rules, audit; cross-cluster and namespace plans denied;
-  fleet plans and GC truncation; CORS; metrics.
-- **`integration`** [M] (17.5 s): the Go edge (`otelcol-s3pq`,
+  fleet plans and GC truncation; CORS; metrics. The label's
+  `max_lateness_s`, `settled_through` and `incomplete_from`; a window
+  ending 20 s before `complete_through` is partial, one ending
+  `max_lateness` before it complete; the late count runs under the
+  statement's filters, limits and `query_id`-late, reports per table and
+  uncounted tables, `no_window`, `disabled` and a failed count (the result
+  stands); plans mark late objects.
+- **`integration`** [M] (97 s, 80 of them the late-row story): the Go edge (`otelcol-s3pq`,
   [`../conformance/go-edge.yaml`](../conformance/go-edge.yaml)) publishes
   logs and spans for clusters `qa` and `qb` (two namespaces each) to
   SeaweedFS; the Rust consumer ingests them into ClickHouse and publishes
@@ -430,10 +503,20 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
   through a CTE and a self-join 5, `qa/shop` 3; traces scoped by the catalog
   3 / 2 / 8; refusals; the read-only user cannot write; `max_result_rows =
   2` fails with 422; the label reads the real document (`ok`, lag ≈ 15 s) and
-  a window closed before it is `complete`; the plan returns only `qa/`
+  a window closed before `complete_through − max_lateness` is `complete`,
+  with its 5 rows counted late (the fixture stamps them 10 minutes before
+  sending). **Late rows** (CAST row 26), with both edges beating between
+  steps: `complete_through` passes `t0` (3 s past it) while a row with event
+  time `t0 − 1 s` has not been sent: `[t0 − 1 min, t0)` is `partial` from
+  `complete_through − 60 s` (D22's rule said `complete`, with 0 rows); the
+  row goes through the real Go edge 20 s after its event time (within
+  `max_lateness`): 1 row, still `partial`, `late.rows` 0; a row stamped
+  15 minutes back lands in an old window that was `complete` with 0 rows:
+  still `complete`, 1 row, `late.rows` 1 (counted, not silent); once
+  `complete_through ≥ t0 + 60 s`: `complete`, 1 row. The plan returns only `qa/`
   objects, each GET 200 with the planned size and a Parquet header, HEAD
   with the same URL 403; `qa` asking for `qb` is 403, `qa/shop` is 403; the
-  fleet plans both clusters; 32 audit lines. Everything is named `qs-…` /
+  fleet plans both clusters; 42 audit lines. Everything is named `qs-…` /
   `qs_…` and removed. Nightly in CI (`query-integration`).
 
 ## 7. What's next
@@ -447,8 +530,9 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
    sizes, re-plan before `replan_after`, a 403 as re-plan, the incomplete
    region drawn after `incomplete_from`); next: snapshots, the maplet and term
    index in plans, namespace-scoped viewers through `/v1/query`.
-3. **The alert evaluator** (X5, R-S3): evaluate only windows that end at or
-   before `complete_through` with `completeness: complete`, page on
+3. **The alert evaluator** (X5, R-S3; built, D23): evaluate only windows
+   labelled `complete` with `complete_through ≥ end + max_lateness +
+   lateness` (D26), page on
    `unknown` for longer than a bound and on a failed evaluation, and never
    read "no data" as OK; paging per X6.
 4. **The sealer's snapshots** replace the LIST (snapshot ids in plans,
@@ -556,6 +640,9 @@ On every answer (except schema answers, `X-Otel-Source: metadata`):
 `X-Otel-Source`, `X-Otel-Completeness` (`complete` | `partial` | `unknown`),
 `X-Otel-Complete-Through`, `X-Otel-Incomplete-From`,
 `X-Otel-Watermark-Status`, `X-Otel-Watermark-Lag-S`, `X-Otel-Watermark-Note`,
+`X-Otel-Max-Lateness-S`, `X-Otel-Settled-Through` (event time:
+`complete_through − max_lateness`), `X-Otel-Late-Rows` (a count, or
+`no_window` / `not_measured` / `disabled` / `error`),
 `X-Otel-Window-From` / `-To`, `X-Otel-Request-Id` (the audit record),
 `X-Otel-Dropped-Settings`; exposed for CORS. The fork records them per
 statement and shows the worst on the page (fork README, patch 0002).
@@ -570,9 +657,11 @@ both sides (`>=`/`>`/`<=`/`<` `fromUnixTimestamp64Milli(n)`: `<= t` becomes
 adapter has no time column for, an `OR`, one bound, different bounds in a
 subquery: no window, and the label covers everything up to now (`partial` or
 `unknown`, never `complete`). 350 of the 620 answered captured statements
-get a window [M]. The label inherits the service's semantics (the alerts
-work found that a `complete` label is custody-time complete: rows arriving
-later with an earlier event time are not in it; see the CAST row).
+get a window [M]. The label inherits the service's semantics: a derived
+window is complete only once `complete_through ≥ its end + max_lateness`
+(CAST row 26, D26), and its late rows are counted. Schema answers carry the
+metadata scope's allow-listed columns only (§3): `SELECT * FROM
+system.tables` answers 14 columns, not ClickHouse's 42.
 
 ### 8.4 Tests
 
@@ -590,7 +679,7 @@ later with an earlier event time are not in it; see the CAST row).
   parses, DESCRIBE of an unknown table); the live differential test above
   (skips without ClickHouse); the 799 captured statements prepare or are
   refused only as EXPLAIN.
-- `integration/hdxadapter` (`HDXA_IT=1 go test ./integration/hdxadapter`, 28 s
+- `integration/hdxadapter` (`HDXA_IT=1 go test ./integration/hdxadapter`, 35 s
   on the shared box; nightly `hdxadapter-integration`): three databases with
   the capture's schema sides (pre-alignment, option 2, full ClickStack) and the
   same 20,000 logs and spans each (clusters `qa`/`qb`, the capture's values),
@@ -602,22 +691,34 @@ later with an earlier event time are not in it; see the CAST row).
 
   | outcome | statements |
   |---|---:|
-  | equal (meta, rows, order) | **620** (541 non-empty; all 50 DESCRIBEs) |
+  | equal (meta, rows, order) | **617** (538 non-empty; all 50 DESCRIBEs) |
+  | equal as row sets (order ties differ) | 3 (search pages whose `ORDER BY` leaves ties; since the replay stamps `received_at`, the rows span more partitions) |
   | refused: `EXPLAIN` | 77 |
   | refused by the service: `mergeTreeTextIndex` (table function) | 102 |
   | mismatch | **0** |
 
   Per statement: [`../hyperdx/results/adapter-replay.jsonl`](../hyperdx/results/adapter-replay.jsonl)
-  (`HDXA_IT_OUT`).
+  (`HDXA_IT_OUT`). Schema answers are compared on the columns both have:
+  the 77 `SELECT * FROM system.tables` answers withhold 29 of ClickHouse's
+  columns (`data_paths`, `metadata_path`, `uuid`, `storage_policy`, byte
+  and part counts, dependencies, …) and add the alias `table`, which a
+  subquery's `*` includes; every served system table answers `SELECT *`
+  with exactly its allow-list, and `data_paths` / `metadata_path` /
+  `data_path` by name are errors [M]. The replay's rows carry `received_at`
+  0–90 s after `Timestamp`: of the 350 windowed answers, 254 report late
+  rows, 96 none; the 48 without a window say `no_window`.
 
   The same statements with a token for cluster `qa` only: **532 equal** to
   ClickHouse's answer with the service's scope filter applied by hand (130 of
   them narrower than the fleet's answer), 38 refused (`scope_unenforceable`:
   the key-value rollups have no cluster column and are `fleet`), 0 different.
   Labels: 143 `complete` and 207 `partial` with a derived window, 48 `partial`
-  without; each checked against the window's end and `complete_through`.
-  Latency per statement through adapter and service p50 9.9 ms / p90 16.9 ms,
-  ClickHouse direct 6.4 / 11.1 ms (in process, loaded shared box) [M]. With
+  without; each checked against the window's end + `max_lateness` and
+  `complete_through`.
+  Latency per statement through adapter and service p50 15.1 ms / p90 27.3 ms,
+  ClickHouse direct 6.8 / 11.4 ms (in process, loaded shared box; the
+  late-row count is one more statement per windowed answer; before it,
+  9.9 / 16.9 ms) [M]. With
   `HDXA_IT_NODE_MODULES` (a `node_modules` holding `@clickhouse/client`
   1.23.0-head.fae5998.1, HyperDX's pin) the real node client runs against the
   adapter: ping, a typed-parameter query in JSON with the label headers and

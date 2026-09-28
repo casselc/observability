@@ -47,7 +47,7 @@ func TestLabels(t *testing.T) {
 	}
 	// a window that ends before complete_through is complete
 	w := &Window{FromNs: ct.Add(-time.Hour).UnixNano(), ToNs: ct.Add(-time.Minute).UnixNano()}
-	l := MakeLabel("central", s, w, now, r.Key(), onlyA)
+	l := MakeLabel("central", s, w, now, r.Key(), onlyA, 0)
 	if l.Completeness != "complete" || l.Partial || l.IncompleteFrom != nil {
 		t.Fatalf("closed window: %+v", l)
 	}
@@ -56,18 +56,18 @@ func TestLabels(t *testing.T) {
 	}
 	// one that extends past it is partial from complete_through on
 	w = &Window{FromNs: ct.Add(-time.Hour).UnixNano(), ToNs: now.UnixNano()}
-	l = MakeLabel("central", s, w, now, r.Key(), onlyA)
+	l = MakeLabel("central", s, w, now, r.Key(), onlyA, 0)
 	if l.Completeness != "partial" || !l.Partial || *l.IncompleteFromNs != ct.UnixNano() {
 		t.Fatalf("open window: %+v", l)
 	}
 	// a window entirely after complete_through is incomplete from its start
 	w = &Window{FromNs: ct.Add(time.Second).UnixNano(), ToNs: now.UnixNano()}
-	l = MakeLabel("central", s, w, now, r.Key(), nil)
+	l = MakeLabel("central", s, w, now, r.Key(), nil, 0)
 	if *l.IncompleteFromNs != w.FromNs {
 		t.Fatalf("incomplete_from %d", *l.IncompleteFromNs)
 	}
 	// no window: up to now, so partial
-	l = MakeLabel("central", s, nil, now, r.Key(), nil)
+	l = MakeLabel("central", s, nil, now, r.Key(), nil, time.Minute)
 	if !l.Partial || l.Completeness != "partial" {
 		t.Fatalf("unbounded: %+v", l)
 	}
@@ -114,7 +114,7 @@ func TestMissingStaleAndErrorAreNeverComplete(t *testing.T) {
 		if s.Status != c.status {
 			t.Errorf("%s: status %s", c.name, s.Status)
 		}
-		l := MakeLabel("central", s, closed(t0.Add(-3*time.Hour)), now, r.Key(), nil)
+		l := MakeLabel("central", s, closed(t0.Add(-3*time.Hour)), now, r.Key(), nil, 0)
 		if l.Completeness != "unknown" || !l.Partial {
 			t.Errorf("%s: a result must not read as complete: %+v", c.name, l)
 		}
@@ -142,7 +142,7 @@ func TestAGoodCopyAgesOutWhenTheStoreFails(t *testing.T) {
 	if s.Status == StatusOK {
 		t.Fatalf("a copy older than max age must not be ok: %+v", s)
 	}
-	if l := MakeLabel("central", s, &Window{FromNs: 0, ToNs: 1}, now, r.Key(), nil); l.Completeness != "unknown" {
+	if l := MakeLabel("central", s, &Window{FromNs: 0, ToNs: 1}, now, r.Key(), nil, 0); l.Completeness != "unknown" {
 		t.Fatalf("%+v", l)
 	}
 }

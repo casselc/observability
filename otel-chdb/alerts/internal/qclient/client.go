@@ -44,9 +44,13 @@ type Response struct {
 	RequestID         string  `json:"request_id"`
 	Source            string  `json:"source"`
 	CompleteThroughNs *uint64 `json:"complete_through_ns"`
-	Completeness      string  `json:"completeness"`
-	Partial           bool    `json:"partial"`
-	Watermark         struct {
+	// MaxLatenessS is the service's bridge from custody time
+	// (complete_through) to event time (the window); absent from a service
+	// that predates it, which is then never trusted with "complete".
+	MaxLatenessS *float64 `json:"max_lateness_s"`
+	Completeness string   `json:"completeness"`
+	Partial      bool     `json:"partial"`
+	Watermark    struct {
 		Status string   `json:"status"`
 		AgeS   *float64 `json:"age_s"`
 		LagS   *float64 `json:"lag_s"`
@@ -160,14 +164,27 @@ func Interpret(status int, body []byte, r *rule.Rule, w rule.Window) engine.Resu
 	for _, l := range q.Watermark.Stale {
 		res.Stale = append(res.Stale, engine.Lane(l))
 	}
-	complete := q.Completeness == "complete" && !q.Partial && q.Watermark.Status == "ok" &&
-		q.CompleteThroughNs != nil && int64(*q.CompleteThroughNs) >= w.ToNs+int64(r.Lateness) &&
+	// The bound, in custody time: the window's end + the service's
+	// max_lateness (the label's own bridge to event time) + the rule's
+	// lateness (the evaluator's extra margin on top of it). The label is
+	// "complete" only past end + max_lateness; the rule waits `lateness`
+	// more.
+	svcLate, hasSvcLate := int64(0), q.MaxLatenessS != nil && *q.MaxLatenessS >= 0
+	if hasSvcLate {
+		svcLate = int64(*q.MaxLatenessS * float64(time.Second))
+	}
+	bound := w.ToNs + svcLate + int64(r.Lateness)
+	labelled := q.Completeness == "complete" && !q.Partial && q.Watermark.Status == "ok" && q.CompleteThroughNs != nil &&
 		q.Query.Window != nil && q.Query.Window.FromNs == w.FromNs && q.Query.Window.ToNs == w.ToNs
 	switch {
-	case complete:
-	case q.Completeness == "complete" && q.Watermark.Status == "ok" && !q.Partial && q.CompleteThroughNs != nil &&
-		int64(*q.CompleteThroughNs) >= w.ToNs && int64(*q.CompleteThroughNs) < w.ToNs+int64(r.Lateness):
-		res.Outcome = engine.Partial // complete by the label, but rows may still arrive within the lateness allowance
+	case labelled && hasSvcLate && int64(*q.CompleteThroughNs) >= bound:
+	case labelled && hasSvcLate && int64(*q.CompleteThroughNs) >= w.ToNs+svcLate:
+		res.Outcome = engine.Partial // complete by the label, but rows may still arrive within the rule's lateness margin
+		return res
+	case labelled && !hasSvcLate:
+		// a service that does not say how it bridges custody time to event
+		// time: its "complete" may be custody-time complete only (CAST row 26)
+		res.Outcome, res.Err = engine.Unknown, "the service's label has no max_lateness: an event-time window cannot be confirmed complete"
 		return res
 	case q.Completeness == "partial" && q.Watermark.Status == "ok":
 		res.Outcome = engine.Partial

@@ -63,6 +63,12 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
   const fromNs = raw.from ? parseTimeNs(raw.from) : bigOrNull(raw.from_ns)
   const toNs = raw.to ? parseTimeNs(raw.to) : bigOrNull(raw.to_ns)
   if (typeof fromNs !== 'bigint' || typeof toNs !== 'bigint') throw new PlanError('bad_plan', 'plan: no window')
+  // max_lateness bridges complete_through (custody time) and the window
+  // (event time); a service that does not report it is not trusted with
+  // "complete" (completeness.js)
+  const ml = raw.max_lateness_s
+  const maxLatenessNs = typeof ml === 'number' && Number.isFinite(ml) && ml >= 0 ? BigInt(Math.round(ml * 1e9)) : null
+  const settled = bigOrNull(raw.settled_through_ns)
   const objects = raw.objects.map((o, i) => {
     if (!o || typeof o.url !== 'string' || !o.url || typeof o.key !== 'string' || !o.key) {
       throw new PlanError('bad_plan', `plan: object ${i} has no url or key`)
@@ -74,6 +80,7 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
       key: o.key, url: o.url, size: o.size, cluster: o.cluster ?? '', producer: o.producer ?? '',
       minTimeNs: minT ?? null, maxTimeNs: maxT ?? null,
       rows: typeof o.rows === 'number' ? o.rows : bigOrNull(o.rows) ?? null, refined: o.refined === true,
+      late: o.late === true,
     }
   })
   const keys = new Set()
@@ -94,6 +101,9 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     partial: raw.partial !== false || completeness !== 'complete',
     completeThroughNs: ct,
     incompleteFromNs: inc,
+    maxLatenessNs,
+    settledThroughNs: settled ?? null,
+    lateObjects: Number.isSafeInteger(raw.late_objects) ? raw.late_objects : 0,
     startComplete: raw.start_complete !== false,
     gcTruncatedLanes: raw.gc_truncated_lanes ?? [],
     gcNote: raw.gc_note ?? '',

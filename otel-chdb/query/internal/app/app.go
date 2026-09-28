@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -44,6 +45,14 @@ type Config struct {
 	Watermark struct {
 		CacheS  int `json:"cache_s"`
 		MaxAgeS int `json:"max_age_s"`
+		// MaxLatenessS bridges custody time (complete_through) and event
+		// time (windows): a window is complete once complete_through ≥ its
+		// end + this (STPA CAST row 26). Default 60; 0 is allowed and
+		// claims the two clocks are one.
+		MaxLatenessS *float64 `json:"max_lateness_s"`
+		// CountLate: a windowed /v1/query counts rows later than
+		// MaxLatenessS (default true).
+		CountLate *bool `json:"count_late"`
 	} `json:"watermark"`
 	CORSOrigins  []string `json:"cors_origins"`
 	MaxBodyBytes int64    `json:"max_body_bytes"`
@@ -97,6 +106,27 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("QS_LAKE_ENABLED"); v != "" {
 		c.LakeEnabled, _ = strconv.ParseBool(v)
 	}
+	if v := os.Getenv("QS_MAX_LATENESS_S"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return nil, fmt.Errorf("QS_MAX_LATENESS_S: %w", err)
+		}
+		c.Watermark.MaxLatenessS = &f
+	}
+	if v := os.Getenv("QS_COUNT_LATE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("QS_COUNT_LATE: %w", err)
+		}
+		c.Watermark.CountLate = &b
+	}
+	if c.Watermark.MaxLatenessS == nil {
+		d := completeness.DefaultMaxLateness.Seconds()
+		c.Watermark.MaxLatenessS = &d
+	}
+	if l := *c.Watermark.MaxLatenessS; l < 0 || l > 86400 || l != l {
+		return nil, fmt.Errorf("watermark.max_lateness_s %v: want 0 to 86400", l)
+	}
 	if c.Audit.Path == "" {
 		return nil, errors.New("audit.path is required: every decision is recorded")
 	}
@@ -134,8 +164,12 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 		b, _, err := st.Get(ctx, key)
 		return b, err
 	}, ctl+"/watermark.json", time.Duration(c.Watermark.CacheS)*time.Second, time.Duration(c.Watermark.MaxAgeS)*time.Second)
+	if c.Watermark.MaxLatenessS != nil {
+		wm.SetMaxLateness(time.Duration(*c.Watermark.MaxLatenessS * float64(time.Second)))
+	}
 	s := &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat,
-		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes}
+		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes,
+		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate}
 	if c.LakeEnabled {
 		s.Planner = lake.New(lc, st, wm)
 	}

@@ -76,6 +76,9 @@ type Server struct {
 	Metrics   *metrics.Registry
 	MaxBody   int64
 	Now       func() time.Time
+	// NoLateCount turns the late-row count off (watermark.count_late:
+	// false); by default a windowed /v1/query counts them (LateInfo).
+	NoLateCount bool
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -101,6 +104,11 @@ func (s *Server) Init() {
 	m.Counter("qs_clickhouse_errors_total", "ClickHouse errors by code (limits included).", "code")
 	m.Counter("qs_audit_errors_total", "Audit records that could not be written (the request was refused if it was a decision).", "event")
 	m.Counter("qs_results_total", "Results served, by source and completeness.", "source", "completeness")
+	m.Counter("qs_late_results_total", "Results holding rows received more than max_lateness after their event time (query: late rows; plan: late objects), by source and completeness.", "source", "completeness")
+	m.Counter("qs_late_count_errors_total", "Late-row counts that failed (the result was served with late.status error).")
+	m.Gauge("qs_max_lateness_seconds", "The max_lateness policy the labels are made with.", func() []metrics.Sample {
+		return []metrics.Sample{{Value: s.Watermark.MaxLateness().Seconds()}}
+	})
 	m.Gauge("qs_watermark_age_seconds", "Now minus the watermark document's wall_ms (NaN when none).", func() []metrics.Sample {
 		st := s.Watermark.Get(context.Background())
 		v := math.NaN()
@@ -338,8 +346,28 @@ type QueryResponse struct {
 	RequestID string `json:"request_id"`
 	completeness.Label
 	Catalog catalog.Info    `json:"catalog"`
+	Late    LateInfo        `json:"late"`
 	Query   QueryInfo       `json:"query"`
 	Result  json.RawMessage `json:"result"`
+}
+
+// LateInfo makes late data visible (STPA CAST row 26): rows of the
+// result's tables, in its window and scope, whose received_at is more than
+// max_lateness after their event time. They are in this result, but a
+// result over the same window labelled complete before they arrived did not
+// have them, and more may come: a non-zero count says max_lateness is too
+// short for this data.
+type LateInfo struct {
+	MaxLatenessS float64 `json:"max_lateness_s"`
+	// Status: counted, no_window (an unbounded statement is not counted),
+	// not_measured (no table read has both a time and a received column),
+	// disabled (watermark.count_late false), error.
+	Status string           `json:"status"`
+	Rows   *int64           `json:"rows"`
+	Tables map[string]int64 `json:"tables,omitempty"`
+	// Uncounted: tables read whose late rows are not measured.
+	Uncounted []string `json:"uncounted,omitempty"`
+	Error     string   `json:"error,omitempty"`
 }
 
 // QueryInfo describes what ran.
@@ -476,19 +504,85 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Metrics.Add("qs_query_rows_read_total", float64(sum.ReadRows))
-	label := completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster)
+	maxLate := s.Watermark.MaxLateness()
+	label := completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
+	late := s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
 	var want []string
 	if !p.AllClusters {
 		want = p.Clusters
 	}
-	resp := QueryResponse{RequestID: rq.id, Label: label, Result: out,
+	resp := QueryResponse{RequestID: rq.id, Label: label, Result: out, Late: late,
 		Catalog: s.Catalog.Lag(r.Context(), p.MayCluster, want),
 		Query: QueryInfo{Hash: res.Hash, Tables: res.Tables, SQL: res.SQL, Scoped: len(res.Filters) > 0, Window: window,
 			RowsRead: sum.ReadRows, ElapsedMs: outcome.ElapsedMs}}
 	outcome.Status = http.StatusOK
 	s.write(outcome)
 	s.Metrics.Inc("qs_results_total", "central", label.Completeness)
+	if late.Rows != nil && *late.Rows > 0 {
+		s.Metrics.Inc("qs_late_results_total", "central", label.Completeness)
+	}
 	s.reply(w, ep, http.StatusOK, resp)
+}
+
+// countLate counts the late rows of a statement's tables, in its window and
+// scope (the same filters), after the statement ran. A failure is reported,
+// never fatal: the result stands, and says its late rows are unknown.
+func (s *Server) countLate(ctx context.Context, res *sqlscope.Result, window *completeness.Window, limits central.Limits,
+	reqID, comment string, maxLate time.Duration) LateInfo {
+	li := LateInfo{MaxLatenessS: maxLate.Seconds()}
+	switch {
+	case s.NoLateCount:
+		li.Status = "disabled"
+		return li
+	case window == nil:
+		li.Status = "no_window"
+		return li
+	}
+	lc, err := s.Policy.LateCount(res, maxLate)
+	if err != nil {
+		li.Status, li.Error = "error", err.Error()
+		s.Metrics.Inc("qs_late_count_errors_total")
+		return li
+	}
+	li.Uncounted = lc.Uncounted
+	if lc.SQL == "" {
+		li.Status = "not_measured"
+		return li
+	}
+	settings := central.Settings(limits, res.FiltersSetting(), reqID+"-late", truncate(comment+":late", 200))
+	out, _, err := s.Central.Query(ctx, lc.SQL, settings)
+	var body struct {
+		Data []struct {
+			T string          `json:"t"`
+			N json.RawMessage `json:"n"`
+		} `json:"data"`
+	}
+	if err == nil {
+		err = json.Unmarshal(out, &body)
+	}
+	var total int64
+	tables := map[string]int64{}
+	if err == nil {
+		for _, d := range body.Data {
+			n, perr := strconv.ParseInt(strings.Trim(string(d.N), `"`), 10, 64)
+			if perr != nil {
+				err = fmt.Errorf("late count for %s: %q is not a count", d.T, d.N)
+				break
+			}
+			tables[d.T] += n
+			total += n
+		}
+	}
+	if err == nil && len(tables) != len(lc.Counted) {
+		err = fmt.Errorf("late count answered %d tables, %d were asked", len(tables), len(lc.Counted))
+	}
+	if err != nil {
+		li.Status, li.Error = "error", truncate(err.Error(), 500)
+		s.Metrics.Inc("qs_late_count_errors_total")
+		return li
+	}
+	li.Status, li.Rows, li.Tables = "counted", &total, tables
+	return li
 }
 
 func rejectionCode(reason string) int {
@@ -589,6 +683,9 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.Metrics.Add("qs_planned_bytes_total", float64(plan.TotalBytes))
 	s.Metrics.Add("qs_plan_mismatched_objects_total", float64(plan.Mismatched))
 	s.Metrics.Inc("qs_results_total", "lake", plan.Completeness)
+	if plan.LateObjects > 0 {
+		s.Metrics.Inc("qs_late_results_total", "lake", plan.Completeness)
+	}
 	s.reply(w, ep, http.StatusOK, PlanResponse{RequestID: rq.id, Plan: plan})
 }
 

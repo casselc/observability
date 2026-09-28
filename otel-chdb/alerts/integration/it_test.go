@@ -374,11 +374,12 @@ func TestIntegration(t *testing.T) {
 			"group_grants": map[string]any{"alerts-fleet": map[string]any{"clusters": []string{"*"}, "namespaces": []string{"*"}, "roles": []string{"query"}}}},
 		"audit": map[string]any{"path": filepath.Join(r.dir, "audit.jsonl")},
 		"central": map[string]any{"url": r.ch, "user": r.ro, "password_env": "ALR_IT_RO_PASS", "database": r.db,
-			"tables": []any{map[string]any{"name": "otel_logs", "time_column": "Timestamp", "scope": "columns",
+			"tables": []any{map[string]any{"name": "otel_logs", "time_column": "Timestamp", "received_column": "received_at", "scope": "columns",
 				"cluster_expr": "`__hdx_materialized_k8s.cluster.name`", "namespace_expr": "`__hdx_materialized_k8s.namespace.name`"}}},
-		"s3":        map[string]any{"endpoint": r.s3url, "bucket": r.bucket, "region": "us-east-1"},
-		"lake":      map[string]any{"root": r.run},
-		"watermark": map[string]any{"cache_s": 1, "max_age_s": 12},
+		"s3":   map[string]any{"endpoint": r.s3url, "bucket": r.bucket, "region": "us-east-1"},
+		"lake": map[string]any{"root": r.run},
+		// max_lateness 1 s + the rules' lateness 1 s: the 2 s the story was timed with
+		"watermark": map[string]any{"cache_s": 1, "max_age_s": 12, "max_lateness_s": 1},
 	}
 	qb, _ := json.Marshal(qcfg)
 	qpath := filepath.Join(r.dir, "queryd.json")
@@ -429,7 +430,7 @@ rules:
 `
 	t.Setenv("ALR_IT_SECRET_FLEET", "fleet-secret")
 	t.Setenv("ALR_IT_SECRET_AA", "aa-secret")
-	lateness := 2
+	lateness := 1 // on top of the service's max_lateness (1 s)
 	mkReplica := func(name string) (*runner.Runner, context.CancelFunc, chan struct{}) {
 		rules, err := rule.Parse([]byte(rulesYAML))
 		if err != nil {

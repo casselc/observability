@@ -28,10 +28,10 @@
     "database": "otel",
     "max_sql_bytes": 65536,
     "tables": [
-      {"name": "otel_logs", "time_column": "Timestamp", "scope": "columns",
+      {"name": "otel_logs", "time_column": "Timestamp", "received_column": "received_at", "scope": "columns",
        "cluster_expr": "`__hdx_materialized_k8s.cluster.name`",
        "namespace_expr": "`__hdx_materialized_k8s.namespace.name`"},
-      {"name": "otel_traces", "time_column": "Timestamp", "scope": "columns",
+      {"name": "otel_traces", "time_column": "Timestamp", "received_column": "received_at", "scope": "columns",
        "cluster_expr": "ResourceAttributes['k8s.cluster.name']",
        "namespace_expr": "ResourceAttributes['k8s.namespace.name']"},
       {"name": "otel_metrics_series", "scope": "fleet"},
@@ -55,7 +55,7 @@
   "lake_enabled": true,
   "lake": {"root": "edges", "url_ttl_s": 300, "replan_margin_s": 60, "max_objects": 2000, "max_heads": 2000,
            "skew_s": 300, "max_window_s": 86400},
-  "watermark": {"cache_s": 15, "max_age_s": 300},
+  "watermark": {"cache_s": 15, "max_age_s": 300, "max_lateness_s": 60, "count_late": true},
   "cors_origins": ["https://lake-ui.example.com"],
   "max_body_bytes": 1048576
 }

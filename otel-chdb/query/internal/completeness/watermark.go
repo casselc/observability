@@ -3,12 +3,23 @@
 // its complete_through, how fresh that is, and whether the result's window
 // extends past it. A missing, unreadable or stale document makes every
 // result's completeness "unknown", never "complete".
+//
+// Two clocks (STPA CAST row 26): complete_through bounds CUSTODY time (every
+// row with received_at below it is in central); a result's window is EVENT
+// time. One policy value bridges them, max_lateness: a row is assumed to be
+// received no later than max_lateness after its event time. Rows with an
+// event time below complete_through − max_lateness ("settled_through") are
+// then all in, and an event-time window is complete only once
+// complete_through ≥ its end + max_lateness. A row later than the bound is
+// late data: the query service counts it (visible, not silent), but no
+// label can promise it.
 package completeness
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +64,8 @@ type Reader struct {
 	ttl    time.Duration // re-read after this
 	maxAge time.Duration // a document published longer ago than this is stale
 	now    func() time.Time
+	// maxLateness bridges custody time and event time (package comment).
+	maxLateness time.Duration
 
 	mu    sync.Mutex
 	state State
@@ -67,10 +80,21 @@ type State struct {
 	Err       string
 }
 
-// NewReader reads key through get.
+// DefaultMaxLateness is max_lateness when the configuration names none
+// (watermark.max_lateness_s): a default of the policy, not of the design.
+const DefaultMaxLateness = 60 * time.Second
+
+// NewReader reads key through get, labelling with DefaultMaxLateness.
 func NewReader(get Getter, key string, ttl, maxAge time.Duration) *Reader {
-	return &Reader{get: get, key: key, ttl: ttl, maxAge: maxAge, now: time.Now}
+	return &Reader{get: get, key: key, ttl: ttl, maxAge: maxAge, now: time.Now, maxLateness: DefaultMaxLateness}
 }
+
+// SetMaxLateness sets the policy (negative is 0; 0 claims that event time
+// and custody time are the same clock).
+func (r *Reader) SetMaxLateness(d time.Duration) { r.maxLateness = max(d, 0) }
+
+// MaxLateness is the policy every label of this watermark is made with.
+func (r *Reader) MaxLateness() time.Duration { return r.maxLateness }
 
 // SetClock replaces the clock (tests).
 func (r *Reader) SetClock(now func() time.Time) { r.now = now }
@@ -140,12 +164,22 @@ type Window struct {
 // Label is what every response carries (R-S1, R-S2).
 type Label struct {
 	Source string `json:"source"`
-	// CompleteThrough is null when unknown.
+	// CompleteThrough is null when unknown. It is CUSTODY time: every row
+	// received before it is in the source.
 	CompleteThrough   *string `json:"complete_through"`
 	CompleteThroughNs *uint64 `json:"complete_through_ns"`
+	// MaxLatenessS is the policy that bridges the two clocks: a row is
+	// assumed received within this long after its event time.
+	MaxLatenessS float64 `json:"max_lateness_s"`
+	// SettledThrough is EVENT time, complete_through − max_lateness: rows
+	// with an event time before it are all in, within the policy. Null when
+	// complete_through is.
+	SettledThrough   *string `json:"settled_through"`
+	SettledThroughNs *int64  `json:"settled_through_ns"`
 	// Completeness: "complete" (the window ends at or before
-	// complete_through, and the watermark is current), "partial" (it extends
-	// past it; IncompleteFrom says where), or "unknown".
+	// settled_through, i.e. complete_through ≥ its end + max_lateness, and
+	// the watermark is current), "partial" (it extends past it;
+	// IncompleteFrom says where, in event time), or "unknown".
 	Completeness     string  `json:"completeness"`
 	Partial          bool    `json:"partial"`
 	IncompleteFrom   *string `json:"incomplete_from,omitempty"`
@@ -168,10 +202,13 @@ type WmInfo struct {
 	Note string `json:"note,omitempty"`
 }
 
-// MakeLabel labels a result of source over window w (nil: unbounded, up to
-// now) with state s. mayCluster filters the lanes named in the document.
-func MakeLabel(source string, s State, w *Window, now time.Time, key string, mayCluster func(string) bool) Label {
-	l := Label{Source: source, Watermark: WmInfo{Status: s.Status, Key: key, Error: s.Err}}
+// MakeLabel labels a result of source over the event-time window w (nil:
+// unbounded, up to now) with state s, bridging custody time to event time
+// by maxLateness (package comment). mayCluster filters the lanes named in
+// the document.
+func MakeLabel(source string, s State, w *Window, now time.Time, key string, mayCluster func(string) bool, maxLateness time.Duration) Label {
+	maxLateness = max(maxLateness, 0)
+	l := Label{Source: source, MaxLatenessS: maxLateness.Seconds(), Watermark: WmInfo{Status: s.Status, Key: key, Error: s.Err}}
 	if !s.FetchedAt.IsZero() {
 		l.Watermark.FetchedAt = s.FetchedAt.UTC().Format(time.RFC3339Nano)
 	}
@@ -196,11 +233,15 @@ func MakeLabel(source string, s State, w *Window, now time.Time, key string, may
 			l.Watermark.Stale = append(l.Watermark.Stale, x)
 		}
 	}
-	from := int64(ct)
+	// event time settled through: complete_through − max_lateness
+	settled := SettledNs(ct, maxLateness)
+	sts := time.Unix(0, settled).UTC().Format(time.RFC3339Nano)
+	l.SettledThrough, l.SettledThroughNs = &sts, &settled
+	from := settled
 	if w != nil && w.FromNs > from {
 		from = w.FromNs
 	}
-	past := w == nil || w.ToNs > int64(ct)
+	past := w == nil || w.ToNs > settled
 	if past {
 		l.Partial = true
 		fs := time.Unix(0, from).UTC().Format(time.RFC3339Nano)
@@ -216,6 +257,16 @@ func MakeLabel(source string, s State, w *Window, now time.Time, key string, may
 		l.Completeness = "complete"
 	}
 	return l
+}
+
+// SettledNs is complete_through − maxLateness in int64 ns, saturating.
+func SettledNs(ct uint64, maxLateness time.Duration) int64 {
+	v := int64(min(ct, math.MaxInt64))
+	d := int64(max(maxLateness, 0))
+	if v < math.MinInt64+d {
+		return math.MinInt64
+	}
+	return v - d
 }
 
 // laneAllowed: a lane id is {cluster}/{producer}/{signal}.

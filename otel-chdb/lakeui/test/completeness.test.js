@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { bannerText, bucketState, buckets, incompleteStart, resultState, rowState, segments } from '../src/completeness.js'
 
-const L = (over) => ({ state: 'partial', fromNs: 0n, toNs: 1000n, completeThroughNs: 600n, incompleteFromNs: 600n, startComplete: true, watermarkStatus: 'ok', ...over })
+const L = (over) => ({ state: 'partial', fromNs: 0n, toNs: 1000n, completeThroughNs: 600n, incompleteFromNs: 600n, maxLatenessNs: 0n, startComplete: true, watermarkStatus: 'ok', ...over })
 
 test('examples: complete, partial, unknown', () => {
   assert.deepEqual(segments(L({ state: 'complete', toNs: 600n })), [{ fromNs: 0n, toNs: 600n, state: 'complete' }])
@@ -23,6 +23,57 @@ test('examples: complete, partial, unknown', () => {
   assert.match(bannerText(L()).text, /Complete through 600; incomplete from 600/)
 })
 
+// CAST row 26: complete_through is receive (custody) time; the window is
+// event time. A row with event time 950 received at 1050 is not in central
+// while complete_through is 1000, so [0, 1000) must not be drawn settled.
+test('max_lateness: event time settles complete_through − max_lateness', () => {
+  const late = L({ state: 'partial', completeThroughNs: 1000n, incompleteFromNs: 900n, maxLatenessNs: 100n })
+  assert.equal(incompleteStart(late), 900n)
+  assert.equal(rowState(late, 950n), 'incomplete')
+  assert.equal(resultState(late), 'incomplete')
+  assert.match(bannerText(late).text, /event time settled through 900 \(max lateness 1e-7 s\)/)
+  // a label that says complete without the bound behind it is not believed
+  const lying = L({ state: 'complete', completeThroughNs: 1000n, incompleteFromNs: null, maxLatenessNs: 100n })
+  assert.equal(incompleteStart(lying), 900n)
+  assert.equal(resultState(lying), 'incomplete')
+  // nor one from a service that does not report max_lateness at all
+  const old = L({ state: 'complete', completeThroughNs: 5000n, incompleteFromNs: null, maxLatenessNs: null })
+  assert.deepEqual(segments(old), [{ fromNs: 0n, toNs: 1000n, state: 'incomplete' }])
+  assert.match(bannerText(old).text, /did not report max_lateness/)
+  // settled past the window's end: complete
+  assert.equal(resultState(L({ state: 'complete', completeThroughNs: 1100n, incompleteFromNs: null, maxLatenessNs: 100n })), 'complete')
+  assert.match(bannerText(L({ lateObjects: 2 })).text, /2 object\(s\) arrived later than max lateness/)
+})
+
+// labels as the fixed service makes them, max_lateness included
+const lateLabel = fc.record({
+  state: fc.constantFrom('complete', 'partial'),
+  fromNs: fc.bigInt({ min: 0n, max: 10n ** 6n }),
+  len: fc.bigInt({ min: 1n, max: 10n ** 6n }),
+  ct: fc.bigInt({ min: 0n, max: 3n * 10n ** 6n }),
+  ml: fc.option(fc.bigInt({ min: 0n, max: 10n ** 6n }), { nil: null }),
+  honest: fc.boolean(),
+}).map(r => {
+  const toNs = r.fromNs + r.len
+  const settled = r.ct - (r.ml ?? 0n)
+  let state = r.state
+  if (r.honest && state === 'complete' && settled < toNs) state = 'partial'
+  const inc = state === 'partial' && r.honest ? (settled > r.fromNs ? settled : r.fromNs) : null
+  return { state, fromNs: r.fromNs, toNs, completeThroughNs: r.ct, incompleteFromNs: inc, maxLatenessNs: r.ml, startComplete: true, watermarkStatus: 'ok' }
+})
+
+test('property: nothing at or after complete_through − max_lateness is drawn complete, whatever the label says', () => {
+  fc.assert(fc.property(lateLabel, l => {
+    const segs = segments(l)
+    for (const s of segs) {
+      if (s.state !== 'complete') continue
+      assert.ok(l.maxLatenessNs !== null, 'no max_lateness, nothing settled')
+      assert.ok(s.toNs <= l.completeThroughNs - l.maxLatenessNs, 'a complete segment ends at or before settled_through')
+    }
+    if (resultState(l) === 'complete') assert.ok(l.maxLatenessNs !== null && l.completeThroughNs - l.maxLatenessNs >= l.toNs)
+  }), { numRuns: 3000 })
+})
+
 // arbitrary labels as the service can produce them (and some it shouldn't)
 const label = fc.record({
   state: fc.constantFrom('complete', 'partial', 'unknown'),
@@ -36,7 +87,7 @@ const label = fc.record({
   if (r.ct !== null && r.state !== 'unknown' && toNs > r.ct) inc = r.ct > r.fromNs ? r.ct : r.fromNs
   // a "complete" label from the service never has a window past complete_through
   const state = r.state === 'complete' && (r.ct === null || toNs > r.ct) ? 'partial' : r.state
-  return { state, fromNs: r.fromNs, toNs, completeThroughNs: state === 'unknown' ? r.ct : r.ct, incompleteFromNs: inc, startComplete: r.startComplete, watermarkStatus: 'ok' }
+  return { state, fromNs: r.fromNs, toNs, completeThroughNs: state === 'unknown' ? r.ct : r.ct, incompleteFromNs: inc, maxLatenessNs: 0n, startComplete: r.startComplete, watermarkStatus: 'ok' }
 })
 
 test('property: segments tile the window in order, and nothing after complete_through is complete', () => {

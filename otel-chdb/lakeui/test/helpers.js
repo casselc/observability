@@ -38,7 +38,7 @@ export function planOf(objs, over = {}) {
   return {
     requestId: over.requestId ?? 'r1', source: 'lake', signal: over.signal ?? 'logs', clusters: ['c'], fromNs, toNs,
     completeness: over.completeness ?? 'complete', partial: false, completeThroughNs: over.completeThroughNs ?? toNs,
-    incompleteFromNs: over.incompleteFromNs ?? null, startComplete: true, watermark: { status: 'ok' },
+    incompleteFromNs: over.incompleteFromNs ?? null, maxLatenessNs: over.maxLatenessNs ?? 0n, startComplete: true, watermark: { status: 'ok' },
     expiresAtMs: over.expiresAtMs ?? Infinity, replanAfterMs: over.replanAfterMs ?? Infinity, fetchedAtMs: 0,
     objects: objs.map(o => ({ minTimeNs: null, maxTimeNs: null, rows: null, refined: false, cluster: 'c', producer: 'p', ...o })),
     totalBytes: objs.reduce((a, o) => a + o.size, 0),

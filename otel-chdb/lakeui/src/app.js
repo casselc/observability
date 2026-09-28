@@ -2,7 +2,7 @@
 // anything (plans, reads, re-plans, completeness) is in the plain modules
 // beside this one; this file only wires them to the DOM.
 
-import { bannerText, incompleteStart } from './completeness.js'
+import { bannerText, incompleteStart, settledThrough } from './completeness.js'
 import { execute } from './engine.js'
 import { histogramSVG, legendHTML, lineSVG, waterfallHTML, esc } from './charts.js'
 import { formatTimeNs, msToNs, parseTimeNs, shortTime } from './ns.js'
@@ -197,6 +197,9 @@ function summaryOf(out) {
     status: out.status, state: out.state, requestId: p.requestId, completeness: p.completeness,
     completeThrough: p.completeThroughNs === null ? null : formatTimeNs(p.completeThroughNs),
     incompleteFrom: incompleteStart(out.label) === null ? null : formatTimeNs(incompleteStart(out.label)),
+    // event time settled: complete_through − max_lateness (null without max_lateness)
+    settledThrough: settledThrough(out.label) === null ? null : formatTimeNs(settledThrough(out.label)),
+    lateObjects: p.lateObjects ?? 0,
     objects: p.objects.length, plannedBytes: p.totalBytes, fetchedBytes: out.stats.bytes, requests: out.stats.requests,
     perObject: [...out.stats.perKey].map(([k, v]) => ({ key: k, bytes: v.bytes, requests: v.requests, size: p.objects.find(o => o.key === k)?.size ?? null })),
     replans: out.replans, missing: out.missing, reason: out.reason ?? '',

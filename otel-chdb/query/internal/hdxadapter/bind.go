@@ -19,7 +19,10 @@
 //     serves as metadata;
 //   - derives the statement's time window from its own bounds when that is
 //     provably a no-op on the rows (window.go), so the completeness label
-//     can say "complete".
+//     can say "complete" (once complete_through, custody time, is past the
+//     window's end + max_lateness: X-Otel-Settled-Through, event time, is
+//     at or after it). A metadata statement's columns are the service's
+//     allow-list: `SELECT *` on system.tables answers only those.
 package hdxadapter
 
 import (

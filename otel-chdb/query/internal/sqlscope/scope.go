@@ -41,13 +41,21 @@ type Table struct {
 	// database whose rows describe schema, not telemetry: system.tables,
 	// system.columns, ... ; no per-row scope, any caller with the query role.
 	// What it shows is cut by ClickHouse's grants to the tables the read-only
-	// user can read, which are the served ones).
+	// user can read, which are the served ones; and every read of it is
+	// projected to Columns, see metadata.go).
 	Scope      string `json:"scope"`
 	Cluster    string `json:"cluster_expr"`
 	Namespace  string `json:"namespace_expr"`
 	ResourceID string `json:"resource_id_column"`
+	// ReceivedColumn is the row's custody time (received_at, FORMAT.md §1):
+	// with TimeColumn, it lets the service count late rows (late.go).
+	ReceivedColumn string `json:"received_column"`
+	// Columns: for a metadata table, the only columns a statement may read
+	// (default: MetadataColumns[name]). Not allowed on other scopes.
+	Columns []string `json:"columns"`
 
-	cluster, namespace, rid, tcol chp.Expr
+	cluster, namespace, rid, tcol, rcol chp.Expr
+	projection                          string // metadata: SELECT <Columns> FROM system.<name>
 }
 
 // FQN is the table's canonical database.table name.
@@ -94,13 +102,23 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 		case "metadata":
 			// only the system database: a data table configured as metadata
 			// would be read unscoped
-			if t.Database != "system" || t.TimeColumn != "" {
+			if t.Database != "system" || t.TimeColumn != "" || t.ReceivedColumn != "" {
 				return nil, fmt.Errorf("table %s: scope metadata is only for system tables, without a time column", t.FQN())
+			}
+			if err := t.metadataProjection(); err != nil {
+				return nil, err
 			}
 		default:
 			return nil, fmt.Errorf("table %s: scope must be columns, catalog, fleet or metadata, not %q", t.FQN(), t.Scope)
 		}
+		if t.Scope != "metadata" && len(t.Columns) > 0 {
+			return nil, fmt.Errorf("table %s: columns is an allow-list for metadata tables only", t.FQN())
+		}
+		if t.ReceivedColumn != "" && t.TimeColumn == "" {
+			return nil, fmt.Errorf("table %s: received_column needs a time_column (late rows are received − time)", t.FQN())
+		}
 		t.tcol = parse(t.TimeColumn)
+		t.rcol = parse(t.ReceivedColumn)
 		if err != nil {
 			return nil, fmt.Errorf("table %s: %w", t.FQN(), err)
 		}
@@ -410,6 +428,7 @@ func (pr *Prepared) Finish(s Scope) (*Result, error) {
 			res.Filters[t.FQN()] = text
 		}
 	}
+	pr.projectMetadata()
 	res.SQL = chp.Format(pr.root)
 	again, err := pr.policy.Prepare(res.SQL)
 	if err != nil {
@@ -420,6 +439,11 @@ func (pr *Prepared) Finish(s Scope) (*Result, error) {
 	}
 	if !sameTables(again.tables, pr.tables) {
 		return nil, reject("roundtrip", "the rebuilt statement reads other tables")
+	}
+	// what ClickHouse receives reads each metadata table only through its
+	// allow-listed projection
+	if err := pr.policy.checkProjected(again.root); err != nil {
+		return nil, err
 	}
 	h := sha256.New()
 	h.Write([]byte(res.SQL))

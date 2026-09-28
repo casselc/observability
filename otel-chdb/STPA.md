@@ -181,9 +181,9 @@ Ten requirements come out of this pass; all are P0 unless marked, and each trace
 
 | ID | Requirement | From |
 | --- | --- | --- |
-| R-S1 | Every result carries its source and complete-through time; the UI shows both on every view | SC-2, LS-6, TM-1 |
+| R-S1 | Every result carries its source and complete-through time for its own scope (the clusters and signals it reads, named in the result; D29), and which event time that settles (D26); the UI shows them on every view | SC-2, LS-6, TM-1 |
 | R-S2 | Windows not yet complete are drawn as incomplete, and counts over them are marked partial | TM-2, UCA-10 |
-| R-S3 | Alerts evaluate only up to the complete-through time; a failed evaluation pages | LS-7, LS-8, TM-3 |
+| R-S3 | Alerts evaluate only up to the complete-through time of the rule's own scope (D29), plus the lateness bound (D26); a failed or unevaluable window pages | LS-7, LS-8, TM-3 |
 | R-S4 | Silences and pinned snapshots have an owner and an expiry, shown at handoff | TM-4, UCA-14 |
 | R-S5 | Views show catalog lag and rows without an entity match | LS-5, TM-6 |
 | R-S6 | Retention changes are refused if shorter than the longest configured edge-buffer outage (custody age; see DECISIONS.md D19) | LS-10, UCA-15 |

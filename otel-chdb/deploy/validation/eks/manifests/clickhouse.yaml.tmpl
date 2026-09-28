@@ -1,0 +1,46 @@
+# A single ClickHouse for the EKS validation's exactly-once checks (not the
+# replicated central: central-idle-bench.md measures that). Rendered by
+# deploy.sh. Pin CH_IMAGE to the build the local results used (26.10.1.618).
+apiVersion: v1
+kind: Service
+metadata: {name: clickhouse, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  selector: {app: clickhouse}
+  ports: [{name: http, port: 8123}, {name: native, port: 9000}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: clickhouse, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector: {matchLabels: {app: clickhouse}}
+  template:
+    metadata: {labels: {app: clickhouse}}
+    spec:
+      nodeSelector: {otel-validate/pool: main}
+      containers:
+        - name: clickhouse
+          image: {{CH_IMAGE}}
+          env:
+            - {name: CLICKHOUSE_SKIP_USER_SETUP, value: "1"}   # default user, no password, reachable only in-cluster (NetworkPolicy below)
+          ports: [{containerPort: 8123}, {containerPort: 9000}]
+          resources:
+            requests: {cpu: "2", memory: 8Gi}
+            limits: {memory: 8Gi}
+          readinessProbe: {httpGet: {path: /ping, port: 8123}, periodSeconds: 5}
+          volumeMounts: [{name: data, mountPath: /var/lib/clickhouse}]
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: {requests: {storage: 100Gi}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: clickhouse-in-namespace, namespace: otel-validate}
+spec:
+  podSelector: {matchLabels: {app: clickhouse}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{podSelector: {}}]

@@ -9,6 +9,7 @@ about an hour and end in a decision, not a to-do list.
 |---|---|
 | `s3accept` (Go, one static binary) | Does the store do what the design needs: atomic create-only and If-Match writes, ambiguous outcomes that can be resolved, metadata on HEAD, consistent reads and LIST, 404 for free slots, the SDKs' default checksums? And what latency does it give at our object sizes? |
 | `s3accept creds` | Which credential mode is live? Does each configured mode work end to end, and does refresh work? |
+| `s3accept load` | Where does the store throttle create-only PUTs in the format-v2 layout (per-prefix limits)? Used by `../deploy/validation/` (eks-aws.md §5, nutanix.md §2). |
 | `credcheck/clickhouse-central.sql` | Can the central ClickHouse read the edge's objects keyless with its own credentials, and does the 26.10 restriction apply? |
 | `rates/` | Real spans, logs and series per pod and per node, and the scrape interval, turned into the sizing calculator's inputs. |
 
@@ -537,6 +538,7 @@ acceptance/
     checks_cond.go                 create-only, plain-put, if-match, cond-delete, races, ambiguity, multipart
     checks_misc.go                 identity, metadata, read-after-write, list, head-missing, checksum, bucket-config, clock, cleanup
     perf.go                        latency and throughput
+    load.go                        `load` mode: create-only PUTs at a target rate in the v2 layout, 503/409/… per second
     creds.go                       `creds` mode: per-mode isolation, refresh, hold
     report.go                      results, capabilities and verdicts, table, JSON
     fake_test.go                   an in-memory S3 (honest / ignoring / racy) the checks must judge correctly

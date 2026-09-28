@@ -9,6 +9,7 @@
 //	s3accept [run]  --url s3://bucket/prefix | --bucket B [--prefix P] [--endpoint URL] ...
 //	s3accept creds  (same connection flags) [--hold 65m]
 //	s3accept cleanup (same connection flags)   deletes everything under the prefix
+//	s3accept load   (same connection flags) --load-rate N --load-duration D ...   create-only PUT load (load.go)
 //
 // See ../RUNBOOK.md.
 package main
@@ -141,9 +142,9 @@ func main() {
 		mode, args = args[0], args[1:]
 	}
 	switch mode {
-	case "run", "creds", "cleanup":
+	case "run", "creds", "cleanup", "load":
 	default:
-		fmt.Fprintf(os.Stderr, "unknown mode %q (run | creds | cleanup)\n", mode)
+		fmt.Fprintf(os.Stderr, "unknown mode %q (run | creds | cleanup | load)\n", mode)
 		os.Exit(2)
 	}
 	fs := flag.NewFlagSet("s3accept "+mode, flag.ExitOnError)
@@ -169,6 +170,7 @@ func main() {
 	only := fs.String("only", "", "comma-separated check ids to run (default all)")
 	skip := fs.String("skip", "", "comma-separated check ids to skip")
 	keep := fs.Bool("keep", false, "do not delete this run's objects")
+	runID := fs.String("run-id", "", "use this run id instead of a new one (several load processes writing one prefix)")
 	yes := fs.Bool("yes", false, "cleanup: do not ask (required when the prefix does not contain 'accept')")
 	p := Params{}
 	fs.IntVar(&p.RaceWriters, "race-writers", 16, "create-race: concurrent writers per round")
@@ -190,7 +192,24 @@ func main() {
 	hold := fs.Duration("hold", 0, "creds: after the checks, keep making a request every --every for this long (spans a real refresh)")
 	every := fs.Duration("every", 30*time.Second, "creds: interval for --hold")
 	sample := fs.Bool("leave-sample", false, "creds: leave {prefix}/creds/sample.tsv for the ClickHouse keyless s3() check")
+	// load mode
+	lp := LoadParams{}
+	fs.IntVar(&lp.Rate, "load-rate", 1000, "load: target create-only PUTs per second (open loop)")
+	fs.DurationVar(&lp.Duration, "load-duration", 5*time.Minute, "load: how long")
+	fs.DurationVar(&lp.Ramp, "load-ramp", time.Minute, "load: linear ramp from 0 to --load-rate")
+	fs.IntVar(&lp.Workers, "load-workers", 256, "load: concurrent PUTs at most (Little: rate x latency)")
+	fs.IntVar(&lp.Clusters, "load-clusters", 20, "load: clusters in the cluster-first layout")
+	fs.IntVar(&lp.Producers, "load-producers", 3, "load: publishers per cluster")
+	fs.IntVar(&lp.Signals, "load-signals", 7, "load: signals (lanes) per publisher, 1-7")
+	fs.StringVar(&lp.Layout, "load-layout", "cluster-first", "load: cluster-first | single-lane | hashed")
+	lsize := fs.String("load-size", "1KB", "load: body size (request count, not bytes, is what S3 limits)")
+	fs.DurationVar(&lp.Every, "load-every", 10*time.Second, "load: progress line interval")
 	fs.Parse(args)
+	if n, err := parseSizes(*lsize); err != nil || len(n) != 1 {
+		fatal(fmt.Errorf("--load-size %q: want one size", *lsize))
+	} else {
+		lp.Size = n[0]
+	}
 
 	var err error
 	if p.PerfSizes, err = parseSizes(*sizes); err != nil {
@@ -205,6 +224,12 @@ func main() {
 		fatal(err)
 	}
 	run := time.Now().UTC().Format("20060102T150405") + "-" + randHex(3)
+	if *runID != "" {
+		if strings.ContainsAny(*runID, "/ ") {
+			fatal(fmt.Errorf("--run-id %q: no '/' or spaces", *runID))
+		}
+		run = *runID
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if *out == "" {
@@ -235,6 +260,19 @@ func main() {
 		return
 	}
 
+	if mode == "load" {
+		if *dry {
+			fmt.Printf("DRY RUN: would send create-only PUTs at %d/s for %s to s3://%s/%s/%s/load/%s/, then delete them\n",
+				lp.Rate, lp.Duration, o.Bucket, o.Prefix, run, lp.Layout)
+			return
+		}
+		e, err := newEnv(ctx, o)
+		if err != nil {
+			fatal(err)
+		}
+		e.Run, e.Root = run, o.Prefix+"/"+run
+		os.Exit(runLoad(ctx, e, lp, *out, *keep))
+	}
 	sel := selectChecks(*only, *skip)
 	if *dry {
 		dryRun(o, p, run, sel, *keep, *out)

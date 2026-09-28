@@ -1,0 +1,59 @@
+# eksctl ClusterConfig for the validation cluster (eks-aws.md §1). Rendered by
+# up.sh ({{KEY}} from the environment); the result is in $STATE/cluster.yaml.
+#
+# Small on purpose: 3 x m6i.xlarge (4 vCPU, 16 GiB) take the 3 publishers
+# (1 CPU / 2 GiB each), one agent per node, ClickHouse (2 CPU / 8 GiB) and the
+# toolbox. A second node group, ng-clock, has no nodes until clocks-and-skew.md
+# §4 scales it to one: its node's clock is stepped on purpose, and its taint
+# keeps everything else off it.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: {{CLUSTER}}
+  region: {{REGION}}
+  version: "{{K8S_VERSION}}"
+  tags:
+    created-by: otel-chdb-validation
+    run: {{RUN}}
+iam:
+  withOIDC: true                      # IRSA (the OIDC provider)
+vpc:
+  nat:
+    gateway: Single                   # STS, ECR and the SSM agent; S3 goes through the gateway endpoint (up.sh)
+addonsConfig:
+  autoApplyPodIdentityAssociations: true
+addons:
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+  - name: eks-pod-identity-agent      # Pod Identity
+  - name: aws-ebs-csi-driver          # the publishers' 50 Gi buffer PVCs (up.sh adds a gp3 StorageClass)
+managedNodeGroups:
+  - name: ng-main
+    amiFamily: AmazonLinux2023
+    instanceTypes: ["{{INSTANCE_TYPE}}"]
+    desiredCapacity: {{NODES}}
+    minSize: {{NODES}}
+    maxSize: {{NODES_MAX}}
+    volumeSize: 80
+    privateNetworking: true
+    disableIMDSv1: true
+    disablePodIMDS: true              # hop limit 1: a pod whose webhook did not fire cannot fall back to the node role
+    labels: {otel-validate/pool: main}
+    tags: {created-by: otel-chdb-validation, run: {{RUN}}}
+  - name: ng-clock
+    amiFamily: AmazonLinux2023
+    instanceTypes: ["{{INSTANCE_TYPE}}"]
+    desiredCapacity: 0
+    minSize: 0
+    maxSize: 1
+    volumeSize: 80
+    privateNetworking: true
+    disableIMDSv1: true
+    disablePodIMDS: true
+    labels: {otel-validate/pool: clock}
+    taints:
+      - key: otel-validate/clock
+        value: step
+        effect: NoSchedule
+    tags: {created-by: otel-chdb-validation, run: {{RUN}}}

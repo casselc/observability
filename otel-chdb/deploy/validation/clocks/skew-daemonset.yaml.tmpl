@@ -1,0 +1,27 @@
+# One clock probe per node (clocks-and-skew.md §2): sntp_probe.py from the
+# ConfigMap clock-probe (clocks/run.sh creates it), every node including
+# tainted ones. A pod reads its node's clock: no privileges, no host network.
+# REFS: on EKS the Amazon Time Sync Service (169.254.169.123, link-local, what
+# the nodes' chrony follows) and a public reference to catch a shared bias;
+# on-premises the site's NTP servers.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: clock-probe, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  selector: {matchLabels: {app: clock-probe}}
+  template:
+    metadata: {labels: {app: clock-probe}}
+    spec:
+      tolerations: [{operator: Exists}]
+      volumes: [{name: probe, configMap: {name: clock-probe}}]
+      containers:
+        - name: probe
+          image: {{PY_IMAGE}}
+          command: ["python3", "-u", "/probe/sntp_probe.py"]
+          env:
+            - {name: REFS, value: "{{REFS}}"}
+            - {name: EVERY, value: "{{EVERY}}"}
+            - {name: CH_URL, value: "{{CH_URL}}"}
+            - {name: NODE, valueFrom: {fieldRef: {fieldPath: spec.nodeName}}}
+          volumeMounts: [{name: probe, mountPath: /probe}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 64Mi}}

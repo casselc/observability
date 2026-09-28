@@ -1,0 +1,55 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Cluster1CreatesAndReadsItsPrefixOnly",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["{{P1}}"]},
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::{{BUCKET}}/{{ROOT}}/{{C1}}/*"
+    },
+    {
+      "Sid": "Cluster2CreatesAndReadsItsPrefixOnly",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["{{P2}}"]},
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::{{BUCKET}}/{{ROOT}}/{{C2}}/*"
+    },
+    {
+      "Sid": "EdgesListSoAFreeSlotIs404",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["{{P1}}", "{{P2}}"]},
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::{{BUCKET}}"
+    },
+    {
+      "Sid": "EdgesNeverDelete",
+      "Effect": "Deny",
+      "Principal": {"AWS": ["{{P1}}", "{{P2}}"]},
+      "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutBucketPolicy"],
+      "Resource": ["arn:aws:s3:::{{BUCKET}}", "arn:aws:s3:::{{BUCKET}}/*"]
+    },
+    {
+      "Sid": "EdgesNoControlPrefix",
+      "Effect": "Deny",
+      "Principal": {"AWS": ["{{P1}}", "{{P2}}"]},
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::{{BUCKET}}/{{ROOT}}/_*"
+    },
+    {
+      "Sid": "ConsumerEverything",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["{{PCONS}}"]},
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::{{BUCKET}}", "arn:aws:s3:::{{BUCKET}}/*"]
+    },
+    {
+      "Sid": "SlotsAreCreateOnlyIfTheStoreEvaluatesTheKey",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::{{BUCKET}}/{{ROOT}}/*/*/*/*/*.parquet",
+      "Condition": {"Null": {"s3:if-none-match": "true"}}
+    }
+  ]
+}

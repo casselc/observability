@@ -1,0 +1,65 @@
+# The consumer (a worker; GC with the watermark beside it) and the toolbox pod
+# the scripts exec into. Rendered by deploy.sh. The key is the IAM user
+# eks/iam.sh made: `consume` takes static keys only.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: consume, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  replicas: {{WORKERS}}
+  selector: {matchLabels: {app: consume}}
+  template:
+    metadata:
+      labels: {app: consume}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9464"}
+    spec:
+      nodeSelector: {otel-validate/pool: main}
+      containers:
+        - name: consume
+          image: {{IMG_TOOLBOX}}
+          command: ["consume"]
+          args: ["--s3", "{{S3_BASE}}", "--key", "$(AWS_ACCESS_KEY_ID)", "--secret", "$(AWS_SECRET_ACCESS_KEY)",
+                 "--ch", "http://clickhouse.otel-validate:8123", "--db", "{{DB}}", "--worker", "$(POD_NAME)",
+                 "--poll", "1s", "--metrics-addr", "0.0.0.0:9464", "--stats", "/tmp/stats.jsonl", "--stats-every", "10s"]
+          env:
+            - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+          envFrom: [{secretRef: {name: consumer-s3}}]
+          ports: [{containerPort: 9464, name: metrics}]
+          resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 2Gi}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: consume-gc, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: consume-gc}}
+  template:
+    metadata:
+      labels: {app: consume-gc}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "9465"}
+    spec:
+      nodeSelector: {otel-validate/pool: main}
+      containers:
+        - name: gc
+          image: {{IMG_TOOLBOX}}
+          command: ["consume"]
+          # the subcommand must be the first argument
+          args: ["gc", "--s3", "{{S3_BASE}}", "--key", "$(AWS_ACCESS_KEY_ID)", "--secret", "$(AWS_SECRET_ACCESS_KEY)",
+                 "--ch", "http://clickhouse.otel-validate:8123", "--db", "{{DB}}", "--every", "60s",
+                 "--audit-every", "1h", "--metrics-addr", "0.0.0.0:9465"]
+          envFrom: [{secretRef: {name: consumer-s3}}]
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: toolbox, namespace: otel-validate, labels: {app: toolbox, created-by: otel-chdb-validation}}
+spec:
+  nodeSelector: {otel-validate/pool: main}
+  containers:
+    - name: toolbox
+      image: {{IMG_TOOLBOX}}
+      envFrom: [{secretRef: {name: consumer-s3}}]
+      env:
+        - {name: AWS_REGION, value: "{{REGION}}"}
+        - {name: S3_BASE, value: "{{S3_BASE}}"}
+        - {name: CH, value: "http://clickhouse.otel-validate:8123"}
+      resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {memory: 4Gi}}

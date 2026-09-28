@@ -1,0 +1,59 @@
+# The entity controller (entities/controller) on a real cluster, for
+# real-cluster-telemetry.md §5: one replica per cluster, read-only on the API,
+# writing its lane under s3://{{BUCKET}}/{{ENTITIES}}/{{CLUSTER}}/. Rendered by
+# telemetry/controller.sh. On EKS the ServiceAccount's role is eks/iam.sh's
+# $NAME-entityctl (deploy/iam/entity-controller.json, tagged cluster={{CLUSTER}});
+# on Nutanix (or with static keys) set S3_ENDPOINT and the Secret entityctl-s3.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: entityctl
+  namespace: otel-validate
+  annotations: {{SA_ANNOTATIONS}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: otel-validate-entityctl, labels: {created-by: otel-chdb-validation}}
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes, namespaces]
+    verbs: [list, watch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: otel-validate-entityctl, labels: {created-by: otel-chdb-validation}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: otel-validate-entityctl}
+subjects: [{kind: ServiceAccount, name: entityctl, namespace: otel-validate}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: entityctl, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: entityctl}}
+  template:
+    metadata:
+      labels: {app: entityctl}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "19900"}
+    spec:
+      serviceAccountName: entityctl
+      containers:
+        - name: entityctl
+          image: {{IMG_TOOLBOX}}
+          command: ["entityctl"]
+          args: ["--cluster", "{{CLUSTER}}", "--bucket", "{{BUCKET}}", "--prefix", "{{ENTITIES}}", "--region", "{{REGION}}",
+                 "--static", "{{STATIC}}", "--metrics", "0.0.0.0:19900"]
+          env:
+            - {name: S3_ENDPOINT, value: "{{S3_ENDPOINT}}"}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+          envFrom: [{secretRef: {name: entityctl-s3, optional: true}}]
+          ports: [{containerPort: 19900, name: stats}]
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 1Gi}

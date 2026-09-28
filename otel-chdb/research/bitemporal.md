@@ -68,8 +68,10 @@ a query axis.
 ## 3. The basis: every answer at a named system time (D30)
 
 **Idea.** A query can be run *as of* a custody time: only rows with
-`received_at ≤ C`. If C is at or below the scope's `complete_through`, every
-row that will ever have `received_at ≤ C` is already in central, so the
+`received_at < C` (strict: the consumer promises only `received_at <
+complete_through`, and a pending object can carry `received_at` equal to it;
+FORMAT.md §3). If C is at or below the scope's `complete_through`, every
+row that will ever have `received_at < C` is already in central, so the
 answer at basis C **never changes** (until retention removes the rows).
 
 **Shape.**
@@ -81,11 +83,21 @@ answer at basis C **never changes** (until retention removes the rows).
   at. A client may send a basis back; the service then adds
   `received_at <= C_cluster` for each cluster to the per-table filter it
   already injects (`additional_table_filters`, D22), and the planner lists only
-  objects whose `oscope-received` is at or below it.
-- **Rules.** A requested basis above the scope's current `complete_through`
-  is refused (it would not be stable). A basis older than retention (custody
-  age, D19) or than GC's truncation is refused as `basis_expired`, never
-  answered with less data.
+  objects whose `oscope-received` is below it. Objects the planner could not
+  HEAD are kept when `LastModified + skew < C`, and otherwise marked
+  `basis_check` for the reader to decide from the Parquet footer.
+- A client asks for `"latest"`, sends a token back, or mints one with
+  `POST /v1/basis`. `basis_from` + `basis` asks for the **delta** between two
+  bases (rows with `C₁ ≤ received_at < C₂`).
+- **Rules.** A basis naming a cluster outside the caller's scope is refused
+  (`basis_not_in_scope`), never intersected. A basis above the scope's
+  current `complete_through` is refused (`basis_ahead`: it would not be
+  stable). A basis older than retention (custody age, D19) is refused as
+  `basis_expired`, and a plan over a GC-truncated lane as 410, never answered
+  with less data. A table without a received column cannot be served at a
+  basis (`basis_unservable`). The token is `b1.<payload>.<HMAC-SHA256>` with
+  rotating key ids; the MAC only proves the service minted it, and scope is
+  re-checked on every use.
 
 **What it gives.**
 
@@ -97,9 +109,14 @@ answer at basis C **never changes** (until retention removes the rows).
 3. **Late data as a precise delta.** D26 counts rows that arrive after a
    window was complete but does nothing with them. With a basis, the late
    rows of a window evaluated at C₁ are exactly those with
-   `C₁ < received_at ≤ C₂`: the evaluator can evaluate that delta (cheap,
-   incremental) and decide by policy whether it changes the verdict, instead
-   of re-running the window.
+   `C₁ ≤ received_at < C₂`. The evaluator keeps each window's basis and
+   verdict for `late_horizon`; one delta query per rule finds windows with
+   late rows, and only those are re-evaluated at the new basis (a verdict
+   plus a delta is not enough for conditions like averages). Per-rule
+   `on_late`: `reevaluate` (default: a late episode, labelled
+   `alert_late="true"`), `page` ("late data changed window W"), or `ignore`.
+   Late data never resolves a firing alert, and a window's basis only moves
+   forward.
 4. **Caches keyed correctly.** A result or plan at a fixed basis is
    immutable, so it may be cached until retention. This is the rule CAST row
    33 (Mosaic's stale cubes) arrived at: every cache in the read path keys on
@@ -200,7 +217,7 @@ Worth taking later:
 
 | Item | Decision | Status |
 | --- | --- | --- |
-| Basis token: query service, lake plan, alert evaluator's late-data delta, lake UI and adapter caches | D30 | started 2026-09-28 |
+| Basis token: query service, lake plan, alert evaluator's late-data delta, lake UI and adapter caches, fork patch 0003 | D30 | **built** 2026-09-28 (045929b); lake UI e2e does not exercise it yet |
 | Late rows kept out of normal plans (edge split or outlier metadata) | D31 | started 2026-09-28 |
 | Catalog as bitemporal events: model and reference resolver | D32 (proposed) | started 2026-09-28 |
 | Hash-prefix sharding of index levels; metrics' last-value table | — | not started |

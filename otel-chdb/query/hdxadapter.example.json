@@ -1,0 +1,9 @@
+{
+  "listen": ":18191",
+  "query_url": "http://queryd:18190/v1/query",
+  "default_database": "otel",
+  "time_columns": {"otel_logs": "Timestamp", "otel_traces": "Timestamp"},
+  "token_header": "X-Forwarded-Access-Token",
+  "max_body_bytes": 33554432,
+  "timeout_s": 300
+}

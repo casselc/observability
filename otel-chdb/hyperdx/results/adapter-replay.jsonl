@@ -1,0 +1,800 @@
+{"complete_through_ms":1790469700000,"counts":{"equal":620,"equal, non-empty":541,"label:complete (window derived)":143,"label:partial (no window)":48,"label:partial (window derived)":207,"qa:equal":532,"qa:equal, narrower than fleet":130,"qa:refused:scope_unenforceable":38,"refused:explain":77,"refused:table_function":102}}
+{"Scenario":"logs-all","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_key'] [request 25169b2c1c6d9a83a35f39af4d6e36b8]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_key'] [request be70229a6fccbe063baed1071e842eee]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_key'] [request 6239190ddd5a0aea6aafbcceca2e435f]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 04ea9df48d231d9577023bd12890069e]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_key'] [request 464359b466464a3e9f3dff4b11a5bb0c]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_key'] [request 06b696c4a0f26f77fd7c57453b010c31]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_key'] [request 1369bdb6d695cdb7fa7012f2f47f8a51]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request 94c311410f83799d9dd8a047e0ce0644]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_key'] [request 6f58335275d562d4b39fa811192ccea3]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_key'] [request 3cfc5276d238a50ed97d9e26707246fc]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_key'] [request f99842fd36714a7c57c8dd3771675f58]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 1b8524a3a8e01d72e229ee67be03c4c2]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request d33e26f367e6630a425a4a2407356333]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_key'] [request 7a0378082e40135a64a3beb5dce396b4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_key'] [request 4eb600bef0be18782ec43e0fe4a0f8ba]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_key'] [request 9442e24e2d2c3bb4abb949974f9cc8e4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request 5c3a99a5a2a5746337663b9068377f1e]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_key'] [request 6a129d372f6b7d923247e4e083085d49]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_key'] [request d3c917604cd4738a1e2d02bd6f122aac]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_key'] [request 795d56574bbd880629386b1f200449f9]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 360626208db0924c12521b8cc68f89cc]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_key'] [request dd4344690590e4a7a2ff1b63dd155ccd]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_key'] [request 90349402770141657c2a9425602b1c62]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 68b15e6e1e00817bc35464fe42596ee4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_key'] [request 6ed2b0ea629080e40e6f390eaa138183]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_key'] [request eeb165dad07b145da6fa88d967e97680]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 70256f0c67e2fd1ffb248ba9c9a962d0]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_key'] [request 7b949e7809e52f53f3db479b4250ad1d]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_key'] [request a4b298a22b175c53ff5bac99b6bd3753]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 6f15cc7912e455a2d767ed03d7e254fb]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request fec6d504c908ab34a495cb3ecde7f41a]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_key'] [request a8b80525259cd3a6c8aaab33041a8bbd]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_key'] [request 19d38232ea219ae0d4110fdd81d3c3f1]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 2fceda91075b7c8f01c81211ce05de0c]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"complete"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_key'] [request 0ab236ade858bd942e196325e75724c3]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_key'] [request 79828908e9010f9a792a44170d2e489e]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_scope_attr_key'] [request 9c35293a70c67ab8026357c4fb047033]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_items'] [request f71bd1c31af5f2131e3eafd8d78c10a0]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 109d07ad82fd6b1262a906fa33030b31]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request 8ca6de4c55ab2ef25b66295ad682238d]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request ef2668eebf9ec0ea803069fa6972aa0c]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 0df8f32a2ea933521b05b24577930ea0]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_key'] [request 508da9f54a2d250717495cb048197ae4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_key'] [request 7562fe7da8871fcf1875c8cb037b97e4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_scope_attr_key'] [request 6d6e9054c44141e8d5782a70ddb1cb54]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_items'] [request 2fb88df195ae43fee362006893fa367f]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 7901a085d569754dac11e0c3cbdee5b2]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request 5706e0752755efbc3c343780860ebfb3]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request e0c55c96a5c41617b67cb8f740584ad6]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request 9dc9d40f1c6c4c257f8b8c38ef2df4b0]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-fulltext","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_key'] [request cb878e84e742174ba4334565c07263a4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_scope_attr_key'] [request bf4eee68134da4d5a73d4be7c68babc4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_key'] [request a2c155908117b932500dcb6a83353d08]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_items'] [request 423c693273e361008ac750997275b556]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_items'] [request bfc68164ac7ef23ae2f98d9b467035af]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request d7be46f116b8090336bee613ed3d5ecc]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request 72c44696c93eb760be57ab099c56cd73]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 6ac403df74b9728b59be7d960d4314ea]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request d6c3f8e0472b27f318118229eb563fef]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request 59669fecd381efcacdb1685457cb1605]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_key'] [request 0f96f4eb19cb57ef3537b14c646fc723]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_scope_attr_key'] [request 140f4d5c8fc67ee32ce01821fdf59b70]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_key'] [request c343278b0ced00a245ad431aa4e7d162]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_items'] [request b8e7e4c186aafac1b7a1310f9debedb9]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 329d91d3c2ffc2a26a0e1aa66ca53e3a]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request 74e210c9b795e3e53e09f5050e06ae07]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request ea7a41fc87eee952a727d440c919db64]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request 0bfab79da055ee136b05f0cf5e153e67]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_key'] [request 9d1b4769961561b09317f51e97c5c989]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_log_attr_key'] [request 7679af2cb51b30cc150e68d0965e3470]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_scope_attr_key'] [request e194725fb69584cfc96ccf22de2455fb]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_logs', 'idx_res_attr_items'] [request 50afe6d2cd028a5e66739871b701e6e4]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request d6ff4cd5b04ce366e6bce0c6bf9a2856]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_scope_attr_items'] [request 441648e7ff5c6d5417ea0323fdac88a3]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_log_attr_items'] [request cb1522bad63586e4150ecac58fb3926e]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_logs', 'idx_res_attr_items'] [request f3b4c5f2664a6206df97c6dd9778e06c]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"logs-sql","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_res_attr_key'] [request f31cd15bb4eb5ccaeeafaae35bab22fe]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_key'] [request 36cf547463572fcf83d154a8f5acd352]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_items'] [request 969029fada7961bc8965a6ee92311aaf]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request ccb76c95b8ee94c54b37349068c6c06f]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 5883617aaf0cb177437bf662c3889258]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-all","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 021dfd3a1b6155753a202f670ee374be]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-all","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_res_attr_key'] [request 5cf5459fbebf9f8295a6b71c63a8e1c1]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_key'] [request 33cc80e529700fb8f9297996f56e9681]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_items'] [request 56d3e32b611812e44c37b1c744f3d046]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 1763bd5479f4704c00d8669d9c6bb30d]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 3d59e0fa79c80f753f7cff989887a0c3]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-errors","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 11a68503bcf7f66587922fab5d3c3422]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-errors","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_res_attr_key'] [request b67a9f3de744ac9f0b058ab2ae8751a2]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_key'] [request 3698acb2e6e375d4cce2d3c9c9ee2fb5]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_items'] [request b306f6b0dc27213b32568404f9374069]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_res_attr_items'] [request 30dd299e052ab36da842410129028173]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request bda025472dd0ef096bc4dc2338d0cc6e]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request 3b31a1f0c06eff99078c8834d926bf70]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 910d82a12397da90353d8b1a97ac8ed8]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 415a9cd637e7ba52195c706f176bb30f]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"traces-res-attr","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"old","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_res_attr_key'] [request 1ba23082370b79997b20861c88ae0b19]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_key'] [request 8debf073215876b17374bee3a9304700]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_full', 'otel_traces', 'idx_span_attr_items'] [request d74353fc9084da47265915810f250b84]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"full","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:explain","Detail":"Code: 497. DB::Exception: EXPLAIN is not served: its estimates are not scoped to the caller. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request f4ffa3cae80121d645bda21cea222874]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_res_attr_items'] [request c733cfd740319c876ab3a0f35c02c0e7]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"","Outcome":"refused:table_function","Detail":"Code: 497. DB::Exception: query service: table_function: table functions are not allowed: mergeTreeTextIndex['hdx_it_new', 'otel_traces', 'idx_span_attr_items'] [request 35b5e32f75233bfdb44193cee2c64edf]. (ACCESS_DENIED) (version otel-hdxadapter)","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"describe","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":false,"Completeness":""}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}
+{"Scenario":"trace-waterfall","Side":"new","Kind":"select","Outcome":"equal","Detail":"","Window":true,"Completeness":"partial"}

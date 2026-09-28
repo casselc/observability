@@ -238,3 +238,33 @@ func BenchmarkPrepareFinish(b *testing.B) {
 		}
 	}
 }
+
+func TestMetadataScope(t *testing.T) {
+	p, err := NewPolicy("otel", []*Table{
+		{Name: "otel_logs", TimeColumn: "Timestamp", Scope: "columns", Cluster: "c", Namespace: "n"},
+		{Database: "system", Name: "tables", Scope: "metadata"},
+		{Database: "system", Name: "columns", Scope: "metadata"},
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// a restricted caller reads schema rows unfiltered; the data table in the
+	// same statement keeps its filter
+	r := mustFinish(t, p, "SELECT name FROM system.tables WHERE database = 'otel' AND name IN (SELECT DISTINCT 'otel_logs' FROM otel_logs)",
+		Scope{Clusters: []string{"prod-a"}, Namespaces: []string{"shop"}, Window: &Window{FromNs: 1, ToNs: 2}})
+	if len(r.Filters) != 1 || r.Filters["otel.otel_logs"] == "" || len(r.Tables) != 2 {
+		t.Fatalf("%+v", r)
+	}
+	// other system tables stay refused
+	for _, q := range []string{"SELECT * FROM system.parts", "SELECT * FROM system.users", "SELECT * FROM tables"} {
+		if _, err := p.Prepare(q); err == nil {
+			t.Errorf("%s: accepted", q)
+		}
+	}
+	// a data table can't be configured as metadata
+	for _, bad := range []*Table{{Name: "otel_logs", Scope: "metadata"}, {Database: "system", Name: "tables", Scope: "metadata", TimeColumn: "t"}} {
+		if _, err := NewPolicy("otel", []*Table{bad}, 0); err == nil {
+			t.Errorf("%+v: accepted", bad)
+		}
+	}
+}

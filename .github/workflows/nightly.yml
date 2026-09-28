@@ -205,6 +205,45 @@ jobs:
         if: failure()
         run: ci/services.sh logs || true
 
+  # The HyperDX adapter (otel-chdb/query/integration/hdxadapter): HyperDX
+  # 2.39.1's 799 captured statements through the adapter and the query service
+  # onto ClickHouse, each answer compared with ClickHouse's own; the same for
+  # a one-cluster token against the scope filter; labels; and
+  # @clickhouse/client (HyperDX's pin) driving the adapter.
+  hdxadapter-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: "@clickhouse/client, HyperDX's pin"
+        run: npm install --prefix "$RUNNER_TEMP/hdxnode" --no-audit --no-fund @clickhouse/client@1.23.0-head.fae5998.1
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: go test ./integration/hdxadapter (otel-chdb/query)
+        working-directory: otel-chdb/query
+        env:
+          HDXA_IT: "1"
+          HDXA_IT_NODE_MODULES: ${{ runner.temp }}/hdxnode/node_modules
+        run: go test -count=1 -timeout 15m -v ./integration/hdxadapter
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
+
   # The lake UI in Chromium (otel-chdb/lakeui/e2e): the Go edge (two
   # clusters) -> SeaweedFS -> the Rust consumer -> ClickHouse, the query
   # service's /v1/plan (query/integration/lakeuirig), sign-in by code + PKCE on

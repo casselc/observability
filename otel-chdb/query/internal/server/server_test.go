@@ -431,3 +431,22 @@ func TestCORSAndMetrics(t *testing.T) {
 		t.Fatal(resp.StatusCode)
 	}
 }
+
+func TestQueryOutputSettings(t *testing.T) {
+	f := newFixture(t)
+	code, out := f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": "SELECT now()", "output": map[string]string{"date_time_output_format": "iso"}})
+	if code != 200 || f.ch.calls[0].Get("date_time_output_format") != "iso" {
+		t.Fatalf("%d %v %v", code, out, f.ch.calls)
+	}
+	// anything that could change rows, limits or scope is refused
+	for _, o := range []map[string]string{{"date_time_output_format": "iso'"}, {"additional_table_filters": "{}"},
+		{"max_result_rows": "0"}, {"result_overflow_mode": "break"}} {
+		code, out := f.post(t, "/v1/query", f.token(teamA), map[string]any{"sql": "SELECT 1", "output": o})
+		if code != 400 || out["error"] != "bad_output" {
+			t.Fatalf("%v: %d %v", o, code, out)
+		}
+	}
+	if len(f.ch.calls) != 1 {
+		t.Fatalf("a refused output setting ran: %d calls", len(f.ch.calls))
+	}
+}

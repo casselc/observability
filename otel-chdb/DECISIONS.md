@@ -2179,6 +2179,78 @@ messages and recorded results still name the original oscope commits.
 
 ---
 
+### D25. HyperDX through the query service: an adapter on ClickHouse's HTTP interface, and a banner
+
+**Status:** built (2026-09-28): [`query/cmd/hdxadapter`](query/README.md)
+(query README §8) and the fork's patch 0002
+([`hyperdx/fork/`](hyperdx/fork/README.md)). The adapter is tested against
+all 799 captured HyperDX statements and the real `@clickhouse/client`; the
+patch is type-checked and unit-tested per package, not run in a built
+HyperDX (no room for `yarn install`).
+
+**Context.** The owner chose "HyperDX fork first" (2026-09-27). D22's service
+scopes, audits and labels statements, but HyperDX spoke to ClickHouse
+directly with a shared login: no per-user scope (R-S8), no label (R-S1,
+R-S2). HyperDX's SQL has `{HYPERDX_PARAM_n:Type}` parameters, a trailing
+`FORMAT`, URL settings, `DESCRIBE`/`SHOW`/`system.*` schema discovery,
+`EXPLAIN ESTIMATE` and `mergeTreeTextIndex`; the service takes one SELECT with
+none of these.
+
+**Decision.**
+
+- **An adapter, not a HyperDX client rewrite.** A Go process that speaks
+  ClickHouse's HTTP interface (body, `param_*`, multipart, gzip, `/ping`,
+  ClickHouse-shaped errors) and calls `/v1/query` with the caller's own
+  token. It holds no ClickHouse credentials. It lives in the query module
+  (same parser version, the test issuer and the real service in its
+  integration test). HyperDX's change is small: forward the token, send one
+  from a file on the server side, record the label, show a banner.
+- **Parameters bound in the tree.** Placeholders are masked, the statement
+  parsed, each mask replaced by a typed literal node (`toInt64(n)`, a string
+  literal, a quoted identifier); ClickHouse's decoding of parameter values is
+  reproduced as measured on 26.10 and checked by a differential test against
+  the server; out-of-range integers, bad `\x` escapes and anything ClickHouse
+  would refuse are refused. Where ClickHouse's lexer and the parser's differ
+  (backslash or doubled quotes in quoted identifiers), refuse.
+- **Metadata through the service, not beside it.** A new scope `metadata`
+  serves six `system` tables (tables, columns, data_skipping_indices,
+  settings, table_engines, databases) to any `query` caller, unfiltered per
+  row; ClickHouse's grants cut them to the served tables. `DESCRIBE` and
+  `SHOW` become SELECTs on them. So there is one path, one audit log, and the
+  adapter needs no credentials. `EXPLAIN` is refused (unscoped estimates);
+  `mergeTreeTextIndex` and `system.parts` are refused (unscoped tokens, fleet
+  volumes).
+- **Output settings from an allow-list.** The request gains `output`:
+  settings that change how values are written, never which rows (today
+  `date_time_output_format`, which HyperDX needs as `iso`). Every other URL
+  setting HyperDX sends is dropped and named in a header.
+- **Windows only when they change nothing.** The adapter derives the
+  service's `window` from the statement's own time bounds only when every
+  read of every served table is bounded the same way (else the label covers
+  up to now): the service restricts rows to its window, so a guessed window
+  could change an answer.
+- **The label in headers; the banner the worst of the page.** `X-Otel-*`
+  headers; the fork records them per statement text and shows the worst;
+  missing means unlabelled (red), never complete.
+- **The rewrite proxy before the adapter**, on the same wire (it forwards
+  headers). Its rewrites are refused by the service until the service allows
+  the catalog's dictionaries and `resource_kv` (below).
+
+**Measured.** 799 captured statements: 620 answered, all equal to
+ClickHouse's own answers; 77 EXPLAIN and 102 `mergeTreeTextIndex` refused;
+0 mismatches. A one-cluster token: 532 equal to ClickHouse with the scope
+filter applied by hand, 38 refused (rollups without a cluster column).
+p50 9.4 ms per statement through adapter and service against 6.2 ms direct.
+
+**Consequences / open.** HyperDX features that break under the service's
+rules and what each needs are in query README §8.5: the row-count hint and
+MV choice (EXPLAIN), text-index key discovery (scoped keys), rollups for
+restricted callers (a cluster column), typeahead samples (a labelled sample
+mode), performance settings (an allow-list), sources' `querySettings`, CSV
+alert samples, and the entity rewrite proxy (0 of its 69 non-EXPLAIN
+rewrites pass). Server-side HyperDX queries run as one service identity.
+The banner is page-wide; per-chart incomplete regions (R-S2) are not built.
+
 ## 6. Upstream bugs found
 
 Short drafts, with repro, expected and actual behaviour, and versions, are in

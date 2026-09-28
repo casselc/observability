@@ -34,7 +34,13 @@
       {"name": "otel_traces", "time_column": "Timestamp", "scope": "columns",
        "cluster_expr": "ResourceAttributes['k8s.cluster.name']",
        "namespace_expr": "ResourceAttributes['k8s.namespace.name']"},
-      {"name": "otel_metrics_series", "scope": "fleet"}
+      {"name": "otel_metrics_series", "scope": "fleet"},
+      {"database": "system", "name": "tables", "scope": "metadata"},
+      {"database": "system", "name": "columns", "scope": "metadata"},
+      {"database": "system", "name": "data_skipping_indices", "scope": "metadata"},
+      {"database": "system", "name": "settings", "scope": "metadata"},
+      {"database": "system", "name": "table_engines", "scope": "metadata"},
+      {"database": "system", "name": "databases", "scope": "metadata"}
     ]
   },
   "limits": {

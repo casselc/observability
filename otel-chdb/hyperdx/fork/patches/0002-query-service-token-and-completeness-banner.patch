@@ -1,0 +1,830 @@
+From e1fcb142be44c218b4d2db6ebb0ba9b2d8a485ec Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 28 Sep 2026 14:50:24 +0000
+Subject: [PATCH] Query service: the user's token to the adapter, and a
+ completeness banner
+
+The otel-chdb fork's ClickHouse connection is the query service's HyperDX
+adapter (otel-chdb/query, cmd/hdxadapter), which runs every statement
+through POST /v1/query scoped to the caller's OIDC token and returns the
+result's completeness label in X-Otel-* response headers.
+
+- api: the ClickHouse proxy forwards the user's token, from the header the
+  OIDC proxy in front of HyperDX sets (HDX_QUERY_SERVICE_TOKEN_HEADER, e.g.
+  x-forwarded-access-token), as Authorization: Bearer. Only that header;
+  anything that is not a single token is not forwarded. Unset: upstream
+  behaviour.
+- common-utils (node client: alerts, the API's own queries, MCP): a token
+  from HDX_QUERY_SERVICE_TOKEN_FILE, re-read per query (rotation without a
+  restart), sent as the query's `auth` ({access_token}: Authorization:
+  Bearer); a per-query http_headers Authorization would be overwritten by
+  the client's Basic header. An empty file is an error, never a query
+  without a token.
+- common-utils: clickhouse/completeness.ts. Every result's label is recorded
+  under its statement text (a refresh replaces its own label); a result
+  without one is "unlabelled", never complete; schema answers are not
+  recorded. One store per tab (on globalThis, whatever the bundle).
+- app: CompletenessBanner above every page: "Complete through T", "Partial:
+  data from T on may still arrive", "Unknown - watermark stale", "Unknown -
+  not labelled". The worst label of the page's results; reset on navigation.
+- metadata: a failed mergeTreeTextIndex key lookup (the service refuses
+  table functions: the index's tokens are every cluster's) falls through to
+  the rollup and scan paths instead of returning an empty key list.
+- Fixes patch 0001's clickhouse.test.ts: one default-settings expectation
+  missed the pinned overflow modes.
+---
+ packages/api/src/config.ts                    |   8 +
+ .../api/src/routers/api/clickhouseProxy.ts    |  14 +-
+ .../utils/__tests__/queryServiceToken.test.ts |  26 +++
+ packages/api/src/utils/queryServiceToken.ts   |  21 ++
+ packages/app/pages/_app.tsx                   |  12 ++
+ .../app/src/components/CompletenessBanner.tsx |  79 ++++++++
+ .../__tests__/CompletenessBanner.test.tsx     |  65 +++++++
+ .../src/__tests__/clickhouse.test.ts          |   1 +
+ .../src/__tests__/completeness.test.ts        | 143 ++++++++++++++
+ .../src/clickhouse/completeness.ts            | 180 ++++++++++++++++++
+ packages/common-utils/src/clickhouse/index.ts |   7 +
+ packages/common-utils/src/clickhouse/node.ts  |  28 +++
+ packages/common-utils/src/core/metadata.ts    |   6 +-
+ 13 files changed, 587 insertions(+), 3 deletions(-)
+ create mode 100644 packages/api/src/utils/__tests__/queryServiceToken.test.ts
+ create mode 100644 packages/api/src/utils/queryServiceToken.ts
+ create mode 100644 packages/app/src/components/CompletenessBanner.tsx
+ create mode 100644 packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+ create mode 100644 packages/common-utils/src/__tests__/completeness.test.ts
+ create mode 100644 packages/common-utils/src/clickhouse/completeness.ts
+
+diff --git a/packages/api/src/config.ts b/packages/api/src/config.ts
+index 60045ff..9c52e02 100644
+--- a/packages/api/src/config.ts
++++ b/packages/api/src/config.ts
+@@ -28,6 +28,14 @@ export const IS_LOCAL_IMAGE = HYPERDX_IMAGE === 'all-in-one-noauth';
+ export const IS_INLINE_API = env.HDX_PREVIEW_INLINE_API === 'true';
+ export const FRONTEND_REDIRECT_BASE = IS_INLINE_API ? '' : FRONTEND_URL;
+ export const INGESTION_API_KEY = env.INGESTION_API_KEY ?? '';
++// otel-chdb fork: the request header that carries the user's OIDC token (set
++// by the OIDC proxy in front of HyperDX, e.g. oauth2-proxy's
++// X-Forwarded-Access-Token). The ClickHouse proxy forwards it to the
++// connection's host (the query service's adapter) as Authorization: Bearer.
++// Empty: nothing is forwarded (upstream behaviour).
++export const QUERY_SERVICE_TOKEN_HEADER = (
++  env.HDX_QUERY_SERVICE_TOKEN_HEADER ?? ''
++).toLowerCase();
+ // Opt-in: emit the contrib `datadogreceiver` on the collector so a
+ // Datadog Agent can ship APM traces (DD trace API -> OTLP -> ClickHouse).
+ // Off by default because the receiver has no per-team bearer-token auth like
+diff --git a/packages/api/src/routers/api/clickhouseProxy.ts b/packages/api/src/routers/api/clickhouseProxy.ts
+index e41946c..1ff3b16 100644
+--- a/packages/api/src/routers/api/clickhouseProxy.ts
++++ b/packages/api/src/routers/api/clickhouseProxy.ts
+@@ -5,11 +5,12 @@ import { performance } from 'perf_hooks';
+ import { z } from 'zod';
+ import { validateRequest } from 'zod-express-middleware';
+ 
+-import { CODE_VERSION } from '@/config';
++import { CODE_VERSION, QUERY_SERVICE_TOKEN_HEADER } from '@/config';
+ import { getConnectionById } from '@/controllers/connection';
+ import { getNonNullUserWithTeam } from '@/middleware/auth';
+ import { validateRequestHeaders } from '@/middleware/validation';
+ import { recordOperationOutcome } from '@/utils/instrumentation';
++import { queryServiceToken } from '@/utils/queryServiceToken';
+ import logger from '@/utils/logger';
+ import { IPV6_BRACKET_RE, isPrivateIp } from '@/utils/validators';
+ import { objectIdSchema } from '@/utils/zod';
+@@ -256,6 +257,17 @@ const proxyMiddleware: RequestHandler =
+           proxyReq.setHeader('X-ClickHouse-Key', _req._hdx_connection.password);
+         }
+ 
++        // otel-chdb fork: the query service scopes every statement to the
++        // user's own OIDC token; the adapter at the connection's host reads
++        // it from Authorization. Only the configured header is forwarded.
++        const token = queryServiceToken(
++          _req.headers,
++          QUERY_SERVICE_TOKEN_HEADER,
++        );
++        if (token) {
++          proxyReq.setHeader('Authorization', `Bearer ${token}`);
++        }
++
+         if (_req.method !== 'POST') {
+           console.error(`Unsupported method ${_req.method}`);
+           return res.sendStatus(405);
+diff --git a/packages/api/src/utils/__tests__/queryServiceToken.test.ts b/packages/api/src/utils/__tests__/queryServiceToken.test.ts
+new file mode 100644
+index 0000000..9203b88
+--- /dev/null
++++ b/packages/api/src/utils/__tests__/queryServiceToken.test.ts
+@@ -0,0 +1,26 @@
++import { queryServiceToken } from '@/utils/queryServiceToken';
++
++describe('queryServiceToken', () => {
++  const H = 'x-forwarded-access-token';
++
++  it('is off without a configured header', () => {
++    expect(queryServiceToken({ [H]: 'a.b.c' }, '')).toBeUndefined();
++  });
++
++  it('reads the configured header, case-insensitively', () => {
++    expect(
++      queryServiceToken({ [H]: 'a.b.c' }, 'X-Forwarded-Access-Token'),
++    ).toBe('a.b.c');
++    expect(queryServiceToken({ [H]: 'Bearer a.b.c' }, H)).toBe('a.b.c');
++  });
++
++  it('refuses what is not one token', () => {
++    for (const v of ['', 'a b', 'a.b.c, d.e.f', 'a\r\nX-Evil: 1', 'Bearer ']) {
++      expect(queryServiceToken({ [H]: v }, H)).toBeUndefined();
++    }
++    expect(
++      queryServiceToken({ [H]: ['a.b.c', 'd.e.f'] as any }, H),
++    ).toBeUndefined();
++    expect(queryServiceToken({}, H)).toBeUndefined();
++  });
++});
+diff --git a/packages/api/src/utils/queryServiceToken.ts b/packages/api/src/utils/queryServiceToken.ts
+new file mode 100644
+index 0000000..8dba840
+--- /dev/null
++++ b/packages/api/src/utils/queryServiceToken.ts
+@@ -0,0 +1,21 @@
++import type { IncomingHttpHeaders } from 'http';
++
++/**
++ * otel-chdb fork: the user's OIDC token from the header the OIDC proxy in
++ * front of HyperDX sets (config.QUERY_SERVICE_TOKEN_HEADER), for the query
++ * service's adapter. Returns undefined when forwarding is off or the header
++ * is absent, empty, repeated, or not a single token.
++ */
++export function queryServiceToken(
++  headers: IncomingHttpHeaders,
++  headerName: string,
++): string | undefined {
++  if (!headerName) return undefined;
++  const raw = headers[headerName.toLowerCase()];
++  if (raw == null || Array.isArray(raw)) return undefined;
++  const token = raw.replace(/^bearer\s+/i, '').trim();
++  // a JWT is three base64url segments; anything with spaces, commas or
++  // control characters is not one token
++  if (!/^[A-Za-z0-9._~+/=-]+$/.test(token)) return undefined;
++  return token;
++}
+diff --git a/packages/app/pages/_app.tsx b/packages/app/pages/_app.tsx
+index 5102c68..7fedf6f 100644
+--- a/packages/app/pages/_app.tsx
++++ b/packages/app/pages/_app.tsx
+@@ -2,10 +2,12 @@ import React, { useEffect } from 'react';
+ import type { NextPage } from 'next';
+ import type { AppProps } from 'next/app';
+ import Head from 'next/head';
++import { useRouter } from 'next/router';
+ import { env } from 'next-runtime-env';
+ import randomUUID from 'crypto-randomuuid';
+ import { enableMapSet } from 'immer';
+ import HyperDX from '@hyperdx/browser';
++import { getCompletenessStore } from '@hyperdx/common-utils/dist/clickhouse/completeness';
+ import {
+   MutationCache,
+   QueryCache,
+@@ -14,6 +16,7 @@ import {
+ } from '@tanstack/react-query';
+ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+ 
++import CompletenessBanner from '@/components/CompletenessBanner';
+ import { DynamicFavicon } from '@/components/DynamicFavicon';
+ import { IS_LOCAL_MODE, parseResourceAttributes } from '@/config';
+ import {
+@@ -113,12 +116,21 @@ function AppContent({
+ 
+   const getLayout = Component.getLayout ?? (page => page);
+ 
++  // otel-chdb fork: a new page starts with no completeness labels
++  const router = useRouter();
++  useEffect(() => {
++    const reset = () => getCompletenessStore().reset();
++    router.events.on('routeChangeStart', reset);
++    return () => router.events.off('routeChangeStart', reset);
++  }, [router.events]);
++
+   return (
+     <ThemeWrapper
+       fontFamily={selectedMantineFont}
+       colorScheme={resolvedColorScheme}
+     >
+       <ConfirmProvider>
++        <CompletenessBanner />
+         {getLayout(<Component {...pageProps} />)}
+       </ConfirmProvider>
+     </ThemeWrapper>
+diff --git a/packages/app/src/components/CompletenessBanner.tsx b/packages/app/src/components/CompletenessBanner.tsx
+new file mode 100644
+index 0000000..b7d6963
+--- /dev/null
++++ b/packages/app/src/components/CompletenessBanner.tsx
+@@ -0,0 +1,79 @@
++import { useSyncExternalStore } from 'react';
++import {
++  type CompletenessSummary,
++  getCompletenessStore,
++} from '@hyperdx/common-utils/dist/clickhouse/completeness';
++import { Alert, Text } from '@mantine/core';
++
++const fmt = (t?: string) => (t ? new Date(t).toLocaleString() : 'unknown');
++
++/**
++ * The banner's text for a page's results (otel-chdb fork). Never empty when
++ * there is a result that is not complete: a partial, unknown or unlabelled
++ * result always says so.
++ */
++export function completenessMessage(s: CompletenessSummary): {
++  color: string;
++  title: string;
++  text: string;
++} | null {
++  switch (s.worst) {
++    case null:
++      return null;
++    case 'complete':
++      return {
++        color: 'gray',
++        title: `Complete through ${fmt(s.completeThrough)}`,
++        text: `Every row of the ${s.results === 1 ? 'result' : `${s.results} results`} on this page is in.`,
++      };
++    case 'partial':
++      return {
++        color: 'yellow',
++        title: 'Partial',
++        text: `Data from ${fmt(s.incompleteFrom ?? s.completeThrough)} on may still arrive (complete through ${fmt(s.completeThrough)}): counts over that range are partial.`,
++      };
++    case 'unknown':
++      return {
++        color: 'red',
++        title: `Unknown — watermark ${s.watermarkStatus ?? 'missing'}`,
++        text: `Completeness cannot be established${s.completeThrough ? ` (last known complete through ${fmt(s.completeThrough)})` : ''}: nothing on this page may be read as settled.${s.watermarkNote ? ` ${s.watermarkNote}` : ''}`,
++      };
++    case 'unlabelled':
++      return {
++        color: 'red',
++        title: 'Unknown — not labelled',
++        text: 'Some results did not come through the query service and carry no completeness label: nothing on this page may be read as settled.',
++      };
++  }
++}
++
++export function CompletenessBannerView({
++  summary,
++}: {
++  summary: CompletenessSummary;
++}) {
++  const m = completenessMessage(summary);
++  if (m == null) return null;
++  return (
++    <Alert
++      color={m.color}
++      title={m.title}
++      variant="light"
++      py={4}
++      data-testid="completeness-banner"
++      data-completeness={summary.worst}
++    >
++      <Text size="xs">{m.text}</Text>
++    </Alert>
++  );
++}
++
++export default function CompletenessBanner() {
++  const store = getCompletenessStore();
++  const summary = useSyncExternalStore(
++    store.subscribe,
++    store.getSummary,
++    store.getSummary,
++  );
++  return <CompletenessBannerView summary={summary} />;
++}
+diff --git a/packages/app/src/components/__tests__/CompletenessBanner.test.tsx b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+new file mode 100644
+index 0000000..55212b9
+--- /dev/null
++++ b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+@@ -0,0 +1,65 @@
++import React from 'react';
++import {
++  CompletenessStore,
++  getCompletenessStore,
++} from '@hyperdx/common-utils/dist/clickhouse/completeness';
++import { act, screen } from '@testing-library/react';
++
++import CompletenessBanner, {
++  completenessMessage,
++} from '@/components/CompletenessBanner';
++
++const lab = (completeness: any, t?: string, extra: object = {}) => ({
++  completeness,
++  completeThrough: t,
++  incompleteFrom: t,
++  receivedAt: 0,
++  ...extra,
++});
++
++describe('CompletenessBanner (otel-chdb fork)', () => {
++  it('says nothing only when there is no result', () => {
++    expect(completenessMessage(CompletenessStore.summarize([]))).toBeNull();
++  });
++
++  it('is never silent about a result that is not complete', () => {
++    for (const c of ['partial', 'unknown', 'unlabelled']) {
++      const m = completenessMessage(
++        CompletenessStore.summarize([
++          lab('complete', '2026-09-28T12:00:00Z'),
++          lab(c, '2026-09-28T11:00:00Z'),
++        ]),
++      );
++      expect(m?.title).not.toMatch(/^Complete/);
++      expect(m?.color).not.toBe('gray');
++    }
++  });
++
++  it('names the stale watermark', () => {
++    const m = completenessMessage(
++      CompletenessStore.summarize([
++        lab('unknown', '2026-09-28T11:00:00Z', {
++          watermarkStatus: 'stale',
++          watermarkNote: 'the watermark is stale',
++        }),
++      ]),
++    );
++    expect(m?.title).toBe('Unknown — watermark stale');
++    expect(m?.text).toContain('the watermark is stale');
++  });
++
++  it('follows the store', () => {
++    const store = getCompletenessStore();
++    store.reset();
++    renderWithMantine(<CompletenessBanner />);
++    expect(screen.queryByTestId('completeness-banner')).toBeNull();
++    act(() => store.record('q1', lab('complete', '2026-09-28T12:00:00Z')));
++    expect(screen.getByTestId('completeness-banner').dataset.completeness).toBe(
++      'complete',
++    );
++    act(() => store.record('q2', lab('partial', '2026-09-28T11:00:00Z')));
++    expect(screen.getByText('Partial')).toBeInTheDocument();
++    act(() => store.reset());
++    expect(screen.queryByTestId('completeness-banner')).toBeNull();
++  });
++});
+diff --git a/packages/common-utils/src/__tests__/clickhouse.test.ts b/packages/common-utils/src/__tests__/clickhouse.test.ts
+index b5b050c..4b784dc 100644
+--- a/packages/common-utils/src/__tests__/clickhouse.test.ts
++++ b/packages/common-utils/src/__tests__/clickhouse.test.ts
+@@ -583,6 +583,7 @@ describe('processClickhouseSettings - optimization settings', () => {
+       cancel_http_readonly_queries_on_client_close: 1,
+       use_skip_indexes_for_top_k: '1',
+       use_skip_indexes_on_data_read: '1',
++      ...NO_PARTIAL_RESULTS,
+     });
+     expect(settings.query_plan_optimize_lazy_materialization).toBeUndefined();
+     // expect(settings.use_top_k_dynamic_filtering).toBeUndefined();
+diff --git a/packages/common-utils/src/__tests__/completeness.test.ts b/packages/common-utils/src/__tests__/completeness.test.ts
+new file mode 100644
+index 0000000..ad0fdfe
+--- /dev/null
++++ b/packages/common-utils/src/__tests__/completeness.test.ts
+@@ -0,0 +1,143 @@
++import fs from 'fs';
++import os from 'os';
++import path from 'path';
++
++import {
++  CompletenessStore,
++  getCompletenessStore,
++  labelFromHeaders,
++} from '@/clickhouse/completeness';
++import { ClickhouseClient, queryServiceAuth } from '@/clickhouse/node';
++
++describe('completeness labels (otel-chdb fork)', () => {
++  const ct = '2026-09-28T12:00:00Z';
++
++  it('reads the adapter headers', () => {
++    const l = labelFromHeaders(
++      {
++        'x-otel-source': 'central',
++        'x-otel-completeness': 'partial',
++        'x-otel-complete-through': ct,
++        'x-otel-incomplete-from': ct,
++        'x-otel-watermark-status': 'ok',
++        'x-otel-request-id': 'r1',
++      },
++      1,
++    );
++    expect(l).toEqual({
++      completeness: 'partial',
++      completeThrough: ct,
++      incompleteFrom: ct,
++      watermarkStatus: 'ok',
++      watermarkNote: undefined,
++      requestId: 'r1',
++      receivedAt: 1,
++    });
++  });
++
++  it('never reads a missing or strange label as complete', () => {
++    expect(labelFromHeaders({}, 1)?.completeness).toBe('unlabelled');
++    expect(labelFromHeaders(undefined, 1)?.completeness).toBe('unlabelled');
++    expect(
++      labelFromHeaders(
++        { 'x-otel-source': 'central', 'x-otel-completeness': 'COMPLETE' },
++        1,
++      )?.completeness,
++    ).toBe('unknown');
++    expect(
++      labelFromHeaders({ 'x-otel-completeness': 'complete' }, 1)?.completeness,
++    ).toBe('unlabelled');
++  });
++
++  it('does not record schema answers', () => {
++    expect(labelFromHeaders({ 'x-otel-source': 'metadata' })).toBeNull();
++  });
++
++  it('summarizes the worst label, and a refresh replaces its own', () => {
++    const s = new CompletenessStore();
++    const seen: number[] = [];
++    s.subscribe(() => seen.push(s.getSummary().results));
++    const lab = (completeness: any, completeThrough?: string) => ({
++      completeness,
++      completeThrough,
++      incompleteFrom: completeThrough,
++      receivedAt: 0,
++    });
++    s.record('chart A', lab('complete', '2026-09-28T12:00:00Z'));
++    expect(s.getSummary().worst).toBe('complete');
++    s.record('chart B', lab('partial', '2026-09-28T11:00:00Z'));
++    expect(s.getSummary()).toMatchObject({
++      worst: 'partial',
++      completeThrough: '2026-09-28T11:00:00Z',
++      incompleteFrom: '2026-09-28T11:00:00Z',
++      results: 2,
++    });
++    // chart B refreshed and is complete now
++    s.record('chart B', lab('complete', '2026-09-28T12:00:00Z'));
++    expect(s.getSummary().worst).toBe('complete');
++    s.record('chart C', lab('unknown'));
++    expect(s.getSummary().worst).toBe('unknown');
++    s.record('chart D', lab('unlabelled'));
++    expect(s.getSummary().worst).toBe('unlabelled');
++    s.reset();
++    expect(s.getSummary().worst).toBeNull();
++    expect(seen).toEqual([1, 2, 2, 3, 4, 0]);
++  });
++
++  it('is one store per process, whichever bundle asks', () => {
++    expect(getCompletenessStore()).toBe(getCompletenessStore());
++  });
++
++  it('records what BaseClickhouseClient.query returns', async () => {
++    const client = new ClickhouseClient({ host: 'http://localhost:1' });
++    (client as any).__query = jest.fn().mockResolvedValue({
++      response_headers: {
++        'x-otel-source': 'central',
++        'x-otel-completeness': 'unknown',
++        'x-otel-watermark-status': 'stale',
++      },
++    });
++    getCompletenessStore().reset();
++    await client.query({ query: 'SELECT 1', shouldSkipApplySettings: true });
++    expect(getCompletenessStore().getSummary()).toMatchObject({
++      worst: 'unknown',
++      watermarkStatus: 'stale',
++    });
++  });
++});
++
++describe('queryServiceAuth (otel-chdb fork)', () => {
++  it('is empty when no token file is configured', () => {
++    expect(queryServiceAuth('', () => 'x')).toBeUndefined();
++    expect(queryServiceAuth(undefined, () => 'x')).toBeUndefined();
++  });
++
++  it('re-reads the token file on every call', () => {
++    let tok = 'a.b.c\n';
++    const read = () => tok;
++    expect(queryServiceAuth('/t', read)).toEqual({ access_token: 'a.b.c' });
++    tok = 'd.e.f';
++    expect(queryServiceAuth('/t', read)).toEqual({ access_token: 'd.e.f' });
++  });
++
++  it("sends the token as the query's auth (a Bearer header)", async () => {
++    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'qs-')), 'tok');
++    fs.writeFileSync(f, 'svc.token.1\n');
++    const prev = process.env.HDX_QUERY_SERVICE_TOKEN_FILE;
++    process.env.HDX_QUERY_SERVICE_TOKEN_FILE = f;
++    try {
++      const client = new ClickhouseClient({ host: 'http://localhost:1' });
++      const q = jest.fn().mockResolvedValue({ response_headers: {} });
++      (client as any).client.query = q;
++      await client.query({ query: 'SELECT 1', shouldSkipApplySettings: true });
++      expect(q.mock.calls[0][0].auth).toEqual({ access_token: 'svc.token.1' });
++    } finally {
++      if (prev === undefined) delete process.env.HDX_QUERY_SERVICE_TOKEN_FILE;
++      else process.env.HDX_QUERY_SERVICE_TOKEN_FILE = prev;
++    }
++  });
++
++  it('refuses an empty token file rather than sending no token', () => {
++    expect(() => queryServiceAuth('/t', () => ' \n')).toThrow(/is empty/);
++  });
++});
+diff --git a/packages/common-utils/src/clickhouse/completeness.ts b/packages/common-utils/src/clickhouse/completeness.ts
+new file mode 100644
+index 0000000..8f4ef5e
+--- /dev/null
++++ b/packages/common-utils/src/clickhouse/completeness.ts
+@@ -0,0 +1,180 @@
++/**
++ * Completeness labels (otel-chdb fork).
++ *
++ * The fork's ClickHouse connection is the otel-chdb HyperDX adapter, which
++ * sends every statement to the query service and returns the service's label
++ * for the result in response headers:
++ *
++ *   X-Otel-Source            central | metadata
++ *   X-Otel-Completeness      complete | partial | unknown
++ *   X-Otel-Complete-Through  RFC 3339: every row before it is in central
++ *   X-Otel-Incomplete-From   RFC 3339: rows from here on may still arrive
++ *   X-Otel-Watermark-Status  ok | stale | missing | error
++ *   X-Otel-Watermark-Note    why completeness is unknown
++ *
++ * Every result the client receives is recorded here under its statement text
++ * (so a refreshed chart replaces its own label), and the app shows the worst
++ * label of the page in a banner. A result without a label is recorded as
++ * `unlabelled`: it did not come through the query service, so nothing says it
++ * is complete. Schema answers (`metadata`) are not recorded. Nothing is
++ * silent: no label is ever read as complete.
++ */
++import type { ResponseHeaders } from '@clickhouse/client-common';
++
++export type Completeness = 'complete' | 'partial' | 'unknown' | 'unlabelled';
++
++export type CompletenessLabel = {
++  completeness: Completeness;
++  /** Every row before this instant is in central (RFC 3339), if known. */
++  completeThrough?: string;
++  /** Rows from this instant on may still arrive (RFC 3339). */
++  incompleteFrom?: string;
++  watermarkStatus?: string;
++  watermarkNote?: string;
++  requestId?: string;
++  receivedAt: number;
++};
++
++const RANK: Record<Completeness, number> = {
++  complete: 0,
++  partial: 1,
++  unknown: 2,
++  unlabelled: 3,
++};
++
++function header(headers: ResponseHeaders | undefined, name: string) {
++  const v = headers?.[name.toLowerCase()];
++  return Array.isArray(v) ? v[0] : v;
++}
++
++/**
++ * The label a response carries; null for a schema answer (metadata), which
++ * says nothing about data completeness.
++ */
++export function labelFromHeaders(
++  headers: ResponseHeaders | undefined,
++  now: number = Date.now(),
++): CompletenessLabel | null {
++  const source = header(headers, 'x-otel-source');
++  if (source === 'metadata') {
++    return null;
++  }
++  const c = header(headers, 'x-otel-completeness');
++  if (source == null || c == null) {
++    return { completeness: 'unlabelled', receivedAt: now };
++  }
++  const completeness: Completeness =
++    c === 'complete' || c === 'partial' ? c : 'unknown';
++  return {
++    completeness,
++    completeThrough: header(headers, 'x-otel-complete-through') || undefined,
++    incompleteFrom: header(headers, 'x-otel-incomplete-from') || undefined,
++    watermarkStatus: header(headers, 'x-otel-watermark-status') || undefined,
++    watermarkNote: header(headers, 'x-otel-watermark-note') || undefined,
++    requestId: header(headers, 'x-otel-request-id') || undefined,
++    receivedAt: now,
++  };
++}
++
++export type CompletenessSummary = {
++  /** The worst label among the page's results; null when there are none. */
++  worst: Completeness | null;
++  /** The earliest complete_through among them. */
++  completeThrough?: string;
++  /** The earliest incomplete_from among them. */
++  incompleteFrom?: string;
++  watermarkStatus?: string;
++  watermarkNote?: string;
++  results: number;
++  counts: Record<Completeness, number>;
++};
++
++const MAX_ENTRIES = 500;
++
++function minTime(a: string | undefined, b: string | undefined) {
++  if (a == null) return b;
++  if (b == null) return a;
++  return Date.parse(a) <= Date.parse(b) ? a : b;
++}
++
++export class CompletenessStore {
++  private labels = new Map<string, CompletenessLabel>();
++  private listeners = new Set<() => void>();
++  private summary: CompletenessSummary = CompletenessStore.summarize([]);
++
++  record(key: string, label: CompletenessLabel | null) {
++    if (label == null) return;
++    this.labels.delete(key);
++    this.labels.set(key, label);
++    while (this.labels.size > MAX_ENTRIES) {
++      const oldest = this.labels.keys().next().value;
++      if (oldest === undefined) break;
++      this.labels.delete(oldest);
++    }
++    this.changed();
++  }
++
++  /** Forget every label (a new page). */
++  reset() {
++    if (this.labels.size === 0) return;
++    this.labels.clear();
++    this.changed();
++  }
++
++  subscribe = (fn: () => void) => {
++    this.listeners.add(fn);
++    return () => {
++      this.listeners.delete(fn);
++    };
++  };
++
++  getSummary = () => this.summary;
++
++  private changed() {
++    this.summary = CompletenessStore.summarize([...this.labels.values()]);
++    this.listeners.forEach(fn => fn());
++  }
++
++  static summarize(labels: CompletenessLabel[]): CompletenessSummary {
++    const counts: Record<Completeness, number> = {
++      complete: 0,
++      partial: 0,
++      unknown: 0,
++      unlabelled: 0,
++    };
++    const s: CompletenessSummary = {
++      worst: null,
++      results: labels.length,
++      counts,
++    };
++    for (const l of labels) {
++      counts[l.completeness]++;
++      if (s.worst == null || RANK[l.completeness] > RANK[s.worst]) {
++        s.worst = l.completeness;
++      }
++      s.completeThrough = minTime(s.completeThrough, l.completeThrough);
++      if (l.completeness !== 'complete') {
++        s.incompleteFrom = minTime(s.incompleteFrom, l.incompleteFrom);
++      }
++      if (l.watermarkStatus && l.watermarkStatus !== 'ok') {
++        s.watermarkStatus = l.watermarkStatus;
++        s.watermarkNote = l.watermarkNote;
++      }
++    }
++    return s;
++  }
++}
++
++const STORE_KEY = Symbol.for('otel-chdb.hyperdx.completeness');
++
++/**
++ * The process's (or the browser tab's) store. Kept on globalThis so that
++ * every bundled copy of this module shares one store.
++ */
++export function getCompletenessStore(): CompletenessStore {
++  const g = globalThis as unknown as Record<symbol, CompletenessStore>;
++  // eslint-disable-next-line security/detect-object-injection
++  g[STORE_KEY] ??= new CompletenessStore();
++  // eslint-disable-next-line security/detect-object-injection
++  return g[STORE_KEY];
++}
+diff --git a/packages/common-utils/src/clickhouse/index.ts b/packages/common-utils/src/clickhouse/index.ts
+index 3a0be5a..fc7b37e 100644
+--- a/packages/common-utils/src/clickhouse/index.ts
++++ b/packages/common-utils/src/clickhouse/index.ts
+@@ -30,6 +30,7 @@ import {
+   splitAndTrimWithBracket,
+ } from '@/core/utils';
+ import { NO_PARTIAL_RESULTS } from '@/core/overflow';
++import { getCompletenessStore, labelFromHeaders } from './completeness';
+ import { isBuilderChartConfig } from '@/guards';
+ import { ChartConfigWithOptDateRange, QuerySettings } from '@/types';
+ 
+@@ -630,6 +631,12 @@ export abstract class BaseClickhouseClient {
+     while (attempts < 2) {
+       try {
+         const res = await this.__query(props);
++        // the result's completeness label (the otel-chdb adapter's headers),
++        // under the statement's text so that a refresh replaces it
++        getCompletenessStore().record(
++          props.query,
++          labelFromHeaders(res.response_headers),
++        );
+         return res;
+       } catch (error: any) {
+         if (
+diff --git a/packages/common-utils/src/clickhouse/node.ts b/packages/common-utils/src/clickhouse/node.ts
+index 5aa44a6..4c25cf7 100644
+--- a/packages/common-utils/src/clickhouse/node.ts
++++ b/packages/common-utils/src/clickhouse/node.ts
+@@ -5,6 +5,7 @@ import type {
+   DataFormat,
+ } from '@clickhouse/client';
+ import { createClient } from '@clickhouse/client';
++import { readFileSync } from 'fs';
+ 
+ import {
+   BaseClickhouseClient,
+@@ -15,6 +16,32 @@ import {
+ // for api fixtures
+ export { createClient as createNativeClient };
+ 
++/**
++ * The otel-chdb fork: server-side queries (alerts, the API's own queries, MCP
++ * tools) reach ClickHouse through the query service's adapter, which needs an
++ * OIDC token. HDX_QUERY_SERVICE_TOKEN_FILE names a file holding the service
++ * identity's current token (a projected service-account token, or a file a
++ * sidecar refreshes); it is re-read on every query, so rotation needs no
++ * restart. Unset: no override (upstream behaviour).
++ *
++ * The token goes in the query's `auth` (the client then sends
++ * Authorization: Bearer): a per-query `http_headers` Authorization is
++ * overwritten by the client's Basic header.
++ */
++export function queryServiceAuth(
++  path: string | undefined = process.env.HDX_QUERY_SERVICE_TOKEN_FILE,
++  read: (p: string) => string = p => readFileSync(p, 'utf8'),
++): { access_token: string } | undefined {
++  if (!path) return undefined;
++  const token = read(path).trim();
++  if (!token) {
++    throw new Error(
++      `HDX_QUERY_SERVICE_TOKEN_FILE ${path} is empty: no token for the query service`,
++    );
++  }
++  return { access_token: token };
++}
++
+ export class ClickhouseClient extends BaseClickhouseClient {
+   constructor(options: ClickhouseClientOptions) {
+     super(options);
+@@ -75,6 +102,7 @@ export class ClickhouseClient extends BaseClickhouseClient {
+       abort_signal,
+       clickhouse_settings: clickhouseSettings,
+       query_id: queryId,
++      auth: queryServiceAuth(),
+     }) as unknown as Promise<BaseResultSet<ReadableStream, Format>>;
+   }
+ }
+diff --git a/packages/common-utils/src/core/metadata.ts b/packages/common-utils/src/core/metadata.ts
+index 696f750..631a862 100644
+--- a/packages/common-utils/src/core/metadata.ts
++++ b/packages/common-utils/src/core/metadata.ts
+@@ -1004,11 +1004,13 @@ export class Metadata {
+           return keys;
+         }
+       } catch (e) {
++        // otel-chdb fork: the query service refuses mergeTreeTextIndex (its
++        // tokens are every cluster's, unscoped); fall through to the rollup
++        // and scan paths instead of showing an empty key list
+         console.warn(
+           'getMapKeys rollup query failed for key text index query',
+           e,
+         );
+-        return [];
+       }
+     } else if (textIndexInfo?.kv?.indexName && canQueryMergeTreeTextIndex) {
+       const partsFilter = await this.partsOverlapFilter({
+@@ -1040,11 +1042,11 @@ export class Metadata {
+           return keys;
+         }
+       } catch (e) {
++        // otel-chdb fork: fall through, as above
+         console.warn(
+           'getMapKeys rollup query failed for kv text index query',
+           e,
+         );
+-        return [];
+       }
+     }
+ 

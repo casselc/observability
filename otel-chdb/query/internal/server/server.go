@@ -321,6 +321,16 @@ type QueryRequest struct {
 		From json.RawMessage `json:"from"`
 		To   json.RawMessage `json:"to"`
 	} `json:"window"`
+	// Output changes how values are written, never which rows: only
+	// OutputSettings' names and values are accepted.
+	Output map[string]string `json:"output"`
+}
+
+// OutputSettings are the output-format settings a caller may choose (a UI
+// that parses DateTime as ISO 8601 needs iso). Everything else about a
+// statement's execution is the service's.
+var OutputSettings = map[string]map[string]bool{
+	"date_time_output_format": {"simple": true, "iso": true, "unix_timestamp": true},
 }
 
 // QueryResponse is its answer.
@@ -384,6 +394,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		window = &completeness.Window{FromNs: from, ToNs: to}
 		scope.Window = &sqlscope.Window{FromNs: from, ToNs: to}
 	}
+	for k, v := range body.Output {
+		if !OutputSettings[k][v] {
+			deny(http.StatusBadRequest, "bad_output", fmt.Sprintf("output setting %s=%q is not one a caller may choose", k, v), base)
+			return
+		}
+	}
 	pr, err := s.Policy.Prepare(body.SQL)
 	if err != nil {
 		rj, _ := sqlscope.AsRejection(err)
@@ -430,7 +446,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	wm := s.Watermark.Get(r.Context())
 	started := s.Now()
 	comment := "qs:" + rq.id + ":" + p.Subject
-	out, sum, err := s.Central.Query(r.Context(), res.SQL, central.Settings(limits, res.FiltersSetting(), rq.id, truncate(comment, 200)))
+	settings := central.Settings(limits, res.FiltersSetting(), rq.id, truncate(comment, 200))
+	for k, v := range body.Output {
+		settings.Set(k, v)
+	}
+	out, sum, err := s.Central.Query(r.Context(), res.SQL, settings)
 	elapsed := s.Now().Sub(started)
 	outcome := audit.Record{RequestID: rq.id, Event: "outcome", Action: "query", Subject: p.Subject, QueryHash: res.Hash,
 		RowsRead: sum.ReadRows, BytesRead: sum.ReadBytes, Rows: sum.ResultRows, ElapsedMs: float64(elapsed.Microseconds()) / 1000}
@@ -473,7 +493,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 func rejectionCode(reason string) int {
 	switch reason {
-	case "parse_error", "too_long", "statement_count", "bad_window", "query_param", "bad_literal", "bad_identifier":
+	case "parse_error", "too_long", "statement_count", "bad_window", "query_param", "bad_literal", "bad_identifier", "bad_output":
 		return http.StatusBadRequest
 	case "catalog_unavailable":
 		return http.StatusServiceUnavailable

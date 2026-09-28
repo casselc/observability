@@ -36,8 +36,12 @@ type Table struct {
 	// Scope: "columns" (Cluster / Namespace are expressions over the row),
 	// "catalog" (rows are restricted to the resource ids the entity catalog
 	// resolves for the caller's clusters and namespaces; ResourceID names the
-	// column), or "fleet" (no per-row scope: only callers with every cluster
-	// and namespace may read it).
+	// column), "fleet" (no per-row scope: only callers with every cluster
+	// and namespace may read it), or "metadata" (a table of the system
+	// database whose rows describe schema, not telemetry: system.tables,
+	// system.columns, ... ; no per-row scope, any caller with the query role.
+	// What it shows is cut by ClickHouse's grants to the tables the read-only
+	// user can read, which are the served ones).
 	Scope      string `json:"scope"`
 	Cluster    string `json:"cluster_expr"`
 	Namespace  string `json:"namespace_expr"`
@@ -87,8 +91,14 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 			}
 			t.rid = parse(t.ResourceID)
 		case "fleet":
+		case "metadata":
+			// only the system database: a data table configured as metadata
+			// would be read unscoped
+			if t.Database != "system" || t.TimeColumn != "" {
+				return nil, fmt.Errorf("table %s: scope metadata is only for system tables, without a time column", t.FQN())
+			}
 		default:
-			return nil, fmt.Errorf("table %s: scope must be columns, catalog or fleet, not %q", t.FQN(), t.Scope)
+			return nil, fmt.Errorf("table %s: scope must be columns, catalog, fleet or metadata, not %q", t.FQN(), t.Scope)
 		}
 		t.tcol = parse(t.TimeColumn)
 		if err != nil {
@@ -446,6 +456,8 @@ func predicate(t *Table, s Scope) (chp.Expr, error) {
 	var parts []chp.Expr
 	restricted := !s.AllClusters || !s.AllNamespaces
 	switch t.Scope {
+	case "metadata":
+		return nil, nil
 	case "fleet":
 		if restricted {
 			return nil, reject("scope_unenforceable", "table %s holds every cluster's rows and has no per-row scope; it needs every cluster and namespace", t.FQN())

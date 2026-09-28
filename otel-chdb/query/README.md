@@ -58,6 +58,14 @@ GRANT SELECT ON otel.otel_traces TO otel_query_ro;
 -- catalog-scoped tables and R-S5: the catalog's resources view (and what it reads), ingest_log
 GRANT SELECT ON entities.resources TO otel_query_ro;
 GRANT SELECT ON entities.ingest_log TO otel_query_ro;
+-- the metadata tables (scope "metadata", §3), for the HyperDX adapter (§8).
+-- 26.10 needs a grant for data_skipping_indices; the rest are readable by
+-- every user, and every one of them shows only what the user may see
+GRANT SELECT ON system.tables, system.columns, system.data_skipping_indices, system.settings,
+  system.table_engines, system.databases TO otel_query_ro;
+-- HyperDX finds a rollup through its materialized view's definition: SHOW, not SELECT
+GRANT SHOW TABLES ON otel.otel_logs_attr_kv_rollup_15m_mv TO otel_query_ro;
+GRANT SHOW TABLES ON otel.otel_traces_kv_rollup_15m_mv TO otel_query_ro;
 ```
 
 `readonly = 2` lets the service set settings per statement (the limits, the
@@ -83,6 +91,12 @@ record's and ClickHouse's `query_id`.
 it is given, every table read with a `time_column` is restricted to
 `[from, to)` by the service (§3), so the completeness label describes the
 rows the statement could see.
+
+`output` is optional: output-format settings that change how values are
+written, never which rows, from an allow-list (`OutputSettings`: today only
+`date_time_output_format` = `simple` | `iso` | `unix_timestamp`, which HyperDX
+needs as `iso`). Any other name or value is **400 `bad_output`** and nothing
+runs.
 
 ```json
 {"request_id": "5c0f…",
@@ -266,6 +280,12 @@ No credentials appear in any answer except the presigned URLs themselves.
      answer reads no row, no answer refuses the statement;
    - `fleet`: no per-row scope; only a caller with every cluster and
      namespace may read the table;
+   - `metadata`: a table of the `system` database whose rows are schema, not
+     telemetry (`system.tables`, `columns`, `data_skipping_indices`,
+     `settings`, `table_engines`, `databases`); no per-row scope, any caller
+     with the `query` role. ClickHouse cuts what they show to the tables the
+     read-only user may see (the served ones). Configuring a table outside
+     `system`, or one with a time column, as `metadata` is refused at start;
    - with a `window`, `time_column >= … AND time_column < …`.
    Cluster names must match FORMAT.md's `[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?`
    and namespaces Kubernetes' label pattern, or the token is refused.
@@ -354,11 +374,11 @@ later `UNION` branch is refused as an unknown table.
 
 | | Requirement | Status |
 |---|---|---|
-| R-S1 | every result carries its source and complete-through | **met for this service's answers**: `source`, `complete_through`, the watermark's freshness; on every `/v1/query` and `/v1/plan` answer. The UIs must still show it (the banner is not built) |
+| R-S1 | every result carries its source and complete-through | **met for this service's answers**: `source`, `complete_through`, the watermark's freshness; on every `/v1/query` and `/v1/plan` answer. **HyperDX**: the adapter (§8) returns the label in `X-Otel-*` headers and the fork's patch 0002 shows it as a banner (built and unit-tested; not run in a live HyperDX) |
 | R-S2 | windows not yet complete drawn as incomplete, counts marked partial | **met at the API**: `partial`, `incomplete_from`, `completeness`; a missing, unreadable or stale watermark is `unknown`, never `complete` (unit tests for each). Per-bucket marking is the UI's |
 | R-S3 | alerts evaluate only up to complete-through; a failed evaluation pages | **not this service's**: the alert evaluator can use `completeness`/`incomplete_from` to pick its windows (X5) |
 | R-S5 | views show catalog lag and rows without an entity match | **partly**: catalog lag per cluster from the aggregator's `ingest_log`; rows without an entity match are not counted yet |
-| R-S8 | reads role-scoped by cluster and namespace; every query audit-logged | **met for this service**: deny by default, per-row scope on central, per-object (cluster) scope on the lake, namespace-restricted plans refused; every decision audited before it acts. HyperDX still reaches ClickHouse directly until the fork routes through this service |
+| R-S8 | reads role-scoped by cluster and namespace; every query audit-logged | **met for this service**: deny by default, per-row scope on central, per-object (cluster) scope on the lake, namespace-restricted plans refused; every decision audited before it acts. HyperDX reaches it through the adapter (§8) with the user's own token once the fork's patch 0002 is deployed; the adapter holds no ClickHouse credentials |
 | R-S9 | SQL only from a parsed tree, per-user limits | **met**: rebuilt from the tree and checked twice; scope as table filters; per-caller limits and concurrency; overflow modes pinned |
 | X5 | alert evaluation | **open**; this service's labels are the input the evaluator needs |
 | X6 | paging | **open** (no code) |
@@ -418,13 +438,10 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
 
 ## 7. What's next
 
-1. **The HyperDX fork through the service.** Point the fork's ClickHouse
-   connection at a small adapter that forwards its HTTP statements to
-   `/v1/query` with the user's token (the fork's API holds the session), and
-   render the label as the `complete_through` banner. The fork's
-   `{HYPERDX_PARAM_…}` placeholders need binding before parsing (rwproxy's
-   masking shows how), and the entity rewrite (rwproxy) belongs before the
-   scope step in the same pipeline.
+1. **The HyperDX fork through the service**: built (§8, the fork's patch
+   0002). Left: what §8.5 lists (EXPLAIN estimates, text-index discovery,
+   performance settings, CSV, the rewrite proxy's dictionaries), and a run of
+   the patched HyperDX itself.
 2. **The lake UI on `/v1/plan`**: first slice built in
    [`../lakeui/`](../lakeui/README.md) (hyparquet range reads with the plan's
    sizes, re-plan before `replan_after`, a 403 as re-plan, the incomplete
@@ -446,3 +463,187 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
 7. **Rate limits** beyond concurrency (statements per minute, bytes read per
    hour), and a cost estimate (`EXPLAIN ESTIMATE`) before cold statements
    (SEC-5).
+
+## 8. The HyperDX adapter (`cmd/hdxadapter`, `internal/hdxadapter`)
+
+The owner chose "HyperDX fork first" (DECISIONS.md, owner decisions
+2026-09-27); D25 records this design. HyperDX talks to ClickHouse only over
+the HTTP interface (`@clickhouse/client` in the API and alert task,
+`@clickhouse/client-web` in the browser through the API's
+`/clickhouse-proxy`) [D]. The adapter speaks enough of that interface for
+those two clients and sends every statement to `POST /v1/query` **with the
+caller's own bearer token**. It holds **no ClickHouse credentials**: what
+reaches ClickHouse is what the service parsed, allow-listed, rebuilt, scoped
+and audited.
+
+```
+browser ─ HyperDX app ─ API /clickhouse-proxy ──┐   (fork 0002: user's token → Authorization: Bearer)
+alert task / API / MCP (node client) ───────────┤   (fork 0002: HDX_QUERY_SERVICE_TOKEN_FILE → auth.access_token)
+                                                ▼
+                          [rwproxy, optional: entity rewrite, same wire]
+                                                ▼
+hdxadapter :18191 ── bind params · strip FORMAT · DESCRIBE/SHOW → system SELECT · derive window
+                                                ▼  POST /v1/query {sql, window?, output?}  Bearer <user token>
+queryd ── parse · allow-list · rebuild · scope (additional_table_filters) · audit · limits
+                                                ▼
+ClickHouse (read-only user)            answer: ClickHouse's format + X-Otel-* label headers
+```
+
+Run: `go build ./cmd/hdxadapter && ./hdxadapter -config hdxadapter.example.json`
+(`HDXA_LISTEN`, `HDXA_QUERY_URL`, `HDXA_TOKEN_HEADER` override). HyperDX's
+connection host is the adapter; its username/password are ignored (never
+forwarded). `time_columns` mirrors the service's `central.tables`
+(used only to derive windows, below); `token_header` lets the adapter take the
+token from a header other than `Authorization` (oauth2-proxy's
+`X-Forwarded-Access-Token`) when HyperDX runs without the fork's forwarding.
+
+### 8.1 What it does with each kind of statement
+
+| HyperDX sends | where | the adapter | why |
+|---|---|---|---|
+| `SELECT` / `WITH … SELECT` on the served tables | charts, search, traces, sessions, raw SQL, alerts | binds parameters, strips the trailing `FORMAT`, sends it; renders the answer in the requested format | the service's normal path |
+| `SELECT … FROM system.tables / data_skipping_indices / settings / table_engines` | `metadata.ts` schema discovery, `getSettings`, `getServerVersion`-style probes | as a SELECT; the service serves these six system tables as scope `metadata` (§3) | schema, not rows; ClickHouse's grants cut them to the served tables |
+| `DESCRIBE [TABLE] db.table` | `metadata.ts` `getColumns` | rewritten to `SELECT name, type, default_kind AS default_type, … FROM system.columns WHERE database = … AND table = … ORDER BY position` (DESCRIBE's column names and order; `ttl_expression` always `''`); **zero rows → UNKNOWN_TABLE (60)**, never an empty column list | the service takes SELECT only; answers compared equal to DESCRIBE on all 50 captured statements [M] |
+| `SHOW DATABASES`, `SHOW TABLES FROM db` | the source form's pickers (`app/src/clickhouse.ts`) | rewritten to SELECTs on `system.databases` / `system.tables` | as above |
+| `EXPLAIN …` (`ESTIMATE`, `indexes=1`) | row-count hint (`useExplainQuery`), MV choice (`testChartConfigValidity`), benchmark page | **refused** (403, ACCESS_DENIED) | its estimates count every cluster's granules; HyperDX already treats a failed EXPLAIN as "no estimate" / "not valid" (the raw table is used) [D] |
+| `mergeTreeTextIndex(…)` (with `system.parts`) | map-key discovery through a text index | **refused by the service** (`table_function`) | the index's tokens are every cluster's, unscoped; the fork's patch 0002 falls through to the rollup / scan path instead of an empty key list |
+| `cluster(…)`, `timeSeries…(…)`, other table functions | clustered metadata, metric tables | refused by the service | table functions are outside the allow-list |
+| a statement with `SETTINGS` in its text | a source's `querySettings` (`joinQuerySettings`), `getJSONKeys` | refused by the service (`settings_clause`) | limits and settings are the service's |
+| URL settings (`max_execution_time`, `max_rows_to_read`, overflow modes, optimizer switches, …) | every query | **dropped**, named in `X-Otel-Dropped-Settings`; only `date_time_output_format` goes on, as the service's `output` | the caller's limits are the service's (R-S9); the overflow modes are pinned there |
+| `INSERT`, a statement in both URL and body, `KILL QUERY`, other statements | (HyperDX never writes [M, earlier eval]) | refused | read-only |
+| formats `JSON`, `JSONEachRow`, `JSONCompact`, `JSONCompactEachRow[WithNames[AndTypes]]` | all of HyperDX's but two | rendered from the service's FORMAT JSON answer (values byte-for-byte as ClickHouse wrote them, column order and duplicate names kept) | |
+| `CSV`, `TabSeparated*`, `Null`, no FORMAT and no `default_format` | alert message samples (`checkAlerts/template.ts`), the connection test, the benchmark page | refused (UNKNOWN_FORMAT, 73) | the service answers JSON only; rendering CSV from JSON values is not exact |
+| multipart bodies (`use_multipart_params_auto`), gzip bodies, `/ping` | the clients | handled | |
+| no bearer token (a Basic header is not one) | | 401 AUTHENTICATION_FAILED (516) | deny by default |
+
+Every refusal is a ClickHouse-shaped error (`Code: N. DB::Exception: … (NAME)`,
+`X-ClickHouse-Exception-Code`) that `@clickhouse/client` parses into a
+`ClickHouseError` with that code and type [M, node client in the integration
+test]; the service's reason travels in the message and in `X-Otel-Refusal`.
+A pinned limit keeps ClickHouse's code (158 TOO_MANY_ROWS, 159, 241, …).
+
+### 8.2 Parameter binding
+
+`{name:Type}` placeholders are found by a scanner that skips strings, quoted
+identifiers and comments, **masked** by identifiers, the statement is parsed,
+and each mask is **replaced in the tree** by a node built from the decoded
+value; the text sent is the tree formatted. A value's text is never pasted
+into the statement.
+
+| type | decoded as | becomes | refused |
+|---|---|---|---|
+| `String` | ClickHouse's escaped format, as the client sends it (`DecodeString`) | a string literal (`\\`, `\'`, control bytes, DEL and invalid UTF-8 as `\xHH`) | `\x` without two hex digits (ClickHouse makes up a byte), a trailing `\`, a raw tab or newline (ClickHouse refuses) |
+| `Identifier` | raw: **one** identifier (`a.b` is one name, as ClickHouse reads it [M]) | a backquoted identifier | empty, `` ` ``, `"`, `\`, NUL, CR/LF, invalid UTF-8 |
+| `Int8…Int64`, `UInt8…UInt64` | `[+-]digits` | `toInt64(n)` etc. (the type kept) | anything else; **out of range** (ClickHouse wraps `99999999999` to an Int32 [M]; the adapter refuses) |
+| `Float32`, `Float64` | decimal | `toFloat64('…')` | `inf`, `nan`, hex floats |
+| anything else (`Array(…)`, `Nullable(…)`, `DateTime…`) | | | refused (HyperDX 2.39.1 sends only the six above [D, `chSql`]) |
+
+A mask as a function name, a value type where only a name can stand
+(`FROM {t:String}`), or a mask the walk could not replace is refused. The
+scanner refuses what ClickHouse's lexer and the parser's read differently:
+a quoted identifier with a backslash or a doubled quote (the parser reads
+`` `a``b` `` as `a AS b`), `#` comments, `$heredoc$`, nested comments.
+**Measured against ClickHouse 26.10:** every printable ASCII byte and every
+control byte after a backslash, and 3,000 random values: the bound literal
+reads, on the server, exactly as ClickHouse's own substitution
+(`TestBindMatchesClickHouse`). This found two rules the first decoder had
+wrong (a raw tab/newline is an error; a backslash before a control byte is
+dropped) [M].
+
+### 8.3 The label and the window
+
+On every answer (except schema answers, `X-Otel-Source: metadata`):
+`X-Otel-Source`, `X-Otel-Completeness` (`complete` | `partial` | `unknown`),
+`X-Otel-Complete-Through`, `X-Otel-Incomplete-From`,
+`X-Otel-Watermark-Status`, `X-Otel-Watermark-Lag-S`, `X-Otel-Watermark-Note`,
+`X-Otel-Window-From` / `-To`, `X-Otel-Request-Id` (the audit record),
+`X-Otel-Dropped-Settings`; exposed for CORS. The fork records them per
+statement and shows the worst on the page (fork README, patch 0002).
+
+**Window.** The service restricts every read of a table with a time column
+to the window it is given, and labels against it. The adapter derives the
+window from the statement's own bounds only when that restriction **changes
+no row**: every SELECT that reads a served table directly reads exactly one
+(no join), its top-level `WHERE` conjuncts bound the table's time column on
+both sides (`>=`/`>`/`<=`/`<` `fromUnixTimestamp64Milli(n)`: `<= t` becomes
+`to = t + 1 ns`), and every such SELECT has the same bounds; a table the
+adapter has no time column for, an `OR`, one bound, different bounds in a
+subquery: no window, and the label covers everything up to now (`partial` or
+`unknown`, never `complete`). 350 of the 620 answered captured statements
+get a window [M]. The label inherits the service's semantics (the alerts
+work found that a `complete` label is custody-time complete: rows arriving
+later with an earlier event time are not in it; see the CAST row).
+
+### 8.4 Tests
+
+- `internal/hdxadapter` (`go test`): decoding (every escape as measured);
+  hostile strings (`'; DROP …`, `\' OR 1=1`, `{p:String}`, `*/`, NUL, invalid
+  UTF-8, the mask name …) each land as exactly one literal that reads back as
+  the value, in a statement of unchanged shape; hostile identifiers (`a.b`,
+  `x; DROP TABLE y`, `otel_logs FINAL`, `(SELECT 1)`) stay one quoted name;
+  integers (`1 OR 1=1`, overflow, hex, exponent) and floats; placeholder
+  positions; FORMAT stripping (not from strings or comments); DESCRIBE/SHOW
+  with hostile names; windows (15 cases); a property test (any bytes, sent as
+  the client sends them, bind to one literal with that value); the HTTP
+  handler against a fake service (token, multipart, gzip, settings dropped,
+  every service refusal mapped to a code the client's own error pattern
+  parses, DESCRIBE of an unknown table); the live differential test above
+  (skips without ClickHouse); the 799 captured statements prepare or are
+  refused only as EXPLAIN.
+- `integration/hdxadapter` (`HDXA_IT=1 go test ./integration/hdxadapter`, 28 s
+  on the shared box; nightly `hdxadapter-integration`): three databases with
+  the capture's schema sides (pre-alignment, option 2, full ClickStack) and the
+  same 20,000 logs and spans each (clusters `qa`/`qb`, the capture's values),
+  the service wired as `queryd` wires it (real ClickHouse, read-only user,
+  in-memory watermark), the adapter in front. **All 799 statements HyperDX
+  2.39.1 sent** go through the adapter as `@clickhouse/client` sends them
+  (`param_*`, HyperDX's settings, a fleet token), and each answer is compared
+  with ClickHouse's own answer to the same statement and parameters [M]:
+
+  | outcome | statements |
+  |---|---:|
+  | equal (meta, rows, order) | **620** (541 non-empty; all 50 DESCRIBEs) |
+  | refused: `EXPLAIN` | 77 |
+  | refused by the service: `mergeTreeTextIndex` (table function) | 102 |
+  | mismatch | **0** |
+
+  Per statement: [`../hyperdx/results/adapter-replay.jsonl`](../hyperdx/results/adapter-replay.jsonl)
+  (`HDXA_IT_OUT`).
+
+  The same statements with a token for cluster `qa` only: **532 equal** to
+  ClickHouse's answer with the service's scope filter applied by hand (130 of
+  them narrower than the fleet's answer), 38 refused (`scope_unenforceable`:
+  the key-value rollups have no cluster column and are `fleet`), 0 different.
+  Labels: 143 `complete` and 207 `partial` with a derived window, 48 `partial`
+  without; each checked against the window's end and `complete_through`.
+  Latency per statement through adapter and service p50 9.9 ms / p90 16.9 ms,
+  ClickHouse direct 6.4 / 11.1 ms (in process, loaded shared box) [M]. With
+  `HDXA_IT_NODE_MODULES` (a `node_modules` holding `@clickhouse/client`
+  1.23.0-head.fae5998.1, HyperDX's pin) the real node client runs against the
+  adapter: ping, a typed-parameter query in JSON with the label headers and
+  ISO timestamps, a streamed JSONCompactEachRowWithNamesAndTypes, a 20 KB
+  parameter that forces multipart, and EXPLAIN / `system.parts` / no-token
+  errors parsed as `ClickHouseError` 497 / 497 / 516 [M]. It found that the
+  node client **overwrites a per-query `Authorization` header with its Basic
+  header**; the token has to go in the query's `auth: {access_token}` (the
+  fork does so).
+
+### 8.5 HyperDX features under the service's rules
+
+| feature | under the service | what it needs |
+|---|---|---|
+| search, charts, dashboards, traces, sessions, raw SQL, alerts' queries | work (the 620) | – |
+| the row-count hint in search (`EXPLAIN ESTIMATE`) | not shown | a scoped estimate: the service could run `EXPLAIN ESTIMATE` over the rebuilt statement with the filters, or return `rows_read` of a `LIMIT 0` probe; or drop the hint |
+| materialized-view choice by estimate (`testChartConfigValidity`) | every MV reads as "not valid": the raw table is used | as above; today HyperDX 2.39.1 has no MVs on metric sources, and the logs/traces rollups are the kv tables below |
+| map-key discovery through a text index (option 2's `*_attr_items`, full ClickStack's `*_attr_key`) | refused; with patch 0002 falls through to the rollup / sampled scan (before 0002: an empty key list, silently) | a scoped key list: the key-value rollup with a cluster column, or keys per resource from the entity catalog |
+| key/value rollups (`*_kv_rollup_15m`) | fleet callers only (no cluster column: `fleet`); restricted callers are refused and fall back to the scan | a cluster (and namespace) column in the rollup, then scope `columns` |
+| typeahead samples that stop at `max_rows_to_read` (`allowSampledRead`, patch 0001) | fail past the limit (the service pins `read_overflow_mode = throw`) | a labelled sample mode in the service (a `sample: true` request that answers `completeness: sample`), or a smaller window |
+| performance settings (lazy materialization, top-k skip indexes, `use_skip_indexes_on_data_read`, …) | dropped | an allow-list of settings that change speed but not rows, next to `OutputSettings` |
+| a source's `querySettings` | the statement is refused | drop them for sources served by the service, or the same allow-list |
+| JSON-type columns (`getJSONKeys` puts `SETTINGS` in its SQL) | key discovery refused | not used by our schema (Map columns) |
+| alert message sample rows (`format: 'CSV'`) | refused | ask for JSONEachRow in the fork, or let the service return CSV |
+| the connection form's Test button (`/?query=SELECT 1` without a token) | fails (401) | none (use the service's `/healthz`) |
+| the benchmark page (`EXPLAIN indexes=1`, `format: 'NULL'`) | fails | none |
+| `cluster(…)` metadata (a cluster name on the connection) | refused | the service reads the local node's system tables |
+| the entity rewrite proxy in front (`entities/rwproxy`) | its 82 rewritten statements: 13 EXPLAIN, **23 refused for `dictHas`/`dictGet`, 46 for reading `rw_cat.resource_kv`**: 0 pass [M, offline through `sqlscope`] | the service must allow the catalog's dictionaries by name and `resource_kv` with scope `catalog`; until then run rwproxy only for fleet callers or not at all |
+| server-side queries (alerts, the API's own, MCP) | run as the service identity of `HDX_QUERY_SERVICE_TOKEN_FILE`, not as the user who asked | pass the user's token through the API for user-initiated server-side calls (MCP, external API) |

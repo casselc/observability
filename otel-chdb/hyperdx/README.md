@@ -445,7 +445,12 @@ databases 150 MB for the big load.
 ## Files
 
 - `fork/`: the HyperDX fork, as a patch series against `885d30c`
-  (`fork/README.md`); 0001 stops silent partial results (AMBIGUITY.md X7).
+  (`fork/README.md`); 0001 stops silent partial results (AMBIGUITY.md X7);
+  0002 sends HyperDX's traffic through the query service's adapter with the
+  user's token and shows the completeness banner (D25, `../query/README.md`
+  §8). `results/adapter-replay.jsonl`: this directory's 799 captured
+  statements replayed through the adapter (620 equal to ClickHouse, 179
+  refused, 0 mismatches).
 - `scripts/hdxgen/`: the OTLP generator (Go, pdata).
 - `scripts/run.sh`: the stack, step by step.
 - `scripts/setup_db.py`: stock tables, the views over B, the picker helper.

@@ -1,0 +1,519 @@
+From f25b8655845ca510e4c592a9599ea47106aae59a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 28 Sep 2026 19:02:23 +0000
+Subject: [PATCH] One basis per dashboard refresh (otel-chdb D30)
+
+Every statement of a page load or dashboard refresh carries the page's
+basis group (X-Otel-Basis-Group, derived from the page load and the
+searched time range); the otel-chdb adapter pins one basis per group, so
+the panels read the same rows while data keeps arriving and only a refresh
+moves them. The API proxy forwards only well-formed basis headers. Each
+result records the basis it was computed at, and the banner says whether
+the page reads at one basis, several, or up to now.
+---
+ .../api/src/routers/api/clickhouseProxy.ts    |  8 ++-
+ .../utils/__tests__/queryServiceToken.test.ts | 33 ++++++++-
+ packages/api/src/utils/queryServiceToken.ts   | 27 +++++++
+ packages/app/src/DBDashboardPage.tsx          | 12 ++++
+ .../app/src/components/CompletenessBanner.tsx | 40 +++++++++++
+ .../__tests__/CompletenessBanner.test.tsx     | 34 +++++++++
+ .../src/__tests__/completeness.test.ts        | 68 ++++++++++++++++++
+ .../common-utils/src/clickhouse/browser.ts    |  3 +
+ .../src/clickhouse/completeness.ts            | 72 ++++++++++++++++++-
+ 9 files changed, 294 insertions(+), 3 deletions(-)
+
+diff --git a/packages/api/src/routers/api/clickhouseProxy.ts b/packages/api/src/routers/api/clickhouseProxy.ts
+index 1ff3b16..840bc2e 100644
+--- a/packages/api/src/routers/api/clickhouseProxy.ts
++++ b/packages/api/src/routers/api/clickhouseProxy.ts
+@@ -10,7 +10,7 @@ import { getConnectionById } from '@/controllers/connection';
+ import { getNonNullUserWithTeam } from '@/middleware/auth';
+ import { validateRequestHeaders } from '@/middleware/validation';
+ import { recordOperationOutcome } from '@/utils/instrumentation';
+-import { queryServiceToken } from '@/utils/queryServiceToken';
++import { otelBasisHeaders, queryServiceToken } from '@/utils/queryServiceToken';
+ import logger from '@/utils/logger';
+ import { IPV6_BRACKET_RE, isPrivateIp } from '@/utils/validators';
+ import { objectIdSchema } from '@/utils/zod';
+@@ -267,6 +267,12 @@ const proxyMiddleware: RequestHandler =
+         if (token) {
+           proxyReq.setHeader('Authorization', `Bearer ${token}`);
+         }
++        // otel-chdb fork (D30): the page's basis, well-formed or not at all
++        proxyReq.removeHeader('x-otel-basis');
++        proxyReq.removeHeader('x-otel-basis-group');
++        for (const [k, v] of Object.entries(otelBasisHeaders(_req.headers))) {
++          proxyReq.setHeader(k, v);
++        }
+ 
+         if (_req.method !== 'POST') {
+           console.error(`Unsupported method ${_req.method}`);
+diff --git a/packages/api/src/utils/__tests__/queryServiceToken.test.ts b/packages/api/src/utils/__tests__/queryServiceToken.test.ts
+index 9203b88..6aa9624 100644
+--- a/packages/api/src/utils/__tests__/queryServiceToken.test.ts
++++ b/packages/api/src/utils/__tests__/queryServiceToken.test.ts
+@@ -1,4 +1,4 @@
+-import { queryServiceToken } from '@/utils/queryServiceToken';
++import { otelBasisHeaders, queryServiceToken } from '@/utils/queryServiceToken';
+ 
+ describe('queryServiceToken', () => {
+   const H = 'x-forwarded-access-token';
+@@ -24,3 +24,34 @@ describe('queryServiceToken', () => {
+     expect(queryServiceToken({}, H)).toBeUndefined();
+   });
+ });
++
++describe('otelBasisHeaders (D30)', () => {
++  it('forwards a well-formed basis and basis group', () => {
++    expect(
++      otelBasisHeaders({
++        'x-otel-basis': 'b1.eyJ2IjoxfQ.mac-_1',
++        'x-otel-basis-group': 'abcd1234-1000-2000',
++      }),
++    ).toEqual({
++      'x-otel-basis': 'b1.eyJ2IjoxfQ.mac-_1',
++      'x-otel-basis-group': 'abcd1234-1000-2000',
++    });
++    expect(otelBasisHeaders({ 'x-otel-basis': 'latest' })).toEqual({
++      'x-otel-basis': 'latest',
++    });
++  });
++
++  it('drops anything else', () => {
++    for (const v of ['', 'b1.a', 'b2.a.b', 'b1.a.b\r\nX-Evil: 1', 'b1.a b.c']) {
++      expect(otelBasisHeaders({ 'x-otel-basis': v })).toEqual({});
++    }
++    for (const v of ['short', 'g'.repeat(65), 'abcd1234;x']) {
++      expect(otelBasisHeaders({ 'x-otel-basis-group': v })).toEqual({});
++    }
++    expect(
++      otelBasisHeaders({
++        'x-otel-basis-group': ['abcd12345', 'abcd12346'] as any,
++      }),
++    ).toEqual({});
++  });
++});
+diff --git a/packages/api/src/utils/queryServiceToken.ts b/packages/api/src/utils/queryServiceToken.ts
+index 8dba840..8154bec 100644
+--- a/packages/api/src/utils/queryServiceToken.ts
++++ b/packages/api/src/utils/queryServiceToken.ts
+@@ -19,3 +19,30 @@ export function queryServiceToken(
+   if (!/^[A-Za-z0-9._~+/=-]+$/.test(token)) return undefined;
+   return token;
+ }
++
++const BASIS_RE = /^(latest|b1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{1,100})$/;
++const BASIS_GROUP_RE = /^[A-Za-z0-9_-]{8,64}$/;
++
++/**
++ * otel-chdb fork (D30): the basis headers the browser sent, for the query
++ * service's adapter: X-Otel-Basis (a basis token) and X-Otel-Basis-Group
++ * (one basis per dashboard refresh). Only single, well-formed values pass;
++ * anything else is dropped (the statement then reads up to now, and its
++ * answer says it was not at a basis).
++ */
++export function otelBasisHeaders(
++  headers: IncomingHttpHeaders,
++): Record<string, string> {
++  const out: Record<string, string> = {};
++  const one = (name: string, re: RegExp) => {
++    // eslint-disable-next-line security/detect-object-injection
++    const raw = headers[name];
++    if (typeof raw === 'string' && raw.length <= 16384 && re.test(raw)) {
++      // eslint-disable-next-line security/detect-object-injection
++      out[name] = raw;
++    }
++  };
++  one('x-otel-basis', BASIS_RE);
++  one('x-otel-basis-group', BASIS_GROUP_RE);
++  return out;
++}
+diff --git a/packages/app/src/DBDashboardPage.tsx b/packages/app/src/DBDashboardPage.tsx
+index 81441a7..2620e05 100644
+--- a/packages/app/src/DBDashboardPage.tsx
++++ b/packages/app/src/DBDashboardPage.tsx
+@@ -22,6 +22,7 @@ import {
+ import { ErrorBoundary } from 'react-error-boundary';
+ import RGL from 'react-grid-layout';
+ import { useForm, useWatch } from 'react-hook-form';
++import { getCompletenessStore } from '@hyperdx/common-utils/dist/clickhouse/completeness';
+ import {
+   TableConnection,
+   tcFromSource,
+@@ -2038,6 +2039,17 @@ function DBDashboardPage({
+     setDisplayedTimeInputValue,
+   });
+ 
++  // otel-chdb fork (D30): every panel of this load or refresh reads at one
++  // basis. Pinned during render (before the panels' queries start in their
++  // effects); the same range on the same page is the same basis.
++  useMemo(
++    () =>
++      getCompletenessStore().pinBasis(
++        `${searchedTimeRange[0].getTime()}-${searchedTimeRange[1].getTime()}`,
++      ),
++    [searchedTimeRange],
++  );
++
+   const {
+     granularityOverride,
+     isRefreshEnabled,
+diff --git a/packages/app/src/components/CompletenessBanner.tsx b/packages/app/src/components/CompletenessBanner.tsx
+index b7d6963..b206b68 100644
+--- a/packages/app/src/components/CompletenessBanner.tsx
++++ b/packages/app/src/components/CompletenessBanner.tsx
+@@ -7,6 +7,40 @@ import { Alert, Text } from '@mantine/core';
+ 
+ const fmt = (t?: string) => (t ? new Date(t).toLocaleString() : 'unknown');
+ 
++/**
++ * Which basis the page's results were read at (D30): one basis, pinned for
++ * this load or refresh (the panels agree, and only a refresh moves them);
++ * several (they may disagree); or results read up to now.
++ */
++export function basisMessage(s: CompletenessSummary): string {
++  if (s.worst == null || s.results === 0) return '';
++  const parts: string[] = [];
++  if (s.bases === 1) {
++    const info = s.basisInfo
++      ? ` (rows received before ${s.basisInfo
++          .split('; ')
++          .map(c => {
++            const [cluster, t] = c.split('<');
++            return cluster === '*' ? fmt(t) : `${fmt(t)} in ${cluster}`;
++          })
++          .join(', ')})`
++      : '';
++    parts.push(
++      `Pinned to one basis for this refresh${info}: the panels agree and do not change until you refresh.`,
++    );
++  } else if (s.bases > 1) {
++    parts.push(
++      `Read at ${s.bases} different bases: panels may disagree about recent data.`,
++    );
++  }
++  if (s.unpinned > 0) {
++    parts.push(
++      `${s.unpinned === 1 ? 'One result was' : `${s.unpinned} results were`} read up to now, not at a basis.`,
++    );
++  }
++  return parts.join(' ');
++}
++
+ /**
+  * The banner's text for a page's results (otel-chdb fork). Never empty when
+  * there is a result that is not complete: a partial, unknown or unlabelled
+@@ -54,6 +88,7 @@ export function CompletenessBannerView({
+ }) {
+   const m = completenessMessage(summary);
+   if (m == null) return null;
++  const b = basisMessage(summary);
+   return (
+     <Alert
+       color={m.color}
+@@ -64,6 +99,11 @@ export function CompletenessBannerView({
+       data-completeness={summary.worst}
+     >
+       <Text size="xs">{m.text}</Text>
++      {b && (
++        <Text size="xs" c="dimmed" data-testid="completeness-basis">
++          {b}
++        </Text>
++      )}
+     </Alert>
+   );
+ }
+diff --git a/packages/app/src/components/__tests__/CompletenessBanner.test.tsx b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+index 55212b9..7556d49 100644
+--- a/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
++++ b/packages/app/src/components/__tests__/CompletenessBanner.test.tsx
+@@ -6,6 +6,7 @@ import {
+ import { act, screen } from '@testing-library/react';
+ 
+ import CompletenessBanner, {
++  basisMessage,
+   completenessMessage,
+ } from '@/components/CompletenessBanner';
+ 
+@@ -17,6 +18,39 @@ const lab = (completeness: any, t?: string, extra: object = {}) => ({
+   ...extra,
+ });
+ 
++describe('the basis line (otel-chdb fork, D30)', () => {
++  const at = (basis: string, info: string) =>
++    lab('complete', '2026-09-28T12:00:00Z', {
++      basis,
++      atBasis: true,
++      basisInfo: info,
++    });
++
++  it('says the page is pinned to one basis, and until when', () => {
++    const m = basisMessage(
++      CompletenessStore.summarize([
++        at('b1.a.m', 'prod-a<2026-09-28T12:00:00Z'),
++        at('b1.a.m', 'prod-a<2026-09-28T12:00:00Z'),
++      ]),
++    );
++    expect(m).toMatch(/^Pinned to one basis for this refresh/);
++    expect(m).toMatch(/in prod-a/);
++  });
++
++  it('warns when panels read at different bases or up to now', () => {
++    const m = basisMessage(
++      CompletenessStore.summarize([
++        at('b1.a.m', '*<2026-09-28T12:00:00Z'),
++        at('b1.b.m', '*<2026-09-28T12:01:00Z'),
++        lab('partial', '2026-09-28T12:00:00Z'),
++      ]),
++    );
++    expect(m).toMatch(/2 different bases/);
++    expect(m).toMatch(/One result was read up to now/);
++    expect(basisMessage(CompletenessStore.summarize([]))).toBe('');
++  });
++});
++
+ describe('CompletenessBanner (otel-chdb fork)', () => {
+   it('says nothing only when there is no result', () => {
+     expect(completenessMessage(CompletenessStore.summarize([]))).toBeNull();
+diff --git a/packages/common-utils/src/__tests__/completeness.test.ts b/packages/common-utils/src/__tests__/completeness.test.ts
+index ad0fdfe..50f3c5e 100644
+--- a/packages/common-utils/src/__tests__/completeness.test.ts
++++ b/packages/common-utils/src/__tests__/completeness.test.ts
+@@ -106,6 +106,74 @@ describe('completeness labels (otel-chdb fork)', () => {
+   });
+ });
+ 
++describe('the basis (otel-chdb fork, D30)', () => {
++  const at = (basis: string, info: string) => ({
++    completeness: 'complete' as const,
++    basis,
++    atBasis: true,
++    basisInfo: info,
++    receivedAt: 0,
++  });
++
++  it('reads which basis a result was computed at', () => {
++    const l = labelFromHeaders({
++      'x-otel-source': 'central',
++      'x-otel-completeness': 'complete',
++      'x-otel-basis': 'b1.p.m',
++      'x-otel-at-basis': 'true',
++      'x-otel-basis-info': 'prod-a<2026-09-28T12:00:00Z',
++    });
++    expect(l).toMatchObject({
++      basis: 'b1.p.m',
++      atBasis: true,
++      basisInfo: 'prod-a<2026-09-28T12:00:00Z',
++    });
++    // a basis named but not applied is not "at" it
++    expect(
++      labelFromHeaders({
++        'x-otel-source': 'central',
++        'x-otel-completeness': 'partial',
++        'x-otel-basis': 'b1.p.m',
++        'x-otel-at-basis': 'false',
++      })?.atBasis,
++    ).toBe(false);
++  });
++
++  it('counts the bases a page read at, and what read up to now', () => {
++    const one = CompletenessStore.summarize([
++      at('b1.a.m', 'x<T1'),
++      at('b1.a.m', 'x<T1'),
++    ]);
++    expect(one).toMatchObject({ bases: 1, basisInfo: 'x<T1', unpinned: 0 });
++    const two = CompletenessStore.summarize([
++      at('b1.a.m', 'x<T1'),
++      at('b1.b.m', 'x<T2'),
++      { completeness: 'partial', receivedAt: 0 },
++    ]);
++    expect(two).toMatchObject({ bases: 2, unpinned: 1 });
++    expect(two.basisInfo).toBeUndefined();
++  });
++
++  it('pins one basis group per page load and time range', () => {
++    const s = new CompletenessStore();
++    expect(s.basisHeaders()).toEqual({});
++    s.pinBasis('1000-2000');
++    const g = s.basisHeaders()['x-otel-basis-group'];
++    expect(g).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
++    s.pinBasis('1000-2000'); // a re-render: the same group
++    expect(s.basisHeaders()['x-otel-basis-group']).toBe(g);
++    s.pinBasis('1000-3000'); // a refresh: a new range end
++    const g2 = s.basisHeaders()['x-otel-basis-group'];
++    expect(g2).not.toBe(g);
++    s.reset(); // a new page: nothing pinned, and the same range is a new group
++    expect(s.basisHeaders()).toEqual({});
++    s.pinBasis('1000-3000');
++    expect(s.basisHeaders()['x-otel-basis-group']).not.toBe(g2);
++    s.unpinBasis();
++    expect(s.basisHeaders()).toEqual({});
++  });
++});
++
+ describe('queryServiceAuth (otel-chdb fork)', () => {
+   it('is empty when no token file is configured', () => {
+     expect(queryServiceAuth('', () => 'x')).toBeUndefined();
+diff --git a/packages/common-utils/src/clickhouse/browser.ts b/packages/common-utils/src/clickhouse/browser.ts
+index a32c684..cbda5fa 100644
+--- a/packages/common-utils/src/clickhouse/browser.ts
++++ b/packages/common-utils/src/clickhouse/browser.ts
+@@ -9,6 +9,7 @@ import { createClient } from '@clickhouse/client-web';
+ 
+ import { format } from '@/sqlFormatter';
+ 
++import { getCompletenessStore } from './completeness';
+ import {
+   BaseClickhouseClient,
+   ClickhouseClientOptions,
+@@ -190,6 +191,8 @@ export class ClickhouseClient extends BaseClickhouseClient {
+       ...(connectionId && connectionId !== 'local'
+         ? { 'x-hyperdx-connection-id': connectionId }
+         : {}),
++      // otel-chdb fork (D30): the page's pinned basis group, if any
++      ...getCompletenessStore().basisHeaders(),
+     };
+ 
+     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- client library type mismatch
+diff --git a/packages/common-utils/src/clickhouse/completeness.ts b/packages/common-utils/src/clickhouse/completeness.ts
+index 8f4ef5e..777af6f 100644
+--- a/packages/common-utils/src/clickhouse/completeness.ts
++++ b/packages/common-utils/src/clickhouse/completeness.ts
+@@ -11,6 +11,17 @@
+  *   X-Otel-Incomplete-From   RFC 3339: rows from here on may still arrive
+  *   X-Otel-Watermark-Status  ok | stale | missing | error
+  *   X-Otel-Watermark-Note    why completeness is unknown
++ *   X-Otel-Basis             the basis token the result was computed at (D30)
++ *   X-Otel-At-Basis          true | false: whether the rows were cut at it
++ *   X-Otel-Basis-Info        per cluster, "cluster<T": rows received before T
++ *
++ * One basis per page load and dashboard refresh (otel-chdb D30): the store
++ * keeps a basis group, sent with every statement as X-Otel-Basis-Group; the
++ * adapter pins one basis per group, so every panel of a refresh reads the
++ * same rows however much data arrives while they load, and only a refresh
++ * moves them. The group is derived from the page load and the searched time
++ * range: a new page, a new range or a refresh (a new range end) is a new
++ * group.
+  *
+  * Every result the client receives is recorded here under its statement text
+  * (so a refreshed chart replaces its own label), and the app shows the worst
+@@ -32,6 +43,10 @@ export type CompletenessLabel = {
+   watermarkStatus?: string;
+   watermarkNote?: string;
+   requestId?: string;
++  /** The basis the result was computed at (D30), and whether it was. */
++  basis?: string;
++  atBasis?: boolean;
++  basisInfo?: string;
+   receivedAt: number;
+ };
+ 
+@@ -72,6 +87,9 @@ export function labelFromHeaders(
+     watermarkStatus: header(headers, 'x-otel-watermark-status') || undefined,
+     watermarkNote: header(headers, 'x-otel-watermark-note') || undefined,
+     requestId: header(headers, 'x-otel-request-id') || undefined,
++    basis: header(headers, 'x-otel-basis') || undefined,
++    atBasis: header(headers, 'x-otel-at-basis') === 'true',
++    basisInfo: header(headers, 'x-otel-basis-info') || undefined,
+     receivedAt: now,
+   };
+ }
+@@ -87,6 +105,12 @@ export type CompletenessSummary = {
+   watermarkNote?: string;
+   results: number;
+   counts: Record<Completeness, number>;
++  /** How many distinct bases the page's results were computed at (D30). */
++  bases: number;
++  /** The one basis, when every result at a basis shares it. */
++  basisInfo?: string;
++  /** Results not computed at a basis (they read up to now). */
++  unpinned: number;
+ };
+ 
+ const MAX_ENTRIES = 500;
+@@ -97,8 +121,20 @@ function minTime(a: string | undefined, b: string | undefined) {
+   return Date.parse(a) <= Date.parse(b) ? a : b;
+ }
+ 
++const GROUP_RE = /^[A-Za-z0-9_-]{8,64}$/;
++
++function nonce(): string {
++  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
++  const id =
++    c?.randomUUID?.() ??
++    `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
++  return id.replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
++}
++
+ export class CompletenessStore {
+   private labels = new Map<string, CompletenessLabel>();
++  private pageNonce = nonce();
++  private group: string | null = null;
+   private listeners = new Set<() => void>();
+   private summary: CompletenessSummary = CompletenessStore.summarize([]);
+ 
+@@ -114,13 +150,38 @@ export class CompletenessStore {
+     this.changed();
+   }
+ 
+-  /** Forget every label (a new page). */
++  /** Forget every label (a new page); the next pin is a new basis. */
+   reset() {
++    this.pageNonce = nonce();
++    this.group = null;
+     if (this.labels.size === 0) return;
+     this.labels.clear();
+     this.changed();
+   }
+ 
++  /**
++   * Pin one basis for everything the page loads for this key (a dashboard's
++   * searched time range): the same key on the same page load is the same
++   * group (idempotent, so a re-render changes nothing); a new key, or a new
++   * page load, is a new group and so a new basis.
++   */
++  pinBasis(key: string) {
++    const g = `${this.pageNonce}-${key}`
++      .replace(/[^A-Za-z0-9_-]/g, '')
++      .slice(0, 64);
++    this.group = GROUP_RE.test(g) ? g : null;
++  }
++
++  /** Stop pinning: statements read up to now (and say so). */
++  unpinBasis() {
++    this.group = null;
++  }
++
++  /** The headers every statement carries while a basis is pinned. */
++  basisHeaders(): Record<string, string> {
++    return this.group ? { 'x-otel-basis-group': this.group } : {};
++  }
++
+   subscribe = (fn: () => void) => {
+     this.listeners.add(fn);
+     return () => {
+@@ -146,8 +207,15 @@ export class CompletenessStore {
+       worst: null,
+       results: labels.length,
+       counts,
++      bases: 0,
++      unpinned: 0,
+     };
++    const bases = new Map<string, string | undefined>();
+     for (const l of labels) {
++      if (l.completeness !== 'unlabelled') {
++        if (l.atBasis && l.basis) bases.set(l.basis, l.basisInfo);
++        else s.unpinned++;
++      }
+       counts[l.completeness]++;
+       if (s.worst == null || RANK[l.completeness] > RANK[s.worst]) {
+         s.worst = l.completeness;
+@@ -161,6 +229,8 @@ export class CompletenessStore {
+         s.watermarkNote = l.watermarkNote;
+       }
+     }
++    s.bases = bases.size;
++    if (bases.size === 1) s.basisInfo = [...bases.values()][0];
+     return s;
+   }
+ }

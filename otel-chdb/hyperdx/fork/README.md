@@ -9,6 +9,7 @@ upstream **HyperDX at `885d30c`** (`hyperdxio/hyperdx`, "Update VOUCHED list
 |---|---|---|
 | [`0001-no-silent-partial-results.patch`](patches/0001-no-silent-partial-results.patch) | Every query the HyperDX client sends pins the eleven `*_overflow_mode` settings to `throw`; a source's `querySettings` can no longer set one; the `break`/`any` settings are gone from the call sites, except a flagged read sample for suggestion lists | AMBIGUITY.md X7 (H-2 in the UI), C2's hazard in the UI and alerts |
 | [`0002-query-service-token-and-completeness-banner.patch`](patches/0002-query-service-token-and-completeness-banner.patch) | HyperDX's ClickHouse traffic goes through the query service's adapter with the user's own token (browser path: the API's proxy forwards it; server path: a service token file), and every page shows the worst completeness label of its results in a banner; a refused text-index key lookup falls through instead of returning no keys; fixes 0001's one missed test expectation | R-S1, R-S2, R-S8 in the UI; X7; D25 |
+| [`0003-one-basis-per-dashboard-refresh.patch`](patches/0003-one-basis-per-dashboard-refresh.patch) | Every statement of a page load or dashboard refresh carries one basis group (`X-Otel-Basis-Group`); the adapter pins one basis per group, so the panels read the same rows while data arrives and only a refresh moves them; the API proxy forwards only well-formed basis headers; the banner says which basis the page read at (one, several, or up to now) | D30 (research/bitemporal.md §3) |
 
 ## Apply and build
 
@@ -187,3 +188,54 @@ username/password anything (ignored); API env
 `HDX_QUERY_SERVICE_TOKEN_FILE`; the adapter's `query_url` = the service. The
 optional entity rewrite proxy sits between the API and the adapter (its
 rewritten statements are refused by the service today: query README §8.5).
+
+## 0003: one basis per dashboard refresh (D30)
+
+**Why.** Every panel of a dashboard is its own statement, and before 0003
+each ran up to "now": panels loaded a second apart disagreed about the
+most recent data, and a panel re-run showed different numbers for the same
+range. The query service can answer **at a basis** (a named custody time
+per cluster: rows received before it, `../../research/bitemporal.md` §3,
+D30); an answer at a basis never changes while new data arrives.
+
+**What.**
+
+- `common-utils/src/clickhouse/completeness.ts`: the store keeps a **basis
+  group** per page load and searched time range (`pinBasis(key)`: the same
+  key on the same page load is the same group, so a re-render changes
+  nothing; a new range, including a refresh's new range end, or a new page
+  is a new group; `reset()` on route change unpins). Every label records the
+  basis its result was computed at (`X-Otel-Basis`, `X-Otel-At-Basis`,
+  `X-Otel-Basis-Info`), and the summary counts the page's bases and the
+  results read up to now.
+- `common-utils/src/clickhouse/browser.ts`: every statement carries
+  `X-Otel-Basis-Group` while a group is pinned.
+- `api/src/routers/api/clickhouseProxy.ts`, `utils/queryServiceToken.ts`:
+  the proxy forwards only a well-formed `X-Otel-Basis` (a `b1.…` token or
+  `latest`) or `X-Otel-Basis-Group`, and drops anything else.
+- `app/src/DBDashboardPage.tsx`: pins the group during render (before the
+  panels' queries start in their effects) from the searched time range.
+- `app/src/components/CompletenessBanner.tsx`: a second line: "Pinned to
+  one basis for this refresh (rows received before T): the panels agree
+  and do not change until you refresh", or a warning when the page read at
+  several bases or some results up to now.
+
+**The adapter side** (`query/internal/hdxadapter/basis.go`): the first
+statement of a group mints a basis from the service's `POST /v1/basis` (the
+caller's whole scope, every signal), keyed by the caller's token and the
+group; the refresh's concurrent statements wait for that one mint. A basis
+the service stops accepting (`basis_invalid` after a restart with a
+per-process key, `basis_expired`) is re-minted once. An explicit
+`X-Otel-Basis` is passed through as is.
+
+**Checked (2026-09-28).** The three patches apply with `git am` to a clean
+`885d30c` and give the tree that was checked; the touched files parse
+(`transpileModule`) and match the repository's Prettier config;
+`completeness.ts` and `queryServiceToken.ts` type-check under `strict`
+(TypeScript 6.0.2, with a one-line stub for each of their two type
+imports); the new tests' assertions (`completeness.test.ts`,
+`queryServiceToken.test.ts`, `CompletenessBanner.test.tsx`'s
+`basisMessage`) pass against the transpiled modules with React and Mantine
+stubbed. **Not run:** `yarn install`, jest itself, the app's and the API's
+full type checks (the box had under 1 GB free while this was built), a
+built HyperDX.

@@ -38,6 +38,14 @@ type Evaluator interface {
 	Evaluate(ctx context.Context, r *rule.Rule, w rule.Window) engine.Result
 }
 
+// LateEvaluator is what the late-data check needs (D30): deltas between
+// bases, and a window re-evaluated at a given basis. An Evaluator without it
+// never checks for late data.
+type LateEvaluator interface {
+	Delta(ctx context.Context, r *rule.Rule, w rule.Window, from, to string) engine.Delta
+	EvaluateAt(ctx context.Context, r *rule.Rule, w rule.Window, basis string) engine.Result
+}
+
 // Sender delivers notices.
 type Sender interface {
 	Send(ctx context.Context, sends []engine.Send, now time.Time) (notify.Answer, string)
@@ -56,9 +64,12 @@ type Runner struct {
 	MaxPerTick  int           // windows per rule per tick (catch-up rate); default 20
 	MinGap      time.Duration // skip a rule another replica wrote this recently; default Tick/2
 	Concurrency int           // rules processed at once; default 4
-	Now         func() time.Time
-	Metrics     *metrics.Registry
-	Log         *slog.Logger
+	// MaxLatePerTick bounds the windows checked one by one for late data
+	// per rule and tick (after a span check found rows); default 5.
+	MaxLatePerTick int
+	Now            func() time.Time
+	Metrics        *metrics.Registry
+	Log            *slog.Logger
 
 	lastTick atomic.Int64 // unix ms of the last completed tick
 	storeOK  atomic.Bool
@@ -78,6 +89,9 @@ func (r *Runner) Init() {
 	}
 	if r.Concurrency == 0 {
 		r.Concurrency = 4
+	}
+	if r.MaxLatePerTick == 0 {
+		r.MaxLatePerTick = 5
 	}
 	if r.Now == nil {
 		r.Now = time.Now
@@ -107,6 +121,10 @@ func (r *Runner) Init() {
 	m.Counter("alr_state_errors_total", "State reads that failed or could not be decoded.", "op")
 	m.Counter("alr_rules_skipped_total", "Rule ticks skipped because another replica wrote the state within min_gap.", "rule")
 	m.Gauge("alr_last_tick_seconds", "Wall time of the last completed tick.")
+	m.Counter("alr_late_checks_total", "Late-data delta queries by kind (span: every kept window at once; window: one) and outcome.", "rule", "kind", "outcome")
+	m.Counter("alr_late_rows_total", "Late rows found in windows already evaluated (received after the basis they were evaluated at).", "rule")
+	m.Gauge("alr_late_windows", "Evaluated windows kept for late-data checks.", "rule")
+	m.Gauge("alr_late_episodes", "Late episodes and late-data notices raised (on_late reevaluate / page).", "rule")
 }
 
 func (r *Runner) key(name string) string {
@@ -213,6 +231,10 @@ func (r *Runner) ProcessRule(ctx context.Context, ru *rule.Rule) error {
 		}
 		break
 	}
+	if le, ok := r.Eval.(LateEvaluator); ok && engine.LateDue(ru, st, r.Now().UnixMilli()) {
+		r.lateCheck(ctx, ru, st, le)
+		changed = true
+	}
 	now = r.Now()
 	if engine.UpdateMeta(ru, st, now.UnixNano(), now.UnixMilli(), r.Engine) {
 		changed = true
@@ -244,8 +266,78 @@ func (r *Runner) ProcessRule(ctx context.Context, ru *rule.Rule) error {
 	return nil
 }
 
+// lateCheck looks for late rows in the windows the rule kept (D30): one
+// span delta over all of them from the lowest recorded basis to the latest;
+// when it finds none, every window moves to the new basis. Otherwise each
+// window (oldest first, MaxLatePerTick) gets its own delta from its own
+// basis to the same new one, and a window with late rows is re-evaluated at
+// it and handed to the engine's on_late policy. Anything that does not
+// complete is tried again at the next check; a basis the service no longer
+// accepts drops that window from the checks (counted).
+func (r *Runner) lateCheck(ctx context.Context, ru *rule.Rule, st *engine.State, le LateEvaluator) {
+	st.LateMs = r.Now().UnixMilli()
+	pend := st.LatePending()
+	tok := ""
+	if w, from, ok := engine.LateSpan(ru, st); ok {
+		d := le.Delta(ctx, ru, w, from, "latest")
+		r.Metrics.Inc("alr_late_checks_total", ru.Name, "span", string(d.Outcome))
+		switch {
+		case d.Outcome == engine.Complete && d.Rows == 0:
+			ends := make([]int64, 0, len(pend))
+			for _, x := range pend {
+				ends = append(ends, x.EndNs)
+			}
+			engine.LateChecked(st, ends, d.Basis, d.C)
+			return
+		case d.Outcome == engine.Complete:
+			tok = d.Basis
+		case d.Outcome == engine.Refused:
+			r.Log.Warn("late-data check refused: the kept windows' bases are dropped", "rule", ru.Name, "err", d.Err)
+			engine.LateUnverifiable(st)
+			return
+		default:
+			return
+		}
+	}
+	for i, w := range pend {
+		if i >= r.MaxLatePerTick {
+			break
+		}
+		win := ru.WindowEnding(w.EndNs)
+		to := tok
+		if to == "" {
+			to = "latest"
+		}
+		d := le.Delta(ctx, ru, win, w.Basis, to)
+		r.Metrics.Inc("alr_late_checks_total", ru.Name, "window", string(d.Outcome))
+		if d.Outcome == engine.Refused {
+			w.Basis, w.C = "", nil
+			st.LateLost++
+			continue
+		}
+		if d.Outcome != engine.Complete {
+			return
+		}
+		tok = d.Basis
+		if d.Rows == 0 {
+			engine.LateChecked(st, []int64{w.EndNs}, d.Basis, d.C)
+			continue
+		}
+		res := le.EvaluateAt(ctx, ru, win, d.Basis)
+		r.Metrics.Inc("alr_evaluations_total", ru.Name, "late_"+string(res.Outcome))
+		if res.Outcome != engine.Complete {
+			return
+		}
+		r.Metrics.Add("alr_late_rows_total", float64(d.Rows), ru.Name)
+		r.Log.Info("late rows in an evaluated window", "rule", ru.Name, "window_end", time.Unix(0, w.EndNs).UTC(), "rows", d.Rows, "policy", ru.OnLate)
+		engine.LateApply(ru, st, w.EndNs, d, res, r.Now().UnixMilli())
+	}
+}
+
 func (r *Runner) gauges(ru *rule.Rule, st *engine.State, now time.Time) {
 	m, n := r.Metrics, ru.Name
+	m.Set("alr_late_windows", float64(len(st.Recent)), n)
+	m.Set("alr_late_episodes", float64(st.LateEpisodes), n)
 	last := st.NextEndNs - int64(ru.Every)
 	m.Set("alr_complete_through_seconds", float64(st.LastCompleteThroughNs)/1e9, n)
 	m.Set("alr_evaluated_through_seconds", float64(last)/1e9, n)

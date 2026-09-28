@@ -122,7 +122,31 @@ type Rule struct {
 	// their complete_through only, so another cluster's stalled lane does
 	// not hold this rule. Default: the identity's whole scope.
 	Clusters []string `yaml:"clusters"`
+	// OnLate is what late data does to windows already evaluated (D30):
+	// rows received after the basis a window was evaluated at, found by a
+	// delta (the rows between that basis and a newer one, same window).
+	// "reevaluate" (default): the window is re-evaluated at the newer
+	// basis; a group that now meets the condition (for `for`, over its run
+	// of windows) and is not already alerting fires a new episode marked
+	// late (alert_late="true"), which resolves by itself; a live pending
+	// group whose run the late rows lengthen fires as usual. Late data
+	// never resolves anything. "page": a window whose verdict (the groups
+	// that hold) changed sends one "late data changed window W" notice.
+	// "ignore": windows are not re-checked.
+	OnLate string `yaml:"on_late"`
+	// LateHorizon: how long after its end a window is re-checked for late
+	// data (default 1h; at most 360 windows are kept). LateEvery: how often
+	// (default: every, at least 1m).
+	LateHorizon Duration `yaml:"late_horizon"`
+	LateEvery   Duration `yaml:"late_every"`
 }
+
+// Late-data policies (OnLate).
+const (
+	LateIgnore     = "ignore"
+	LateReevaluate = "reevaluate"
+	LatePage       = "page"
+)
 
 // File is a rules file.
 type File struct {
@@ -136,7 +160,7 @@ var labelRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 var clusterRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
 
 // Reserved labels the evaluator sets itself.
-var Reserved = map[string]bool{"alertname": true, "severity": true, "alert_rule": true, "alert_episode": true, "alert_kind": true}
+var Reserved = map[string]bool{"alertname": true, "severity": true, "alert_rule": true, "alert_episode": true, "alert_kind": true, "alert_late": true}
 
 // Validate fills defaults and checks the rule.
 func (r *Rule) Validate() error {
@@ -197,6 +221,22 @@ func (r *Rule) Validate() error {
 	}
 	if r.MaxGroups == 0 {
 		r.MaxGroups = 1000
+	}
+	switch r.OnLate {
+	case "":
+		r.OnLate = LateReevaluate
+	case LateIgnore, LateReevaluate, LatePage:
+	default:
+		return fmt.Errorf("rule %s: on_late %q (ignore, reevaluate or page)", r.Name, r.OnLate)
+	}
+	if r.LateHorizon < 0 || r.LateEvery < 0 {
+		return fmt.Errorf("rule %s: late_horizon and late_every must be ≥ 0", r.Name)
+	}
+	if r.LateHorizon == 0 {
+		r.LateHorizon = Duration(time.Hour)
+	}
+	if r.LateEvery == 0 {
+		r.LateEvery = max(r.Every, Duration(time.Minute))
 	}
 	return nil
 }

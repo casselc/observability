@@ -64,6 +64,10 @@ type Result struct {
 	WatermarkAgeS     float64
 	Holding, Stale    []Lane
 	RequestID         string
+	// Basis is the basis token the answer was computed at (D30; "" from a
+	// service without bases), BasisC its bounds ({cluster|"*": ns}).
+	Basis  string
+	BasisC map[string]uint64
 }
 
 // Group is one label set of a rule that currently holds.
@@ -146,6 +150,18 @@ type State struct {
 	// service reported to this rule.
 	LastCompleteThroughNs int64 `json:"last_complete_through_ns"`
 	LastEvalMs            int64 `json:"last_eval_ms,omitempty"` // wall time of the last complete evaluation
+	// Recent: the windows evaluated within the rule's late_horizon, each
+	// with the basis it was evaluated (or last checked for late data) at
+	// and the groups that held (late.go, D30).
+	Recent []*Recent `json:"recent,omitempty"`
+	// LateMs: when late data was last checked for (wall ms).
+	LateMs int64 `json:"late_ms,omitempty"`
+	// LateRows: late rows found in evaluated windows; LateEpisodes: late
+	// episodes and late-data notices raised; LateLost: windows dropped
+	// before they could be checked (their basis no longer verifies).
+	LateRows     int64 `json:"late_rows,omitempty"`
+	LateEpisodes int64 `json:"late_episodes,omitempty"`
+	LateLost     int64 `json:"late_lost,omitempty"`
 	// Writer bookkeeping: who wrote this version, and a random id that
 	// tells a writer whether an unanswered write of its own landed.
 	Writer    string `json:"writer"`
@@ -215,7 +231,7 @@ func Reconcile(r *rule.Rule, st *State, nowNs, nowMs int64) bool {
 		}
 		delete(st.Groups, k)
 	}
-	st.Spec, st.NextEndNs, st.Attempt = r.Spec(), end, nil
+	st.Spec, st.NextEndNs, st.Attempt, st.Recent = r.Spec(), end, nil, nil
 	return true
 }
 
@@ -262,15 +278,7 @@ func Apply(r *rule.Rule, st *State, res Result, nowMs int64) (advanced bool) {
 		}
 		return false
 	}
-	holds := map[string]rule.Row{}
-	for _, row := range res.Rows {
-		if r.Condition.Holds(row.Value) {
-			holds[rule.GroupKey(row.Labels)] = row
-		}
-	}
-	if len(res.Rows) == 0 && r.OnNoRows == "fire" {
-		holds[rule.GroupKey(map[string]string{})] = rule.Row{Labels: map[string]string{}}
-	}
+	holds := holdsOf(r, res.Rows)
 	for k, g := range st.Groups {
 		if _, ok := holds[k]; ok {
 			continue
@@ -299,11 +307,26 @@ func Apply(r *rule.Rule, st *State, res Result, nowMs int64) (advanced bool) {
 			fire(r, st, k, g, nowMs)
 		}
 	}
+	record(r, st, end, res, holds)
 	st.NextEndNs += int64(r.Every)
 	st.Evaluated++
 	st.Attempt = nil
 	st.LastEvalMs = nowMs
 	return true
+}
+
+// holdsOf is the groups a complete answer's rows make hold.
+func holdsOf(r *rule.Rule, rows []rule.Row) map[string]rule.Row {
+	holds := map[string]rule.Row{}
+	for _, row := range rows {
+		if r.Condition.Holds(row.Value) {
+			holds[rule.GroupKey(row.Labels)] = row
+		}
+	}
+	if len(rows) == 0 && r.OnNoRows == "fire" {
+		holds[rule.GroupKey(map[string]string{})] = rule.Row{Labels: map[string]string{}}
+	}
+	return holds
 }
 
 // NoticeKey is the dedup key of a group's episode.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks alertEvaluator.qnt (../alerts/, AMBIGUITY.md X5/X6): the design
+# Checks alertEvaluator.qnt (../alerts/, AMBIGUITY.md X5/X6, late data D30): the design
 # keeps every invariant over random traces, each witness is reached, and each
 # mutant breaks the invariant it is named for. Exits non-zero otherwise.
 #
@@ -29,4 +29,10 @@ check evalPastCt    noLostEpisode          VIOLATED
 check ackOnNoAnswer resolvedAfterFiringAck VIOLATED
 check ackOnNoAnswer noLostEpisode          VIOLATED
 check blindWrite    nextMonotone           VIOLATED
+# late data (D30)
+check design        wLateCounted           VIOLATED
+check design        wLateEpisodeAcked      VIOLATED
+check design        wLateChangedVerdict    VIOLATED
+check lateDouble    noDoubleCount          VIOLATED
+check lateResolves  lateNeverResolves      VIOLATED
 exit $rc

@@ -9,6 +9,7 @@ rules:
     window: 1m
     condition: {op: ">", threshold: 0}
     severity: none
+    on_late: ignore     # D30: late rows cannot change "always fires"
     annotations:
       summary: the alert evaluator is evaluating complete windows and delivering
 
@@ -22,6 +23,8 @@ rules:
     for: 2m
     condition: {op: ">", threshold: 100}
     labels: {team: sre}
+    on_late: reevaluate # D30 (default): late rows re-evaluate the window; a group they make hold pages a late episode
+    late_horizon: 1h    # how long after its end a window is re-checked for late rows
     annotations:
       summary: "{{labels.service}} in {{labels.cluster}}: {{value}} errors in 5 min"
 
@@ -33,4 +36,5 @@ rules:
     on_no_rows: fire
     condition: {op: "<", threshold: 0}
     identity: team-shop
+    on_late: page       # late rows that change which groups hold send "late data changed window W"
     labels: {team: shop}

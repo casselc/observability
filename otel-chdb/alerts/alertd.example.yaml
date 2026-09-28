@@ -11,12 +11,12 @@ query:
 # A rule names one (default "default"); the token's clusters and namespaces
 # are the rule's scope.
 identities:
-  default:                      # fleet scope: map its group to "*" in queryd's group_grants
+  default:                      # IdP groups: "alertd-fleet" (queryd group_grants: fleet scope) + "alert-evaluator" (limits only: max_concurrent 16)
     token_url: https://idp.example.com/realms/observability/protocol/openid-connect/token
     client_id: alertd
     client_secret_env: ALR_CLIENT_SECRET
     audience: otel-query
-  team-shop:                    # a team's rules run with the team's scope
+  team-shop:                    # the team's own scope; IdP group "alert-evaluator" too (limits only, grants nothing)
     token_file: /var/run/secrets/tokens/alertd-team-shop
 state:                          # one object per rule, replaced by compare-and-swap (README §4)
   endpoint: http://seaweedfs:8333

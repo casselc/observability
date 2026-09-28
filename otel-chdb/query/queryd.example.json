@@ -16,6 +16,7 @@
     "groups": "groups",
     "group_grants": {
       "sre": {"clusters": ["*"], "namespaces": ["*"], "roles": ["query", "plan"]},
+      "alertd-fleet": {"clusters": ["*"], "namespaces": ["*"], "roles": ["query"]},
       "team-shop": {"clusters": ["prod-eu-1", "prod-us-1"], "namespaces": ["shop", "cart"], "roles": ["query"]},
       "platform-eu": {"clusters": ["prod-eu-1"], "namespaces": ["*"], "roles": ["query", "plan"]}
     }
@@ -47,7 +48,8 @@
     "default": {"max_execution_time_s": 30, "max_rows_to_read": 2000000000, "max_bytes_to_read": 214748364800,
                 "max_result_rows": 100000, "max_result_bytes": 67108864, "max_memory_usage": 4294967296, "max_concurrent": 4},
     "groups": {
-      "sre": {"max_execution_time_s": 120, "max_concurrent": 8}
+      "sre": {"max_execution_time_s": 120, "max_concurrent": 8},
+      "alert-evaluator": {"max_concurrent": 16}
     }
   },
   "catalog": {"database": "entities", "resources": "resources", "ingest_log": "ingest_log", "lag_max_s": 900},

@@ -207,7 +207,12 @@ result from the same bases).
 late window, one delta and one re-evaluation. In the integration test two
 replicas running three rules of one identity with 2 s checks exceeded the
 service's default `max_concurrent` (4): a 429 is a failed evaluation and
-pages, so size `limits` for evaluators with late checks (the test sets 16).
+pages, so size `limits` for evaluators with late checks. **Owner decision
+(2026-09-28): 16** — every evaluator identity carries the IdP group
+`alert-evaluator`, which queryd maps to limits only (`max_concurrent: 16`,
+`queryd.example.json`) and never to a grant, so it raises concurrency without
+widening any identity's scope; fleet scope comes from a separate group
+(`alertd-fleet`). The integration test uses the same value.
 The state grows by the kept windows: the holding groups of each, up to
 `late_horizon` / `every` windows (360 at most).
 

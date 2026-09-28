@@ -1902,6 +1902,35 @@ WebAssembly. The feasibility spike for (2) is
 endpoint plans and presigns and the browser reads the lake, with the query
 service, entity catalog API and `complete_through` banner shared with the fork.
 
+### Owner decisions, 2026-09-28 (time, completeness, query service, HyperDX)
+
+The owner took the coordinator's recommendations:
+
+- **Time and completeness.**
+  - `max_lateness` stays **60 s fleet-wide** (D26); revisit per signal or
+    cluster once the clock probe has run (`deploy/validation/clocks-and-skew.md`).
+  - The edges' `late_split_after` stays **15 min** (D31) until the clock probe
+    measures the fleet's worst skew; it must stay above it.
+  - **Adopt the central partition key `(toDate(received_at), late_part)`**
+    (D31's measurement: 213 granules against 404 per 5-minute window with 1%
+    late rows), with its migration and the consumer's partition-range check.
+  - **Metrics are not split** for now.
+  - **Dead-lane retirement:** design it (a proof that a retired lane's
+    custody is empty) before any per-node publisher layout.
+- **Query service and HyperDX.**
+  - Serve the **catalog dictionaries and `resource_kv`** through the query
+    service, scoped by cluster, so the entity rewrite proxy works through it.
+  - Add a **labelled sample mode** (HyperDX typeahead) and a
+    **performance-settings allow-list** (sources' `querySettings`).
+  - Add a **cluster column to the key/value rollup tables**, so
+    cluster-restricted users can use them.
+  - **Server-side HyperDX calls started by a user** (MCP, external API) carry
+    that user's token, not the service identity.
+  - Withhold **`system.tables.total_rows`** from cluster-restricted callers
+    unless HyperDX's onboarding needs it for them.
+- Also from the same review: **Mosaic deferred** (D28); the D30 defaults and
+  evaluator concurrency 16 accepted (D30).
+
 ---
 
 ### D22. Query service: SQL rebuilt from the tree, scope as table filters, labels on every result

@@ -1,0 +1,91 @@
+2026/09/28 19:32:50 fleet: 20261 pods, [2026-09-20 00:00:00.000, 2026-09-27 00:00:00.000); controller: 2286 objects, 1208585 records (1111334 in syncs); 617960 announcements
+2026/09/28 19:32:50 aggregator: 0/2286 objects
+2026/09/28 19:33:00 aggregator: 500/2286 objects
+2026/09/28 19:33:10 aggregator: 1000/2286 objects
+2026/09/28 19:33:20 aggregator: 1500/2286 objects
+2026/09/28 19:33:30 aggregator: 2000/2286 objects
+== today's inputs: 590465 pod events, 1297907 resource events (0 All)
+  pods view (SCD2), pod-hours by truth | view
+    alive | MISSING                                             21.28 h
+    alive | OVERLAP(2)                                        2063.38 h
+    alive | WRONG-VERSION                                        0.04 h
+    alive | exact                                           518021.11 h
+    alive | exact,uncertain                                    246.71 h
+    dead | FALSE-ALIVE                                         131.49 h
+    dead | FALSE-ALIVE,uncertain                                 0.15 h
+    dead | none(ok)                                        2883363.84 h
+  resources view (SCD2 + announced), resource-hours
+    alive | MISSING                                              0.07 h
+    alive | OVERLAP(2)                                        2636.43 h
+    alive | WRONG-VERSION                                        0.05 h
+    alive | exact                                           600396.73 h
+    alive | exact,uncertain                                    246.71 h
+    alive | exact,uncertain,announce                            22.59 h
+    dead | FALSE-ALIVE                                         149.13 h
+    dead | FALSE-ALIVE,uncertain                                 0.15 h
+    dead | FALSE-ALIVE,uncertain,announce                      473.41 h
+    dead | none(ok)                                        3083674.74 h
+  resolver, pods
+    alive | MISSING(absent)                                     21.28 h
+    alive | WRONG-VERSION                                     2062.32 h
+    alive | exact                                           518268.78 h
+    alive | unknown(alive)                                       0.13 h
+    dead | FALSE-ALIVE                                         131.53 h
+    dead | none(ok)                                        2883363.84 h
+    dead | unknown(dead)                                         0.12 h
+  resolver, resources
+    alive | MISSING(absent)                                     20.66 h
+    alive | WRONG-VERSION                                     2635.05 h
+    alive | exact                                           600644.73 h
+    alive | exact,announce                                       2.00 h
+    alive | exact,announce(fills-unknown)                        0.00 h
+    alive | unknown(alive)                                       0.13 h
+    dead | FALSE-ALIVE                                         149.16 h
+    dead | none(ok)                                        3084148.15 h
+    dead | unknown(dead)                                         0.12 h
+  current view at the end: 21703 events kept of 1297907 (1.67%), 21703 entities; asserted 3461, retracted (tombstones) 18242, truth live 3461, disagreeing with truth 0; built in 344ms
+  cost: 59 events per entity lookup (own + All); Resolve (point, history) 584ns; ResolveRange (whole range) 5.208µs; Current.Get 256ns
+== + restart gaps: 599848 pod events, 1308798 resource events (0 All)
+  resolver, pods
+    alive | MISSING(absent)                                     21.28 h
+    alive | WRONG-VERSION                                        0.07 h
+    alive | exact                                           520227.17 h
+    alive | unknown(alive)                                     103.99 h
+    dead | FALSE-ALIVE                                           9.38 h
+    dead | none(ok)                                        2883363.84 h
+    dead | unknown(dead)                                       122.26 h
+  resolver, resources
+    alive | MISSING(absent)                                     20.66 h
+    alive | WRONG-VERSION                                        0.09 h
+    alive | exact                                           603149.92 h
+    alive | exact,announce                                       2.00 h
+    alive | exact,announce(fills-unknown)                       61.16 h
+    alive | unknown(alive)                                      68.74 h
+    dead | FALSE-ALIVE                                          10.05 h
+    dead | none(ok)                                        3084148.15 h
+    dead | unknown(dead)                                       139.23 h
+  current view at the end: 21703 events kept of 1308798 (1.66%), 21703 entities; asserted 3461, retracted (tombstones) 18242, truth live 3461, disagreeing with truth 0; built in 338ms
+  cost: 60 events per entity lookup (own + All); Resolve (point, history) 704ns; ResolveRange (whole range) 6.197µs; Current.Get 328ns
+== + restart gaps, announcement tail = window: 599848 pod events, 1308798 resource events (0 All)
+  resolver, pods
+    alive | MISSING(absent)                                     21.28 h
+    alive | WRONG-VERSION                                        0.07 h
+    alive | exact                                           520227.17 h
+    alive | unknown(alive)                                     103.99 h
+    dead | FALSE-ALIVE                                           9.38 h
+    dead | none(ok)                                        2883363.84 h
+    dead | unknown(dead)                                       122.26 h
+  resolver, resources
+    alive | MISSING(absent)                                      0.07 h
+    alive | WRONG-VERSION                                        0.09 h
+    alive | WRONG-VERSION,announce(fills-unknown)                0.00 h
+    alive | exact                                           603149.92 h
+    alive | exact,announce                                      22.59 h
+    alive | exact,announce(fills-unknown)                      129.90 h
+    dead | FALSE-ALIVE                                          10.05 h
+    dead | FALSE-ALIVE,announce                                226.41 h
+    dead | FALSE-ALIVE,announce(fills-unknown)                  69.12 h
+    dead | none(ok)                                        3083921.74 h
+    dead | unknown(dead)                                        70.11 h
+  current view at the end: 24635 events kept of 1308798 (1.88%), 21703 entities; asserted 3461, retracted (tombstones) 18242, truth live 3461, disagreeing with truth 0; built in 625ms
+  cost: 60 events per entity lookup (own + All); Resolve (point, history) 733ns; ResolveRange (whole range) 6.026µs; Current.Get 327ns

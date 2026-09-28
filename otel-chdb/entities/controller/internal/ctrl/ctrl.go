@@ -45,6 +45,17 @@ type Config struct {
 	Writer      string
 	Resync      time.Duration // full-state sync objects
 	Transform   bool          // strip cached objects to what the controller reads
+	// Since: when the previous incarnation of this cluster's controller
+	// wrote its last object (lane.PreviousEnd; 0: none). What happened
+	// between then and this incarnation's first sync was not observed, so
+	// a pod created before Since and first seen now gets valid_from =
+	// Since, not its creation: its version may have changed while no
+	// controller watched, and the aggregator's min(valid_from) would
+	// otherwise date the current version from the pod's creation, over the
+	// earlier versions (an unchanged version keeps its earlier valid_from
+	// through that same min). The window [Since, first sync] is written as a
+	// gap record (reason "restart").
+	Since lane.Time
 }
 
 type podState struct {
@@ -343,6 +354,19 @@ func (c *Controller) gap(res, reason string, start, began, end lane.Time) {
 	log.Printf("gap record: %s %s from %d to %d (relist at %d)", res, reason, start, end, began)
 }
 
+// restartGap writes the window between the previous incarnation's last
+// object and this one's first sync (Config.Since) as a gap record: every
+// catalog level, since no informer watched. Written after the first sync,
+// so the aggregator has applied that sync's closes when it marks the window.
+func (c *Controller) restartGap(end lane.Time) {
+	if c.cfg.Since > 0 && c.cfg.Since < end {
+		c.gap(resRestart, "restart", c.cfg.Since, c.cfg.Since, end)
+	}
+}
+
+// resRestart is the gap records' resource for a controller restart.
+const resRestart = "restart"
+
 // informerCount is the number of informers New starts.
 const informerCount = 5
 
@@ -408,6 +432,7 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 	}
 	c.Synced.Store(true)
 	c.sync(ctx)
+	c.restartGap(lane.Now())
 	t := time.NewTicker(c.cfg.Resync)
 	defer t.Stop()
 	for {
@@ -710,6 +735,9 @@ func (c *Controller) process(key string) error {
 		}
 	}
 	vf := created
+	if st == nil && c.cfg.Since > 0 && vf < c.cfg.Since {
+		vf = c.cfg.Since // seen before this incarnation: its current version's start is unknown (Config.Since)
+	}
 	if st != nil { // a new version of a live pod (relabel, owner change)
 		vf, event = now, now
 		old := *st

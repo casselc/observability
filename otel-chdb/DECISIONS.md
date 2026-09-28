@@ -67,6 +67,7 @@ disagreed with each other, and how each was resolved.
 | [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
 | [D28](#d28-mosaic-vgplot--duckdb-wasm-for-the-lake-uis-analytical-views-fed-by-the-range-reader-proposed) | Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical, cross-filtered views, fed by lakeui's range reader; hyparquet-only stays for search and trace | **proposed** (2026-09-28): spike [`lakeui/mosaic/`](lakeui/mosaic/README.md), [research/mosaic.md](research/mosaic.md); owner to decide |
 | [D30](#d30-the-basis-answers-at-a-named-custody-time) | The basis: every query and plan answer names a custody time per cluster (an HMAC-protected token); a request at a basis reads only rows received before it (strictly), so its answer never changes; deltas between bases; the alert evaluator re-checks evaluated windows for late rows (`on_late`); one basis per dashboard refresh and per lake UI run; caches keyed on it | **built** (2026-09-28): `query/internal/basis`, the service, the lake plan, the adapter and fork patch 0003, the lake UI, the evaluator; [research/bitemporal.md](research/bitemporal.md) §3 |
+| [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 
 ---
 
@@ -2889,6 +2890,98 @@ checks, counted). A ClickHouse replica behind the one serving is still not
 in the label (C3), so a basis inherits that gap. An unwindowed statement at
 a basis is stable only until retention removes its oldest rows. The lake
 UI's browser e2e does not exercise the basis yet.
+
+### D32. The entity catalog as bitemporal events, resolved at query time (proposed)
+
+**Status:** **proposed, not decided** (2026-09-28). First step built: the
+resolution rule as a Quint model (`model/bitemporalCatalog.qnt`,
+`model/bitemp_model.sh`, nightly), a pure Go reference resolver checked
+against it and a brute force ([`entities/bitemp/`](entities/bitemp/README.md)),
+the mapping from today's lane records, gap records and announcements to
+events, and a replay of the fleet model through today's aggregator SQL and
+the resolver. No storage change: the entity-schema switch waits on
+real-cluster data. [research/bitemporal.md](research/bitemporal.md) §5.
+
+**Context.** Catalog facts are corrected (relist gaps, controller restarts,
+late announcements, controller against overseer). The SCD2 catalog rewrites
+`valid_to` and sets `uncertain` in place, so it cannot say what it said at an
+earlier time (D30's basis needs that for any answer that uses lifecycle),
+and `uncertain` marks whole versions, never a restart. Owner decision: the
+cluster-level controller is the authority for entity metadata, the central
+multicluster aggregator the overseer/fallback, announcements the weakest.
+
+**Proposal.**
+
+1. **Events, not closed rows:** `(entity, valid_from, valid_to?,
+   system_from, seq, source, kind, version)`, `system_from` = the
+   aggregator's `put_at`, kinds assert / retract / unknown; a gap record is
+   an unknown per entity alive in its window; a full-state sync retracts
+   each entity it no longer lists (never "retract all": a snapshot says
+   nothing about later births).
+2. **One precedence rule.** Authority tier (controller, overseer) ordered by
+   `system_from + W` for the controller, `system_from` for the overseer: the
+   controller wins within the trust window W, a silent controller loses to
+   a newer overseer event after W (a live one re-asserts at every sync).
+   An authority `unknown` blocks older authority events but not the
+   evidence tier: the latest announcement fills it, flagged uncertain. An
+   announcement never overrides a definite authority answer.
+3. **Resolution:** XTDB's backwards replay with a ceiling (two ceilings:
+   definite, and authority-unknown); as-of-now queries stop early.
+4. **A materialised current view** (recency partition): an event leaves it
+   when it cannot decide any answer at VT ≥ now; announcements are hidden
+   only by later announcements.
+5. **For D30 (built):** the catalog publishes its own per-cluster
+   `catalog_through` (the aggregator's ingest point, a clock separate from
+   custody time); a basis carries it; an as-of answer reads
+   `system_from < catalog_through`, strictly below as D30's
+   `received_at < C`, which is stable (model invariant iii); event
+   compaction must not go below the oldest basis still answerable.
+
+**Evidence.** Model [Q]: (i) the replay equals the declarative rule, (ii) an
+unknown never resolves as a certain assertion, (iii) answers at an earlier
+system time never change, (iv) the current partition resolves as all events
+do; 7 witnesses reached; 7 mutants caught (no ceiling, forward replay,
+precedence ignored, unknown as retract, SCD2 rewritten in place, current
+partition hiding announcements, current partition by system time); `strict`
+(W = ∞) never lets the overseer override. Go [M]: property tests against a
+brute force; the model's traces (answers and the current partition) replayed
+exactly. Fleet replay [M] (1 cluster, 7 days, 20,261 pods, three controller
+restarts, four relist gaps, every resource announced; today's aggregator
+SQL in ClickHouse against the resolver, both against the truth): on the
+same inputs the resolver reproduces the SCD2 views (518,269 vs 518,021
+exact pod-hours of ~520,000) and the same current set at the end (3,461 live
+resources, equal to the truth); where they differ SCD2 loses information:
+131 pod-hours of pods deleted during outages shown alive and certain (the
+resolver with restart gaps: unknown for the outage, 9.4 left, informer
+lag); `uncertain` per version, 247 pod-hours flagged for 0.13 of gap; the
+announced view's 2-hour tail, 473 resource-hours of dead resources alive;
+the current view is 1.66% of the events (0.26% without tombstones); a point
+lookup 0.5–0.7 µs, a 7-day range 5–6 µs.
+
+**Found on the way (a bug, fixed):** a restarted controller dated every pod
+it had not seen yet from the pod's creation; with the aggregator's
+`min(valid_from)` merge, each restart re-dated a relabelled pod's current
+version over its whole life: 2,063 pod-hours of two versions valid at once
+in `pods` in the replay. Fixed: the controller finds its predecessor's lane
+(`lane.PreviousEnd`), dates a first-seen pod created before its end from
+that end, and writes the window as a `restart` gap record (2.4 pod-hours
+left; `restart_test.go`, `previous_test.go`).
+
+**Alternatives.** Strict precedence (W = ∞: a dead controller's open
+assertions stand forever); pure recency (W = 0: a lagging overseer
+overrides fresh controller facts); keeping SCD2 and deriving uncertainty in
+a view (keeps the in-place rewrite: no as-of answers); unknown as a retract
+(loses the announcements that exist exactly for gaps).
+
+**Consequences / open.** The owner decides: W (20 min proposed: 2 × the
+10-min sync); whether announcements extend past their last sighting (tail 0
+proposed: a tail of the edges' window overclaims inside gaps, 0 underclaims
+short pods); the storage (entities/bitemp/README.md §6: an events
+MergeTree plus a current view and per-entity resolved history, both
+maintained by the aggregator); what the overseer should ever write (today it
+writes nothing but the sync closes, which the mapping attributes to the
+controller). Not built: the storage, a query-service endpoint for as-of
+lifecycle questions, overseer events.
 
 ## 6. Upstream bugs found
 

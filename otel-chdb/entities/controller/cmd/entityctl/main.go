@@ -50,6 +50,7 @@ func main() {
 	instance := flag.String("instance", "", "instance id (default hostname)")
 	metrics := flag.String("metrics", "", "listen address for /stats")
 	qps := flag.Float64("qps", 20, "client QPS")
+	restartGap := flag.Bool("restart-gap", true, "find the previous incarnation's lane: date pods first seen from its end, and write the window as a gap record")
 	flag.Parse()
 	if *cluster == "" {
 		log.Fatal("--cluster is required")
@@ -89,8 +90,16 @@ func main() {
 	epoch := time.Now().UnixMilli()
 	writer := fmt.Sprintf("%d-%s", epoch, *instance)
 	w := &lane.Writer{S3: s3c, Bucket: *bucket, PutTimeout: *putTimeout, Lane: fmt.Sprintf("%s/%s/%s", *prefix, *cluster, writer)}
+	// the previous incarnation's last word (ctrl.Config.Since): unobserved from then to our first sync
+	var since lane.Time
+	if *restartGap {
+		if since, err = lane.PreviousEnd(ctx, s3c, *bucket, fmt.Sprintf("%s/%s", *prefix, *cluster), writer); err != nil {
+			log.Fatalf("previous lane: %v (--restart-gap=false to start without it)", err)
+		}
+		log.Printf("previous incarnation's last object: %d (0: none)", since)
+	}
 	c := ctrl.New(ctrl.Config{ClusterName: *cluster, Static: st, PodLabels: strings.Split(*labels, ","), Writer: writer,
-		Resync: *resync, Transform: *transform}, cs, w)
+		Resync: *resync, Transform: *transform, Since: since}, cs, w)
 
 	stats := func() map[string]any {
 		var ms runtime.MemStats

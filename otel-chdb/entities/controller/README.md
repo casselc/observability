@@ -77,6 +77,14 @@ opens a new one. A record carries:
 - **Writes are create-only** (`If-None-Match: *`) and sequential. On a 412 the
   writer HEADs the key: if the ETag is the MD5 of its own body, an earlier
   attempt landed, otherwise the slot is skipped.
+- **A restart** (`--restart-gap`, default on): at start the controller lists
+  `{prefix}/{cluster}/` for the latest earlier lane and its last object's
+  time (`lane.PreviousEnd`). Nothing was observed between then and the new
+  lane's first sync, so a pod first seen and created before then gets
+  `valid_from` = then (its version may have changed meanwhile; an unchanged
+  version keeps its earlier `valid_from` through the aggregator's min), and
+  the window is written as a gap record (`kind` = `restart`) after the first
+  sync. A first start (no earlier lane) dates pods from their creation.
 - **A delta** (every `--flush`, 5 s, only if something changed) carries what
   opened or closed.
 - **A sync** (at start and every `--resync`, 10 min) carries every open

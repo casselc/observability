@@ -198,3 +198,70 @@ func (w *Writer) put(ctx context.Context, kind string, recs []Record) error {
 		}
 	}
 }
+
+// PreviousEnd finds this cluster's previous controller incarnation: among
+// the lanes under clusterPrefix ({prefix}/{cluster}), the latest one other
+// than own ({epochMs}-{instance}) whose epoch is not after own's, and returns
+// the time its last object landed (S3 LastModified), or 0 if there is none.
+// The new incarnation knows nothing of what happened between then and its
+// own first sync: a pod it sees for the first time may have changed in that
+// window (entities/bitemp's fleet replay: a relabelled pod's current version
+// otherwise claims the pod's whole life), and the window itself is a gap.
+func PreviousEnd(ctx context.Context, c *s3.Client, bucket, clusterPrefix, own string) (Time, error) {
+	ownEpoch, _ := laneEpoch(own)
+	var best string
+	var bestEpoch int64 = -1
+	p := s3.NewListObjectsV2Paginator(c, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), Prefix: aws.String(clusterPrefix + "/"), Delimiter: aws.String("/")})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return 0, err
+		}
+		for _, cp := range page.CommonPrefixes {
+			name := strings.TrimSuffix(strings.TrimPrefix(aws.ToString(cp.Prefix), clusterPrefix+"/"), "/")
+			e, ok := laneEpoch(name)
+			if !ok || name == own || e > ownEpoch {
+				continue
+			}
+			if e > bestEpoch || (e == bestEpoch && name > best) {
+				best, bestEpoch = name, e
+			}
+		}
+	}
+	if best == "" {
+		return 0, nil
+	}
+	var last time.Time
+	op := s3.NewListObjectsV2Paginator(c, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), Prefix: aws.String(clusterPrefix + "/" + best + "/")})
+	for op.HasMorePages() {
+		page, err := op.NextPage(ctx)
+		if err != nil {
+			return 0, err
+		}
+		for _, o := range page.Contents {
+			if o.LastModified != nil && o.LastModified.After(last) {
+				last = *o.LastModified
+			}
+		}
+	}
+	if last.IsZero() { // a lane with no object: its incarnation started then
+		return Time(bestEpoch), nil
+	}
+	return FromTime(last), nil
+}
+
+// laneEpoch parses a lane name {epochMs}-{instance}.
+func laneEpoch(name string) (int64, bool) {
+	i := strings.IndexByte(name, '-')
+	if i <= 0 {
+		return 0, false
+	}
+	var e int64
+	for _, ch := range name[:i] {
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+		e = e*10 + int64(ch-'0')
+	}
+	return e, true
+}

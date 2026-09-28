@@ -168,6 +168,43 @@ jobs:
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
 
+  # The query service against the real pipeline: the Go edge publishes two
+  # clusters, the Rust consumer ingests them and publishes complete_through,
+  # and the service answers scoped queries and plans (otel-chdb/query).
+  query-integration:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: go test ./integration (otel-chdb/query)
+        working-directory: otel-chdb/query
+        env:
+          QS_IT_BIN: ${{ runner.temp }}/bin
+        run: go test -count=1 -timeout 10m -v ./integration
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
+
   # The Rust edge under faults, then the consumer fleet under chaos (short).
   faults-soak:
     needs: build

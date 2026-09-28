@@ -62,6 +62,7 @@ disagreed with each other, and how each was resolved.
 | [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`); `received_at` = entry into the buffer, kept across replays (2026-09-27); **retention bounds custody age, not cap ÷ rate** (model, 2026-09-27) |
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 | [D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object) | Entity catalog: `resource_id` at both edges, announcements in the data object | **built** (2026-09-28): `resource_id` on every trace/log row and the announcement lane; central keeps `ResourceAttributes` (the schema switch and the rewrite proxy not decided) |
+| [D22](#d22-query-service-sql-rebuilt-from-the-tree-scope-as-table-filters-labels-on-every-result) | Query service: OIDC + audit, SQL rebuilt from the tree, scope as `additional_table_filters`, `complete_through` on every result, a presigned lake plan | **first slice built** (2026-09-28, [`query/`](query/README.md)): central queries and lake plans for both UIs; the UIs and the alert evaluator are not wired yet |
 
 ---
 
@@ -1812,6 +1813,73 @@ WebAssembly. The feasibility spike for (2) is
 [research/lake-ui.md](research/lake-ui.md): a hybrid design where a share
 endpoint plans and presigns and the browser reads the lake, with the query
 service, entity catalog API and `complete_through` banner shared with the fork.
+
+---
+
+### D22. Query service: SQL rebuilt from the tree, scope as table filters, labels on every result
+
+**Status:** first slice built (2026-09-28): [`query/`](query/README.md). The
+HyperDX fork, the lake UI and the alert evaluator do not call it yet.
+
+**Context.** Both UIs (owner decisions, 2026-09-27) need one place that
+authenticates viewers, scopes what they read by cluster and namespace
+(STPA R-S8, SEC-4), builds SQL only from a parsed tree with per-user limits
+(R-S9, SEC-5, SEC-7), labels every result with its source and
+`complete_through` (R-S1, R-S2) and hands the lake UI presigned objects
+(research/lake-ui.md §5.3).
+
+**Decision.**
+
+1. **Go, with rwproxy's parser** (AfterShip `clickhouse-sql-parser` v0.5.6:
+   799 of 799 HyperDX statements, rwproxy README §2). Statements are parsed,
+   checked by a reflective walk over the whole tree (allow-listed tables and
+   visible CTEs only; no table functions, `SETTINGS`, `FORMAT`, object-reading
+   functions, `IN table`), **rebuilt by the parser's formatter** with every
+   table qualified, and parsed and checked again (a fixed point, the same
+   tables). Nothing is spliced.
+2. **Scope as `additional_table_filters`, not as a `WHERE`.** The per-table
+   predicate (cluster and namespace expressions, or `resource_id IN` the
+   entity catalog's ids, and the request's window) is built as a tree and
+   passed as a setting. Measured on ClickHouse 26.10 [M]: it applies to every
+   read of the table (subqueries, CTEs, both sides of a self-join,
+   `IN (SELECT …)`, views, projections), as a `PREWHERE` on the primary key,
+   and a `SELECT` alias cannot shadow it, which defeats a `WHERE` predicate;
+   it does not apply to `merge()`, which the allow-list refuses. Grants on a
+   `readonly = 2` user are the second fence.
+3. **Every overflow mode pinned to `throw`**, `wait_end_of_query=1`: a limit
+   is an error (X7, C2, C7).
+4. **Labels.** `{ctl}/watermark.json` is read through S3 with a short cache
+   and its own freshness; a missing, unreadable or stale document makes a
+   result's completeness `unknown`, never `complete`. The plan reads it
+   before it lists, and marks a start GC may have truncated.
+5. **The lake plan lists v2 lanes directly** until the sealer exists: per
+   cluster prefix (cluster-first keys make the scope a prefix), HEAD for the
+   time range, presigned GETs (300 s, 60–900), `replan_after`, X8's rules in
+   every plan. A namespace-restricted caller is refused: a raw object holds
+   every namespace of its cluster.
+6. **Audit before action.** A decision is written before a statement runs or
+   a URL leaves; if it cannot be written, the request is refused.
+
+**Evidence** [M]: unit and property tests (20,000 generated statements: accepted
+exactly when no forbidden piece is used; accepted output is a fixed point with
+a filter per table and literals preserved); the integration test with the Go
+edge, SeaweedFS, the Rust consumer and ClickHouse (two clusters: a cluster's
+token sees its 5 of 12 rows, 0 of the other's, 5 with an alias shadowing the
+scope column; the plan returns only its cluster's objects; a cross-cluster plan
+is 403). Rewrite cost ~99 µs per statement.
+
+**Found while building it (fixed).** The entity aggregator spliced S3 key
+names into its `ingest_log` and `lane_progress` INSERTs, so one cluster's
+controller could forge another cluster's catalog-lag row and stop the
+aggregator's pass for every cluster after it (the lag R-S5 reports comes from
+that table). Keys now travel as JSONEachRow data, gap-record times are parsed,
+and a failing lane no longer stops the others
+(`cmd/aggregator/inject_test.go`).
+
+**What it does not do.** No UI calls it yet; no Iceberg-REST `loadTable`; no
+per-cluster watermark (a restricted caller's label uses the fleet minimum); no
+count of rows without an entity match (R-S5's second half); no rate limit
+beyond per-caller concurrency; no STS session-tag signing on AWS.
 
 ---
 

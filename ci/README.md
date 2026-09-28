@@ -23,6 +23,7 @@ or after it.
 |---|---|
 | `build` | `cargo build --release` (otap-s3pq, consume), the Go tools, both collectors with ocb (`ci/build-collectors.sh`: otelcol-s3pq, otelcol-chdb); one `bin` artifact |
 | `conformance` | `conformance/run.sh` for layout B and for the ClickStack metrics tables, then `conformance/go_faults.sh` |
+| `query-integration` | `otel-chdb/query/integration`: the query service against the Go edge (two clusters) → SeaweedFS → the Rust consumer → ClickHouse, with `QS_IT_BIN` pointing at the `bin` artifact (the unit and property tests run in `go-test`, where the integration test skips) |
 | `faults-soak` | `otap-rs/scripts/faults.sh`, then `otap-rs/scripts/consumer_soak.sh` for 300 s |
 | `rust-integration` | `tests/series.rs` with the Go prototype's fleet objects, `tests/creds.rs` against credstubs |
 | `dst` | the deterministic simulation (`otap-rs/DST.md`): 10,000 new level-1 seeds and 200 new turmoil seeds a night (base = run number × 100,000), the meta tests with 20 seeds, the emulators against the services; failing seeds' traces as the `dst-traces` artifact |

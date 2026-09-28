@@ -1,0 +1,55 @@
+{
+  "listen": ":18190",
+  "oidc": {
+    "issuer": "https://idp.example.com/realms/observability",
+    "audience": "otel-query",
+    "algorithms": ["RS256"],
+    "leeway_s": 30,
+    "jwks_refresh_s": 300,
+    "jwks_min_refresh_s": 30
+  },
+  "claims": {
+    "subject": "sub",
+    "clusters": "clusters",
+    "namespaces": "namespaces",
+    "roles": "roles",
+    "groups": "groups",
+    "group_grants": {
+      "sre": {"clusters": ["*"], "namespaces": ["*"], "roles": ["query", "plan"]},
+      "team-shop": {"clusters": ["prod-eu-1", "prod-us-1"], "namespaces": ["shop", "cart"], "roles": ["query"]},
+      "platform-eu": {"clusters": ["prod-eu-1"], "namespaces": ["*"], "roles": ["query", "plan"]}
+    }
+  },
+  "audit": {"path": "/var/log/otel-query/audit.jsonl", "fsync": true},
+  "central": {
+    "url": "http://clickhouse:8123",
+    "user": "otel_query_ro",
+    "password_env": "QS_CH_PASSWORD",
+    "database": "otel",
+    "max_sql_bytes": 65536,
+    "tables": [
+      {"name": "otel_logs", "time_column": "Timestamp", "scope": "columns",
+       "cluster_expr": "`__hdx_materialized_k8s.cluster.name`",
+       "namespace_expr": "`__hdx_materialized_k8s.namespace.name`"},
+      {"name": "otel_traces", "time_column": "Timestamp", "scope": "columns",
+       "cluster_expr": "ResourceAttributes['k8s.cluster.name']",
+       "namespace_expr": "ResourceAttributes['k8s.namespace.name']"},
+      {"name": "otel_metrics_series", "scope": "fleet"}
+    ]
+  },
+  "limits": {
+    "default": {"max_execution_time_s": 30, "max_rows_to_read": 2000000000, "max_bytes_to_read": 214748364800,
+                "max_result_rows": 100000, "max_result_bytes": 67108864, "max_memory_usage": 4294967296, "max_concurrent": 4},
+    "groups": {
+      "sre": {"max_execution_time_s": 120, "max_concurrent": 8}
+    }
+  },
+  "catalog": {"database": "entities", "resources": "resources", "ingest_log": "ingest_log", "lag_max_s": 900},
+  "s3": {"endpoint": "http://seaweedfs:8333", "public_endpoint": "https://lake.example.com", "region": "us-east-1", "bucket": "otel"},
+  "lake_enabled": true,
+  "lake": {"root": "edges", "url_ttl_s": 300, "replan_margin_s": 60, "max_objects": 2000, "max_heads": 2000,
+           "skew_s": 300, "max_window_s": 86400},
+  "watermark": {"cache_s": 15, "max_age_s": 300},
+  "cors_origins": ["https://lake-ui.example.com"],
+  "max_body_bytes": 1048576
+}

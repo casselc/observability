@@ -1,0 +1,144 @@
+// Package app loads the service's configuration and wires its parts; the
+// command and the integration test share it.
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/casselc/observability/otel-chdb/query/internal/audit"
+	"github.com/casselc/observability/otel-chdb/query/internal/auth"
+	"github.com/casselc/observability/otel-chdb/query/internal/catalog"
+	"github.com/casselc/observability/otel-chdb/query/internal/central"
+	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
+	"github.com/casselc/observability/otel-chdb/query/internal/lake"
+	"github.com/casselc/observability/otel-chdb/query/internal/server"
+	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
+	"github.com/casselc/observability/otel-chdb/query/internal/store"
+)
+
+// Config is the file's shape.
+type Config struct {
+	Listen string          `json:"listen"`
+	OIDC   auth.OIDCConfig `json:"oidc"`
+	Claims auth.Mapping    `json:"claims"`
+	Audit  struct {
+		Path  string `json:"path"`
+		Fsync bool   `json:"fsync"`
+	} `json:"audit"`
+	Central struct {
+		central.Config
+		PasswordEnv string            `json:"password_env"`
+		Tables      []*sqlscope.Table `json:"tables"`
+		MaxSQLBytes int               `json:"max_sql_bytes"`
+	} `json:"central"`
+	Limits    server.Limits  `json:"limits"`
+	Catalog   catalog.Config `json:"catalog"`
+	S3        store.S3Config `json:"s3"`
+	Lake      lake.Config    `json:"lake"`
+	Watermark struct {
+		CacheS  int `json:"cache_s"`
+		MaxAgeS int `json:"max_age_s"`
+	} `json:"watermark"`
+	CORSOrigins  []string `json:"cors_origins"`
+	MaxBodyBytes int64    `json:"max_body_bytes"`
+	// LakeEnabled turns /v1/plan on.
+	LakeEnabled bool `json:"lake_enabled"`
+}
+
+func env(dst *string, k string) {
+	if v := os.Getenv(k); v != "" {
+		*dst = v
+	}
+}
+
+// Load reads path (optional) and applies the environment.
+func Load(path string) (*Config, error) {
+	c := &Config{Listen: ":18190"}
+	c.Limits.Default = central.DefaultLimits
+	if path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		dec := json.NewDecoder(strings.NewReader(string(b)))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(c); err != nil {
+			return nil, err
+		}
+	}
+	env(&c.Listen, "QS_LISTEN")
+	env(&c.OIDC.Issuer, "QS_OIDC_ISSUER")
+	env(&c.OIDC.Audience, "QS_OIDC_AUDIENCE")
+	env(&c.OIDC.JWKSURL, "QS_OIDC_JWKS_URL")
+	env(&c.Audit.Path, "QS_AUDIT_PATH")
+	env(&c.Central.URL, "QS_CH_URL")
+	env(&c.Central.User, "QS_CH_USER")
+	env(&c.Central.Database, "QS_CH_DATABASE")
+	pwEnv := c.Central.PasswordEnv
+	if pwEnv == "" {
+		pwEnv = "QS_CH_PASSWORD"
+	}
+	c.Central.Password = os.Getenv(pwEnv)
+	env(&c.S3.Endpoint, "QS_S3_ENDPOINT")
+	env(&c.S3.PublicEndpoint, "QS_S3_PUBLIC_ENDPOINT")
+	env(&c.S3.Bucket, "QS_S3_BUCKET")
+	env(&c.S3.Region, "QS_S3_REGION")
+	env(&c.S3.AccessKey, "QS_S3_KEY")
+	env(&c.S3.SecretKey, "QS_S3_SECRET")
+	env(&c.Lake.Root, "QS_LAKE_ROOT")
+	env(&c.Lake.Ctl, "QS_LAKE_CTL")
+	env(&c.Catalog.Database, "QS_CATALOG_DB")
+	if v := os.Getenv("QS_LAKE_ENABLED"); v != "" {
+		c.LakeEnabled, _ = strconv.ParseBool(v)
+	}
+	if c.Audit.Path == "" {
+		return nil, errors.New("audit.path is required: every decision is recorded")
+	}
+	if c.S3.Bucket == "" {
+		return nil, errors.New("s3.bucket is required: complete_through is read from {ctl}/watermark.json")
+	}
+	if c.Watermark.CacheS <= 0 {
+		c.Watermark.CacheS = 15
+	}
+	if c.Watermark.MaxAgeS <= 0 {
+		c.Watermark.MaxAgeS = 300
+	}
+	return c, nil
+}
+
+// Build wires a server from c.
+func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink audit.Sink) (*server.Server, error) {
+	policy, err := sqlscope.NewPolicy(c.Central.Database, c.Central.Tables, c.Central.MaxSQLBytes)
+	if err != nil {
+		return nil, err
+	}
+	ch := central.New(c.Central.Config)
+	cat, err := catalog.New(c.Catalog, ch)
+	if err != nil {
+		return nil, err
+	}
+	st, err := store.NewS3(ctx, c.S3)
+	if err != nil {
+		return nil, err
+	}
+	lc := c.Lake
+	planner := lake.New(lc, st, nil)
+	ctl := planner.Config().Ctl
+	wm := completeness.NewReader(func(ctx context.Context, key string) ([]byte, error) {
+		b, _, err := st.Get(ctx, key)
+		return b, err
+	}, ctl+"/watermark.json", time.Duration(c.Watermark.CacheS)*time.Second, time.Duration(c.Watermark.MaxAgeS)*time.Second)
+	s := &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat,
+		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes}
+	if c.LakeEnabled {
+		s.Planner = lake.New(lc, st, wm)
+	}
+	s.Init()
+	return s, nil
+}

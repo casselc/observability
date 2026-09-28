@@ -261,6 +261,28 @@ the UI's origin: `GET`, `HEAD`, header `Range`, exposing `Content-Range`,
 `Content-Length`, `ETag` (lake-ui §2.2). Presigned URLs are signed for
 `s3.public_endpoint` (the host the browser reaches; SigV4 signs the host).
 
+**Index filters (D27).** A plan may carry `"trace_id": "<32 hex>"` (signals
+`traces` and `logs`) and/or `"terms": ["…"]` (signal `logs`: each a
+case-insensitive substring of `Body` in JavaScript's `toLowerCase` sense;
+all must match; at most 8, each 1–256 bytes). The service resolves them
+against the lake index of the plan's clusters (FORMAT.md §7; §9 below):
+objects the index rules out are **not planned**; a covered object that may
+match is planned with `"index": "hit", "row_groups": [0, …]`; every other
+object (not indexed yet, index unreadable or corrupt, over the per-plan
+index budget) with `"index": "scan"`: read it whole, as without a filter.
+The plan's `index` block says what happened:
+
+```json
+"index": {"trace_id": "…", "constraints": ["suffix:timeout", "prefix:acct"], "segments": 1, "requests": 3,
+          "bytes": 13698, "cache_hits": 0, "covered": 3, "scan": 1, "pruned": 2, "errors": [], "elapsed_ms": 4,
+          "rule": "Objects marked index=hit hold matches only in row_groups; …"}
+```
+
+An index can only remove what cannot match; the page still tests every row.
+Config `lake.index`: `disabled`, `max_mb_per_plan` (64), `cache_mb` (128).
+Metrics `qs_plan_index_objects_total{outcome}`, `qs_plan_index_errors_total`,
+`qs_plan_index_bytes_total`. Refusals: 400 `bad_trace_id`, `bad_filter`.
+
 No Iceberg-REST `loadTable` yet: it needs the sealer's metadata.
 
 ### 2.3 `/healthz`, `/metrics`
@@ -748,3 +770,56 @@ system.tables` answers 14 columns, not ClickHouse's 42.
 | `cluster(…)` metadata (a cluster name on the connection) | refused | the service reads the local node's system tables |
 | the entity rewrite proxy in front (`entities/rwproxy`) | its 82 rewritten statements: 13 EXPLAIN, **23 refused for `dictHas`/`dictGet`, 46 for reading `rw_cat.resource_kv`**: 0 pass [M, offline through `sqlscope`] | the service must allow the catalog's dictionaries by name and `resource_kv` with scope `catalog`; until then run rwproxy only for fleet callers or not at all |
 | server-side queries (alerts, the API's own, MCP) | run as the service identity of `HDX_QUERY_SERVICE_TOKEN_FILE`, not as the user who asked | pass the user's token through the API for user-initiated server-side calls (MCP, external API) |
+
+## 9. The lake index (`cmd/lakeindex`, `internal/lakeidx`)
+
+D27; the format is [`../FORMAT.md`](../FORMAT.md) §7. The indexer follows
+every lane of the configured clusters' `traces` and `logs`, reads each new
+object once and writes create-only segments under the cluster's own
+`{root}/{cluster}/_index/v1/`. The planner reads them (§2.2).
+
+```
+LAKEIDX_S3_KEY=… LAKEIDX_S3_SECRET=… lakeindex -endpoint http://127.0.0.1:18333 -bucket otel -root edges \
+    [-clusters a,b] [-signals traces,logs] [-interval 30s] [-once] [-metrics :9464]
+```
+
+One process per cluster (with [`../deploy/iam/indexer.json`](../deploy/iam/indexer.json):
+read its cluster, write only its `_index/`) or one for the fleet; any number
+may run at once (segments are content-addressed, the progress document is a
+CAS hint). Each pass: LIST the cluster's lanes; skip slots below the
+progress document's per-epoch `next`; group the rest by the hour of their
+`LastModified`; subtract what the hour's segments already cover; build one
+L0 segment per ≤ 256 objects (`-max-segment-objects`); write it
+`If-None-Match: *`; advance the progress; then merge each hour that ended
+more than 10 minutes ago (`-merge-after`) into one L1 when no single segment
+covers it. Metrics: `lakeidx_passes_total`, `lakeidx_segments_written_total`,
+`lakeidx_objects_indexed_total`, `lakeidx_rows_indexed_total`,
+`lakeidx_source_bytes_read_total`, `lakeidx_segment_bytes_total`,
+`lakeidx_put_conflicts_total`, `lakeidx_errors_total`,
+`lakeidx_lag_seconds{cluster,signal}`, `lakeidx_last_pass_ok`.
+
+**Tokenizer.** Terms are what the lake UI's substring search sees:
+JavaScript `toLowerCase`, then ASCII letters, digits and `_` are word
+characters and everything else (any non-ASCII character too) separates.
+Only U+0130 (İ → `i` + U+0307) and U+212A (Kelvin → `k`) lowercase to
+anything ASCII in the browser, so Go folds without Unicode tables;
+`../lakeui/test/fold.test.js` scans every code point in the engine to keep
+that true and writes `internal/lakeidx/testdata/fold_vectors.json`, which
+`TestTokensAgreeWithTheBrowserVectors` reads. No normalization (neither side
+normalizes); invalid UTF-8 is U+FFFD, a separator, on both sides. A search
+text becomes constraints (whole token, token prefix, token suffix, inside a
+token) that every matching body satisfies (FORMAT.md §7.3).
+
+**Tests** (`go test ./internal/lakeidx ./internal/lake`): rapid properties:
+resolution ⊇ brute force (no false negatives) over generated segments with
+tiny blocks, frequent-term cuts and long tokens, and over real Parquet
+objects through the indexer; the constraint rule holds on every matching
+body (20,000 cases [M]); a single flipped byte anywhere in a segment never
+narrows an answer; a restarted indexer converges under lost requests and
+lost answers with no duplicate keys; two concurrent indexers with objects
+arriving in between; hour merges; unindexable objects; a corrupt segment is
+refused, then rebuilt. Planner: filters narrow, unindexed objects scan, a
+corrupt or unreadable segment scans and is reported, refusals, and a
+superset property over generated lakes. `LAKEIDX_MEASURE=1 go test -run
+Measure ./internal/lakeidx` prints sizes and build costs over the lake UI's
+real edge objects.

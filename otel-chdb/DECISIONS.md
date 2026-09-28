@@ -2430,6 +2430,140 @@ windowed query (same limits; `count_late: false` turns it off). No count at
 ingest (consumer or edge) yet. Per-object lateness in the plan is judged on
 the earliest row only.
 
+### D27. Lake index, first slice: per-cluster segments, resolved by the query service
+
+**Status:** built (2026-09-28): `query/internal/lakeidx` (format, tokenizer,
+indexer, resolver), `query/cmd/lakeindex`, `/v1/plan`'s `trace_id` and
+`terms` (`query/internal/lake/index.go`), the lake UI's use of them,
+[FORMAT.md](FORMAT.md) §7, [`deploy/iam/indexer.json`](deploy/iam/indexer.json).
+Owner decision 2026-09-28: "Yes, indices can be included [in lake plans]."
+
+**Context.** The lake UI (D24) read 77–92 % of the planned bytes for trace
+by id and ~80 % for text search: without an index it must read the whole
+`TraceId` or `Body` column of every planned object. The designs were
+lake/DESIGN P2 (a trace_id → file maplet) and research/central-optional
+§6 (a per-cluster term index LSM). Objects are format 2, create-only, and
+there is still no sealer: the planner lists lanes (D22, D24).
+
+**Decision.**
+
+- **A per-cluster indexer, not edge sidecars.** `lakeindex` follows every
+  lane of a cluster's `traces` and `logs`, reads each new object once (GET +
+  Parquet decode) and writes create-only **segments** under
+  `{root}/{cluster}/_index/v1/{signal}/{hour}/` (FORMAT.md §7): the index of
+  a cluster lives under the cluster's prefix, so D18's prefix ABAC holds
+  unchanged (reading it needs the cluster's grant; writing it needs
+  `indexer.json`, which may write only `{root}/C/_index/*`; edges may no
+  longer write `{root}/C/_*`). Why not sidecars written by the edge: (1) a
+  lookup over sidecars reads one per object (216k objects an hour at the mid
+  scenario), so something must merge them anyway, and that merger is this
+  indexer; (2) building costs 0.65 µs/row (traces) and 1.1–4.5 µs/row (logs)
+  [M, `TestMeasureFixtures`], on the edge's hot path of about 4 µs/span, in
+  two edges (Rust and Go, D1), and every index change would be an edge
+  rollout; (3) a one-object index is the most expensive shape: 7.5 % of a
+  trace object and 65 % of a logs object with id-heavy bodies, against
+  3.1 % for traces merged over 128 objects [M]. What the indexer costs
+  instead: one more GET of every object (1.24 MB for 12 objects in the rig,
+  100 % of source bytes, read once) and 4.7 µs/row including the GET and the
+  decode [M, rig, shared 4-vCPU box]. Moving tokenizing into the exporter stays the option
+  research §6.2 names if the indexer's reads become the bottleneck.
+- **Trace ids: a sorted fingerprint table with fence pointers** (lake §3.3's
+  one-level static quotient filter): `(fp32, row group)` entries sorted by
+  fingerprint, ~4 KiB blocks, the fences in the header. A lookup is the
+  cached header plus **one range GET** of one block; 2.0–4.7 B per entry [M].
+  Chosen over a binary fuse filter per object (≈9 bits per distinct id, but
+  one probe per object: 128 reads for a 128-object hour instead of 1, and no
+  row-group values) and over a maplet library (neither `qfilter` nor
+  `mappy-core` is designed for range-GET addressing, lake §3.3). A 32-bit
+  fingerprint reads an extra row group with probability entries/2^32.
+- **Terms: an exact inverted index with the UI's semantics.** The UI's
+  search is a case-insensitive substring (`jsLower(Body).includes(jsLower(t))`),
+  not a token match. The indexer folds text the way that test sees it
+  (JavaScript lowercasing, then ASCII letters/digits/`_` are word
+  characters, everything else separates; only U+0130 and U+212A lowercase to
+  ASCII, asserted against the browser engine), and a search text becomes
+  **constraints** every matching body satisfies: middle runs are whole
+  tokens, the first run ends a token, the last starts one, a single run may
+  sit inside one (FORMAT.md §7.3). So no search mode changed and none can
+  miss. Bounds: a term in more than half of a segment's row groups (≥ 8) is
+  stored as "every row group"; tokens over 64 bytes go to one "long" posting
+  that every partial constraint includes.
+- **Coverage is explicit; everything else is scanned.** Each segment lists
+  the objects it covers (key, size, ETag, row groups; `sources_hash`). A plan
+  object is narrowed only when a verified segment covers it with the same
+  size and ETag; not yet indexed, a segment unreadable, a checksum failure,
+  the per-plan byte budget (64 MiB) spent: `index: "scan"`, read whole.
+  Segments are content-addressed (`L0-{sha256[:16]}.osix`), so a restarted or
+  concurrent indexer that builds the same bytes gets a 412 that means "done";
+  a pass subtracts what the hour's segments already cover before it reads
+  anything. The progress document (per-epoch `next`, CAS, merged on
+  conflict) only saves work and reports lag; readers never use it.
+- **Resolution on the service, not in the browser.** `/v1/plan` takes an
+  optional `trace_id` (32 hex digits; traces or logs) and `terms` (≤ 8, each
+  a substring of `Body`, all must match; logs), resolves them against the
+  segments of the clusters already in the plan, drops the objects the index
+  rules out, and marks the rest `hit` (with `row_groups`) or `scan`; the
+  plan carries an `index` report (constraints, segments, requests, bytes,
+  covered, scan, pruned, errors) and its rule. Why server-side: substring
+  constraints need the whole dictionary of a segment, which the service
+  caches for every user (headers by key, blocks in a 128 MiB LRU: the second
+  plan read 0–4 KB of index [M]), and the browser gets **no extra round
+  trip** and no new kind of presigned URL (X8 unchanged). The cost: index
+  reads on the service (13.7 KB in 3 GETs for a cold trace lookup [M]),
+  bounded per plan (the 3 requests are the hour's LIST, the tail and one
+  block). The service reads only segments of clusters the caller
+  may plan, with the same bucket credentials it presigns with.
+- **The UI** sends its trace id or search text as the filter (a checkbox
+  turns it off), reads only a `hit` object's listed row groups, still tests
+  every row itself, and shows what the index did (narrowed / not indexed /
+  ruled out, index errors). A failed read is still never an empty result;
+  completeness is unchanged (pruning removes only objects with no match).
+
+**Measured** [M, `lakeui` e2e on the rig, 2026-09-28; the rig now also
+publishes one trace and one word per batch that live in a single object]:
+
+| query (lui-a, 20 min window) | objects | fetched by the page | range GETs | index read by the service |
+|---|---|---|---|---|
+| trace in 3 of 3 objects | 3 → 3 | 130,615 → 130,615 B | 9 → 9 | 13,698 B, 3 GETs (cold) |
+| trace in 1 of 3 objects | 3 → 1 | 96,161 → 43,535 B (−55 %) | 5 → 3 | 4,097 B, 2 GETs |
+| word in 1 of 3 indexed objects (+1 unindexed late object) | 4 → 2 | 592,317 → 210,472 B (−64 %) | 5 → 3 | cached |
+| `needle-7f3a` (in every object) | 4 → 4 | 592,622 → 592,622 B | 8 → 8 | cached |
+| `status=500` (frequent) | 4 → 4 | unchanged | unchanged | cached |
+
+Answers were identical with and without the index, and equal ClickHouse's
+(the complete-window needle and `status=500` searches run with the index on:
+18/18 and 532/532). Before the late object was indexed it was planned
+`scan` and its rows counted; after one more pass, `scan` 0, same count.
+Index size: 4 segments, 560,804 B for 1,239,581 B of source (45 %); the
+logs dictionary dominates, because the rig's bodies carry four random ids
+per row (research §6.3 assumed 4–5 % for templated bodies and warned of
+2–3× with ids; this is the high end). Tests: rapid properties (resolution ⊇
+brute force over generated segments and over real Parquet objects;
+constraints hold on every matching body; any single corrupted byte never
+narrows), crash/restart with lost requests and lost answers, two concurrent
+indexers, merges, unindexable objects; three mutants (first run as a whole
+token, the long-token posting only for infix, frequent terms ignored) each
+fail them.
+
+**Alternatives.** Resolution in the browser (presign the segments): +2 round
+trips per segment and per-query dictionary downloads, rejected above. n-gram
+or bloom indexes: n-grams cost ~10× the postings (lake §2.1), blooms cannot
+say "no" for substring constraints and saturate when merged. Row-level
+postings (row ordinals, so the page could skip the `TraceId` column too):
+bigger postings and page-index reads the UI has off; next step if the
+column read dominates.
+
+**Consequences / open.** The index only removes objects (and row groups): a
+trace present in every object of the window reads the same bytes as before,
+and the edges write one row group per object, so there is nothing to skip
+inside one. Its value grows with objects per window. Index lag and index
+corruption are AMBIGUITY X13 and X14. Not built: index GC (segments outlive
+the lanes GC deletes; harmless, since they then cover nothing a plan lists),
+deleting L0s after their L1, a sealer snapshot naming segments
+(research §6.2), `LogAttributes`/`SpanAttributes` items, a high-entropy
+token policy to bound the dictionary on id-heavy bodies (owner decision:
+dropping all-hex or all-digit tokens would make id searches unindexable).
+
 ## 6. Upstream bugs found
 
 Short drafts, with repro, expected and actual behaviour, and versions, are in

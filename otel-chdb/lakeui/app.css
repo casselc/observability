@@ -83,3 +83,4 @@ tr[data-state="unknown"] td:first-child { border-left: 3px solid var(--muted); }
 ul.missing { font-size: 12px; color: var(--text-secondary); }
 pre { font-size: 11px; white-space: pre-wrap; max-height: 240px; overflow: auto; }
 @media (max-width: 600px) { .span-row { grid-template-columns: 1fr; } }
+.stats .warn { color: var(--critical); }

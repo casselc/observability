@@ -116,7 +116,7 @@ async function run(view) {
     const q = buildQuery(view, w)
     const cl = $('cluster').value
     const out = await execute(q, {
-      planner, request: { ...w, clusters: cl ? [cl] : [] },
+      planner, request: { ...w, clusters: cl ? [cl] : [], useIndex: $('use-index').checked },
       onEvent: ev => {
         log.push(`${new Date().toISOString().slice(11, 23)} ${ev.type} ${ev.key ?? ''} ${ev.kind ?? ''} ${ev.status || ''} ${ev.why ?? ''} ${ev.requestId ?? ''} ${ev.message ?? ''}`.replace(/\s+/g, ' '))
         $('event-log').textContent = log.join('\n')
@@ -146,7 +146,17 @@ function statsLine(out) {
   const p = out.plan
   const pct = p.totalBytes ? ((100 * out.stats.bytes) / p.totalBytes).toFixed(1) : '0'
   return `source ${esc(p.source)} · plan ${esc(p.requestId.slice(0, 8))} · ${p.objects.length} object(s), ${p.totalBytes} B planned · fetched ${out.stats.bytes} B (${pct}%) in ${out.stats.requests} range GET(s) · ${out.replans} re-plan(s) · ${out.elapsedMs} ms` +
-    ` · ${p.snapshot ? 'snapshot ' + esc(p.snapshot) : 'no snapshot (lanes listed ' + esc(p.listedAt.slice(11, 19)) + ')'}`
+    ` · ${p.snapshot ? 'snapshot ' + esc(p.snapshot) : 'no snapshot (lanes listed ' + esc(p.listedAt.slice(11, 19)) + ')'}` +
+    indexLine(p)
+}
+
+/** What the index did for a filtered plan: never hidden, errors included. */
+function indexLine(p) {
+  const ix = p.index
+  if (!ix) return ''
+  const hit = p.objects.filter(o => o.index === 'hit').length
+  const errs = ix.errors?.length ? ` · <span class="warn">index errors: ${esc(ix.errors.join('; '))} (those objects were read whole)</span>` : ''
+  return ` · index: ${hit} narrowed, ${ix.scan ?? 0} not indexed (read whole), ${ix.pruned ?? 0} ruled out; the service read ${ix.bytes ?? 0} B of index in ${ix.requests ?? 0} request(s)` + errs
 }
 
 function render(view, q, out) {
@@ -200,6 +210,8 @@ function summaryOf(out) {
     // event time settled: complete_through − max_lateness (null without max_lateness)
     settledThrough: settledThrough(out.label) === null ? null : formatTimeNs(settledThrough(out.label)),
     lateObjects: p.lateObjects ?? 0,
+    index: p.index ? { covered: p.index.covered, scan: p.index.scan, pruned: p.index.pruned, segments: p.index.segments,
+      bytes: p.index.bytes, requests: p.index.requests, errors: p.index.errors ?? [] } : null,
     objects: p.objects.length, plannedBytes: p.totalBytes, fetchedBytes: out.stats.bytes, requests: out.stats.requests,
     perObject: [...out.stats.perKey].map(([k, v]) => ({ key: k, bytes: v.bytes, requests: v.requests, size: p.objects.find(o => o.key === k)?.size ?? null })),
     replans: out.replans, missing: out.missing, reason: out.reason ?? '',

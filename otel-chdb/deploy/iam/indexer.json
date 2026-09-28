@@ -2,10 +2,16 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "CreateSlotsUnderOwnClusterOnly",
+      "Sid": "ReadOwnClusterLanes",
       "Effect": "Allow",
-      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Action": "s3:GetObject",
       "Resource": "arn:aws:s3:::BUCKET/ROOT/${aws:PrincipalTag/cluster}/*"
+    },
+    {
+      "Sid": "WriteOwnClusterIndexOnly",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/${aws:PrincipalTag/cluster}/_index/*"
     },
     {
       "Sid": "ListOwnCluster",
@@ -15,29 +21,17 @@
       "Condition": {"StringLike": {"s3:prefix": ["ROOT/${aws:PrincipalTag/cluster}/*", "ROOT/${aws:PrincipalTag/cluster}"]}}
     },
     {
-      "Sid": "FreeSlotIs404HeadCarriesNoPrefix",
+      "Sid": "MissingKeyIs404HeadCarriesNoPrefix",
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::BUCKET",
       "Condition": {"StringLikeIfExists": {"s3:prefix": ["ROOT/${aws:PrincipalTag/cluster}/*", "ROOT/${aws:PrincipalTag/cluster}"]}}
     },
     {
-      "Sid": "NeverDeleteNeverControl",
+      "Sid": "NeverDelete",
       "Effect": "Deny",
       "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:PutObjectAcl", "s3:PutBucketPolicy"],
       "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]
-    },
-    {
-      "Sid": "NoControlPrefixEvenWithAnUnderscoreTag",
-      "Effect": "Deny",
-      "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::BUCKET/ROOT/_*"
-    },
-    {
-      "Sid": "NoIndexOrOtherControlPrefixInsideTheCluster",
-      "Effect": "Deny",
-      "Action": "s3:PutObject",
-      "Resource": "arn:aws:s3:::BUCKET/ROOT/*/_*"
     },
     {
       "Sid": "NoSessionWithoutAClusterTag",

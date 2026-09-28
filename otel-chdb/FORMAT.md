@@ -32,6 +32,8 @@ the **resource announcements** in the data object itself (§2.1).
 {ctl}/watermark.json                                               complete_through (§4)
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.delta.ndjson.gz          entity lanes
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.sync.{syncAtMs}.ndjson.gz
+{root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix             lake index segments (§7)
+{root}/{cluster}/_index/v1/{signal}.progress.json                        the indexer's progress (§7.4)
 ```
 
 - **`{root}`** is the data root inside the bucket (the path of the edges'
@@ -289,6 +291,7 @@ UInt64` on a table created before, or recreate it: no real data exists).
 | edge publisher (cluster C) | `PutObject` under `{root}/C/*`; `GetObject` and `ListBucket` there (resolve-by-HEAD) | delete anything; touch `{ctl}`, `{entities}` or another cluster |
 | entity controller (cluster C) | `PutObject` under `{entities}/C/*` | the same |
 | consumer, GC, sealer | read `{root}` and `{entities}`; write and delete `{ctl}`; delete lane slots (GC only); write tombstones into lanes | — |
+| lake indexer (cluster C) | `GetObject`, `ListBucket` under `{root}/C/*`; `PutObject` under `{root}/C/_index/*` ([`deploy/iam/indexer.json`](deploy/iam/indexer.json)) | delete anything; write lanes, `{ctl}` or another cluster; an edge may not write `{root}/C/_*` (`edge-publisher.json`, 2026-09-28) |
 
 Announcements need no policy of their own: they are in the data objects, so
 an edge can announce resources only in its own cluster's prefix, and the
@@ -299,3 +302,122 @@ consumer inserts them with the rows' credentials. That a resource's
 The cluster comes from the credentials (`${aws:PrincipalTag/cluster}` on
 AWS; per-cluster identities elsewhere). Policies and the SeaweedFS
 demonstration are in [`deploy/iam/`](deploy/iam/).
+
+## 7. Index objects (D27)
+
+The lake indexer (`query/cmd/lakeindex`, package `query/internal/lakeidx`)
+writes, per cluster, create-only **segments** that map trace ids and log
+body terms to (object, row group). They live under the cluster's own
+prefix, so reading or writing a cluster's index needs that cluster's grant
+and nothing else (§6), and no lane walk takes them for a lane (`_` prefix,
+§1).
+
+### 7.1 Keys
+
+```
+{root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix     segments
+{root}/{cluster}/_index/v1/{signal}.progress.json                the indexer's progress (a hint)
+```
+
+- **`{signal}`** is `traces` (the `TraceId` column) or `logs` (`TraceId` and
+  `Body`).
+- **`{hour}`** (`YYYYMMDDTHH`, UTC) is the hour of the covered objects'
+  LIST `LastModified`: the commit time, which a planner knows for every
+  candidate object without a HEAD, and which a late object cannot move.
+- **`{level}`** is 0 for a segment built from source objects and 1 for an
+  hour's merge. **`{h}`** is the first 128 bits of SHA-256 of the segment's
+  bytes (hex), so two indexers that build the same bytes meet at one key
+  and the second `If-None-Match: *` PUT is a 412 that means "already there".
+  A segment whose bytes fail verification is rebuilt beside it as
+  `…-r{n}.osix`.
+
+### 7.2 A segment
+
+```
+"OSIX" 01 00 00 00                   magic, segment format 1
+trace blocks                         (fp32 delta, row group) varints, sorted by fp; ~4 KiB each
+term blocks                          front-coded terms, each with its posting inline; ~32 KiB each
+header                               JSON
+u32le len(header) | u32le crc32c(header) | "OSIX"
+```
+
+The header names what is indexed and where the blocks are:
+
+| field | meaning |
+|---|---|
+| `cluster`, `signal`, `bucket`, `level` | must equal the key's; a reader refuses a segment that names another place |
+| `objects` | every covered object: `key`, `size`, `etag`, `lm_ms`, `rg_rows` (rows per row group, file order) and `rg_base`, the global ordinal of its first row group |
+| `sources_hash` | SHA-256 over `key\0size\0etag\0` of `objects`, in order |
+| `trace` | `column`, `entries`, `fp_bits` (32) and the fence table `blocks: [{first, off, len, crc, n}]` |
+| `terms` | `column`, `terms`, `tokenizer` (`jslower-ascii-word-v1`), `max_term` (64), `freq_cut` (0.5), `freq_min_rgs` (8), `frequent`, and `blocks: [{first, off, len, crc, n}]` |
+
+- **Trace entries** are `(FP(id), global row group)`, deduplicated, where
+  `FP` is the top 32 bits of FNV-1a 64 over the id's ASCII-lowercased text.
+  One fingerprint never spans two blocks, so a lookup is one binary search
+  in the (cached) header and **one range GET** of one block. A false match
+  (another id with the same fingerprint in the segment) costs one row group
+  read; its probability per lookup is about `entries / 2^32`.
+- **Terms** are the tokens of the column as the lake UI's search sees text
+  (`lakeidx/fold.go`): JavaScript `toLowerCase`, then every character that
+  is not an ASCII letter, digit or `_` separates tokens. Only U+0130 and
+  U+212A lowercase to anything ASCII, so the indexer folds without Unicode
+  tables; `lakeui/test/fold.test.js` asserts that against the browser engine
+  and writes the shared vector file
+  (`query/internal/lakeidx/testdata/fold_vectors.json`). No normalization;
+  invalid UTF-8 is U+FFFD (a separator) on both sides. Each entry is
+  `varint shared | varint suffix_len | suffix | varint count+1 | delta
+  varint row groups`; count+1 = 0 means **every row group** (a term in more
+  than `freq_cut` of the segment's row groups, when it has at least
+  `freq_min_rgs`: it cannot narrow anything). The first entry is the empty
+  term: the row groups holding a token longer than `max_term`, which are
+  not in the dictionary.
+- **Every block** carries a CRC-32C in the header; the header has its own in
+  the trailer. A reader that finds a mismatch treats the whole segment as
+  absent: its objects are scanned.
+
+### 7.3 What a reader may conclude
+
+For each candidate object, the reader LISTs the object's hour, reads the
+headers (cached by key and size), and picks the segment that covers the
+object (most objects first, then higher level, then key). The object is
+covered only if the segment lists its key with the same size (and ETag when
+both sides know one). Then, and only then:
+
+- a trace id whose fingerprint has no entry for the object's row groups, or
+  a term filter some constraint of which (below) no dictionary entry
+  satisfies for them, means **no row of the object matches**;
+- otherwise the matching row groups are the union of the entries' row groups.
+
+A text term becomes constraints: the folded text is `[s] r0 s r1 … s rn
+[s]`; a middle run must equal a token (**full**), `r0` must end a token
+(**suffix**) unless the text starts with a separator, `rn` must start one
+(**prefix**) unless it ends with one, and a single run without separators
+may lie inside a token (**infix**). Every body containing the text holds all
+of them (`TestConstraintsHoldOnEveryMatchingBody`). Full and prefix lookups
+read the fenced blocks; suffix and infix read the whole dictionary (one
+range GET, cached). The long-token entry answers every partial constraint.
+
+Everything else (no covering segment, a size mismatch, a segment that does
+not verify or cannot be read, the reader's byte budget spent) means
+**scan**: read the object as if there were no index. An index never
+removes a match.
+
+### 7.4 Progress
+
+`{signal}.progress.json` (CAS by ETag, `If-None-Match: *` when absent):
+`{format, cluster, signal, lanes: {producer: {epoch: next}}, indexed_through_ms, wall_ms, unindexable}`.
+Every slot of an epoch below `next` is covered, empty (a heartbeat or a
+tombstone) or unindexable (not decodable; listed, scanned by readers). A
+pass skips those slots; everything at or after `next` is checked against the
+hour's segments before it is read. Two indexers merge (per-epoch max) on a
+CAS conflict. **Readers never use it**: what is indexed is exactly what the
+segments' headers list. `indexed_through_ms` (LIST time − 60 s, or the
+oldest uncovered object's `LastModified`) is the lag metric's input only.
+
+### 7.5 Merges and retention
+
+An hour's segments are merged into one `L1` segment `merge_after_s` (600 s)
+after the hour ends, if no single segment already covers the hour; a
+straggler L0 written later makes a new L1 at the next pass. The L0s stay (a
+reader prefers the segment covering more). Nothing deletes segments yet:
+index GC follows the lanes' GC by hour, not built (AMBIGUITY X14).

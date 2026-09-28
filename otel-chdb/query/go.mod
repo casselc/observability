@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
@@ -27,4 +28,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/parquet-go/parquet-go v0.23.0 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/segmentio/encoding v0.4.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
 )

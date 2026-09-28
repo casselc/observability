@@ -10,7 +10,9 @@
 // 403 from SeaweedFS) re-plans; persistent failures end as a visible error
 // naming the objects; an unknown watermark shows unknown; a narrow query
 // fetches a fraction of each object (measured by the page and, separately,
-// by a counting pass-through in front of SeaweedFS).
+// by a counting pass-through in front of SeaweedFS); the lake index (D27)
+// gives trace-by-id and text search the same answers for fewer bytes, and
+// an object it has not indexed yet is read, not missed.
 import { test, expect } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -204,6 +206,71 @@ test('trace by id equals ClickHouse, across objects', async () => {
   const s = await runView(page, 'trace', { from: info.truth.at, to: info.truth.late_to, set: async () => page.fill('#trace-id', info.truth.trace_ids['lui-b'][0]) })
   expect(s.count).toBe(0)
   expect(s.status).toBe('ok')
+})
+
+// The lake index (D27): the rig indexed the three batches before the late
+// one. Each query runs without and with the index on the same data; answers
+// must be equal (and equal ClickHouse where it has the rows), bytes fewer.
+test('the lake index narrows trace-by-id and text search: same answers, fewer bytes', async () => {
+  const from = info.truth.at
+  const to = info.truth.late_to
+  const one = async (view, set) => {
+    await tap('POST')
+    const s = await runView(page, view, { from, to, set })
+    const t = (await tap()).filter(e => e.method === 'GET')
+    expect(s.status).toBe('ok')
+    expect(t.reduce((a, e) => a + e.bytes, 0)).toBe(s.fetchedBytes) // the page counts what the store sent
+    return { count: s.count, objects: s.objects, planned: s.plannedBytes, fetched: s.fetchedBytes, requests: s.requests, index: s.index }
+  }
+  const queries = [
+    ...info.truth.trace_ids['lui-a'].slice(0, 2).map(id => ({ name: `trace ${id.slice(0, 8)}`, view: 'trace', set: () => page.fill('#trace-id', id),
+      central: `SELECT count() FROM ${info.db}.otel_traces WHERE TraceId = '${id}'` })),
+    { name: `trace ${info.truth.rare_trace_ids['lui-a'][1].slice(0, 8)} (one object)`, view: 'trace', rare: true,
+      set: () => page.fill('#trace-id', info.truth.rare_trace_ids['lui-a'][1]),
+      central: `SELECT count() FROM ${info.db}.otel_traces WHERE TraceId = '${info.truth.rare_trace_ids['lui-a'][1]}'` },
+    { name: `logs "${info.truth.rare_needles[1]}" (one object)`, view: 'logs', rare: true, set: () => page.fill('#log-text', info.truth.rare_needles[1]),
+      central: `SELECT count() FROM ${info.db}.otel_logs WHERE ${inCluster('lui-a')} AND positionCaseInsensitive(Body, '${info.truth.rare_needles[1]}') > 0` },
+    { name: `logs "${info.truth.needle}"`, view: 'logs', set: () => page.fill('#log-text', info.truth.needle),
+      central: `SELECT count() FROM ${info.db}.otel_logs WHERE ${inCluster('lui-a')} AND positionCaseInsensitive(Body, '${info.truth.needle}') > 0` },
+    { name: 'logs "status=500"', view: 'logs', set: () => page.fill('#log-text', 'status=500'), central: null },
+  ]
+  measured.index = { indexer: info.index, queries: [] }
+  for (const q of queries) {
+    await page.uncheck('#use-index')
+    const off = await one(q.view, q.set)
+    await page.check('#use-index')
+    const on = await one(q.view, q.set)
+    expect(on.count, q.name).toBe(off.count)
+    expect(off.index).toBe(null)
+    expect(on.index).not.toBe(null)
+    expect(on.index.errors).toEqual([])
+    if (q.central) {
+      const central = Number(await ch(q.central))
+      // central has none of the late batch; the lake has it (unindexed: "scan")
+      if (q.view === 'trace') expect(on.count).toBe(central)
+      else expect(on.count).toBeGreaterThanOrEqual(central)
+    }
+    expect(on.fetched, q.name).toBeLessThanOrEqual(off.fetched)
+    if (q.rare) {
+      // in one indexed object of three: the others are ruled out, and not read
+      expect(on.index.pruned, q.name).toBeGreaterThan(0)
+      expect(on.fetched, q.name).toBeLessThan(off.fetched)
+    }
+    measured.index.queries.push({ query: q.name, count: on.count, off, on })
+  }
+  // the late batch (logs, lui-a) is not indexed yet: its objects are scanned, never missed
+  const needle = measured.index.queries.find(m => m.query.includes(info.truth.needle))
+  expect(needle.on.index.scan).toBeGreaterThan(0)
+  const r = await fetch(new URL('/rig/index', info.page), { method: 'POST' })
+  expect(r.status).toBe(200)
+  measured.index.late_pass = await r.json()
+  await page.evaluate(() => window.lakeui.planner.clear()) // the cached plan predates the pass
+  const after = await one('logs', () => page.fill('#log-text', info.truth.needle))
+  expect(after.count).toBe(needle.count)
+  expect(after.index.scan).toBe(0)
+  expect(after.fetched).toBeLessThanOrEqual(needle.on.fetched)
+  measured.index.after_indexing_late = after
+  await page.fill('#log-text', '')
 })
 
 test('metric chart equals ClickHouse (points and sum)', async () => {

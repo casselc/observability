@@ -27,6 +27,7 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
+	"github.com/casselc/observability/otel-chdb/query/internal/lakeidx"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
 )
@@ -53,6 +54,8 @@ type Config struct {
 	ListMax    int `json:"list_max"`
 	MaxWindowS int `json:"max_window_s"`
 	GCCacheS   int `json:"gc_cache_s"`
+	// Index: the lake index (lakeidx) narrows plans with a filter.
+	Index IndexConfig `json:"index"`
 }
 
 func (c *Config) defaults() {
@@ -123,6 +126,8 @@ type Planner struct {
 	wm    *completeness.Reader
 	now   func() time.Time
 
+	idx *lakeidx.Resolver // nil: filters narrow nothing
+
 	mu    sync.Mutex
 	gc    *gcDoc
 	gcAt  time.Time
@@ -134,7 +139,7 @@ type Planner struct {
 // was committed before the document was written, so before this plan's LIST).
 func New(cfg Config, st store.Store, wm *completeness.Reader) *Planner {
 	cfg.defaults()
-	return &Planner{cfg: cfg, store: st, wm: wm, now: time.Now}
+	return &Planner{cfg: cfg, store: st, wm: wm, now: time.Now, idx: newResolver(cfg, st)}
 }
 
 // Config returns the effective configuration.
@@ -149,6 +154,9 @@ type Request struct {
 	FromNs   int64    `json:"-"`
 	ToNs     int64    `json:"-"`
 	Clusters []string `json:"clusters"`
+	// TraceID and Terms narrow the plan through the index (index.go).
+	TraceID string   `json:"trace_id,omitempty"`
+	Terms   []string `json:"terms,omitempty"`
 }
 
 // Denied is a refusal on scope (HTTP 403).
@@ -191,6 +199,11 @@ type Object struct {
 	// Refined is false when the HEAD budget ran out: the object is planned
 	// on its LIST entry alone (a superset, never a loss).
 	Refined bool `json:"refined"`
+	// Index is set when the plan has a filter: "hit" (an index segment
+	// covers the object; only RowGroups may match) or "scan" (not covered:
+	// read it all). Objects the index rules out are not planned.
+	Index     string `json:"index,omitempty"`
+	RowGroups []int  `json:"row_groups,omitempty"`
 }
 
 // Plan is the answer.
@@ -225,6 +238,8 @@ type Plan struct {
 	Rules       []string `json:"rules"`
 	// ObjectsHash is sha256 over the planned keys, in order (audit).
 	ObjectsHash string `json:"objects_hash"`
+	// Index reports the filter's resolution (nil without a filter).
+	Index *IndexReport `json:"index,omitempty"`
 }
 
 // Rules are AMBIGUITY.md X8's, in every plan.
@@ -250,6 +265,9 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	if req.ToNs-req.FromNs > int64(p.cfg.MaxWindowS)*1e9 {
 		return nil, &BadRequest{"window_too_long", fmt.Sprintf("a plan covers at most %d s; use /v1/query for longer ranges", p.cfg.MaxWindowS)}
+	}
+	if err := p.checkFilter(&req); err != nil {
+		return nil, err
 	}
 	if !pr.AllNamespaces {
 		return nil, &Denied{"namespace_scope_needs_filtering_reader",
@@ -366,6 +384,14 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	wg.Wait()
 
+	var kept []keptObject
+	for i, c := range cands {
+		if res[i].keep && !res[i].mismatch {
+			kept = append(kept, keptObject{cluster: c.cluster, obj: c.obj})
+		}
+	}
+	idxRes, idxRep := p.resolveIndex(ctx, req, kept)
+
 	ttl := time.Duration(p.cfg.URLTTLS) * time.Second
 	signedAt := p.now()
 	plan := &Plan{
@@ -379,6 +405,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		URLTTLS:      p.cfg.URLTTLS,
 		Rules:        Rules,
 		Objects:      []Object{},
+		Index:        idxRep,
 	}
 	maxLate := p.wm.MaxLateness()
 	h := sha256.New()
@@ -390,6 +417,10 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		}
 		if !r.keep {
 			continue
+		}
+		ir, filtered := idxRes[c.obj.Key]
+		if filtered && ir.Status == lakeidx.None {
+			continue // the index rules it out
 		}
 		if len(plan.Objects) >= p.cfg.MaxObjects {
 			return nil, &TooLarge{Objects: len(plan.Objects) + 1, Max: p.cfg.MaxObjects}
@@ -412,6 +443,9 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 			}
 		} else {
 			plan.Unrefined++
+		}
+		if filtered {
+			o.Index, o.RowGroups = ir.Status, ir.RowGroups
 		}
 		plan.Objects = append(plan.Objects, o)
 		plan.TotalBytes += o.Size

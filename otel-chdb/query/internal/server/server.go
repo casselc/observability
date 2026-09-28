@@ -100,6 +100,9 @@ func (s *Server) Init() {
 	m.Counter("qs_planned_objects_total", "Objects returned in plans, each with a presigned URL.")
 	m.Counter("qs_planned_bytes_total", "Bytes of the objects returned in plans.")
 	m.Counter("qs_plan_mismatched_objects_total", "Objects under one cluster's prefix whose metadata names another (never planned).")
+	m.Counter("qs_plan_index_objects_total", "Objects of filtered plans by index outcome: hit (narrowed to row groups), scan (not indexed or index unreadable), pruned (ruled out, not planned).", "outcome")
+	m.Counter("qs_plan_index_errors_total", "Index segments a filtered plan could not use (unreadable, corrupt, over budget): their objects were scanned.")
+	m.Counter("qs_plan_index_bytes_total", "Index bytes the service read to resolve filters (cache misses).")
 	m.Counter("qs_query_rows_read_total", "Rows central read for allowed queries.")
 	m.Counter("qs_clickhouse_errors_total", "ClickHouse errors by code (limits included).", "code")
 	m.Counter("qs_audit_errors_total", "Audit records that could not be written (the request was refused if it was a decision).", "event")
@@ -603,6 +606,9 @@ type PlanRequest struct {
 	From     json.RawMessage `json:"from"`
 	To       json.RawMessage `json:"to"`
 	Clusters []string        `json:"clusters"`
+	// TraceID / Terms: an index filter (lake.Request, D27).
+	TraceID string   `json:"trace_id"`
+	Terms   []string `json:"terms"`
 }
 
 // PlanResponse is its answer.
@@ -646,7 +652,8 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusBadRequest, "bad_window", "from and to are required: RFC 3339 or integer ns")
 		return
 	}
-	plan, err := s.Planner.Plan(r.Context(), p, lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters})
+	plan, err := s.Planner.Plan(r.Context(), p, lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters,
+		TraceID: body.TraceID, Terms: body.Terms})
 	if err != nil {
 		var d *lake.Denied
 		var b *lake.BadRequest
@@ -682,6 +689,13 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	s.Metrics.Add("qs_planned_objects_total", float64(len(plan.Objects)))
 	s.Metrics.Add("qs_planned_bytes_total", float64(plan.TotalBytes))
 	s.Metrics.Add("qs_plan_mismatched_objects_total", float64(plan.Mismatched))
+	if ix := plan.Index; ix != nil {
+		s.Metrics.Add("qs_plan_index_objects_total", float64(ix.Covered-ix.Pruned), "hit")
+		s.Metrics.Add("qs_plan_index_objects_total", float64(ix.Scan), "scan")
+		s.Metrics.Add("qs_plan_index_objects_total", float64(ix.Pruned), "pruned")
+		s.Metrics.Add("qs_plan_index_errors_total", float64(len(ix.Errors)))
+		s.Metrics.Add("qs_plan_index_bytes_total", float64(ix.Bytes))
+	}
 	s.Metrics.Inc("qs_results_total", "lake", plan.Completeness)
 	if plan.LateObjects > 0 {
 		s.Metrics.Inc("qs_late_results_total", "lake", plan.Completeness)

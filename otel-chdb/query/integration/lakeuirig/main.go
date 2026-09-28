@@ -21,7 +21,11 @@
 //
 // It prints one line, "LAKEUI_RIG_READY <json>", when ready, and cleans up
 // everything it created (bucket, database, user) on SIGINT or SIGTERM
-// (LUI_KEEP=1 keeps it).
+// (LUI_KEEP=1 keeps it; LUI_PREFIX names the bucket and database, default
+// "lui"). The lake indexer (D27) runs one pass before the late batch, so
+// the late batch is unindexed ("scan") until POST /rig/index runs another;
+// every batch also carries one trace and one log word that live in its
+// object only (truth.rare_trace_ids, truth.rare_needles).
 //
 //	QS_IT_BIN=<dir with otelcol-s3pq and consume> go run ./integration/lakeuirig
 //
@@ -69,7 +73,9 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
 	"github.com/casselc/observability/otel-chdb/query/internal/auth/authtest"
 	"github.com/casselc/observability/otel-chdb/query/internal/central"
+	"github.com/casselc/observability/otel-chdb/query/internal/lakeidx"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
+	"github.com/casselc/observability/otel-chdb/query/internal/store"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -193,6 +199,11 @@ type Truth struct {
 	LateTo      string              `json:"late_to"`      // and last
 	LateCluster string              `json:"late_cluster"` // the late batch's cluster
 	LateLogs    int                 `json:"late_logs"`
+	// RareTraceIDs: per cluster, one trace per batch whose spans are in
+	// that batch's object only; RareNeedles: per batch, a word in one lui-a
+	// log row of that batch only. What an index can prune (D27).
+	RareTraceIDs map[string][]string `json:"rare_trace_ids"`
+	RareNeedles  []string            `json:"rare_needles"`
 }
 
 type batchSpec struct {
@@ -203,6 +214,9 @@ type batchSpec struct {
 	gauge    bool
 	traceIDs []string // spans of these traces, split across resources
 	seed     uint64
+	// rareTrace: two spans of this trace in the first resource only;
+	// rareNeedle: appended to one log body of the first resource
+	rareTrace, rareNeedle string
 }
 
 func sendBatch(e *edge, res []resource, b batchSpec, truth *Truth) {
@@ -213,13 +227,25 @@ func sendBatch(e *edge, res []resource, b batchSpec, truth *Truth) {
 		for i := 0; i < b.logs; i++ {
 			t := b.from.Add(time.Duration(float64(b.span) * float64(i) / float64(b.logs)))
 			t = t.Add(time.Duration(ri) * time.Millisecond)
+			body := logBody(rng, x, i)
+			if ri == 0 && i == 7 && b.rareNeedle != "" {
+				body += " " + b.rareNeedle
+			}
 			recs = append(recs, map[string]any{"timeUnixNano": fmt.Sprint(t.UnixNano()),
-				"severityText": severities[rng.IntN(len(severities))], "body": map[string]any{"stringValue": logBody(rng, x, i)}})
+				"severityText": severities[rng.IntN(len(severities))], "body": map[string]any{"stringValue": body}})
 		}
 		for i := 0; i < b.spans; i++ {
 			s := b.from.Add(time.Duration(float64(b.span) * float64(i) / float64(max(b.spans, 1))))
 			spans = append(spans, map[string]any{"traceId": fmt.Sprintf("%016x%016x", rng.Uint64(), rng.Uint64()), "spanId": fmt.Sprintf("%016x", rng.Uint64()),
 				"name": "filler", "kind": 2, "startTimeUnixNano": fmt.Sprint(s.UnixNano()), "endTimeUnixNano": fmt.Sprint(s.Add(time.Millisecond).UnixNano())})
+		}
+		if ri == 0 && b.rareTrace != "" {
+			for k := 0; k < 2; k++ {
+				s := b.from.Add(time.Duration(30+k) * time.Second)
+				spans = append(spans, map[string]any{"traceId": b.rareTrace, "spanId": fmt.Sprintf("%016x", rng.Uint64()),
+					"name": fmt.Sprintf("rare-op-%d", k), "kind": 2, "startTimeUnixNano": fmt.Sprint(s.UnixNano()),
+					"endTimeUnixNano": fmt.Sprint(s.Add(3 * time.Millisecond).UnixNano())})
+			}
 		}
 		for ti, id := range b.traceIDs {
 			if ti%len(res) != ri && len(res) > 1 && ti%3 != 0 {
@@ -511,7 +537,7 @@ func main() {
 	must(err)
 	must(os.WriteFile(filepath.Join(work, "go-edge.yaml"), edgeCfg, 0o644))
 	r := &rig{ch: env("QS_IT_CH", "http://127.0.0.1:18123"), s3url: env("QS_IT_S3", "http://127.0.0.1:18333"),
-		bucket: "lui-" + id, run: "edges", db: "lui_" + id, bin: bin, work: work}
+		bucket: env("LUI_PREFIX", "lui") + "-" + id, run: "edges", db: env("LUI_PREFIX", "lui") + "_" + id, bin: bin, work: work}
 	r.s3 = s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(r.s3url), UsePathStyle: true,
 		Credentials: credentials.NewStaticCredentialsProvider("otel", "otelsecret", "")})
 	ctx := context.Background()
@@ -548,7 +574,7 @@ func main() {
 	must(err)
 
 	// 2. two clusters' edges publish three batches
-	truth := &Truth{TraceIDs: map[string][]string{}, Metric: "lui.queue.depth", Needle: Needle}
+	truth := &Truth{TraceIDs: map[string][]string{}, RareTraceIDs: map[string][]string{}, Metric: "lui.queue.depth", Needle: Needle}
 	at := time.Now().Add(-20 * time.Minute).Truncate(time.Second)
 	truth.At = at.UTC().Format(time.RFC3339Nano)
 	res := map[string][]resource{
@@ -570,8 +596,16 @@ func main() {
 			if cl == "lui-b" {
 				logs = 2000
 			}
+			rare := fmt.Sprintf("%016x%016x", mrand.Uint64(), mrand.Uint64())
+			truth.RareTraceIDs[cl] = append(truth.RareTraceIDs[cl], rare)
+			needle := ""
+			if cl == "lui-a" {
+				needle = fmt.Sprintf("rare-%d-%08x", b, mrand.Uint32())
+				truth.RareNeedles = append(truth.RareNeedles, needle)
+			}
 			sendBatch(edges[cl], res[cl], batchSpec{from: at.Add(time.Duration(b) * 5 * time.Minute), span: 5 * time.Minute,
-				logs: logs, spans: 400, gauge: true, traceIDs: truth.TraceIDs[cl], seed: uint64(b*10 + ci)}, truth)
+				logs: logs, spans: 400, gauge: true, traceIDs: truth.TraceIDs[cl], seed: uint64(b*10 + ci),
+				rareTrace: rare, rareNeedle: needle}, truth)
 		}
 	}
 	time.Sleep(3 * time.Second) // a heartbeat per lane after the data
@@ -581,6 +615,24 @@ func main() {
 	r.consume("watermark", "--wm-skew", "1s")
 	log.Printf("central: %s logs, %s spans, %s gauge points", r.sql("SELECT count() FROM "+r.db+".otel_logs"),
 		r.sql("SELECT count() FROM "+r.db+".otel_traces"), r.sql("SELECT count() FROM "+r.db+".otel_metrics_gauge"))
+
+	// 3b. the lake indexer (D27) covers everything so far; the late batch
+	// below stays unindexed (planned "scan") until /rig/index runs a pass
+	idxStore, err := store.NewS3(ctx, store.S3Config{Endpoint: r.s3url, Bucket: r.bucket, AccessKey: "otel", SecretKey: "otelsecret", PathStyle: true})
+	must(err)
+	indexer := lakeidx.New(lakeidx.Config{Root: r.run}, idxStore)
+	indexPass := func() (any, error) {
+		reps, err := indexer.RunOnce(ctx)
+		n := 0
+		for _, rp := range reps {
+			n += rp.Indexed
+		}
+		return map[string]any{"indexed": n, "segments": indexer.Stats.Segments, "segment_bytes": indexer.Stats.SegmentBytes,
+			"source_bytes": indexer.Stats.BytesRead, "rows": indexer.Stats.Rows, "build_ms": indexer.Stats.BuildNs / 1e6}, err
+	}
+	idxRep, err := indexPass()
+	must(err)
+	log.Printf("indexed: %v", idxRep)
 
 	// 4. a late batch for lui-a, after the watermark: past complete_through
 	time.Sleep(1500 * time.Millisecond)
@@ -639,7 +691,8 @@ func main() {
 			"clusters": []string{"lui-a", "lui-b"}, "metric": truth.Metric})
 	})
 	info := map[string]any{"page": pageOrigin + "/", "query_url": qs.URL, "issuer": is.URL, "tap": tapSrv.URL,
-		"ch": r.ch, "db": r.db, "bucket": r.bucket, "root": r.run, "truth": truth, "url_ttl_s": *urlTTL, "replan_margin_s": *replanMargin}
+		"ch": r.ch, "db": r.db, "bucket": r.bucket, "root": r.run, "truth": truth, "url_ttl_s": *urlTTL, "replan_margin_s": *replanMargin,
+		"index": idxRep}
 	mux.HandleFunc("/rig/info", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(info)
@@ -654,6 +707,19 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"entries": tp.entries})
+	})
+	mux.HandleFunc("/rig/index", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "POST runs one indexer pass", 405)
+			return
+		}
+		rp, err := indexPass()
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(rp)
 	})
 	wmKey := r.run + "/_consumer/watermark.json"
 	mux.HandleFunc("/rig/watermark", func(w http.ResponseWriter, req *http.Request) {

@@ -19,7 +19,10 @@ export async function execute(query, { planner, request, fetch = globalThis.fetc
   concurrency = 6, metaCache = sharedMeta, footerFetch = DEFAULT_FOOTER_FETCH, onEvent = () => {} }) {
   const stats = newStats()
   const t0 = now()
-  const req = { ...request, signal: query.signal }
+  // a query's filter (a trace id, text terms) goes to the planner, which
+  // narrows the plan through the lake index when the service has one
+  const req = { ...request, signal: query.signal, ...(request.useIndex === false ? {} : query.filter ?? {}) }
+  delete req.useIndex
   const readMeta = async (obj) => {
     const file = rangeBuffer(obj, { fetch, stats })
     const md = await metadata(file, obj.key, metaCache, footerFetch)

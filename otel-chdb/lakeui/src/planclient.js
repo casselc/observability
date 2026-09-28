@@ -76,11 +76,27 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     if (!Number.isSafeInteger(o.size) || o.size <= 0) throw new PlanError('bad_plan', `plan: object ${o.key} has no usable size`)
     const minT = bigOrNull(o.min_time_ns)
     const maxT = bigOrNull(o.max_time_ns)
+    // the index's answer for a filtered plan (D27): 'hit' narrows the read
+    // to row_groups; anything else (absent, 'scan') reads the object whole
+    let index = null
+    let rowGroups = null
+    if (o.index === 'hit') {
+      if (!Array.isArray(o.row_groups) || !o.row_groups.length || !o.row_groups.every(g => Number.isSafeInteger(g) && g >= 0)) {
+        throw new PlanError('bad_plan', `plan: object ${o.key} is an index hit without usable row_groups`)
+      }
+      index = 'hit'
+      rowGroups = [...new Set(o.row_groups)].sort((a, b) => a - b)
+    } else if (o.index !== undefined && o.index !== null && o.index !== 'scan') {
+      throw new PlanError('bad_plan', `plan: object ${o.key} has index ${JSON.stringify(o.index)}`)
+    } else if (o.index === 'scan') {
+      index = 'scan'
+    }
     return {
       key: o.key, url: o.url, size: o.size, cluster: o.cluster ?? '', producer: o.producer ?? '',
       minTimeNs: minT ?? null, maxTimeNs: maxT ?? null,
       rows: typeof o.rows === 'number' ? o.rows : bigOrNull(o.rows) ?? null, refined: o.refined === true,
       late: o.late === true,
+      index, rowGroups,
     }
   })
   const keys = new Set()
@@ -116,6 +132,7 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     totalBytes: objects.reduce((a, o) => a + o.size, 0),
     unrefined: raw.unrefined ?? 0,
     rules: raw.rules ?? [],
+    index: raw.index && typeof raw.index === 'object' ? raw.index : null,
   }
 }
 
@@ -126,6 +143,8 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
 export async function requestPlan(req, { fetch = globalThis.fetch, now = Date.now } = {}) {
   const body = { signal: req.signal, from: formatTimeNs(req.fromNs), to: formatTimeNs(req.toNs) }
   if (req.clusters && req.clusters.length) body.clusters = req.clusters
+  if (req.traceId) body.trace_id = req.traceId
+  if (req.terms && req.terms.length) body.terms = req.terms
   let resp
   try {
     resp = await fetch(req.queryUrl.replace(/\/$/, '') + '/v1/plan', {
@@ -155,7 +174,7 @@ export async function requestPlan(req, { fetch = globalThis.fetch, now = Date.no
 
 /** The key a plan answers: the same key → the same plan while it is valid. */
 export function planKey(req) {
-  return JSON.stringify([req.signal, String(req.fromNs), String(req.toNs), [...(req.clusters ?? [])].sort()])
+  return JSON.stringify([req.signal, String(req.fromNs), String(req.toNs), [...(req.clusters ?? [])].sort(), req.traceId ?? '', req.terms ?? []])
 }
 
 /**

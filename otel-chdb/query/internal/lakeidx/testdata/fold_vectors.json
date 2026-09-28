@@ -1,0 +1,206 @@
+{
+ "comment": "tokens = s.toLowerCase().split(/[^a-z0-9_]+/) in Node (V8); written by lakeui/test/fold.test.js; Go lakeidx.Tokens must agree",
+ "cases": [
+  {
+   "text": "",
+   "tokens": []
+  },
+  {
+   "text": " ",
+   "tokens": []
+  },
+  {
+   "text": "timeout",
+   "tokens": [
+    "timeout"
+   ]
+  },
+  {
+   "text": "Timeout ACCT-7731 failed",
+   "tokens": [
+    "timeout",
+    "acct",
+    "7731",
+    "failed"
+   ]
+  },
+  {
+   "text": "GET /api/v1/users?id=42&x=Y",
+   "tokens": [
+    "get",
+    "api",
+    "v1",
+    "users",
+    "id",
+    "42",
+    "x",
+    "y"
+   ]
+  },
+  {
+   "text": "under_score and-dash",
+   "tokens": [
+    "under_score",
+    "and",
+    "dash"
+   ]
+  },
+  {
+   "text": "İSTANBUL İd",
+   "tokens": [
+    "i",
+    "stanbul",
+    "i",
+    "d"
+   ]
+  },
+  {
+   "text": "Kelvin 5K",
+   "tokens": [
+    "kelvin",
+    "5k"
+   ]
+  },
+  {
+   "text": "café CAFÉ naïve",
+   "tokens": [
+    "caf",
+    "caf",
+    "na",
+    "ve"
+   ]
+  },
+  {
+   "text": "ΣΑΣ σας",
+   "tokens": []
+  },
+  {
+   "text": "emoji😀between",
+   "tokens": [
+    "emoji",
+    "between"
+   ]
+  },
+  {
+   "text": "tab\tnew\nline\r\n",
+   "tokens": [
+    "tab",
+    "new",
+    "line"
+   ]
+  },
+  {
+   "text": "Ⅻ roman ⅻ",
+   "tokens": [
+    "roman"
+   ]
+  },
+  {
+   "text": "ﬁne ligature",
+   "tokens": [
+    "ne",
+    "ligature"
+   ]
+  },
+  {
+   "text": "ǅ titlecase",
+   "tokens": [
+    "titlecase"
+   ]
+  },
+  {
+   "text": "ß STRASSE",
+   "tokens": [
+    "strasse"
+   ]
+  },
+  {
+   "text": "fullＡwidth",
+   "tokens": [
+    "full",
+    "width"
+   ]
+  },
+  {
+   "text": "á combining",
+   "tokens": [
+    "a",
+    "combining"
+   ]
+  },
+  {
+   "text": " nbsp ls",
+   "tokens": [
+    "nbsp",
+    "ls"
+   ]
+  },
+  {
+   "text": "trailing sep ",
+   "tokens": [
+    "trailing",
+    "sep"
+   ]
+  },
+  {
+   "text": " leading",
+   "tokens": [
+    "leading"
+   ]
+  },
+  {
+   "text": "x",
+   "tokens": [
+    "x"
+   ]
+  },
+  {
+   "text": "ALLCAPS_WITH_123",
+   "tokens": [
+    "allcaps_with_123"
+   ]
+  },
+  {
+   "text": "0xDEADBEEF",
+   "tokens": [
+    "0xdeadbeef"
+   ]
+  },
+  {
+   "text": "k8s.pod.name=api-7d9f",
+   "tokens": [
+    "k8s",
+    "pod",
+    "name",
+    "api",
+    "7d9f"
+   ]
+  },
+  {
+   "text": "� replacement",
+   "tokens": [
+    "replacement"
+   ]
+  },
+  {
+   "text": "日本語 text 中文",
+   "tokens": [
+    "text"
+   ]
+  },
+  {
+   "text": "mixedİcase",
+   "tokens": [
+    "mixedi",
+    "case"
+   ]
+  },
+  {
+   "text": "zero​width",
+   "tokens": [
+    "zero",
+    "width"
+   ]
+  }
+ ]
+}

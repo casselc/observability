@@ -74,10 +74,13 @@ localhost), **[E]** estimate.
 - **Namespace-scoped viewers are refused** by the service
   (`namespace_scope_needs_filtering_reader`): raw objects hold every
   namespace. They need `/v1/query` (not wired into this UI).
-- **No trace-id maplet or term index**: trace by id and text search read the
-  `TraceId`/`Body` column of every planned object. On raw edge objects that
-  is most of the object (below); on large compacted files the row-group
-  pruning pays off, on small raw slots it cannot.
+- **The lake index removes objects, not columns** (D27): trace by id and
+  text search send their filter with the plan, and the service leaves out
+  the objects its index rules out and names the row groups of the rest. An
+  object that holds a match is still read as before (its `TraceId`/`Body`
+  column), and the edges write one row group per object, so a trace present
+  in every object of the window costs what it did. Objects not indexed yet
+  are read whole ("scan").
 - **Page index / offset index** reads are off (hyparquet's `usePageIndex`),
   and there is one row group per edge object, so pruning inside an object is
   by row group only.
@@ -104,7 +107,7 @@ localhost), **[E]** estimate.
 | `src/parquet.js` | footer, row-group pruning (a truncated string max never prunes a value that extends it), column reads, BigInt timestamps |
 | `src/completeness.js` | segments, row/bucket/result states, banner words |
 | `src/runner.js` | the re-plan state machine |
-| `src/queries.js`, `src/engine.js` | the three views' reads and merges; plan → read → merge → label |
+| `src/queries.js`, `src/engine.js` | the three views' reads and merges (a plan object's `row_groups` narrows the read); plan → read → merge → label; a query's `filter` goes to the planner |
 | `src/charts.js` | SVG histogram, line chart, waterfall |
 | `test/` | `node:test` + fast-check, with three real edge objects as fixtures |
 | `e2e/` | Playwright against the real stack (`../query/integration/lakeuirig`) |
@@ -112,7 +115,7 @@ localhost), **[E]** estimate.
 ## Tests
 
 ```
-npm ci && npm test           # 31 unit and property tests, ~7 s
+npm ci && npm test           # 42 unit and property tests, ~15 s
 npm run vendor:check         # vendor/ == the pinned packages
 QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123, SeaweedFS :18333 (ci/services.sh)
 ```
@@ -143,8 +146,18 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123,
   failed; one expired URL re-plans.
 - `ns`: format ∘ parse is the identity on ns (property); the source-text
   reviver and the fallback agree (property).
+- `index` (D27): a plan's `index`/`row_groups` are carried and checked (a
+  `hit` without usable row groups is refused); the filter reaches the
+  planner (and not with the index off) and keys the plan cache; `hit`
+  narrows the read, `scan` or a row group the file lacks reads everything;
+  trace and text answers are the same whatever the index says, with fewer
+  bytes when objects are pruned.
+- `fold`: only U+0130 and U+212A lowercase to anything ASCII in this engine
+  (every code point scanned); the shared vector file the Go tokenizer is
+  tested against is what this engine computes; a property that every body
+  the page's substring test matches satisfies every constraint of the text.
 
-**Browser test** (`npm run e2e`, nightly as `lakeui-e2e`, 9 tests, ~2 min of
+**Browser test** (`npm run e2e`, nightly as `lakeui-e2e`, 10 tests, ~2 min of
 which 60 s waits for real URL expiry). `../query/integration/lakeuirig`
 brings up: its own bucket `lui-…` (with CORS) and database `lui_…`; the Go
 edge for clusters `lui-a` (2 pods) and `lui-b` publishing three batches of
@@ -183,11 +196,29 @@ before `complete_through`, so the counts below should not change):
 | count of `WARN` logs, no rows (narrow) | 4 | 59,754 / 743,979 B = **8.0 %** | 19.1 KB of 237.7 KB (8.0 %), 2.4 KB of 30.8 KB (7.9 %); **one GET each** (footer tail + `Timestamp` + `SeverityText`) |
 | logs, all, newest 50 rows | 3 | 228,982 / 713,160 B = 32 % | + `Body`/`ServiceName` of the objects holding the 50 rows |
 | logs with a text filter | 3 | 572,042 / 713,160 B = 80 % | `Body` is 72 % of a log object: text search without a term index reads it |
-| trace by id | 3 | 130–155 KB / 169 KB = 77–92 % | `TraceId` is ~47 % of a 56 KB raw trace object; the maplet (lake P2) is what makes this cheap |
+| trace by id | 3 | 130–155 KB / 169 KB = 77–92 % | `TraceId` is ~47 % of a 56 KB raw trace object; the index (below) removes the objects without the trace, not this column |
 | gauge chart | 3 | 28,969 / 29,398 B = 98.5 % | 9.8 KB objects are mostly footer: fetch small objects whole (lake-ui §7) |
 
 Latency on localhost: 50–120 ms per query including the plan [M]; says
 nothing about a WAN.
+
+**With the lake index** (D27) [M, the e2e's index test, 2026-09-28: the same
+query without and with the index, same data, page and tap agree byte for
+byte; the rig indexes its three batches, not the late one]:
+
+| query (lui-a) | objects | fetched | range GETs | index bytes the service read |
+|---|---|---|---|---|
+| trace in 3 of 3 objects | 3 → 3 | 130,615 → 130,615 B | 9 → 9 | 13,698 (cold: LIST, tail, block) |
+| trace in 1 of 3 objects | 3 → 1 | 96,161 → **43,535 B (−55 %)** | 5 → 3 | 4,097 (one block) |
+| word in 1 of 3 indexed objects, plus the unindexed late object | 4 → 2 | 592,317 → **210,472 B (−64 %)** | 5 → 3 | cached |
+| `needle-7f3a` (in every object) | 4 → 4 | unchanged | unchanged | cached |
+| `status=500` (in every object) | 4 → 4 | unchanged | unchanged | cached |
+
+Answers are equal with and without the index, and equal ClickHouse's where
+it has the rows. The late object is planned `scan` (and counted) until
+`/rig/index` runs a pass. The index is 45 % of the source bytes here: the
+rig's log bodies carry four random ids per row, the worst case for an exact
+term dictionary (D27).
 
 ## Running it by hand
 

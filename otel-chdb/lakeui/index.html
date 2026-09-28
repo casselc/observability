@@ -28,6 +28,7 @@
       <option value="21600">last 6 h</option><option value="86400">last 24 h</option><option value="custom">custom</option></select></label>
     <label class="custom">From <input id="from" data-testid="from" placeholder="2026-09-28T12:00:00Z" size="24"></label>
     <label class="custom">To <input id="to" data-testid="to" placeholder="2026-09-28T13:00:00Z" size="24"></label>
+    <label title="Trace-id and text searches ask the query service to narrow the plan through the lake index; unindexed objects are still read whole"><input type="checkbox" id="use-index" data-testid="use-index" checked> Use the lake index</label>
   </form>
   <nav class="tabs" role="tablist">
     <button role="tab" data-view="logs" aria-selected="true">Logs</button>

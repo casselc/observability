@@ -8,9 +8,23 @@
 // gauge points TimeUnix, MetricName, Value, ServiceName.
 
 import { bucketIndex, bucketState, buckets, niceStep, rowState } from './completeness.js'
-import { pruneByRange, readGroup } from './parquet.js'
+import { pruneByRange, readGroup, rowGroups } from './parquet.js'
 
 const inWindow = (ts, q) => ts >= q.fromNs && ts < q.toNs
+
+/**
+ * The row groups of one object a query must read: all of them, unless the
+ * plan's index narrowed the object to some (index 'hit', D27). A row group
+ * the file does not have means the index and the object disagree: read
+ * every group (the superset), never fewer.
+ */
+export function indexedGroups(md, obj) {
+  const all = rowGroups(md)
+  if (obj.index !== 'hit' || !obj.rowGroups) return all
+  if (obj.rowGroups.some(g => g >= all.length)) return all
+  const want = new Set(obj.rowGroups)
+  return all.filter(g => want.has(g.index))
+}
 
 function objectMayOverlap(obj, q) {
   // the plan's per-object range (from the slot's metadata) prunes whole objects
@@ -34,12 +48,17 @@ export function logSearch({ fromNs, toNs, text = '', severities = [], limit = 50
     kind: 'logs',
     signal: 'logs',
     q,
+    // the plan filter: the index narrows a text search (the page still tests
+    // every row itself; the index only drops what cannot match)
+    filter: q.text ? { terms: [text.trim()] } : null,
     async scan(file, obj, md) {
       const out = { count: 0, hist: new Map(), top: [], bodyRead: q.text !== '', key: obj.key }
       if (!objectMayOverlap(obj, q)) return out
       const cols = ['Timestamp', 'SeverityText']
       if (q.text) cols.push('Body')
+      const narrowed = new Set(indexedGroups(md, obj).map(g => g.index))
       for (const g of pruneByRange(md, 'Timestamp', q.fromNs, q.toNs - 1n)) {
+        if (!narrowed.has(g.index)) continue
         const rows = await readGroup(file, obj.key, md, g, cols)
         for (let i = 0; i < rows.length; i++) {
           const r = rows[i]
@@ -138,12 +157,14 @@ export function traceById({ traceId, fromNs, toNs }) {
     kind: 'trace',
     signal: 'traces',
     q,
+    filter: { traceId: id },
     async scan(file, obj, md) {
       const out = { spans: [], key: obj.key }
       if (!objectMayOverlap(obj, q)) return out
       const byTime = new Set(pruneByRange(md, 'Timestamp', q.fromNs, q.toNs - 1n).map(g => g.index))
+      const narrowed = new Set(indexedGroups(md, obj).map(g => g.index))
       for (const g of pruneByRange(md, 'TraceId', id, id)) {
-        if (!byTime.has(g.index)) continue
+        if (!byTime.has(g.index) || !narrowed.has(g.index)) continue
         const ids = await readGroup(file, obj.key, md, g, ['TraceId'])
         const hit = []
         for (let i = 0; i < ids.length; i++) if (String(ids[i].TraceId).toLowerCase() === id) hit.push(i)

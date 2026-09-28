@@ -1,16 +1,19 @@
 #!/bin/bash
 # IAM for the EKS validation: roles for IRSA and Pod Identity with the ABAC
 # policies of deploy/iam/, the session-tag roles the ABAC matrix assumes from
-# the operator's shell, the acceptance kit's roles (with, without and with a
-# prefix-scoped s3:ListBucket), and one IAM user for the consumer.
+# the operator's shell, the acceptance kit's roles (with, without, with a
+# prefix-scoped, and with the amended prefix + IfExists s3:ListBucket), and
+# one IAM user for the consumer.
 # Idempotent: an existing role or user is reused only if this tooling tagged
 # it; its inline policies are rewritten from the templates on every run.
 #
 #   RUN=v1 BUCKET=... REGION=us-east-1 [CLUSTER=otel-val-v1 NAME=otelval-v1] eks/iam.sh
 #
-# Why a user: `consume` takes static keys only (--key/--secret, which it also
-# passes into ClickHouse's s3()); there is no chain, IRSA or session token in
-# it yet (eks-aws.md §0). The key goes into the Secret otel-validate/consumer-s3
+# Why a user: this runbook was written when `consume` took static keys only.
+# It now takes the AWS chain (IRSA, Pod Identity, session tokens; D18
+# amendment 2026-09-28), so an IRSA role with consumer.json + gc.json works
+# as well; the user is kept so the deployed manifests (Secret consumer-s3)
+# need no change. The key goes into the Secret otel-validate/consumer-s3
 # and $STATE/consumer-key.json (mode 600); down.sh deletes both.
 # shellcheck source=../lib.sh
 . "$(dirname "$0")/../lib.sh"
@@ -96,7 +99,10 @@ cfg = {"Sid": "BucketConfigReadOptional", "Effect": "Allow", "Action": ["s3:GetB
        "Resource": f"arn:aws:s3:::{b}"}
 lst = {"Sid": "List", "Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads"], "Resource": f"arn:aws:s3:::{b}"}
 plst = dict(lst, Condition={"StringLike": {"s3:prefix": f"{pre}/*"}})
-for name, st in [("accept", [objs, lst, cfg]), ("accept-nolist", [objs, cfg]), ("accept-prefixlist", [objs, plst, cfg])]:
+# The amended deploy/iam/ shape (D18, 2026-09-28): the prefix grant plus the same under StringLikeIfExists.
+ilst = dict(lst, Sid="ListIfExists", Condition={"StringLikeIfExists": {"s3:prefix": f"{pre}/*"}})
+for name, st in [("accept", [objs, lst, cfg]), ("accept-nolist", [objs, cfg]), ("accept-prefixlist", [objs, plst, cfg]),
+                 ("accept-ifexists", [objs, plst, ilst, cfg])]:
     json.dump({"Version": "2012-10-17", "Statement": st}, open(f"{out}/{name}.json", "w"), indent=1)
 PY
 
@@ -111,6 +117,7 @@ R_CONS=$(role "$NAME-consumer-sts" "$(account_trust)" "consumer=$P/consumer.json
 R_ACC=$(role "$NAME-accept" "$(irsa_trust otel-validate:s3accept)" "accept=$P/accept.json")
 R_ACCN=$(role "$NAME-accept-nolist" "$(irsa_trust otel-validate:s3accept-nolist)" "accept=$P/accept-nolist.json")
 R_ACCP=$(role "$NAME-accept-prefixlist" "$(irsa_trust otel-validate:s3accept-prefixlist)" "accept=$P/accept-prefixlist.json")
+R_ACCI=$(role "$NAME-accept-ifexists" "$(irsa_trust otel-validate:s3accept-ifexists)" "accept=$P/accept-ifexists.json")
 
 # The consumer's user and key.
 U=$NAME-consumer
@@ -147,5 +154,6 @@ R_CONS=$R_CONS
 R_ACC=$R_ACC
 R_ACCN=$R_ACCN
 R_ACCP=$R_ACCP
+R_ACCI=$R_ACCI
 EOF
 log "roles and user ready: $STATE/iam.env (IAM is eventually consistent: wait ~10 s before the first assume)"

@@ -15,6 +15,13 @@
       "Condition": {"StringLike": {"s3:prefix": ["ROOT/*", "ENTITIES/*", "ROOT", "ENTITIES"]}}
     },
     {
+      "Sid": "MissingLeaseCheckpointMarkerIs404HeadCarriesNoPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLikeIfExists": {"s3:prefix": ["ROOT/*", "ENTITIES/*", "ROOT", "ENTITIES"]}}
+    },
+    {
       "Sid": "ControlObjects",
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:DeleteObject"],

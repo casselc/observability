@@ -1,6 +1,7 @@
 # The consumer (a worker; GC with the watermark beside it) and the toolbox pod
 # the scripts exec into. Rendered by deploy.sh. The key is the IAM user
-# eks/iam.sh made: `consume` takes static keys only.
+# eks/iam.sh made (`consume` also takes IRSA / Pod Identity since
+# 2026-09-28: annotate a service account and drop --key/--secret).
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: consume, namespace: otel-validate, labels: {created-by: otel-chdb-validation}}
@@ -22,6 +23,7 @@ spec:
                  "--poll", "1s", "--metrics-addr", "0.0.0.0:9464", "--stats", "/tmp/stats.jsonl", "--stats-every", "10s"]
           env:
             - {name: POD_NAME, valueFrom: {fieldRef: {fieldPath: metadata.name}}}
+            - {name: AWS_REGION, value: "{{REGION}}"}
           envFrom: [{secretRef: {name: consumer-s3}}]
           ports: [{containerPort: 9464, name: metrics}]
           resources: {requests: {cpu: 500m, memory: 512Mi}, limits: {memory: 2Gi}}
@@ -46,6 +48,8 @@ spec:
           args: ["gc", "--s3", "{{S3_BASE}}", "--key", "$(AWS_ACCESS_KEY_ID)", "--secret", "$(AWS_SECRET_ACCESS_KEY)",
                  "--ch", "http://clickhouse.otel-validate:8123", "--db", "{{DB}}", "--every", "60s",
                  "--audit-every", "1h", "--metrics-addr", "0.0.0.0:9465"]
+          env:
+            - {name: AWS_REGION, value: "{{REGION}}"}
           envFrom: [{secretRef: {name: consumer-s3}}]
           resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 1Gi}}
 ---

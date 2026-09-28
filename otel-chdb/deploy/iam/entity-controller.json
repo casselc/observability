@@ -12,7 +12,14 @@
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": {"StringLike": {"s3:prefix": "ENTITIES/${aws:PrincipalTag/cluster}/*"}}
+      "Condition": {"StringLike": {"s3:prefix": ["ENTITIES/${aws:PrincipalTag/cluster}/*", "ENTITIES/${aws:PrincipalTag/cluster}"]}}
+    },
+    {
+      "Sid": "FreeSlotIs404HeadCarriesNoPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLikeIfExists": {"s3:prefix": ["ENTITIES/${aws:PrincipalTag/cluster}/*", "ENTITIES/${aws:PrincipalTag/cluster}"]}}
     },
     {
       "Sid": "NeverDelete",

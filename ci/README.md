@@ -11,7 +11,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 
 | job | runs |
 |---|---|
-| `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`) |
+| `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`); `ci/iam-lint.sh` (the `deploy/iam/` policies) |
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
 | `lakeui` | `otel-chdb/lakeui`: `npm ci`, `npm run vendor:check` (vendor/ matches the pinned packages), `npm test` (node:test + fast-check: the planner client, range reader, completeness math, re-plan state machine, queries over edge Parquet fixtures, SVG) |
 | `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
@@ -46,6 +46,7 @@ proxy and consumer logs).
 | script | does |
 |---|---|
 | `go-modules.sh list\|vet\|test GROUP` | finds the Go modules (not `chdb-go/lib/*`, which only embed a libchdb blob) and runs go in each; groups `all`, `fast`, `chdb`, `slow`, or one module's path. `RACE=1` adds `-race`; `LOG_DIR` keeps a log per module; per-module skips are listed in the script with their reason |
+| `iam-lint.sh [DIR]` | every `otel-chdb/deploy/iam/*.json` parses, and a role granting `s3:ListBucket` under an `s3:prefix` condition also grants it on the same prefixes under `StringLikeIfExists` (or unconditioned): a HEAD carries no prefix, and S3 answers a missing key 403 without `ListBucket` (DECISIONS D18 amendment, 2026-09-28). Fails on the pre-amendment policies |
 | `clippy.sh` | `cargo clippy --release --all-targets -D warnings`, allowing the 16 lint kinds the crate trips today (a new kind fails; the list can only shrink) |
 | `services.sh start\|stop\|logs` | SeaweedFS (`chrislusf/seaweedfs:4.47`, S3 :18333, otel/otelsecret, `-volume.max=64 -master.volumeSizeLimitMB=1024`) and ClickHouse (`clickhouse/clickhouse-server:26.9`, HTTP :18123, TCP :19000) in Docker on the host network, since ClickHouse reads SeaweedFS through `s3()`; creates the buckets |
 | `test.env` | every endpoint and key the tests read; appended to `$GITHUB_ENV` |

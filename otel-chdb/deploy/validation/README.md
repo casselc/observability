@@ -31,7 +31,7 @@ in the checklist of rows to update at the end of each runbook.
 | EKS-1 | Atomic `If-None-Match: *` / `If-Match`, ambiguous writes resolved, on real S3 | §1.4 `ATOMIC_COND`; AMB S1, S3; risk 3 | eks-aws §3 | kit verdicts ACCEPTED twice; races exact |
 | EKS-2 | 409 `ConditionalRequestConflict` rate; absorbed as `resolved_own` | risk 3; AMB S1, S3 | eks-aws §3, §8 | only 409/412 in races; none left unresolved |
 | EKS-3 | LIST after write, StartAfter, list-race | AMB S6 (AWS [D]) | eks-aws §3 | 0 missing, 0 holes |
-| EKS-4 | Free slot 404 vs 403 with full / no / prefix-scoped `s3:ListBucket` | AMB S5; `iam/edge-publisher.json` | eks-aws §3, §4 | 404 under the policy the edges get (else change the policy) |
+| EKS-4 | Free slot 404 vs 403 with full / no / prefix-scoped / prefix + `IfExists` `s3:ListBucket`; a prefix-less LIST under the last | AMB S5; `iam/*.json`; D18 amendment (2026-09-28: the prefix-scoped grant answers 403 by AWS's documentation, now fixed [D]) | eks-aws §3, §4 | 404 under the amended grant (else grant `ListBucket` unconditionally); prefix-scoped 403 recorded |
 | EKS-5 | Throttling of create-only PUTs in the cluster-first layout | risk 3 (3,500 PUT/s per prefix) | eks-aws §5 | 0 × 503 at 2,000/s; < 1% within 10 min at 6,000/s |
 | EKS-6 | ABAC with session tags: cross-cluster, delete, control, create-only | STPA R-S7; D18 | eks-aws §4 | 0 FAIL rows |
 | EKS-7 | IRSA and Pod Identity end to end, refresh, no node-role fallback | §1.1; D18 | eks-aws §3, §6, §10 | both commit; refresh crosses; no fallback |
@@ -65,11 +65,20 @@ target: acceptance/RUNBOOK.md §3.1 already has the commands), the lake /
 sealer, a power-cut test of the edge buffer (risk 14), and any change to the
 code gaps these runbooks find.
 
+**Gaps these runbooks found, closed since** (DECISIONS D18 amendments,
+2026-09-28; the runbooks' text says what changed):
+
+| Gap | Found by | Closed by |
+|---|---|---|
+| `consume` took static keys only, and passed them into `s3()` | eks-aws §0 (1) | the AWS chain (IRSA, Pod Identity, profiles, IMDS, session tokens, refresh); `s3()` gets the temporary credential per statement (`--ch-s3-auth pass`) or the server's own (`server`); secrets redacted from every logged error |
+| `consume` signed for us-east-1 | eks-aws §0 (2) | `--region` / `AWS_REGION` / `AWS_DEFAULT_REGION` / the profile's |
+| the prefix-scoped `s3:ListBucket` in `deploy/iam/` makes a missing key 403 (every role; SeaweedFS could not show it) | eks-aws EKS-4, acceptance RUNBOOK §5 | `StringLikeIfExists` grant in all four role policies [D]; EKS-4 now measures it |
+
 ## What the owner must provide
 
 | For | What |
 |---|---|
-| eks-aws | an AWS account or sandbox allowing EKS, IAM roles **and one IAM user with an access key** (the consumer has no credential chain yet), ECR, a VPC, one new S3 bucket; 16 on-demand vCPUs; `sts:TagSession`; a build host with docker, Go 1.26, aws CLI 2.22+, eksctl, kustomize 5.7 |
+| eks-aws | an AWS account or sandbox allowing EKS, IAM roles **and one IAM user with an access key** (the runbook's consumer uses it; since 2026-09-28 `consume` also takes IRSA / Pod Identity, so an organisation that forbids IAM users can drop it), ECR, a VPC, one new S3 bucket; 16 on-demand vCPUs; `sts:TagSession`; a build host with docker, Go 1.26, aws CLI 2.22+, eksctl, kustomize 5.7 |
 | nutanix | the Objects FQDN, **every client-facing IP**, the version, the private CA, a bucket, 4 Objects users/keys (kit, two "clusters", consumer), how a policy names a user; for §5 a site cluster, a registry, a VM |
 | real-cluster-telemetry | **a decision on mirroring production** (a second exporter in the production collectors, non-blocking); Prometheus read access; where real telemetry may be stored and for how long |
 | central-idle-bench | a dedicated 32-vCPU machine (not burstable, not shared); 2 replica hosts and 3 Keeper hosts with SSH + passwordless sudo; the production Keeper session timeout to test |

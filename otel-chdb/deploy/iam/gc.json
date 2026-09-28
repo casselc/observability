@@ -15,6 +15,13 @@
       "Condition": {"StringLike": {"s3:prefix": ["ROOT/*", "ROOT"]}}
     },
     {
+      "Sid": "MissingControlObjectIs404HeadCarriesNoPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLikeIfExists": {"s3:prefix": ["ROOT/*", "ROOT"]}}
+    },
+    {
       "Sid": "DeleteIngestedSlotsAndRetiredEpochs",
       "Effect": "Allow",
       "Action": "s3:DeleteObject",

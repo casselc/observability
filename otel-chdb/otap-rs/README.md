@@ -498,7 +498,38 @@ whole chain); [`../deploy/`](../deploy/README.md) has manifests per mode.
 
 The exporter needs `s3:PutObject` and `s3:GetObject` on the prefix, and
 `s3:ListBucket` so that a HEAD of a missing key answers 404, not 403
-(../awss3). The consumer also needs `s3:ListBucket` for its LIST.
+(../awss3). The consumer also needs `s3:ListBucket` for its LIST. A
+`ListBucket` scoped by `s3:prefix` is not enough for the HEAD: a HEAD has
+no prefix, so grant it under `StringLikeIfExists` as well
+(`../deploy/iam/`, DECISIONS D18 amendment of 2026-09-28).
+
+**The consumer** (`consume`, every subcommand) takes the same chain since
+2026-09-28: `--key`/`--secret` [`--session-token`], else `--profile`,
+`--role-arn`, `--credential-process`, or the environment (keys, profile,
+IRSA, Pod Identity, IMDS). With nothing given or named and a loopback
+`http://` store it falls back to the local stack's `otel`/`otelsecret` and
+says so. `--region` (else `AWS_REGION`, `AWS_DEFAULT_REGION`, the profile's,
+`us-east-1`) is the signing region and the `s3://` endpoint's.
+ClickHouse's `s3()`:
+
+- `--ch-s3-auth pass` (default): the consumer's credential, resolved before
+  every statement from the same cached provider (refreshed 5 min before
+  expiry), passed as `key, secret, session_token`. ClickHouse 26.10 logs
+  both as `[HIDDEN]`; a syntax error echoes them, so every error the
+  consumer keeps is redacted (`sql.rs` `redact`). A credential that
+  expires mid-statement is a 403 → `S3_ERROR` 499, an unsettled answer:
+  waited out and checked (AMBIGUITY C8). Use TLS to ClickHouse off-host.
+- `--ch-s3-auth server`: no credentials in the statement; ClickHouse's own
+  (its pod's IRSA or Pod Identity role, `use_environment_credentials`, an
+  `<s3>` endpoint entry); the consumer sets
+  `s3_allow_server_credentials_in_user_queries = 1` on each insert.
+
+Tests: `consume` `creds_tests` (which source), `sql::tests::s3_credentials_per_statement`,
+`an_s3_403_mid_statement_is_not_settled_at_once`,
+`refused_credentials_are_unsettled_and_redacted` (ClickHouse + SeaweedFS),
+`store::tests` (region order, the SigV4 scope for `eu-west-2`, SeaweedFS
+accepting it); end to end, `../query/integration` passes with `consume`
+on environment credentials in `eu-west-2`, in both modes [M].
 
 ## Measurements in detail
 

@@ -2,7 +2,8 @@
 # The write-side ABAC matrix for ONE identity (the ambient credentials), as
 # deploy/iam/seaweedfs_abac.sh proves it on SeaweedFS: an edge of cluster
 # SELF creates and reads slots under its own cluster only, never deletes,
-# never writes a control object, and a free slot of its own is 404 (not 403).
+# never writes a control object, and a free slot of its own is 404 (not 403;
+# a checked row since the D18 amendment of 2026-09-28).
 # Runs wherever the aws CLI (v2.22+, for --if-none-match) has credentials: in
 # a pod under IRSA or Pod Identity (abac.sh pods), in the operator's shell
 # under an assumed role with session tags (abac.sh sts), or with a Nutanix
@@ -13,9 +14,9 @@
 # EXPECT_DENY_ALL=1 for credentials without a cluster tag: every row wants 403.
 # SELF: the cluster these credentials belong to; OTHER: another cluster's
 # prefix (it need not exist). TAG names the rows in the output. Exit status:
-# the number of failed rows. `HEAD free slot` is reported as 404 or 403
-# separately (it is the question behind AMBIGUITY.md S5), and does not count
-# as a failure of the boundary.
+# the number of failed rows. `HEAD free slot` is also printed on the RESULT
+# line (it is the question behind AMBIGUITY.md S5); a 403 there is a FAIL of
+# the policy, not of the boundary.
 set -u
 : "${BUCKET:?}" "${ROOT:?}"
 SELF=${1:?SELF}; OTHER=${2:?OTHER}; TAG=${3:-$SELF}
@@ -58,8 +59,15 @@ check "creates its own slot (If-None-Match: *)"      ok  "$(put "$(slot "$SELF" 
 check "again on the same slot: create-only"           412 "$(put "$(slot "$SELF" 0)" '*')"
 check "HEADs its own slot"                            ok  "$(head_ "$(slot "$SELF" 0)")"
 free=$(head_ "$(slot "$SELF" 1)")
-info  "HEAD of its own next, free slot (404 = free; 403 = the ListBucket grant does not cover a HEAD)" "$free"
+# 404 = free. 403 = the ListBucket grant does not cover a HEAD (a HEAD has no
+# s3:prefix): every free slot would read as unknown and the lanes stall. The
+# amended policies grant it under StringLikeIfExists (DECISIONS D18, 2026-09-28).
+check "HEAD of its own next, free slot (EKS-4)"       404 "$free"
 check "lists its own prefix"                          ok  "$(lst "$ROOT/$SELF/")"
+# What a LIST with no prefix parameter gets: 403, or 200 if S3 leaves
+# s3:prefix out of its context and StringLikeIfExists lets it through (key
+# names of every cluster, not their contents: D18's accepted residual).
+info  "lists the bucket with no prefix (EKS-4 residual)" "$(rc aws ${EP[@]+"${EP[@]}"} s3api list-objects-v2 --bucket "$BUCKET" --max-keys 1)"
 check "creates a slot under cluster $OTHER"           403 "$(put "$(slot "$OTHER" 0)" '*')"
 check "HEADs a key under cluster $OTHER"              403 "$(head_ "$(slot "$OTHER" 0)")"
 check "lists cluster $OTHER's prefix"                 403 "$(lst "$ROOT/$OTHER/")"

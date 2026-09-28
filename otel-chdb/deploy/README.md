@@ -156,9 +156,18 @@ delete; `iam/entity-controller.json` the same under the entity prefix;
 `iam/consumer.json` and `iam/gc.json` are the consumer's and GC's;
 `iam/bucket-policy.json` makes slots create-only and control objects CAS.
 Replace `BUCKET`, `ROOT` (the path of `S3_BASE`) and `ENTITIES`.
+Every role grants `s3:ListBucket` twice: under `StringLike` on its prefixes
+(its LISTs) and under `StringLikeIfExists` on the same prefixes, because S3
+answers a missing key 404 only to a caller with `ListBucket`, and a HEAD or
+GET carries no `s3:prefix`; without the second statement every free slot,
+missing lease and missing `format.json` would read as 403, which the edges
+and the consumer rightly treat as unknown (D18 amendment, AMBIGUITY S5).
 `iam/seaweedfs_abac.sh` demonstrates the same boundary on SeaweedFS with one
-identity per cluster (`results/abac-seaweedfs.txt`); on Nutanix Objects it
-is unverified (one key per cluster with a prefix-scoped bucket policy).
+identity per cluster (`results/abac-seaweedfs.txt`); SeaweedFS answers 404
+for a missing key with or without `ListBucket`, so the 403 case is shown
+only on AWS (validation EKS-4). On Nutanix Objects it is unverified (one key
+per cluster with a prefix-scoped bucket policy: check its 404/403 the same
+way).
 
 ## Targets
 

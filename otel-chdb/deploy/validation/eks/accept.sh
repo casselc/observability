@@ -1,8 +1,9 @@
 #!/bin/bash
 # The acceptance kit (acceptance/RUNBOOK.md) against real S3, from pods under
-# IRSA, on the cluster's nodes and network path. Three pods, one per
-# s3:ListBucket grant (eks/iam.sh): full (the kit's policy), none, and
-# prefix-scoped (as deploy/iam/edge-publisher.json scopes it).
+# IRSA, on the cluster's nodes and network path. Four pods, one per
+# s3:ListBucket grant (eks/iam.sh): full (the kit's policy), none,
+# prefix-scoped (as deploy/iam/ scoped it before 2026-09-28), and prefix plus
+# StringLikeIfExists (as deploy/iam/ grants it now, D18 amendment).
 #
 #   RUN=v1 BUCKET=... REGION=us-east-1 eks/accept.sh [STEP...]
 #
@@ -86,10 +87,12 @@ for s in $STEPS; do
     headmissing)
            pod accept-nolist s3accept-nolist "$R_ACCN"
            pod accept-prefixlist s3accept-prefixlist "$R_ACCP"
+           pod accept-ifexists s3accept-ifexists "${R_ACCI:?re-run eks/iam.sh (the ifexists role is new)}"
            acc accept hm-full --url "$URL" --region "$REGION" --only head-missing -v
            acc accept-nolist hm-nolist --url "$URL" --region "$REGION" --only head-missing -v
            acc accept-prefixlist hm-prefixlist --url "$URL" --region "$REGION" --only head-missing -v
-           result accept.head_missing "full=$(status "$OUT/hm-full.json") nolist=$(status "$OUT/hm-nolist.json") prefixlist=$(status "$OUT/hm-prefixlist.json")" ;;
+           acc accept-ifexists hm-ifexists --url "$URL" --region "$REGION" --only head-missing -v
+           result accept.head_missing "full=$(status "$OUT/hm-full.json") nolist=$(status "$OUT/hm-nolist.json") prefixlist=$(status "$OUT/hm-prefixlist.json") ifexists=$(status "$OUT/hm-ifexists.json")" ;;
     *) die "unknown step $s" ;;
   esac
 done

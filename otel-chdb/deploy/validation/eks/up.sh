@@ -5,9 +5,10 @@
 #
 #   RUN=v1 REGION=us-east-1 [CLUSTER=otel-val-v1 K8S_VERSION=1.35 INSTANCE_TYPE=m6i.xlarge NODES=3 YES=1] eks/up.sh
 #
-# REGION defaults to us-east-1 because the consumer (otap-rs `consume`) signs
-# for us-east-1 whatever the bucket's region (S3Config's default; it has no
-# --region flag): a bucket elsewhere needs that fixed first (eks-aws.md §0).
+# REGION defaults to us-east-1 (the prices in eks-aws.md). `consume` used to
+# sign for us-east-1 whatever the bucket's region; since 2026-09-28 it takes
+# --region / AWS_REGION (eks-aws.md §0), so another region needs AWS_REGION
+# in the consumer's environment.
 # Writes $STATE/kubeconfig; every later step uses it.
 # shellcheck source=../lib.sh
 . "$(dirname "$0")/../lib.sh"

@@ -8,11 +8,18 @@
       "Resource": "arn:aws:s3:::BUCKET/ROOT/${aws:PrincipalTag/cluster}/*"
     },
     {
-      "Sid": "ListOwnClusterSoAFreeSlotIs404",
+      "Sid": "ListOwnCluster",
       "Effect": "Allow",
       "Action": "s3:ListBucket",
       "Resource": "arn:aws:s3:::BUCKET",
-      "Condition": {"StringLike": {"s3:prefix": "ROOT/${aws:PrincipalTag/cluster}/*"}}
+      "Condition": {"StringLike": {"s3:prefix": ["ROOT/${aws:PrincipalTag/cluster}/*", "ROOT/${aws:PrincipalTag/cluster}"]}}
+    },
+    {
+      "Sid": "FreeSlotIs404HeadCarriesNoPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::BUCKET",
+      "Condition": {"StringLikeIfExists": {"s3:prefix": ["ROOT/${aws:PrincipalTag/cluster}/*", "ROOT/${aws:PrincipalTag/cluster}"]}}
     },
     {
       "Sid": "NeverDeleteNeverControl",

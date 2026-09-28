@@ -22,7 +22,7 @@ against a fake store; README §Local checks).
 | EKS-1 | Does real S3 enforce `If-None-Match: *` and `If-Match` atomically, and resolve ambiguous writes? | DECISIONS §1.4 `ATOMIC_COND`; AMBIGUITY S1, S3; risk 3 | §3 |
 | EKS-2 | How often does S3 answer 409 `ConditionalRequestConflict` under contention, and does the edge absorb it (`resolved_own`)? | risk 3; AMBIGUITY S1/S3 (409 → HEAD) | §3, §8 |
 | EKS-3 | LIST after write, `StartAfter`, list-race: any acked key missing from a later LIST? | AMBIGUITY S6 (AWS: [D] only) | §3 |
-| EKS-4 | Read-after-write on GET/HEAD; HEAD of a free slot is 404 with `s3:ListBucket`, 403 without, and **what with a prefix-scoped `ListBucket`** (as `deploy/iam/edge-publisher.json` grants it) | AMBIGUITY S5; acceptance RUNBOOK §5 warns a HEAD carries no `s3:prefix` | §3, §4 |
+| EKS-4 | Read-after-write on GET/HEAD; HEAD of a free slot is 404 with `s3:ListBucket`, 403 without, **what with a prefix-scoped `ListBucket`** (the old `deploy/iam/` grant: expected 403), and **404 with the amended grant** (prefix + `StringLikeIfExists`, D18 amendment 2026-09-28); and whether a LIST with no prefix is 403 or 200 under it (the accepted residual) | AMBIGUITY S5; acceptance RUNBOOK §5 warns a HEAD carries no `s3:prefix`; the S3 `HeadObject` and IAM condition-operator docs (D18) | §3, §4 |
 | EKS-5 | Where does S3 throttle create-only PUTs, and does the cluster-first layout spread them (3,500 PUT/s per prefix)? | risk 3 (per-prefix limits) | §5 |
 | EKS-6 | Write-side ABAC with real session tags: cross-cluster writes and reads denied, no delete, no control write, create-only by bucket policy; the consumer and GC still work | STPA R-S7; D18; `iam/seaweedfs_abac.sh` (the local proof) | §4 |
 | EKS-7 | IRSA and Pod Identity end to end in both edges (the webhook fires with `automountServiceAccountToken: false`; no fallback to the node role; refresh across a session) | §1.1 "real EKS/STS never used"; D18 | §3, §6, §10 |
@@ -51,20 +51,26 @@ against a fake store; README §Local checks).
   need a bucket this tooling created (a bucket policy replaces the whole
   policy, so it is never applied to an existing bucket).
 
-**Two gaps in the code this runbook works around (record them, do not fix them here):**
+**Two gaps this runbook was written around, both closed on 2026-09-28
+(DECISIONS D18 amendment):**
 
-1. **`consume` takes static keys only.** `--key`/`--secret` (default
-   `otel`/`otelsecret`) go into its S3 client and into ClickHouse's `s3()`
-   (`otap-rs/src/bin/consume.rs:243`, `src/consumer/sql.rs:446`). There is no
-   default chain, no IRSA and no session token, so `eks/iam.sh` makes an IAM
-   **user** with `iam/consumer.json` + `iam/gc.json` for the consumer. A
-   production consumer on EKS needs the chain (and `extra_credentials(role_arn
-   …)` or a named collection for `s3()`).
-2. **`consume` signs for `us-east-1`** whatever the bucket's region
-   (`S3Config::default`, no `--region` flag; `store.rs` `with_region`). So the
-   bucket and the cluster are in **us-east-1** here (`REGION` defaults to it).
-   A bucket elsewhere fails with `AuthorizationHeaderMalformed` until that is
-   fixed.
+1. ~~**`consume` takes static keys only.**~~ **Closed.** Without
+   `--key`/`--secret`, `consume` takes the AWS chain (environment keys,
+   `--profile`/`AWS_PROFILE`, IRSA, Pod Identity, IMDS, `--role-arn` on
+   top), with session tokens and refresh before expiry. ClickHouse's `s3()`
+   gets the same temporary credential, resolved before every statement
+   (`--ch-s3-auth pass`, the default), or none and the server's own
+   (`--ch-s3-auth server`: give the ClickHouse pod its own IRSA role; the
+   consumer sets `s3_allow_server_credentials_in_user_queries`). `eks/iam.sh`
+   still makes the IAM **user** for the consumer, so the manifests are
+   unchanged; an IRSA role with `iam/consumer.json` + `iam/gc.json` on the
+   consumer's service account now works as well (drop `--key`/`--secret`).
+2. ~~**`consume` signs for `us-east-1`.**~~ **Closed.** `--region`, else
+   `AWS_REGION`, `AWS_DEFAULT_REGION`, the profile's `region`, else
+   `us-east-1`, for signing and for the `s3://` endpoint (hence the `s3()`
+   URLs). `REGION` still defaults to us-east-1 here only for the prices;
+   another region needs `AWS_REGION` in the consumer's environment (or
+   `--region`).
 
 **Environment for every step** (one shell; `RUN` names the run everywhere):
 
@@ -125,7 +131,7 @@ What `iam.sh` makes, all from `deploy/iam/*.json` rendered for
 | `$NAME-entityctl` (tag `cluster=$CLUSTER`) | IRSA `otel-validate:entityctl` | `entity-controller.json` | real-cluster-telemetry.md §5 |
 | `$NAME-abac-sts` | the account, `sts:TagSession` | `edge-publisher.json` | §4 session tags from the shell |
 | `$NAME-consumer-sts` | the account | `consumer.json` + `gc.json` | §4 positive rows |
-| `$NAME-accept`, `-accept-nolist`, `-accept-prefixlist` | IRSA `otel-validate:s3accept*` | the run prefix; `ListBucket` full / none / `s3:prefix`-scoped | §3 |
+| `$NAME-accept`, `-accept-nolist`, `-accept-prefixlist`, `-accept-ifexists` | IRSA `otel-validate:s3accept*` | the run prefix; `ListBucket` full / none / `s3:prefix`-scoped / scoped + `StringLikeIfExists` (the amended `deploy/iam/` shape) | §3 |
 | user `$NAME-consumer` | – | `consumer.json` + `gc.json` + the run prefix | the consumer, GC, the toolbox |
 
 ## 3. The acceptance suite against real S3 (EKS-1, -2, -3, -4, -7)
@@ -146,17 +152,24 @@ eks/accept.sh hold             # optional: 65 min across a real IRSA refresh (ru
 | `conflicts` | `create-race` 128 × 200 | record the 409 count (`data.conflicts_409`) out of 25,600 attempts; any error other than 409/412 fails |
 | `list` | `list`, `list-race` (32 lanes), `read-after-write`, 500 keys | 0 acked keys missing from a later LIST, 0 holes; LIST lag 0 (AWS documents strong LIST-after-write) |
 | `perf` | PUT/GET/HEAD/LIST at 200 B, 1 MB, 3 MiB, 8 MiB; concurrency 1 and 8 | recorded (§7 uses PUT p50/p99 at 3 MiB) |
-| `headmissing` | `head-missing` under full, no, and prefix-scoped `ListBucket` | full: 404 PASS; none: 403 (expected FAIL: that is why the policies grant it); prefix-scoped: **the answer to EKS-4** |
+| `headmissing` | `head-missing` under full, no, prefix-scoped, and prefix + `IfExists` `ListBucket` | full: 404 PASS; none: 403 (expected FAIL: that is why the policies grant it); prefix-scoped: **expected 403** (the pre-amendment grant; record it, it confirms the D18 amendment); **ifexists: 404 PASS, the answer to EKS-4** |
 
-**If `headmissing` shows 403 under the prefix-scoped grant**, the design's
-edge policy (`iam/edge-publisher.json`, statement
-`ListOwnClusterSoAFreeSlotIs404`) makes every free slot look denied: the
-publishers never resolve a birth heartbeat and stall (correctly: AMBIGUITY
-S5 keeps a 403 unresolved). §4 and §6 see the same thing from the other
-side. The fix is to grant `s3:ListBucket` on the bucket without the
-`s3:prefix` condition (a publisher can then list other clusters' key
-names, not read them); record it and change `iam/edge-publisher.json`
-and `iam/entity-controller.json` before §6.
+The prefix-scoped row is what `deploy/iam/` granted until 2026-09-28. S3
+answers 404 for a missing key only to a caller with `s3:ListBucket`, and a
+HEAD carries no `s3:prefix`, which IAM evaluates as a non-match (DECISIONS
+D18 amendment cites both documents). Under that grant every free slot, and
+every missing lease, checkpoint and `format.json`, reads as 403, which
+AMBIGUITY S5 rightly keeps unknown: the publishers leave a lane unresolved
+after any ambiguous PUT, and the consumer does not start. The policies now
+add the same prefixes under `StringLikeIfExists`.
+
+**If `ifexists` shows 403**, the amendment does not hold on AWS: stop before
+§6 and grant `s3:ListBucket` on the bucket without a condition in
+`iam/edge-publisher.json`, `entity-controller.json`, `consumer.json` and
+`gc.json` (every role then lists every prefix's key names, not their
+contents; DECISIONS D18 rejected it only as the wider grant). **If
+`prefixlist` shows 404**, AWS puts the key into `s3:prefix` for this check;
+the amended policy is still right (it covers both), note it in D18.
 
 ## 4. Write-side ABAC with real session tags (EKS-6)
 
@@ -168,7 +181,9 @@ eks/abac.sh                    # sts, then pods
   with the session tag `cluster=$CLUSTER-sts1`, `cluster=$CLUSTER-sts2`, and
   no tag; then the consumer/GC role. The matrix is `eks/abac_matrix.sh`, the
   AWS translation of `iam/seaweedfs_abac.sh`: its own slot 200, again 412,
-  its own HEAD 200, the free slot (INFO: 404 or 403, EKS-4), the other
+  its own HEAD 200, the free slot **404** (a checked row since the D18
+  amendment; EKS-4), a LIST with no prefix (INFO: 403, or 200 = the
+  residual D18 accepts: key names only), the other
   cluster's prefix 403 (PUT, HEAD, LIST), the lease and watermark 403, an
   `_x` pseudo-cluster 403, every DELETE 403, a plain PUT of a slot 403 when
   the bucket policy is on; the untagged session: 403 everywhere. The
@@ -181,8 +196,9 @@ eks/abac.sh                    # sts, then pods
   automatic `eks-cluster-name` session tag).
 
 **Pass:** 0 FAIL rows in `$STATE/abac-*.txt`; `results.tsv`
-`abac.free_slot_head` all 404 (or all 403, which is EKS-4's finding and a
-FAIL of the policy, not of ABAC).
+`abac.free_slot_head` all 404 (403 is a FAIL row now: the policy, not
+ABAC; see §3 "If `ifexists` shows 403"). The untagged session wants 403
+everywhere, the free slot included.
 
 ## 5. Per-prefix request limits (EKS-5)
 
@@ -347,7 +363,7 @@ eks/down.sh                    # removes the ledger's entries newest first: k8s 
 | EKS-1 | control-plane and inline-consumer ACCEPTED twice; races exact | the design cannot use this store: the Keeper coordinator fallback (DECISIONS risk 1) |
 | EKS-2 | 409s only in races, resolved; `resolved_own` > 0 is fine | a 409 that ends as `unresolved` for long: a bug in the resolution path |
 | EKS-3 | 0 missing, 0 holes | a LIST that lags: the consumer is still correct (never skips a gap) but the visibility budget grows |
-| EKS-4 | 404 with the policy the edges get | 403: change `iam/edge-publisher.json` (§3) |
+| EKS-4 | 404 under the amended grant (`ifexists`, and the §4 free-slot rows); prefixlist 403 recorded; the prefix-less LIST recorded | 403 under `ifexists`: grant `ListBucket` without a condition in all four role policies (§3) |
 | EKS-5 | no 503 at 2,000/s; < 1% within 10 min at 6,000/s | throttling below the drain rate: spread prefixes further (a hashed first segment) or cap drain concurrency |
 | EKS-6 | 0 FAIL rows | the boundary R-S7 relies on is not what the policy says |
 | EKS-7 | both variants commit; refresh crosses; no node-role fallback | a credential path that does not work on EKS |
@@ -365,10 +381,10 @@ Fill `results/TEMPLATE.md` (section EKS) first; then:
 - [ ] **DECISIONS §4 risk 3** (real AWS behaviour): 409 rate (EKS-2), per-prefix result (EKS-5), commit latency and lane throughput (EKS-8), LIST/renewal cost billed (EKS-11); retire or re-rank.
 - [ ] **DECISIONS §4 risk 6** (GC): GC lag and checkpoint size over the soak (EKS-12).
 - [ ] **DECISIONS D8** (idle-lane LIST backoff): billed LIST count per lane.
-- [ ] **DECISIONS D18**: IRSA and Pod Identity measured; the consumer's static-key gap and the us-east-1 signing gap (§0) as open items.
+- [ ] **DECISIONS D18**: IRSA and Pod Identity measured; the consumer's chain and region (closed 2026-09-28, §0) measured if the consumer ran under IRSA or outside us-east-1; the `ListBucket` amendment confirmed or replaced (EKS-4).
 - [ ] **DECISIONS §3** calculator: the S3 PUT/GET/LIST $ per object (EKS-11) replacing the list-price estimate.
 - [ ] **AMBIGUITY S1, S3**: AWS measured (409 → HEAD; 412 for our own write) → status *handled* for AWS.
-- [ ] **AMBIGUITY S5**: AWS 404/403 with each `ListBucket` grant (EKS-4) → *handled* for AWS, or open with the policy fix.
+- [ ] **AMBIGUITY S5**: AWS 404/403 with each `ListBucket` grant (EKS-4) → *handled* for AWS (the amended policy [D] → [M]), or the unconditioned grant; the prefix-less LIST result (the residual).
 - [ ] **AMBIGUITY S6**: AWS [D] → [M] (`list-race` on S3).
 - [ ] **AMBIGUITY S4, S7, S11**: GC and watermark over the soak.
 - [ ] **AMBIGUITY E1, E3b, E4, E5**: the EKS rows (real PVC expansion, readiness, drain).

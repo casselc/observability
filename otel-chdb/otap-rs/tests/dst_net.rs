@@ -292,7 +292,7 @@ fn s3_bucket(pause: Pause) -> S3Bucket {
         .with_http_connector(TurmoilS3 { host: "s3".into(), port: 9000, timeout: S3_TIMEOUT, pause })
         .build()
         .expect("s3 client");
-    S3Bucket::new(S3Store { store: Arc::new(s3), prefix: String::new(), endpoint: format!("http://s3:9000/{BUCKET}"), bucket: BUCKET.into() })
+    S3Bucket::new(S3Store { credentials: Some(s3.credentials().clone()), store: Arc::new(s3), prefix: String::new(), endpoint: format!("http://s3:9000/{BUCKET}"), bucket: BUCKET.into() })
 }
 
 thread_local! {

@@ -249,6 +249,37 @@ pub trait Central {
 
 // ---- ClickHouse --------------------------------------------------------------------
 
+/// Credentials in a statement's `s3()`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct S3Keys {
+    pub key: String,
+    pub secret: String,
+    /// A temporary credential's session token (`AWS_SESSION_TOKEN`).
+    pub token: Option<String>,
+}
+
+impl std::fmt::Debug for S3Keys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "S3Keys {{ key: {:?}, secret: [HIDDEN], token: {} }}", self.key, if self.token.is_some() { "[HIDDEN]" } else { "None" })
+    }
+}
+
+/// How ClickHouse's `s3()` is authorised (`consume --ch-s3-auth`).
+#[derive(Clone)]
+pub enum S3Auth {
+    /// Fixed keys in every statement (`--key`/`--secret`[/`--session-token`]).
+    Keys(S3Keys),
+    /// The consumer's own credential chain (environment, profile, IRSA, Pod
+    /// Identity, IMDS, AssumeRole), resolved before every statement and
+    /// passed with its session token (`--ch-s3-auth pass`, the default).
+    Chain(object_store::aws::AwsCredentialProvider),
+    /// No credentials in the statement: the server's own (`--ch-s3-auth
+    /// server`: an `<s3>` endpoint entry, `use_environment_credentials`, the
+    /// ClickHouse pod's IRSA or Pod Identity role; the ingest user needs
+    /// `s3_allow_server_credentials_in_user_queries = 1`, D18).
+    Server,
+}
+
 pub struct ClickHouseCentral<B: Bucket> {
     pub ch: ClickHouse,
     /// A replicated central: every replica's URL, `ch` first (`--ch a,b`).
@@ -279,8 +310,11 @@ pub struct ClickHouseCentral<B: Bucket> {
     pub switches: Cell<u64>,
     pub db: String,
     pub bucket: Rc<B>,
-    pub s3_key: String,
-    pub s3_secret: String,
+    /// How ClickHouse's `s3()` is given credentials ([`S3Auth`]).
+    pub s3_auth: S3Auth,
+    /// The credentials the next statement carries: resolved from `s3_auth`
+    /// before each statement (`s3_creds`); None: none in the statement.
+    s3_now: RefCell<Option<S3Keys>>,
     /// Statements sent (inserts + repairs), and checks.
     pub statements: Cell<u64>,
     pub checks: Cell<u64>,
@@ -328,8 +362,8 @@ impl<B: Bucket> ClickHouseCentral<B> {
             switches: Cell::new(0),
             db: db.into(),
             bucket,
-            s3_key: key.into(),
-            s3_secret: secret.into(),
+            s3_auth: S3Auth::Keys(S3Keys { key: key.into(), secret: secret.into(), token: None }),
+            s3_now: RefCell::new(Some(S3Keys { key: key.into(), secret: secret.into(), token: None })),
             statements: Cell::new(0),
             checks: Cell::new(0),
             table_override: RefCell::new(HashMap::new()),
@@ -443,7 +477,68 @@ impl<B: Bucket> ClickHouseCentral<B> {
             let base = self.bucket.object_url("");
             format!("{}{{{}}}", base, keys.join(","))
         };
-        format!("s3({}, {}, {}, 'Parquet', {})", sq(&url), sq(&self.s3_key), sq(&self.s3_secret), sq(&k.structure))
+        self.s3_fn(&url, &k.structure)
+    }
+
+    /// `s3(url, [key, secret, [token,]] 'Parquet', structure)` with the
+    /// credentials `s3_creds` resolved for this statement.
+    fn s3_fn(&self, url: &str, structure: &str) -> String {
+        match &*self.s3_now.borrow() {
+            Some(S3Keys { key, secret, token: Some(t) }) => {
+                format!("s3({}, {}, {}, {}, 'Parquet', {})", sq(url), sq(key), sq(secret), sq(t), sq(structure))
+            }
+            Some(S3Keys { key, secret, token: None }) => format!("s3({}, {}, {}, 'Parquet', {})", sq(url), sq(key), sq(secret), sq(structure)),
+            None => format!("s3({}, 'Parquet', {})", sq(url), sq(structure)),
+        }
+    }
+
+    /// Resolves the credentials the next statement carries. With
+    /// `S3Auth::Chain` this asks the consumer's credential provider, which
+    /// caches a temporary credential and refreshes it 5 minutes before it
+    /// expires (object_store's `TokenCache`, `creds.rs`), so a statement
+    /// (bounded by `max_execution_time`, far below 5 minutes) starts with a
+    /// credential that outlives it. If it does expire mid-statement anyway
+    /// (a clock off, a provider handing out a short one), the server's S3
+    /// read fails with 403 (`S3_ERROR`, 499): not a settling code, so the
+    /// worker waits the statement out and checks, as for any unsettled
+    /// error. A credential that can't be had is an error before anything
+    /// is sent: settled, and the objects are checked and retried.
+    pub async fn s3_creds(&self) -> Result<(), InsertErr> {
+        let now = match &self.s3_auth {
+            S3Auth::Keys(k) => Some(k.clone()),
+            S3Auth::Server => None,
+            S3Auth::Chain(p) => {
+                let c = p.get_credential().await.map_err(|e| InsertErr {
+                    msg: format!("s3 credentials for ClickHouse: {e}"),
+                    settled: true,
+                    answered: false,
+                    range: false,
+                })?;
+                Some(S3Keys { key: c.key_id.clone(), secret: c.secret_key.clone(), token: c.token.clone().filter(|t| !t.is_empty()) })
+            }
+        };
+        *self.s3_now.borrow_mut() = now;
+        Ok(())
+    }
+
+    /// `msg` with the statement's secret and session token replaced by
+    /// `[HIDDEN]`. ClickHouse masks them in its own logs and in most error
+    /// messages, but a syntax error answers with the raw statement text
+    /// from the failing position on (26.10, measured), and that answer is
+    /// what the worker logs.
+    pub fn redact(&self, msg: &str) -> String {
+        let mut out = msg.to_string();
+        if let Some(k) = &*self.s3_now.borrow() {
+            for s in [Some(&k.secret), k.token.as_ref()].into_iter().flatten().filter(|s| s.len() >= 4) {
+                // Raw, and as it appears inside a quoted literal.
+                let quoted = sq(s);
+                let inner = &quoted[1..quoted.len() - 1];
+                for v in [s.as_str(), inner] {
+                    out = out.replace(v, "[HIDDEN]");
+                }
+            }
+        }
+        out
     }
 
     /// `{db}.otel_resources`.
@@ -456,7 +551,7 @@ impl<B: Bucket> ClickHouseCentral<B> {
     pub fn announce_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence) -> String {
         let keys: Vec<&str> = objs.iter().map(|o| o.key.as_str()).collect();
         let url = if keys.len() == 1 { self.bucket.object_url(keys[0]) } else { format!("{}{{{}}}", self.bucket.object_url(""), keys.join(",")) };
-        let src = format!("s3({}, {}, {}, 'Parquet', {})", sq(&url), sq(&self.s3_key), sq(&self.s3_secret), sq(central::ANNOUNCE_STRUCTURE));
+        let src = self.s3_fn(&url, central::ANNOUNCE_STRUCTURE);
         let sig = Signal::from_name(&k.signal).unwrap_or(Signal::Traces);
         format!("{} AND now64(3) <= fromUnixTimestamp64Milli(toInt64({}))", central::announce_insert(&self.resources_fq(), sig, &src), fence.wall_ms)
     }
@@ -508,7 +603,13 @@ impl<B: Bucket> ClickHouseCentral<B> {
         for (k, v) in &self.insert_settings {
             st.push((k.as_str(), v.as_str()));
         }
-        let r = match self.q(sql, &st).await {
+        // Keyless s3() on the server's own credentials: 26.10 refuses it
+        // (ACCESS_DENIED, 497) unless this is set (D18).
+        const SERVER_CREDS: &str = "s3_allow_server_credentials_in_user_queries";
+        if matches!(self.s3_auth, S3Auth::Server) && !self.insert_settings.iter().any(|(k, _)| k == SERVER_CREDS) {
+            st.push((SERVER_CREDS, "1"));
+        }
+        let r = match self.q(sql, &st).await.map_err(|e| self.redact(&e)) {
             Ok(_) => Ok(()),
             // The server answered: over, unless the error may come with a
             // commit still resolving in Keeper (`settles_at_once`).
@@ -576,6 +677,7 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
     }
 
     async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr> {
+        self.s3_creds().await?;
         let sql = self.announce_sql(k, objs, fence);
         let fq = self.resources_fq();
         self.run_insert(&fq, &sql, fence, token).await
@@ -616,11 +718,13 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
     }
 
     async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str, guard: bool) -> Result<(), InsertErr> {
+        self.s3_creds().await?;
         let sql = self.insert_sql(k, objs, fence, guard && self.ranged(k));
         self.run_insert(&self.fq(k), &sql, fence, token).await
     }
 
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), InsertErr> {
+        self.s3_creds().await?;
         let src = self.source(k, &[&obj.key]);
         let sql = format!(
             "INSERT INTO {t} ({cols}, content_key) SELECT {sel}, {c} FROM {src} WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64({f})) AND row_ordinal NOT IN (SELECT row_ordinal FROM {t} WHERE content_key = {c})",
@@ -1199,5 +1303,145 @@ mod tests {
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
         let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
         let _ = bucket.delete(&keys).await;
+    }
+
+    /// A provider that hands out a new temporary credential on every call
+    /// (as a chain does after each refresh), or fails.
+    #[derive(Debug)]
+    struct Rotating {
+        n: std::sync::atomic::AtomicU32,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl object_store::CredentialProvider for Rotating {
+        type Credential = object_store::aws::AwsCredential;
+        async fn get_credential(&self) -> object_store::Result<std::sync::Arc<Self::Credential>> {
+            if self.fail {
+                return Err(object_store::Error::Generic { store: "S3", source: "no IMDS answer".into() });
+            }
+            let i = self.n.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(std::sync::Arc::new(object_store::aws::AwsCredential {
+                key_id: format!("ASIA{i}"),
+                secret_key: format!("sec'ret/{i}"),
+                token: Some(format!("FwoGZXIvYXdzE{i}")),
+            }))
+        }
+    }
+
+    /// What `s3()` carries: fixed keys; a temporary credential from the
+    /// chain, resolved again for every statement, with its session token;
+    /// nothing (the server's own); and a credential that can't be had.
+    #[tokio::test(flavor = "current_thread")]
+    async fn s3_credentials_per_statement() {
+        use crate::consumer::bucket::MemBucket;
+        let b = Rc::new(MemBucket::default());
+        let mut c = ClickHouseCentral::new("http://x", "db", b, "k", "s", 1000);
+        let tr = LaneKind::for_signal("traces").unwrap();
+        let (a, z) = (obj("r/p/traces/E/1.parquet", "H1"), obj("r/p/traces/E/2.parquet", "H2"));
+        let f = Fence { wall_ms: 1_790_000_000_000, budget_ms: 10_000 };
+        c.s3_creds().await.unwrap();
+        let s = c.insert_sql(&tr, &[&a], f, false);
+        assert!(s.contains("FROM s3('mem://r/p/traces/E/1.parquet', 'k', 's', 'Parquet', '"), "{s}");
+
+        c.s3_auth = S3Auth::Chain(std::sync::Arc::new(Rotating { n: Default::default(), fail: false }));
+        for i in 0..3 {
+            c.s3_creds().await.unwrap();
+            let s = c.insert_sql(&tr, &[&a, &z], f, false);
+            let want = format!("', 'ASIA{i}', 'sec\\'ret/{i}', 'FwoGZXIvYXdzE{i}', 'Parquet', '");
+            assert!(s.contains(&want), "statement {i}: {s}");
+            assert!(quotes_balance(&s), "{s}");
+            let an = c.announce_sql(&tr, &[&a], f);
+            assert!(an.contains(&format!("'ASIA{i}', 'sec\\'ret/{i}', 'FwoGZXIvYXdzE{i}', 'Parquet', ")), "{an}");
+            // An error answer echoing the statement (a syntax error does) is logged redacted.
+            let echo = format!("Code: 62. DB::Exception: Syntax error: failed at position 9: {s}. (SYNTAX_ERROR)");
+            let r = c.redact(&echo);
+            assert!(!r.contains(&format!("ret/{i}")) && !r.contains(&format!("FwoGZXIvYXdzE{i}")), "{r}");
+            assert!(r.contains(&format!("'ASIA{i}', '[HIDDEN]', '[HIDDEN]', 'Parquet'")), "{r}");
+        }
+        assert!(!format!("{:?}", c.s3_now.borrow()).contains("ret/"), "Debug never prints the secret");
+
+        c.s3_auth = S3Auth::Server;
+        c.s3_creds().await.unwrap();
+        let s = c.insert_sql(&tr, &[&a], f, false);
+        assert!(s.contains("FROM s3('mem://r/p/traces/E/1.parquet', 'Parquet', '"), "{s}");
+
+        // No credential to be had: nothing is sent, so nothing can land.
+        c.s3_auth = S3Auth::Chain(std::sync::Arc::new(Rotating { n: Default::default(), fail: true }));
+        let e = c.insert(&tr, &[&a], f, "tok", false).await.unwrap_err();
+        assert!(e.settled && !e.answered && e.msg.contains("s3 credentials"), "{e:?}");
+        assert_eq!(c.statements.get(), 0, "no statement was sent");
+    }
+
+    /// A credential that expires (or is revoked) while ClickHouse reads the
+    /// objects: its S3 GET or HEAD gets 403, which 26.10 answers as
+    /// `S3_ERROR` (499), measured in the next test. That is not a settling
+    /// code: the worker waits the statement out and then checks what landed
+    /// (an unsquashed statement may have written the objects read before
+    /// the 403), like any other ambiguous outcome.
+    #[test]
+    fn an_s3_403_mid_statement_is_not_settled_at_once() {
+        let m = "clickhouse 500 Internal Server Error: Code: 499. DB::Exception: Failed to get object info: No response body.. \
+                 HTTP response code: 403. Please check your AWS credentials and permissions: while reading 'a.parquet' in bucket 'b' \
+                 on disk 'StorageS3': While executing ReadFromObjectStorage. (S3_ERROR) (version 26.10.1.618 (official build))";
+        assert_eq!(error_code(m), Some(499));
+        assert!(!settles_at_once(m));
+    }
+
+    /// Against ClickHouse and SeaweedFS (skipped when either is down): a
+    /// statement whose credentials are refused is an unsettled error
+    /// answer, and the error kept carries no secret, even when the server
+    /// echoes the statement; the server's own credentials
+    /// (`S3Auth::Server`) are refused (497, settled) without the setting
+    /// D18 names, which `run_insert` adds in that mode.
+    #[tokio::test(flavor = "current_thread")]
+    async fn refused_credentials_are_unsettled_and_redacted() {
+        use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        if ClickHouse::new(&url).query("SELECT 1", &[]).await.is_err() {
+            eprintln!("no ClickHouse at {url}: skipped");
+            return;
+        }
+        let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/otel".into());
+        let id = format!("{:08x}", rand::random::<u32>());
+        let store = otap_s3pq::store::S3Config {
+            url: format!("{s3}/gap-creds-{id}"),
+            access_key_id: Some("otel".into()),
+            secret_access_key: Some("otelsecret".into()),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        let root = store.prefix.clone();
+        let bucket = Rc::new(S3Bucket::new(store));
+        let key = format!("{root}/x.parquet");
+        if !matches!(bucket.put(&key, bytes::Bytes::from_static(b"PAR1"), Cond::Create, &BTreeMap::new()).await, Put::Ok(_)) {
+            eprintln!("no S3 at {s3}: skipped");
+            return;
+        }
+        let mut c = ClickHouseCentral::new(&url, "default", bucket.clone(), "", "", 20_000);
+        c.s3_auth = S3Auth::Keys(S3Keys { key: "otel".into(), secret: "GAPWRONGSECRET".into(), token: Some("GAPFOREIGNTOKEN".into()) });
+        let f = Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
+        c.s3_creds().await.unwrap();
+        let src = c.s3_fn(&bucket.object_url(&key), "x UInt64");
+        let e = c.run_insert("db.t", &format!("SELECT count() FROM {src}"), f, "t1").await.unwrap_err();
+        assert!(e.answered && !e.settled && error_code(&e.msg) == Some(499), "{e:?}");
+        assert!(!e.msg.contains("GAPWRONG") && !e.msg.contains("GAPFOREIGN"), "{}", e.msg);
+        // A syntax error echoes the statement text raw; what we keep is redacted.
+        let e = c.run_insert("db.t", &format!("SELECT count() FRO M {src}"), f, "t2").await.unwrap_err();
+        assert!(e.msg.contains("SYNTAX_ERROR") && e.msg.contains("[HIDDEN]"), "{}", e.msg);
+        assert!(!e.msg.contains("GAPWRONG") && !e.msg.contains("GAPFOREIGN"), "{}", e.msg);
+        // The server's own credentials: refused without the setting.
+        c.s3_auth = S3Auth::Server;
+        c.s3_creds().await.unwrap();
+        let src = c.s3_fn(&bucket.object_url(&key), "x UInt64");
+        let direct = c.q(&format!("SELECT count() FROM {src}"), &[]).await.unwrap_err();
+        assert_eq!(error_code(&direct), Some(497), "{direct}");
+        assert!(settles_at_once(&direct));
+        // With it (run_insert), the read gets past authorisation: this
+        // 4-byte object then fails as Parquet, not on access.
+        let e = c.run_insert("db.t", &format!("SELECT count() FROM {src}"), f, "t3").await.unwrap_err();
+        assert!(error_code(&e.msg) != Some(497) && !e.msg.contains("403"), "{}", e.msg);
+        let _ = bucket.delete(&[key]).await;
     }
 }

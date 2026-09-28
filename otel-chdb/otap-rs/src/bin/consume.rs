@@ -11,7 +11,11 @@
 //!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
 //!           [--check-horizon 3d | all] [--no-check-range]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
-//!           [--once | --exit-after-idle 5s | --run-for 10m] [--key K --secret S] [--ch-s3 URL] [--verbose]
+//!           [--once | --exit-after-idle 5s | --run-for 10m] [--ch-s3 URL] [--verbose]
+//!           credentials (every subcommand): [--key K --secret S [--session-token T]] | [--profile P] [--role-arn ARN]
+//!           [--credential-process CMD]; else the AWS chain (env, profile, IRSA, Pod Identity, IMDS);
+//!           [--region R] (else AWS_REGION, AWS_DEFAULT_REGION, the profile's, us-east-1)
+//!           [--ch-s3-auth pass | server] (ClickHouse's s3(): the consumer's credentials per statement, or the server's own)
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold <budget+slack+2s>]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
@@ -100,6 +104,47 @@ fn dur_ms(s: &str) -> u64 {
 
 fn opt_ms(args: &[String], name: &str, default: &str) -> u64 {
     dur_ms(&arg(args, name).unwrap_or_else(|| default.to_string()))
+}
+
+/// Where the S3 credentials come from.
+#[derive(Debug, PartialEq)]
+enum Creds {
+    /// `--key`/`--secret` (and `--session-token`).
+    Keys { key: String, secret: String, token: Option<String> },
+    /// Nothing given or named, and the store is local (http on loopback):
+    /// the local stack's otel/otelsecret, as before the chain existed.
+    DevDefault,
+    /// The AWS chain: environment keys, shared profile (`--profile`,
+    /// `AWS_PROFILE`), web identity (IRSA), container credentials (EKS Pod
+    /// Identity), IMDS; `--role-arn` on top (store.rs, creds.rs).
+    Chain,
+}
+
+/// Picks the credential source from the flags and the environment.
+fn choose_creds(args: &[String], env: &dyn Fn(&str) -> Option<String>, s3_url: &str) -> Result<Creds, String> {
+    let set = |k: &str| env(k).is_some_and(|v| !v.is_empty());
+    match (arg(args, "--key"), arg(args, "--secret")) {
+        (Some(key), Some(secret)) => return Ok(Creds::Keys { key, secret, token: arg(args, "--session-token").filter(|t| !t.is_empty()) }),
+        (Some(_), None) | (None, Some(_)) => return Err("--key and --secret go together".into()),
+        (None, None) => {}
+    }
+    if arg(args, "--session-token").is_some() {
+        return Err("--session-token needs --key and --secret".into());
+    }
+    let named = ["--profile", "--role-arn", "--credential-process"].iter().any(|f| arg(args, f).is_some())
+        || [
+            "AWS_ACCESS_KEY_ID",
+            "AWS_WEB_IDENTITY_TOKEN_FILE",
+            "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+            "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            "AWS_PROFILE",
+        ]
+        .iter()
+        .any(|v| set(v));
+    let local = url::Url::parse(s3_url).is_ok_and(|u| {
+        u.scheme() == "http" && matches!(u.host_str(), Some("127.0.0.1" | "localhost" | "[::1]" | "::1"))
+    });
+    Ok(if !named && local { Creds::DevDefault } else { Creds::Chain })
 }
 
 /// What the GC / audit process exports.
@@ -240,15 +285,53 @@ async fn main() {
         return;
     }
     let legacy_signal = arg(&args, "--signal");
-    let (key, secret) = (arg(&args, "--key").unwrap_or("otel".into()), arg(&args, "--secret").unwrap_or("otelsecret".into()));
+    let s3_url = arg(&args, "--s3").expect("--s3");
+    let env = |k: &str| std::env::var(k).ok();
+    let creds = match choose_creds(&args, &env, &s3_url) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("consume: {e}");
+            std::process::exit(2);
+        }
+    };
+    let (access_key_id, secret_access_key, session_token) = match &creds {
+        Creds::Keys { key, secret, token } => (Some(key.clone()), Some(secret.clone()), token.clone()),
+        Creds::DevDefault => {
+            eprintln!("consume: no credentials given or named in the environment and {s3_url} is local: using the local stack's otel/otelsecret");
+            (Some("otel".to_string()), Some("otelsecret".to_string()), None)
+        }
+        Creds::Chain => (None, None, None),
+    };
+    let profile = arg(&args, "--profile");
+    let region_env = |k: &str| if k == "AWS_PROFILE" && profile.is_some() { profile.clone() } else { env(k) };
+    let region = otap_s3pq::store::resolve_region(arg(&args, "--region").as_deref(), &region_env, &otap_s3pq::creds::load_profiles());
     let s3cfg = S3Config {
-        url: arg(&args, "--s3").expect("--s3"),
-        access_key_id: Some(key.clone()),
-        secret_access_key: Some(secret.clone()),
+        url: s3_url.clone(),
+        region,
+        access_key_id,
+        secret_access_key,
+        session_token,
+        profile: profile.clone(),
+        role_arn: arg(&args, "--role-arn"),
+        credential_process: arg(&args, "--credential-process"),
         put_timeout: Duration::from_millis(opt_ms(&args, "--s3-timeout", "5s")),
         ..Default::default()
     };
-    let store = s3cfg.build().expect("s3");
+    let store = match s3cfg.build() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("consume: {e}");
+            std::process::exit(2);
+        }
+    };
+    let ch_s3_auth = match (arg(&args, "--ch-s3-auth").as_deref(), &store.credentials) {
+        (None | Some("pass"), Some(p)) => consumer::sql::S3Auth::Chain(p.clone()),
+        (Some("server"), _) => consumer::sql::S3Auth::Server,
+        (a, _) => {
+            eprintln!("consume: --ch-s3-auth {a:?}: pass or server");
+            std::process::exit(2);
+        }
+    };
     let root = store.prefix.clone();
     let mut bucket = S3Bucket::new(store);
     bucket.ch_endpoint = arg(&args, "--ch-s3");
@@ -581,7 +664,14 @@ async fn main() {
         (None, None) => panic!("--db"),
     };
     let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
-    let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), &key, &secret, cfg.timing.budget_ms + 5000);
+    let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), "", "", cfg.timing.budget_ms + 5000);
+    // Resolved before every statement: a temporary credential is passed
+    // with its session token and is refreshed by the provider before it
+    // expires (consumer::sql::ClickHouseCentral::s3_creds).
+    central.s3_auth = ch_s3_auth;
+    if cfg.timing.budget_ms >= 240_000 {
+        eprintln!("consume: --budget of 4 min or more: a temporary credential handed to s3() may expire mid-statement (it is refreshed 5 min before expiry)");
+    }
     central.squash = !flag(&args, "--no-squash");
     central.use_ranges = !flag(&args, "--no-check-range") && cfg.horizon_ms.is_some();
     // A replicated central (central-replicated/README.md): `--ch r1,r2` fails
@@ -694,4 +784,39 @@ async fn main() {
         write_atomic(p, &s);
     }
     println!("{s}");
+}
+
+#[cfg(test)]
+mod creds_tests {
+    use super::*;
+
+    fn a(v: &[&str]) -> Vec<String> {
+        std::iter::once("consume").chain(v.iter().copied()).map(str::to_string).collect()
+    }
+
+    #[test]
+    fn credential_source_choice() {
+        let none = |_: &str| None;
+        let irsa = |k: &str| (k == "AWS_WEB_IDENTITY_TOKEN_FILE").then(|| "/var/run/token".to_string());
+        let podid = |k: &str| (k == "AWS_CONTAINER_CREDENTIALS_FULL_URI").then(|| "http://169.254.170.23/v1/credentials".to_string());
+        let local = "http://127.0.0.1:18333/otel/x";
+        let aws = "s3://bucket/x";
+        assert_eq!(
+            choose_creds(&a(&["--key", "k", "--secret", "s", "--session-token", "t"]), &none, aws),
+            Ok(Creds::Keys { key: "k".into(), secret: "s".into(), token: Some("t".into()) })
+        );
+        assert_eq!(choose_creds(&a(&["--key", "k", "--secret", "s"]), &irsa, aws), Ok(Creds::Keys { key: "k".into(), secret: "s".into(), token: None }));
+        assert!(choose_creds(&a(&["--key", "k"]), &none, aws).is_err());
+        assert!(choose_creds(&a(&["--session-token", "t"]), &none, aws).is_err());
+        // Nothing named: the chain (IMDS at the end of it) off-host, the local keys on a local store.
+        assert_eq!(choose_creds(&a(&[]), &none, aws), Ok(Creds::Chain));
+        assert_eq!(choose_creds(&a(&[]), &none, "https://objects.example.com/b/x"), Ok(Creds::Chain));
+        assert_eq!(choose_creds(&a(&[]), &none, local), Ok(Creds::DevDefault));
+        assert_eq!(choose_creds(&a(&[]), &none, "http://localhost:8333/b/x"), Ok(Creds::DevDefault));
+        // Named in the environment or by a flag: the chain, even on a local store.
+        assert_eq!(choose_creds(&a(&[]), &irsa, local), Ok(Creds::Chain));
+        assert_eq!(choose_creds(&a(&[]), &podid, aws), Ok(Creds::Chain));
+        assert_eq!(choose_creds(&a(&["--profile", "p"]), &none, local), Ok(Creds::Chain));
+        assert_eq!(choose_creds(&a(&["--role-arn", "arn:aws:iam::1:role/r"]), &none, local), Ok(Creds::Chain));
+    }
 }

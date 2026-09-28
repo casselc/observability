@@ -58,7 +58,7 @@ disagreed with each other, and how each was resolved.
 | [D15](#d15-metrics-downsampling) | Metrics downsampling: 5-minute rollups | proposed; not built |
 | [D16](#d16-edge-sorting-off-service-affine-routing-on-at-n--8) | Edge sorting off; service-affine routing at N ≥ 8 | accepted; routing built as `deploy/components/routing`, measured locally, not deployed |
 | [D17](#d17-lake--hybrid-cold-tier) | Lake / hybrid cold tier | exploratory |
-| [D18](#d18-s3-client-and-credentials) | S3 client and credentials | accepted |
+| [D18](#d18-s3-client-and-credentials) | S3 client and credentials | accepted; amended 2026-09-28: the consumer takes the credential chain and a region, `s3()` gets per-statement temporary credentials or the server's own; every role's policy answers 404 for a missing key (`ListBucket` under `StringLikeIfExists`) |
 | [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`); `received_at` = entry into the buffer, kept across replays (2026-09-27); **retention bounds custody age, not cap ÷ rate** (model, 2026-09-27) |
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 | [D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object) | Entity catalog: `resource_id` at both edges, announcements in the data object | **built** (2026-09-28): `resource_id` on every trace/log row and the announcement lane; central keeps `ResourceAttributes` (the schema switch and the rewrite proxy not decided) |
@@ -1436,7 +1436,8 @@ key is not the one its lane's own cluster record binds (`clusterFilter`,
 record) [M].
 
 - **SeaweedFS 4.47, demonstrated** [M] (`deploy/iam/seaweedfs_abac.sh`,
-  `deploy/results/abac-seaweedfs.txt`, 16 of 16): static identities with an
+  `deploy/results/abac-seaweedfs.txt`, 16 of 16; 18 of 18 plus 2 INFO rows
+  with the amended `ListBucket` statements, 2026-09-28): static identities with an
   attached policy (`s3.json` `policies` + `policyNames`) and
   `${aws:username}` in the resource, one identity per cluster named after
   it. An edge of cluster c1 creates, re-reads (HEAD 200, free slot 404) and
@@ -1455,6 +1456,84 @@ record) [M].
 - **Nutanix Objects: unverified** [D]. It has no STS; the fallback is one
   access key per cluster with a prefix-scoped bucket policy, still to be
   tried on a cluster.
+
+**Amendment (2026-09-28): a missing key must answer 404 under every role's
+policy.** S3 answers a GET or HEAD of a missing key with 404 only if the
+caller has `s3:ListBucket` on the bucket, else 403 [D: S3 API reference,
+`HeadObject`, *Permissions*: "If you have the `s3:ListBucket` permission on
+the bucket, Amazon S3 returns an HTTP status code 404 Not Found error. If you
+don't have the `s3:ListBucket` permission, Amazon S3 returns an HTTP status
+code 403 Forbidden error."]. The policies granted `ListBucket` only under
+`StringLike` on `s3:prefix`, and a HEAD or GET carries no `prefix`; IAM
+evaluates a condition on a key absent from the request context as false [D:
+IAM User Guide, *Condition operators*: "If the key that you specify in a
+policy condition is not present in the request context, the values do not
+match and the condition is false"]. AWS does not document which context the
+implicit `ListBucket` check of a HEAD carries, so the prefix-scoped grant
+very likely answered **403 for every missing key**, and 403 is unknown
+(AMBIGUITY S5): an edge would leave a lane unresolved after any ambiguous PUT
+(both edges map only 404 to "free": Rust `store.rs` `head`, Go
+`awss3/inline` `Classify`), and the consumer would fail at start
+(`ensure_format` reads a missing `format.json`) and on every first lease or
+checkpoint read; GC and the entity controller likewise. The SeaweedFS
+demonstration could not show it: its policy granted `ListBucket`
+unconditionally, and **SeaweedFS 4.47 answers 404 for a missing key even with
+no `ListBucket` at all**, and does not evaluate `StringLikeIfExists`
+(`list-own` 403 under it) [M, 2026-09-28].
+
+- **Fix:** every role keeps its `StringLike` grant (the real LISTs, and the
+  one SeaweedFS understands) and adds the same prefixes under
+  `StringLikeIfExists`: a request with no `s3:prefix` (the HEAD's implicit
+  check) matches, a LIST of another cluster's prefix still does not. It
+  answers 404 whichever of the two evaluation models AWS uses (no prefix in
+  the context, or the key as prefix).
+- **The edges keep 403 unknown.** A 403 also comes from an expired or
+  revoked credential, for a slot that holds data; reading it as "free"
+  would resend into a slot that may hold our own batch (S1) or another's.
+- **Rejected: `ListBucket` with no condition.** Same 404, but a LIST of any
+  prefix, other clusters' included.
+- **Residual, accepted:** if AWS also leaves `s3:prefix` out of a LIST sent
+  without a `prefix` parameter, `…IfExists` lets an edge list the bucket's
+  key names (not read them). Key names carry cluster and producer names,
+  epochs and slot counts, no telemetry. Write-side ABAC (`PutObject` and
+  `GetObject` under `${aws:PrincipalTag/cluster}`, no delete, no control
+  prefix) is unchanged. EKS-4 records whether that LIST is 200 or 403; a
+  deployment that must hide key names across tenants uses a bucket (or an
+  access point) per tenant.
+
+**Amendment (2026-09-28): the consumer's credentials and region.**
+
+- **Chain.** `consume` built its S3 client from `--key`/`--secret` only
+  (default `otel`/`otelsecret`) and put the same keys into every `s3()`. It
+  now uses the edge's `S3Config` chain (the smallest change: the mechanism
+  was already in `store.rs` and `creds.rs`, tested by `tests/creds.rs`;
+  there is no aws-sdk in the crate and none was added): `--key`/`--secret`
+  [`--session-token`]; else `--profile`, `--role-arn`,
+  `--credential-process`, or the environment's chain (keys, profile, IRSA,
+  Pod Identity, IMDS). With nothing given or named and a loopback `http://`
+  store, it keeps `otel`/`otelsecret` (the local scripts), and says so.
+- **ClickHouse's `s3()`, `--ch-s3-auth pass`** (default): the consumer's
+  own credential is resolved before **every** statement from the same
+  provider (cached, refreshed 5 min before expiry) and passed as `key,
+  secret, session_token`. ClickHouse 26.10 masks both the secret and the
+  token as `[HIDDEN]` in its logs and in most error messages [M], but a
+  syntax error answers with the raw statement from the failing position, so
+  the consumer redacts both from every error it keeps (`sql.rs` `redact`).
+  A credential that expires while the server reads is a 403 → `S3_ERROR`
+  499: unsettled (AMBIGUITY C8), waited out and checked, never a silent
+  failure. The token travels to ClickHouse with each statement: use TLS to
+  it off-host.
+- **`--ch-s3-auth server`**: no credentials in the statement; ClickHouse
+  uses its own (an `<s3>` endpoint entry, `use_environment_credentials`, the
+  ClickHouse pod's IRSA or Pod Identity role), and the consumer sets
+  `s3_allow_server_credentials_in_user_queries = 1` per insert (without it:
+  497, settled). The better choice on EKS where central has its own role: no
+  secret crosses the wire.
+- **Region.** `--region`, else `AWS_REGION`, `AWS_DEFAULT_REGION`, the
+  active profile's `region`, else `us-east-1`; used for SigV4 and for the
+  `s3://` endpoint, hence for the `s3()` URLs (ClickHouse reads the region
+  from the host name) (`store::resolve_region`; signing checked by a
+  captured `Authorization` header and against SeaweedFS with `eu-west-2`).
 
 *The proposal as written before it was built:*
 Today every edge in a bucket can write, and delete, any key its credentials

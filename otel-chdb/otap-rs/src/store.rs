@@ -149,6 +149,23 @@ impl Default for S3Config {
     }
 }
 
+/// The region to sign for and to build `s3://` endpoints with, in the SDKs'
+/// order: an explicit one (`--region`), then `AWS_REGION`, then
+/// `AWS_DEFAULT_REGION`, then the active profile's `region` (`AWS_PROFILE`,
+/// or `default`, of the shared config file), else `us-east-1`. `env` reads
+/// a variable (tests pass a map); empty values count as unset.
+pub fn resolve_region(explicit: Option<&str>, env: &dyn Fn(&str) -> Option<String>, profiles: &crate::creds::Profiles) -> String {
+    let set = |v: Option<String>| v.filter(|r| !r.trim().is_empty());
+    if let Some(r) = set(explicit.map(str::to_string)) {
+        return r;
+    }
+    if let Some(r) = set(env("AWS_REGION")).or_else(|| set(env("AWS_DEFAULT_REGION"))) {
+        return r;
+    }
+    let prof = set(env("AWS_PROFILE")).unwrap_or_else(|| "default".into());
+    set(profiles.get(&prof).and_then(|p| p.get("region").cloned())).unwrap_or_else(|| "us-east-1".into())
+}
+
 /// An object_store-backed bucket plus the key prefix inside it.
 pub struct S3Store {
     pub store: Arc<dyn ObjectStore>,
@@ -156,6 +173,10 @@ pub struct S3Store {
     /// "bucket/prefix" for building s3() URLs.
     pub endpoint: String,
     pub bucket: String,
+    /// The credential provider the client signs with (the whole chain,
+    /// cached and refreshed before expiry), for callers that hand the same
+    /// credentials on: the consumer's ClickHouse `s3()`.
+    pub credentials: Option<AwsCredentialProvider>,
 }
 
 impl S3Config {
@@ -285,7 +306,9 @@ impl S3Config {
             b = b.with_credentials(p);
         }
         let store = b.build().map_err(|e| err(&e))?;
+        let credentials = Some(store.credentials().clone());
         Ok(S3Store {
+            credentials,
             store: Arc::new(store),
             prefix: prefix.trim_matches('/').to_string(),
             endpoint: if custom { format!("{endpoint}/{bucket}") } else { endpoint },
@@ -590,6 +613,125 @@ impl SlotStore for MemStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--region`, then AWS_REGION, AWS_DEFAULT_REGION, the profile's, us-east-1.
+    #[test]
+    fn region_resolution_order() {
+        let env = |m: &'static [(&'static str, &'static str)]| move |k: &str| m.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string());
+        let mut profiles = crate::creds::Profiles::new();
+        let _ = profiles.entry("default".into()).or_default().insert("region".into(), "ap-south-1".into());
+        let _ = profiles.entry("prod".into()).or_default().insert("region".into(), "sa-east-1".into());
+        let none = crate::creds::Profiles::new();
+        assert_eq!(resolve_region(Some("eu-west-2"), &env(&[("AWS_REGION", "us-west-2")]), &profiles), "eu-west-2");
+        assert_eq!(resolve_region(None, &env(&[("AWS_REGION", "us-west-2"), ("AWS_DEFAULT_REGION", "eu-central-1")]), &profiles), "us-west-2");
+        assert_eq!(resolve_region(None, &env(&[("AWS_REGION", ""), ("AWS_DEFAULT_REGION", "eu-central-1")]), &profiles), "eu-central-1");
+        assert_eq!(resolve_region(None, &env(&[]), &profiles), "ap-south-1");
+        assert_eq!(resolve_region(None, &env(&[("AWS_PROFILE", "prod")]), &profiles), "sa-east-1");
+        assert_eq!(resolve_region(Some(" "), &env(&[]), &none), "us-east-1");
+    }
+
+    /// The region is the one the request is signed for (the credential
+    /// scope of SigV4), and the one an `s3://` URL's endpoint names.
+    #[tokio::test(flavor = "current_thread")]
+    async fn requests_are_signed_for_the_configured_region() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let srv = tokio::spawn(async move {
+            let (mut c, _) = l.accept().await.unwrap();
+            let mut buf = Vec::new();
+            let mut b = [0u8; 4096];
+            while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                let n = c.read(&mut b).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&b[..n]);
+            }
+            c.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n").await.unwrap();
+            String::from_utf8_lossy(&buf).to_string()
+        });
+        let cfg = S3Config {
+            url: format!("http://127.0.0.1:{port}/bkt/p"),
+            region: "eu-west-2".into(),
+            access_key_id: Some("AKIDEXAMPLE".into()),
+            secret_access_key: Some("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into()),
+            ..Default::default()
+        };
+        let st = cfg.build().unwrap();
+        assert_eq!(st.head("p/x").await.unwrap(), None);
+        let req = srv.await.unwrap().to_ascii_lowercase();
+        let auth = req.lines().find(|l| l.starts_with("authorization:")).unwrap_or_default().to_string();
+        assert!(auth.contains("/eu-west-2/s3/aws4_request"), "{auth}");
+        let aws = S3Config { url: "s3://bkt/p".into(), region: "eu-west-2".into(), ..cfg };
+        assert_eq!(aws.build().unwrap().object_url("p/x"), "https://bkt.s3.eu-west-2.amazonaws.com/p/x");
+    }
+
+    /// Only a 404 reads as a free slot. S3 answers a missing key 403 to a
+    /// caller without a matching `s3:ListBucket` (DECISIONS D18 amendment,
+    /// 2026-09-28), and 403 also comes from an expired credential for a
+    /// slot that holds data: it must stay an error (AMBIGUITY S5), which
+    /// `runner::append` keeps unresolved.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_403_on_head_is_an_error_not_a_free_slot() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let _srv = tokio::spawn(async move {
+            loop {
+                let (mut c, _) = l.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut b = [0u8; 4096];
+                    let mut buf = Vec::new();
+                    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match c.read(&mut b).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => buf.extend_from_slice(&b[..n]),
+                        }
+                    }
+                    let req = String::from_utf8_lossy(&buf);
+                    let status = if req.contains("/free ") { "404 Not Found" } else { "403 Forbidden" };
+                    let _ = c.write_all(format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\n\r\n").as_bytes()).await;
+                });
+            }
+        });
+        let st = S3Config {
+            url: format!("http://127.0.0.1:{port}/bkt/p"),
+            access_key_id: Some("k".into()),
+            secret_access_key: Some("s".into()),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        assert_eq!(st.head("p/free").await.unwrap(), None);
+        assert!(st.head("p/denied").await.is_err(), "403 must not read as free");
+        assert!(crate::runner::read_slot(&st, "p/denied").await.is_err());
+    }
+
+    /// Against SeaweedFS (skipped without it), which checks signatures: a
+    /// client signing for a region other than us-east-1 is accepted.
+    #[tokio::test(flavor = "current_thread")]
+    async fn seaweedfs_accepts_a_non_us_east_1_signature() {
+        let url = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/otel/otap-rs-region".into());
+        let cfg = S3Config {
+            url: url.clone(),
+            region: "eu-west-2".into(),
+            access_key_id: Some("otel".into()),
+            secret_access_key: Some("otelsecret".into()),
+            ..Default::default()
+        };
+        let st = cfg.build().unwrap();
+        let key = format!("{}/region-{}", st.prefix, std::process::id());
+        match st.head(&key).await {
+            Err(e) if e.0.contains("onnect") => {
+                eprintln!("no S3 at {url}: skipped");
+                return;
+            }
+            r => assert_eq!(r.unwrap(), None, "a free key under eu-west-2 signing"),
+        }
+        let bad = S3Config { secret_access_key: Some("wrong".into()), ..cfg };
+        assert!(bad.build().unwrap().head(&key).await.is_err(), "SeaweedFS does check the signature");
+    }
 
     #[test]
     fn rfc3339() {

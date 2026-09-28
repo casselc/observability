@@ -23,17 +23,30 @@ W=$(mktemp -d); trap 'kill $gw 2>/dev/null; rm -rf "$W"' EXIT
 python3 - "$W/s3.json" "$BUCKET" "$RUN" <<'PY'
 import json, sys
 out, bucket, root = sys.argv[1:]
-edge = {"Version": "2012-10-17", "Statement": [
-    {"Sid": "CreateSlotsUnderOwnClusterOnly", "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"],
-     "Resource": [f"arn:aws:s3:::{bucket}/{root}/${{aws:username}}/*"]},
-    {"Sid": "ListSoAFreeSlotIs404", "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [f"arn:aws:s3:::{bucket}"]},
-    {"Sid": "NeverDelete", "Effect": "Deny", "Action": ["s3:DeleteObject"], "Resource": [f"arn:aws:s3:::{bucket}/*"]}]}
+# The ListBucket statements are edge-publisher.json's (D18 amendment,
+# 2026-09-28): StringLike on the own prefix for LISTs, and the same under
+# StringLikeIfExists so a HEAD (no prefix) of a missing key is 404 on AWS.
+own = [f"{root}/${{aws:username}}/*", f"{root}/${{aws:username}}"]
+write = {"Sid": "CreateSlotsUnderOwnClusterOnly", "Effect": "Allow", "Action": ["s3:PutObject", "s3:GetObject"],
+         "Resource": [f"arn:aws:s3:::{bucket}/{root}/${{aws:username}}/*"]}
+never = {"Sid": "NeverDelete", "Effect": "Deny", "Action": ["s3:DeleteObject"], "Resource": [f"arn:aws:s3:::{bucket}/*"]}
+edge = {"Version": "2012-10-17", "Statement": [write,
+    {"Sid": "ListOwnCluster", "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [f"arn:aws:s3:::{bucket}"],
+     "Condition": {"StringLike": {"s3:prefix": own}}},
+    {"Sid": "FreeSlotIs404HeadCarriesNoPrefix", "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": [f"arn:aws:s3:::{bucket}"],
+     "Condition": {"StringLikeIfExists": {"s3:prefix": own}}},
+    never]}
+# No ListBucket at all: on AWS a missing key is then 403. SeaweedFS answers
+# 404 regardless, so this store cannot show the 403 (INFO rows below).
+nolist = {"Version": "2012-10-17", "Statement": [write, never]}
 ident = lambda n, k: {"name": n, "credentials": [{"accessKey": k, "secretKey": k + "secret"}]}
 cfg = {"identities": [
     dict(ident("c1", "edgec1"), policyNames=["edge-publisher"]),
     dict(ident("c2", "edgec2"), policyNames=["edge-publisher"]),
+    dict(ident("c3", "edgec3"), policyNames=["edge-nolist"]),
     dict(ident("consumer", "consumer"), actions=[f"Read:{bucket}", f"Write:{bucket}", f"List:{bucket}"])],
-    "policies": [{"name": "edge-publisher", "content": json.dumps(edge)}]}
+    "policies": [{"name": "edge-publisher", "content": json.dumps(edge)},
+                 {"name": "edge-nolist", "content": json.dumps(nolist)}]}
 json.dump(cfg, open(out, "w"))
 PY
 "$WEED" s3 -config="$W/s3.json" -filer="$FILER" -ip.bind=127.0.0.1 -port="$PORT" -port.grpc=$((PORT + 10000)) \
@@ -48,6 +61,13 @@ req() { # key-id method key [header] -> http code
 }
 check() { # what want got
   if [ "$2" = "$3" ]; then echo "PASS $1: $3"; else echo "FAIL $1: $3 (want $2)"; fails=$((fails + 1)); fi
+}
+info() { # what got aws-would
+  echo "INFO $1: $2 (AWS: $3)"
+}
+list() { # key-id prefix -> http code of a ListObjectsV2
+  curl -s -m 10 -o /dev/null -w "%{http_code}" --aws-sigv4 aws:amz:us-east-1:s3 -u "$1:$1secret" \
+    "http://127.0.0.1:$PORT/$BUCKET?list-type=2${2:+&prefix=$2}"
 }
 slot() { echo "$RUN/$1/edge-1/traces/20260927T000000.000Z-00000001/$(printf %020d "$2").parquet"; }
 echo "gateway $PORT, root $BUCKET/$RUN, weed $("$WEED" version 2>&1 | head -1)"
@@ -65,6 +85,14 @@ check "c1 deletes cluster c2's slot"               403 "$(req edgec1 DELETE "$(s
 check "c2's slot is intact"                        200 "$(req consumer HEAD "$(slot c2 0)")"
 check "consumer writes a control object"           200 "$(req consumer PUT "$RUN/_consumer/lease/c2/edge-1/traces.json" '' '{}')"
 check "consumer deletes an ingested slot (GC)"     204 "$(req consumer DELETE "$(slot c2 0)")"
+check "c1 LISTs its own cluster's prefix"          200 "$(list edgec1 "$RUN/c1/")"
+check "c1 LISTs cluster c2's prefix"               403 "$(list edgec1 "$RUN/c2/")"
+# What SeaweedFS does not model (D18 amendment, AMBIGUITY S5): AWS answers a
+# missing key 403 without ListBucket; SeaweedFS answers 404 whatever the
+# grant, and does not evaluate StringLikeIfExists (a prefix-less LIST, and a
+# LIST of the own prefix under that statement alone, are 403 here).
+info "c3 (no ListBucket) HEADs a free slot"        "$(req edgec3 HEAD "$(slot c3 1)")" "403"
+info "c1 LISTs with no prefix"                     "$(list edgec1 "")" "200 if AWS leaves s3:prefix out of a prefix-less LIST (EKS-4), else 403"
 if [ -n "${OTAP:-}" ]; then
   pub() { # cluster key -> births registered
     env -u AWS_PROFILE AWS_ACCESS_KEY_ID="$2" AWS_SECRET_ACCESS_KEY="$2secret" CLUSTER="$1" PRODUCER=edge-9 HEARTBEAT=1h \

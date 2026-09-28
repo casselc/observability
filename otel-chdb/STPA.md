@@ -261,6 +261,17 @@ Four more bugs. Three are in upstream otel-arrow's OTAP conversion, found by Heg
 - **Properties over the whole value space find what corpora miss.** Zeros, negative zero and half floats are exactly the values realistic generators avoid and encoders special-case.
 - **The model extension paid off at once.** Making lease writes non-atomic in the model (systemic factor 1 of the DST CAST) found #20 on its first model-based test run.
 
+### CAST: format v2 (2026-09-28)
+
+Two more issues from implementing format v2 ([FORMAT.md](FORMAT.md)): a design flaw that the completeness model shared, and a test script that destroyed shared data.
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 21 | The lane watermark could pass a request still in flight in a later-named epoch | Mapping `model/completeness.qnt` onto the code, before any test ran | H-2, H-4 (a window treated as complete while data is missing; an alert evaluates too early) | Consumer lane watermark, as modelled: "objects ordered by (epoch, seq) are in custody order", so the highest low over the ingested prefix is safe | The model has one writer per edge, and D3 says one epoch per lane per incarnation; a publisher with `lanes: N` writes several epochs at once | Lane watermark = min(highest low passed before the LIST, lowest `received_at` of pending data slots), which needs no ordering between epochs; model instance `completenessImpl` (`PENDING`); the randomized soundness test uses 2 writer lanes per signal and catches the `WmIgnoresPending` mutant | Model instances must include the deployed parallelism, not the simplest topology |
+| 22 | A test script deleted the shared `otel` bucket, with every agent's test data in it | Happened during the format-v2 run of `conformance/go_replay.sh` with `BUCKET=otel` | H-1-like (test data lost; no real data existed); results already committed were unaffected | The script's cleanup: "my bucket is mine" (its default was private) and "deleting a non-empty bucket fails", as on AWS | The default bucket was dedicated to the script; S3 refuses that delete; SeaweedFS does not | The script purges only its own run prefix (`consume purge`); no other script deletes a bucket | Cleanup must act only on what its own run created; do not rely on a store to refuse a destructive call, since stores differ |
+
+**Systemic factor.** Both are assumptions about the environment that held in the setting where they were written: a single writer in the model, a private bucket in the script. #21 is the same lesson as #13 and #14: the model is only as good as the topology and timing its instances allow.
+
 ## What the models showed
 
 Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.

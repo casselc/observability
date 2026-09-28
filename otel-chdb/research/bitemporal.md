@@ -161,36 +161,57 @@ controller writes SCD2 rows (close the old version, open the new one), and
 the aggregator marks versions `uncertain` after the fact
 ([../entities/README.md](../entities/README.md) §6.2).
 
-**Proposal.**
+**Proposal (refined by the model and the fleet replay, D32).**
 
 - Store **events**, not closed rows: `(entity, valid_from, valid_to?,
   system_from, source, kind, attrs)`, where `system_from` is when the
-  aggregator took the event in (its `ingest_log.put_at`), and `kind` includes
-  `assert`, `retract` and `unknown` (a gap record is an `unknown` event over
-  its window).
-- **Resolve at query time** with XTDB's backwards replay and ceiling, plus
-  **one precedence rule** between sources (the cluster controller is the
-  authority, the central overseer the fallback, announcements weakest; the
-  owner decided the authority split earlier). Two query shapes:
-  - joins from telemetry: VT = the row's event time, ST = now (the
-    corrected history);
-  - audits and alert replays: ST = the basis of §3 ("what did the catalog
-    say then").
-- Keep a materialised *current* view (recency partitioning: about 60k live
-  pods against 4.7M pod versions over 90 days in the fleet model, about 1%),
-  so as-of-now lookups never read history.
+  aggregator took the event in, and `kind` is `assert`, `retract` or
+  `unknown`.
+  - A relist gap or a controller restart is an `unknown` **for each entity
+    alive at its start**, never one event over the window for everything.
+  - A sync is a **retract per entity** it no longer lists, never "retract
+    all". Records map in the order the controller wrote them.
+  - A restart is a gap and needs the previous incarnation's end time; the
+    controller now finds it and writes it (a `restart` gap record).
+- **Resolve at query time** with XTDB's backwards replay and ceiling, and one
+  precedence rule, "the highest-precedence latest event":
+  - the controller and the overseer form one **authority tier**, ordered by
+    `st + W` for the controller and `st` for the overseer: within the trust
+    window W the controller wins (a live controller re-asserts every open
+    version each sync); a silent controller loses to a newer overseer event
+    once W has passed. W proposed: 20 min (2 × the sync interval);
+  - an authority `unknown` blocks older authority events only;
+  - announcements are the **evidence tier**: the latest fills in only where
+    the authority said unknown (flagged uncertain) or nothing, and never
+    overrides an authority assert or retract.
 
-**What it fixes.** Pods born and dead inside a relist gap can be asserted
-later without rewriting anything; a controller restart is just another
-source of events; the `uncertain` marking becomes a derived property (an
-`unknown` event not yet superseded) instead of a separate pass.
+  Two query shapes: joins from telemetry (VT = the row's event time, ST =
+  now) and audits and alert replays (ST = a basis).
+- The basis (§3) needs the catalog's own per-cluster **`catalog_through`**
+  (the aggregator's ingest clock), with the same strict bound:
+  `system_from < C`. Compaction and retention of events must respect the
+  oldest basis still answered. Joins by `resource_id` need nothing, because
+  an id's attributes never change.
+- Keep a maintained **current view** (recency partitioning). In the fleet
+  replay it is 1.66% of all events, 84% of it tombstones for deleted
+  resources (0.26% without them), so tombstones need a TTL.
 
-**First step.** A Quint model of the resolution rule and precedence (safety:
-the resolved state at (VT, ST) equals the one the latest covering event
-says; an `unknown` event never resolves as an assertion; adding an event
-with a newer ST never changes the answer at an older ST), and a Go reference
-resolver checked against it. The storage change waits on the entity-schema
-decision, which waits on real-cluster data
+**What it fixes, measured** (fleet replay: 1 cluster, 7 days, 20,261 pods,
+3 controller restarts, 4 relist gaps; `entities/bitemp/results/`). On the
+same inputs the resolver reproduces today's SCD2 views (518,269 vs 518,021
+pod-hours). Where SCD2 loses information: a restart leaves no trace (131
+pod-hours of deleted pods shown alive and certain; the resolver says unknown,
+leaving 9.4 h of informer lag); `uncertain` marks whole versions (247
+pod-hours flagged for 0.13 h inside a gap); no answer at an earlier system
+time. The replay also found a bug in today's controller (CAST row 37).
+
+**Built so far.** `model/bitemporalCatalog.qnt` (four invariants: the
+replay equals the precedence rule; an unknown never resolves certain;
+answers at system time S never change once time passes S; the current view
+equals full resolution; 7 witnesses, 7 mutants caught) and the Go reference
+resolver `entities/bitemp` (checked against brute force and 15,320 model
+answers; point lookup 0.5–0.7 µs). The storage change waits on the
+entity-schema decision, which waits on real-cluster data
 ([../deploy/validation/real-cluster-telemetry.md](../deploy/validation/real-cluster-telemetry.md)).
 
 ## 6. What we do not take
@@ -219,5 +240,5 @@ Worth taking later:
 | --- | --- | --- |
 | Basis token: query service, lake plan, alert evaluator's late-data delta, lake UI and adapter caches, fork patch 0003 | D30 | **built** 2026-09-28 (045929b); lake UI e2e does not exercise it yet |
 | Late rows kept out of normal plans (edge split or outlier metadata) | D31 | started 2026-09-28 |
-| Catalog as bitemporal events: model and reference resolver | D32 (proposed) | started 2026-09-28 |
+| Catalog as bitemporal events: model and reference resolver | D32 (proposed) | **model and resolver built** 2026-09-28 (5a311c1); storage not started |
 | Hash-prefix sharding of index levels; metrics' last-value table | — | not started |

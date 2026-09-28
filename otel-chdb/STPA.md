@@ -288,6 +288,10 @@ This is the first bug the simulation caught before it reached the history, which
 
 The same theme as rows 21 and 22 — a component trusting a property of input it did not produce — now on the security side, which is why R-S7's write-side ABAC is necessary but not sufficient.
 
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 25 | The plan service's documented minimum URL lifetime (`url_ttl_s` 60) with the default `replan_margin_s` (60) gave `replan_after` equal to the signing time; a larger margin put it before signing. Every plan was stale when issued, so a client obeying X8 re-planned until its limit and never read | Building the lake UI's browser test, which runs with a 60 s lifetime | R-S1/R-S2 side: the lake UI can never show data (it fails visibly, not silently); a re-plan storm on the query service | Plan service config: "the margin is always smaller than the lifetime" | The defaults (300 s / 60 s) are fine, and the 60–900 s clamp covered only the lifetime; the two knobs were validated separately | Margin capped at half the lifetime; `internal/lake/config_test.go` failed 5 of 7 cases before the fix; commit 55a5b6b | Parameters that combine into one derived deadline must be validated together, at their combined value, not each in its own range |
+
 ## What the models showed
 
 Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.

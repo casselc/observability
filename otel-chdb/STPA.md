@@ -272,6 +272,14 @@ Two more issues from implementing format v2 ([FORMAT.md](FORMAT.md)): a design f
 
 **Systemic factor.** Both are assumptions about the environment that held in the setting where they were written: a single writer in the model, a private bucket in the script. #21 is the same lesson as #13 and #14: the model is only as good as the topology and timing its instances allow.
 
+### CAST: the entity announcement lane (2026-09-28)
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 23 | An unanswered announcement insert was not waited out, so it could land after the lane's lease changed hands | `dst_consumer`, 2 of 40 seeds ("statement lands after its lease epoch changed hands"), before the code was committed | H-2 (a statement outside its lease: the fencing that prevents duplicates no longer holds) | Consumer worker: "announcement inserts are idempotent, so a failed or unanswered one needs no settle wait" | A late duplicate announcement is harmless to the data, and the announcement table folds copies; but a TIMEOUT_EXCEEDED can still commit after the lease moved, which breaks the invariant every statement must hold | An unanswered announcement statement is waited out like any data insert (the D9 rule); `dst_consumer` 300 seeds and `hegel_dst` clean | Idempotence of the effect does not exempt a statement from the lease discipline; safety rules apply per statement, not per table |
+
+This is the first bug the simulation caught before it reached the history, which is where it should be caught: the DST runs in the normal test suite.
+
 ## What the models showed
 
 Each fixed bug has a shortest counterexample from the Quint model, drawn from its scripted run ([model/traces/](model/traces/)); the step marked FATAL is the one the design now blocks.

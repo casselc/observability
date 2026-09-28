@@ -2776,6 +2776,12 @@ fleet-wide value (X12).
 
 ### D30. The basis: answers at a named custody time
 
+**Owner decisions, 2026-09-28:** the defaults are accepted (retention 90 days;
+`on_late: reevaluate`, `late_horizon` 1 h, `late_every` max(`every`, 1 min));
+evaluator concurrency is 16, through a limits-only `alert-evaluator` group
+(`alerts/README.md`). Open: how the basis key is held (KMS HMAC on AWS
+proposed; a shared secret elsewhere).
+
 **Status:** built (2026-09-28). `query/internal/basis` (token, checks),
 `query/internal/server` (`basis` / `basis_from` on `/v1/query`, `basis` on
 `/v1/plan`, `POST /v1/basis`), `query/internal/sqlscope` (the filter, the

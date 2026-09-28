@@ -63,6 +63,7 @@ disagreed with each other, and how each was resolved.
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
 | [D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object) | Entity catalog: `resource_id` at both edges, announcements in the data object | **built** (2026-09-28): `resource_id` on every trace/log row and the announcement lane; central keeps `ResourceAttributes` (the schema switch and the rewrite proxy not decided) |
 | [D22](#d22-query-service-sql-rebuilt-from-the-tree-scope-as-table-filters-labels-on-every-result) | Query service: OIDC + audit, SQL rebuilt from the tree, scope as `additional_table_filters`, `complete_through` on every result, a presigned lake plan | **first slice built** (2026-09-28, [`query/`](query/README.md)): central queries and lake plans for both UIs; the UIs and the alert evaluator are not wired yet |
+| [D23](#d23-alert-evaluator-gated-on-the-query-services-label-state-by-compare-and-swap-an-outbox-ledger) | Alert evaluator: rules as data through the query service, evaluated only on `complete` windows, "cannot evaluate" pages, compare-and-swap state on S3 (two replicas, no lease), an outbox ledger with stable dedup keys | **built** (2026-09-28, [`alerts/`](alerts/README.md)): R-S3, AMBIGUITY X5/X6/X11 partly; tested against a fake Alertmanager |
 | [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
 
 ---
@@ -134,7 +135,8 @@ retire the risks of §4.
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
-| `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | not built |
+| `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | the watermark: `consumer::tests::complete_through_*` (D19); the evaluator side (`evalWithinComplete`, `noDataOk`, `noSilentOk`): `alerts/` (D23), gated on the query service's label |
+| `model/alertEvaluator.qnt` ([`alerts/`](alerts/README.md), D23) | `evalOnlyComplete`, `resolvedAfterFiringAck`, `noLostEpisode`, `nextMonotone` (two replicas, compare-and-swap with lost answers and writes, a pager that loses answers) | 20,000 × 40; 2 witnesses reached; mutants `evalPastCt`, `ackOnNoAnswer`, `blindWrite` caught (`model/alert_model.sh`, nightly) | `alerts/internal/runner/sim_test.go` (two-replica simulation), `internal/engine/prop_test.go` |
 | `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on four instances (`sameObject`, as built, since 2026-09-28); mutants `noAnnounce`, `announceEarly`, `sameObjectEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | **built** ([D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object)): `tests/dst/fleet.rs` checks `sameLane` (no row lands before its resource's announcement) and announcements exactly once under the fault menu (`hegel_dst` rule `announce`); `entities/scripts/announce_e2e.py` (a pod the controller never saw exact 34.7–59.1 s after its rows, with `LIFETIME(MIN 30 MAX 60)`) |
 | `model/retention.qnt` (open scenario: STPA LS-10, R-S6) | `acceptedVisible` (an acked request is never inserted into an expired partition), `noEdgeDrop`, `custodyAgeBounded` | 20,000 × 50; 6 witnesses; mutants `retentionShort`, `cutDuringOutage`, `capSized` (retention sized as cap ÷ rate) caught; `dropOldest` keeps `acceptedVisible` and breaks `noEdgeDrop`. **Finding:** D19's retention rule was wrong ([D19](#d19-durable-buffer-at-the-edge)) | not applicable (a sizing rule) |
 | `model/sealer.qnt` (open scenario: the lake's snapshot log, [research §5.1](research/central-optional.md#51-the-sealer-is-a-consumer-group-with-a-table-log-sink)) | `monotone`, `repeatableAsOf`, `atMostOncePerSnapshot`, `neverSkipsSealed`, `wmSound` | 20,000 × 40; 5 witnesses; mutants `blindCommit`, `noRebase`, `wmFromList`, `noDedup` (`abe3e97`) | not built |
@@ -1881,6 +1883,92 @@ and a failing lane no longer stops the others
 per-cluster watermark (a restricted caller's label uses the fleet minimum); no
 count of rows without an entity match (R-S5's second half); no rate limit
 beyond per-caller concurrency; no STS session-tag signing on AWS.
+
+---
+
+### D23. Alert evaluator: gated on the query service's label, state by compare-and-swap, an outbox ledger
+
+**Status:** built (2026-09-28): [`alerts/`](alerts/README.md). Tested
+against the real pipeline and a fake Alertmanager; not against a real pager.
+
+**Context.** STPA R-S3 (LS-7, LS-8, TM-3) and AMBIGUITY X5/X6: an alert
+must not be evaluated over a window whose data is not all in (LS-7: a
+lagging lane read as "no errors"), a failed evaluation must page (LS-8),
+and a page is an ambiguous call (no answer is not "delivered"). The owner
+accepted alerts about 5 minutes behind (owner decisions, 2026-09-27). The
+query service (D22) labels every result with `complete_through` and
+`completeness`, and authenticates service identities like people.
+
+**Decision.**
+
+1. **Rules are data** (a YAML file): a statement run through the query
+   service's `/v1/query` with the window, a condition on one column (the
+   others are the group's labels), `for`, `on_no_rows`, labels,
+   annotations, the identity it runs as. Windows end at multiples of
+   `every` since the epoch, so every replica computes the same ones.
+2. **Evaluate only complete windows.** A window is evaluated only on a 200
+   with `completeness: complete`, `partial: false`, watermark `ok`, the
+   applied window equal to the asked one, and `complete_through` ≥ its end +
+   `lateness` (30 s: `complete_through` bounds `received_at`, windows are
+   event time). Anything else is an attempt on the same window; a firing
+   alert is never resolved by it, and "no rows" is "nothing holds" only in a
+   complete window. `for` is counted in event time, so the same data gives
+   the same pages however late it is evaluated.
+3. **Page when it cannot evaluate**: a window unevaluated past 5 min
+   (`cannot_evaluate_after`), 3 failures in a row, or any refusal raises
+   `AlertCannotEvaluate` with the reason from the label (watermark status
+   and age, the lanes holding it back, stale lanes, their clusters, the last
+   error), resolved when the window is evaluated.
+4. **Catch up in order**, `max_windows_per_tick` per tick; windows older
+   than `max_backlog` (6 h) are skipped and counted, not paged one by one.
+5. **State: one object per rule on S3, compare-and-swap only, no lease.**
+   A lease would still need the swap as its fence (a paused holder writes
+   late), so the swap is the safety mechanism either way; with it alone,
+   every replica runs every rule, the loser of a swap re-reads, and because
+   evaluation is deterministic both replicas compute the same state and
+   dedup keys. No clock is needed for safety and a dead replica blocks
+   nothing; the cost is duplicate queries, reduced by skipping a rule
+   another replica wrote within half a tick. An unanswered write is read
+   back (a random `write_id`); nothing is sent from a state not known to be
+   committed.
+6. **Notifications through an outbox ledger** in the same document: a
+   notice is committed with the evaluation that caused it, then sent; only
+   a 2xx moves it forward; everything else is retried with the same key
+   (`{rule}/{group}/{episode}`, the episode being the window end where it
+   began; Alertmanager gets it as the `alert_episode` label). Firing is
+   refreshed every 60 s (Alertmanager's protocol); a resolution is sent only
+   after the firing's 2xx and 45 s later (Alertmanager does not notify a
+   resolution it never notified as firing). At-least-once across replicas.
+7. **Its own identity**: OAuth 2.0 client credentials or a token file per
+   identity; the token's claims are the rule's scope (fleet or a team's).
+8. **A second channel**: Prometheus rules on its metrics
+   (`deploy/alerts/alert-evaluator.rules.yaml`) page when no replica ticks
+   or a notice is unacknowledged for 10 min; a `Watchdog` rule always fires
+   for the pager's dead man's switch.
+
+**Evidence.** Property tests (only complete windows move groups, against a
+reference; the label gate; ledger ordering and eventual delivery), a
+two-replica deterministic simulation (store writes lost, answered-but-lost
+and delayed; one replica's tick between the other's read and write; the
+query service and the pager failing: the committed position never goes
+back, every episode is delivered, none is invented; 1,000 runs, mutants
+caught), `model/alertEvaluator.qnt` [Q], and an integration test with the
+Go edge, the Rust consumer, ClickHouse, SeaweedFS and queryd [M]: errors
+fire and resolve per scope; a stopped edge stalls `complete_through`, the
+errors sent meanwhile are not evaluated, both rules page naming the
+stalled cluster's lanes after 24 s, the reason becomes "watermark stale"
+when the consumer stops publishing; after recovery the missed windows are
+evaluated in order and the errors page late; the first delivery's answer is
+lost and it is re-sent with the same key.
+
+**What it does not do.** Rows received more than `lateness` after their
+event time are missed and not counted. `complete_through` is the fleet
+minimum, so one cluster's stall stops every rule, scoped ones included (a
+per-cluster watermark would fix it: query README §7.6). A lagging
+ClickHouse replica is not in the label (C3). No real pager was exercised;
+the dead man's switch needs the pager side; the ledger is unbounded while
+the pager is down; a rule removed from the file leaves its state behind.
+HyperDX's own alerts do not use it.
 
 ---
 

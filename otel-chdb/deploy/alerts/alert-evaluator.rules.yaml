@@ -1,0 +1,71 @@
+# Prometheus alerting rules for the alert evaluator itself (otel-chdb/alerts,
+# README §6; AMBIGUITY.md X6). They are the SECOND CHANNEL: they run in
+# Prometheus, not in alertd, so they page when alertd cannot (it is down,
+# cannot reach the pager, or cannot reach its state). Route them to a
+# receiver that does not depend on alertd. A plain rules file
+# (`rule_files:`); for the Prometheus Operator, put the `groups:` under a
+# PrometheusRule's `spec:`. alertd serves /metrics on its listen port.
+groups:
+  - name: otel-alert-evaluator
+    rules:
+      # No replica is scraping or ticking: nothing is being evaluated.
+      - alert: AlertEvaluatorDown
+        expr: |
+          absent(alr_last_tick_seconds) or max(time() - alr_last_tick_seconds) > 120
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "no alert evaluator replica has completed a tick in 2 minutes"
+          runbook: >-
+            Every rule is unevaluated. Check the alertd pods, their access to the
+            state bucket (alr_state_errors_total) and the query service. The
+            Watchdog rule stops arriving at the pager at the same time.
+      # Notices the pager has not acknowledged for 10 minutes: alertd pages
+      # nobody (no answer, 5xx or 4xx from the sink). The notices are kept and
+      # re-sent with the same key; this is the page that says so.
+      - alert: AlertDeliveryFailing
+        expr: |
+          max by (rule) (alr_notice_oldest_undelivered_seconds) > 600
+        for: 1m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.rule }}: a notice unacknowledged by the pager for {{ $value | humanizeDuration }}"
+          runbook: >-
+            Check the sink (Alertmanager) and alr_deliveries_total{outcome}: "rejected"
+            (4xx) means the payload or the credentials are refused and will not fix
+            themselves; "ambiguous"/"5xx" means the sink is unreachable or failing.
+      # A rule's cannot-evaluate page is itself a notice through the same
+      # sink; this is its copy on the second channel.
+      - alert: AlertRuleCannotEvaluate
+        expr: |
+          max by (rule) (alr_cannot_evaluate) == 1
+        for: 5m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.rule }} cannot evaluate its windows (see its AlertCannotEvaluate page for the reason)"
+      # The evaluator is behind what it could evaluate: complete windows are
+      # waiting (a slow query service, a rate limit, catching up after an outage).
+      - alert: AlertEvaluatorLagging
+        expr: |
+          max by (rule) (alr_lag_behind_complete_through_seconds) > 600
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.rule }}: {{ $value | humanizeDuration }} of complete windows not evaluated yet"
+      # Windows skipped after an outage longer than max_backlog: those windows
+      # were never evaluated. Nothing re-evaluates them.
+      - alert: AlertWindowsSkipped
+        expr: |
+          sum by (rule) (increase(alr_windows_skipped_total[1h])) > 0
+        labels: {severity: warn}
+        annotations:
+          summary: "{{ $labels.rule }}: {{ $value }} windows skipped (further behind than max_backlog)"
+      # The state bucket answers errors, or both replicas keep losing writes.
+      - alert: AlertEvaluatorStateErrors
+        expr: |
+          sum(rate(alr_state_errors_total[5m])) > 0
+          or sum(rate(alr_state_writes_total{outcome=~"error|ambiguous_lost"}[10m])) > 0.1
+        for: 10m
+        labels: {severity: warn}
+        annotations:
+          summary: "alertd cannot read or write its state reliably"

@@ -28,7 +28,7 @@ deploy/
   collector/          ocb build of the agent/gateway collector; patches/0001 for the gateway
   images/             Dockerfiles: otap-s3pq, any ocb collector, aws_signing_helper
   edgeprobe/          the publishers' readiness probe (a wedged buffer is not ready; §Durable buffer)
-  alerts/             Prometheus rules for the buffers, the probe and the commit outcomes
+  alerts/             Prometheus rules for the buffers, the probe, the commit outcomes and the alert evaluator (../alerts)
   scripts/            the local tests below
   results/            their outputs
 ```

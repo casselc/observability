@@ -1,0 +1,36 @@
+# Alert rules (README §2). Each statement runs through the query service's
+# /v1/query with the window; every column but the condition's is a label.
+rules:
+  # A dead man's switch: always fires, so the pager's "Watchdog stopped"
+  # route pages when it stops arriving (AMBIGUITY.md X6). It exercises the
+  # whole path: token, query service, completeness, the pager.
+  - name: Watchdog
+    sql: SELECT count() + 1 AS value FROM otel_logs
+    window: 1m
+    condition: {op: ">", threshold: 0}
+    severity: none
+    annotations:
+      summary: the alert evaluator is evaluating complete windows and delivering
+
+  - name: ErrorBurst
+    sql: |
+      SELECT ServiceName AS service, `__hdx_materialized_k8s.cluster.name` AS cluster, count() AS value
+      FROM otel_logs WHERE SeverityText IN ('ERROR', 'FATAL')
+      GROUP BY service, cluster
+    window: 5m
+    every: 1m
+    for: 2m
+    condition: {op: ">", threshold: 100}
+    labels: {team: sre}
+    annotations:
+      summary: "{{labels.service}} in {{labels.cluster}}: {{value}} errors in 5 min"
+
+  # An absence alert: fires when a complete window has no rows at all.
+  - name: CheckoutSilent
+    sql: SELECT count() AS value FROM otel_logs WHERE ServiceName = 'checkout' HAVING value > 0
+    window: 10m
+    every: 1m
+    on_no_rows: fire
+    condition: {op: "<", threshold: 0}
+    identity: team-shop
+    labels: {team: shop}

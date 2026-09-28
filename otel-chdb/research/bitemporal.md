@@ -173,10 +173,14 @@ spans 15 min to 24 h old) [M]:
 **Central.** ClickHouse 26.10 prunes parts by per-part `Timestamp`
 statistics, and late rows stretch them: 1.92 parts and 404 granules per
 5-minute window against 1.00 and 211 without late rows [M]. Inserting late
-objects separately does not help (merges rejoin them). Proposed, not built:
-an object-constant `late_part` column and the partition key
-`(toDate(received_at), late_part)`: 213 granules [M], at the cost of a
-migration and a change to the consumer's partition-range check.
+objects separately does not help (merges rejoin them). Built since
+(owner decision 2026-09-28, DECISIONS.md D34): an object-constant
+`late_part` column and the partition key `(toDate(received_at),
+late_part)`, with the consumer's range check reading the first element and
+a migration (`otap-rs/scripts/migrate_late_part.py`). Through the real
+consumer on the same shape (3 days, 5.19M spans, 1% of batches late),
+fully merged: 2.75 parts and 214–230 granules per 5-minute window against
+1.91 and 431 with the old key [M].
 
 ## 5. The entity catalog as bitemporal events (D32, proposed)
 

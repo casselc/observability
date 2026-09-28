@@ -163,6 +163,10 @@ pub enum Mutation {
     /// another worker's write, not read back (the code before the audit fix,
     /// CAST #15): the lane is dropped although the lease is ours.
     Own412IsTakeover,
+    /// Statements mix late parts and bulk objects (`plan::group` without
+    /// its per-part buckets, DECISIONS.md D34): a squashed statement then
+    /// writes two partitions per day, and is no longer one part.
+    MixLateParts,
 }
 
 /// The smallest lease margin a production worker accepts: on a replicated

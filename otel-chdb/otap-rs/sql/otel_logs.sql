@@ -4,7 +4,8 @@
 -- (00006_otel_logs_rollups.sql), with the consumer's additions and the same
 -- deliberate deviations as otel_traces.sql (envelope, resource_id, content_key and the
 -- by_content projection, the dedup window on the table and the rollup table;
--- PARTITION BY toDate(received_at) instead of toDate(Timestamp); no TTL; no
+-- late_part (../../DECISIONS.md D34) and PARTITION BY (toDate(received_at),
+-- late_part) instead of toDate(Timestamp); no TTL; no
 -- idx_res_attr_key / idx_scope_attr_key / idx_log_attr_key, for their insert
 -- cost: HyperDX finds map keys through the *_attr_items indexes instead).
 -- The sort key is ClickStack's.
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS {table}
     `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     `schema_version` UInt16 CODEC(ZSTD(1)),
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    `late_part` UInt8 CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
     INDEX idx_scope_attr_items ScopeAttributeItems TYPE text(tokenizer = 'array'),
@@ -56,7 +58,7 @@ CREATE TABLE IF NOT EXISTS {table}
     PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
 )
 ENGINE = MergeTree
-PARTITION BY toDate(received_at)
+PARTITION BY (toDate(received_at), late_part)
 ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
 SETTINGS non_replicated_deduplication_window = 1000, index_granularity = 8192, ttl_only_drop_parts = 1, enable_block_number_column = 1, enable_block_offset_column = 1;
 

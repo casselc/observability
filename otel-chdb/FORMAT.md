@@ -222,6 +222,12 @@ stays honest for its own rows, the consumer ingests the parts as two
 slots, and `oscope-low` and `complete_through` are per slot as before.
 Metrics requests are not split.
 
+Central keeps the parts apart too ([D34](DECISIONS.md#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own)):
+the consumer writes `late_part` = 1 for an object whose `oscope-part` is
+`late` (0 for anything else) into traces and logs tables partitioned by
+`(toDate(received_at), late_part)`, so late rows never merge into the
+bulk's parts, and never in a statement with bulk objects.
+
 ## 3. What the consumer promises: `complete_through`
 
 Per lane, the checkpoint (`{ctl}/ckpt/{lane}.json`) carries, besides the
@@ -318,6 +324,103 @@ for the window's scope, pages on a stalled watermark, and labels every
 result with its source and that source's value (completeness.qnt
 `evalWithinComplete`, `resultLabeled`, `clusterSound`). The lake's sealer
 publishes its own, by the same rule.
+
+### 3.1 Retiring a lane (designed, not built: [D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed))
+
+A lane that stops advancing holds its cluster's `complete_through` (and the
+fleet's) at its watermark for good, and is paged as `stale`: from S3 an idle
+lane, a slow one and a dead publisher with a full buffer look the same.
+Retiring a lane takes it out of the minimum. It needs a **proof that the
+lane's custody is empty**, and a **bound** on what may still come from it.
+Model: [`model/retirement.qnt`](model/retirement.qnt)
+(`model/retirement_model.sh`).
+
+**Two proofs, nothing else.**
+
+1. **An orderly close (the publisher's).** At shutdown the publisher stops
+   its receivers (not ready; for a StatefulSet, before the scale-down),
+   drains its buffer (every request committed and seen committed: Quiver
+   empty, `patches/0006`'s custody floor at "none"; the Go queue empty),
+   and only then commits, in each of its lanes' current epochs, one last
+   slot with `oscope-kind: close` and `oscope-low` = its custody floor,
+   which is the close time since custody is empty. A close says: nothing is
+   in custody, nothing will enter it (the process is exiting), no PUT of
+   this incarnation is in flight (all were acked). A close committed with
+   custody left is the mutant `closeUndrained` (unsound). Once the lane's
+   holder has passed the close (it and every slot before it ingested, and
+   nothing after it listed), the lane is retired at **R = the close's
+   low**, recorded in its checkpoint (`retired_ns`, `retired_epoch`).
+2. **An operator's retirement, with evidence** (a publisher that died
+   without a close: a crash, an eviction, a lost node). `consume
+   retire-lane --lane {cluster}/{producer}/{signal} --evidence "…"`, taken
+   only when (a) the publisher's volume is **deleted** (its custody lost:
+   an acknowledged loss, reported with the count the last heartbeat or
+   metrics showed), (b) the process has been gone longer than a request
+   lifetime (GC's `zombie_ms`: no PUT of it can still land), after which the
+   consumer tombstones the lane's newest epoch's head as it does for a
+   superseded one, and (c) the lane's holder has passed every slot the lane
+   shows (a zombie PUT that landed before the retirement is ingested, not
+   quarantined: the model's first finding). The lane is retired at **R =
+   the retirement's time**, which (b) puts strictly after the death, so
+   above every `received_at` the dead process held (retiring at the
+   death's own instant let a replay received at exactly R through: the
+   model's third finding). Without (a) the design refuses it: an operator
+   who retires a lane whose volume is kept is the model's `opMistake`
+   (below).
+
+A lane that merely stopped (stale for however long) is never retired: that
+is the mutant `retireStale`, and the custody it held lands, or not, below
+a value already published.
+
+**While retired**, the lane counts as +inf in every minimum of §3 (fleet,
+its cluster, its signal): its cluster's value then follows its other lanes
+and the cap `t_list − skew`. Its `lane_wm` entry says `retired` with R.
+
+**Coming back.** A lane is retired only up to its retired epoch: when an
+object of a later epoch is listed (a new incarnation's birth: StatefulSet
+ordinal reuse, the same producer id), it counts again, from that birth (the
+mutant `staysRetired` leaves it out, and its new requests pass unread).
+That is sound for the same reason a new lane is (§3's "born after the
+LIST"): the birth is committed before the new incarnation takes custody, so
+its new requests are received after it, above anything published from a
+LIST that did not show it.
+
+**The bound: quarantine, never ingest below R.** An object of a retired
+lane (any epoch) whose `oscope-received` is below R can only be custody the
+retirement said did not exist: a volume that was kept after all and adopted
+by a new pod, which replays it with its original `received_at` (D19). Such
+an object is **quarantined**: not ingested into central, recorded in
+`{ctl}/quarantine/{lane}.json` (slot, content key, rows, received_at) and
+paged (`consumer_quarantined_objects_total`); its slot counts as passed for
+the checkpoint and the watermark. The alternatives, for the record:
+*ingest it* is the hazard (`ingestBelow`: rows appear below a
+`complete_through` already published; answers at an earlier basis (D30)
+change and alert windows already evaluated OK were wrong, silently);
+*refuse it* (leave it unread in the lane) blocks the lane's checkpoint for
+good. Admitting a quarantined object is an operator's decision, taken
+knowing it re-opens those windows (`consume admit` would insert it and
+report the bases and windows it touches: not designed further). With the
+evidence the design requires, the quarantine stays empty (the model checks
+`quarantineOnlyOnMistake`); an operator's mistake is safe in the sense
+that matters for readers (`noLateBelow`: nothing is ever ingested below a
+published value), and loses completeness only for the requests it
+wrongly declared gone, until they are replayed into the quarantine.
+
+**Also found by the model, without any retirement:** a volume must not be
+deleted while a PUT of its dead process can still land. A lost request's
+PUT that lands after `complete_through` passed it would be ingested below
+it. The scale-down runbook's "delete the PVC only after the drain" gains:
+and only once the pod has been gone longer than a request lifetime.
+
+Nothing of this is built yet; building it needs: the close slot in both
+edges (the Rust exporter after `durable_buffer` reports an empty custody
+at shutdown, the Go exporter after its sending queue drains in
+`Shutdown`), with a shutdown budget longer than the drain (else no close,
+and the lane stays stale: safe), and the conformance run comparing them;
+the consumer's `Found::Close`, the retirement in the checkpoint, the
++inf in `watermark.rs`, the un-retirement on a later epoch, the quarantine
+path in the worker and its document and metric; `consume retire-lane`
+with the tombstone and the three checks; a DST mutant per model mutant.
 
 ## 4. Control documents
 

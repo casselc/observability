@@ -7,8 +7,9 @@
 //! with:
 //! - an aggregating projection content_key → count(), so the check before
 //!   insert reads a few hundred bytes, not the table (../model/FASTPATH.md §4);
-//! - a batch-constant partition key, `toDate(received_at)`, so every insert
-//!   is one part and atomic;
+//! - an object-constant partition key, `toDate(received_at)` (metrics) or
+//!   `(toDate(received_at), late_part)` (traces and logs, DECISIONS.md D34),
+//!   so every object is one part and atomic;
 //! - a pinned nonzero `non_replicated_deduplication_window`, and inserts
 //!   formed as one block (`ONE_BLOCK`), so the dedup token also protects an
 //!   insert retried after a crash.
@@ -317,11 +318,12 @@ mod tests {
             assert_eq!(t, st[0]);
             assert!(t.starts_with(&format!("CREATE TABLE IF NOT EXISTS {table}\n(")), "{t}");
             // What the consumer relies on (sql.rs: range_partition_key, counts, the dedup token).
-            assert!(t.contains("\nPARTITION BY toDate(received_at)\n"), "{t}");
+            assert!(t.contains("\nPARTITION BY (toDate(received_at), late_part)\n"), "{t}");
+            assert!(t.contains("\n    `late_part` UInt8 CODEC(ZSTD(1)),\n"), "{t}");
             assert!(t.contains("PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)"), "{t}");
             assert!(t.contains("SETTINGS non_replicated_deduplication_window = 1000, "), "{t}");
             // Every column the INSERT names exists as a column that takes input.
-            for c in format!("{cols}{ENV_COLS}, content_key").split(", ").map(|c| c.trim_start_matches(", ").trim_matches('`')) {
+            for c in format!("{cols}{ENV_COLS}, content_key, late_part").split(", ").map(|c| c.trim_start_matches(", ").trim_matches('`')) {
                 let decl = format!("\n    `{c}` ");
                 let at = t.find(&decl).unwrap_or_else(|| panic!("{c} not in {t}"));
                 let line = t[at + 1..].lines().next().unwrap();

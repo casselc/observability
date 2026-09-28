@@ -198,6 +198,8 @@ pub struct Tally {
     pub late: u64,
     pub timeout_commit: u64,
     pub landed: u64,
+    /// Rows landed from late parts (D34).
+    pub late_rows: u64,
     pub check_err: u64,
     pub pauses: u64,
     pub kills: u64,
@@ -240,6 +242,22 @@ pub struct World {
     pub res_of: RefCell<BTreeMap<String, String>>,
     /// Committed data objects that announce a resource: slot -> resource.
     pub ann_of: RefCell<BTreeMap<(String, String, u64), String>>,
+    /// Committed content keys that are late parts (`oscope-part: late`,
+    /// DECISIONS.md D31): their rows must land with `late`, and never in a
+    /// statement with bulk objects (D34).
+    pub late_of: RefCell<BTreeSet<String>>,
+}
+
+/// Whether an edge commits a content key as the late part of a split
+/// request: one in five, by the key alone, so a retry or a resend agrees.
+pub fn sim_late(content: &str) -> bool {
+    !NO_LATE.with(|c| c.get()) && content.bytes().map(u64::from).sum::<u64>() % 5 == 0
+}
+
+thread_local! {
+    /// No late parts at all (the fleet as before D34): regressions found on
+    /// that fleet replay their seed with it.
+    pub static NO_LATE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// A sim object's resource (S3 metadata; the real object carries it in
@@ -335,6 +353,9 @@ impl World {
         if let Some((lane, epoch, seq)) = parse_slot(key) {
             if meta.get(proto::META_KIND).map(String::as_str) == Some(proto::KIND_DATA) {
                 let content = meta.get(proto::META_CONTENT).cloned().unwrap_or_default();
+                if meta.get(proto::META_PART).map(String::as_str) == Some(proto::PART_LATE) {
+                    let _ = self.late_of.borrow_mut().insert(content.clone());
+                }
                 let _ = self.ever.borrow_mut().insert((lane.clone(), epoch.clone(), seq), content);
                 if meta.get(proto::META_ANNOUNCE).is_some_and(|n| n != "0") {
                     if let Some(r) = meta.get(META_SIM_RESOURCE) {
@@ -442,7 +463,18 @@ impl World {
             }
             return;
         }
+        // D34: a statement's objects are all late parts or all bulk, and each
+        // lands with its object's part (the `late_part` column's value).
+        if objs.iter().any(|o| objs.first().is_some_and(|f| o.late != f.late)) {
+            self.violation(format!("statement #{n} mixes late parts and bulk objects: {:?}", objs.iter().map(|o| (&o.content, o.late)).collect::<Vec<_>>()));
+        }
         for o in objs {
+            if o.late != self.late_of.borrow().contains(&o.content) {
+                self.violation(format!("latePart: rows of {} land with late = {}, their object says otherwise", o.content, o.late));
+            }
+            if o.late {
+                self.tally.borrow_mut().late_rows += o.rows;
+            }
             // sameLane: a row reaches central only after the announcement of
             // its resource (entityCatalog.qnt ingestRow).
             if let Some(r) = self.res_of.borrow().get(&o.content) {
@@ -851,7 +883,14 @@ impl SimCentral {
             if w.server_now() > fence.wall_ms {
                 w.tally.borrow_mut().fenced += 1;
                 trace(format!("CH #{n} fenced (server {} > fence {})", w.server_now(), fence.wall_ms));
-                let _ = tx.send(Ok(()));
+                // An insert's fence selects nothing; an announcement's raises (sql.rs FENCED).
+                let r = if kind == Stmt::Announce {
+                    let msg = format!("clickhouse 500: Code: 395. DB::Exception: {}: fenced. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)", crate::consumer::sql::FENCED);
+                    Err(InsertErr { settled: settles_at_once(&msg), answered: true, range: false, msg })
+                } else {
+                    Ok(())
+                };
+                let _ = tx.send(r);
                 return;
             }
             match outcome {
@@ -1021,6 +1060,10 @@ impl Edge {
             if recv_ns > 0 {
                 let _ = m.insert(proto::META_RECEIVED.to_string(), recv_ns.to_string());
             }
+            if has_resources(&self.signal) {
+                let part = if sim_late(content) { proto::PART_LATE } else { proto::PART_BULK };
+                let _ = m.insert(proto::META_PART.to_string(), part.to_string());
+            }
             match b.put(&key, Bytes::from_static(&[0u8; 64]), Cond::Create, &m).await {
                 Put::Ok(_) => {
                     self.next += 1;
@@ -1140,6 +1183,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
         lease_puts: RefCell::new(BTreeMap::new()),
         res_of: RefCell::new(BTreeMap::new()),
         ann_of: RefCell::new(BTreeMap::new()),
+        late_of: RefCell::new(BTreeSet::new()),
     });
     let stop = Rc::new(Cell::new(false));
     // Edges.
@@ -1453,6 +1497,7 @@ impl World {
             lease_puts: RefCell::new(BTreeMap::new()),
             res_of: RefCell::new(BTreeMap::new()),
             ann_of: RefCell::new(BTreeMap::new()),
+            late_of: RefCell::new(BTreeSet::new()),
         })
     }
 

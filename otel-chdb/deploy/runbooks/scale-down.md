@@ -43,6 +43,11 @@ hand, one ordinal at a time, only while S3 is healthy:
 3. **Scale down** (`kubectl -n otel-edge scale sts/otap-publisher --replicas=N`).
 4. **Only then delete the PVC**, and only if step 2 held. If in doubt keep
    it: a kept PVC costs disk, a deleted non-empty one loses acked data.
+   And only once the pod has been gone longer than a request lifetime (the
+   consumer's GC `zombie_ms`): a PUT the dead process still had in flight
+   can land after the consumer's `complete_through` passed its request,
+   which would put its rows below a published value (found by
+   `model/retirement.qnt`; FORMAT.md §3.1).
 
 ## Rule 2: an unmounted buffer volume is an alert
 

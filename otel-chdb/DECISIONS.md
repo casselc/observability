@@ -69,6 +69,8 @@ disagreed with each other, and how each was resolved.
 | [D30](#d30-the-basis-answers-at-a-named-custody-time) | The basis: every query and plan answer names a custody time per cluster (an HMAC-protected token); a request at a basis reads only rows received before it (strictly), so its answer never changes; deltas between bases; the alert evaluator re-checks evaluated windows for late rows (`on_late`); one basis per dashboard refresh and per lake UI run; caches keyed on it | **built** (2026-09-28): `query/internal/basis`, the service, the lake plan, the adapter and fork patch 0003, the lake UI, the evaluator; [research/bitemporal.md](research/bitemporal.md) §3 |
 | [D33](#d33-hyperdx-through-the-query-service-fully-scoped-dictionaries-labelled-samples-a-performance-settings-allow-list-cluster-on-the-rollups-the-users-token-server-side) | HyperDX through the query service, fully: the catalog's dictionaries by name with every lookup guarded per caller, `resource_kv` served, a labelled sample mode, a performance-settings allow-list in configuration, a cluster column on the key/value rollups, the user's token on user-started server-side queries, `total_rows` as 0/1 for restricted callers | **built** (2026-09-28): owner decisions of 2026-09-28; the rwproxy chain 69/69 through the service |
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
+| [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
+| [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **designed** (2026-09-28): FORMAT.md §3.1, `model/retirement.qnt`; not built |
 
 ---
 
@@ -1216,7 +1218,7 @@ default) or S3 with a copy per replica (the replicated recommendation).
 | move to cold | TTL MOVE, day-granular | about 1.3 ms CPU/MB to local disk, about 15 ms/MB to S3 [E by difference]: 0.01× and about 0.1× insert CPU ([`bench/merges/README.md`](bench/merges/README.md) §TTL costs, `a4cec67`) |
 | `move_factor` | **0** on tiered policies | the default 0.1 on a disk over 90% full moved **every new part** to the cold volume, and merges there cost +19% |
 | expiry | `ttl_only_drop_parts = 1`, day-granular | ≈ 0 merge CPU; a row-level TTL costs 0.24× insert |
-| partition key | `toDate(received_at)` | makes every batch one part and every insert atomic ([`model/FASTPATH.md`](model/FASTPATH.md) §6) |
+| partition key | `toDate(received_at)`; traces and logs `(toDate(received_at), late_part)` since D34 | makes every batch one part and every insert atomic ([`model/FASTPATH.md`](model/FASTPATH.md) §6); `late_part` is object-constant too |
 | hourly partitions | not adopted | −17–20% merge CPU at 1,100 parts, for 24× the partitions |
 | cold copies | a copy per replica ([D13](#d13-replicated-central-plain-replicatedmergetree-no-zero-copy)) | one copy needs zero-copy, which is rejected |
 
@@ -1915,9 +1917,10 @@ The owner took the coordinator's recommendations:
   - **Adopt the central partition key `(toDate(received_at), late_part)`**
     (D31's measurement: 213 granules against 404 per 5-minute window with 1%
     late rows), with its migration and the consumer's partition-range check.
+    Built: D34.
   - **Metrics are not split** for now.
   - **Dead-lane retirement:** design it (a proof that a retired lane's
-    custody is empty) before any per-node publisher layout.
+    custody is empty) before any per-node publisher layout. Designed: D35.
 - **Query service and HyperDX.**
   - Serve the **catalog dictionaries and `resource_kv`** through the query
     service, scoped by cluster, so the entity rewrite proxy works through it.
@@ -3012,7 +3015,7 @@ UI's browser e2e does not exercise the basis yet.
 `s3pq` exporter `late_split_after`), the Rust edge (`otap-rs/src/late.rs`,
 exporter `late_split_after`), the plan's `part` (`query/internal/lake`),
 [FORMAT.md](FORMAT.md) §2.2, the conformance run. Central's partition key:
-measured and **proposed, not built** (below). Design note:
+measured and proposed (below); **built since as [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own)**. Design note:
 [research/bitemporal.md](research/bitemporal.md) §4.
 
 **Problem.** An edge object's `oscope-min-time`/`oscope-max-time` span all
@@ -3359,6 +3362,244 @@ is generated from the consumer's DDL and must be regenerated. An MCP or
 external API client must send an OIDC token; HyperDX does not check that
 its subject is the access key's user (the service scopes by the token). A
 sample that read everything is still labelled a sample.
+
+### D34. Central's partition key `(toDate(received_at), late_part)`: late parts in partitions of their own
+
+**Status:** **built** (2026-09-28; owner decision of 2026-09-28, "adopt the
+central partition key", from D31's measurement): the consumer
+(`otap-rs/src/consumer`: `plan.rs`, `sql.rs`, `worker.rs`), the DDL
+(`otap-rs/sql/otel_{traces,logs}.sql`, `central-replicated/sql/central_zc.sql`
+regenerated), the migration (`otap-rs/scripts/migrate_late_part.py`), a
+measurement through the real consumer. Metrics are not split (owner
+decision): their tables keep `toDate(received_at)` and get no column.
+
+**Context.** D31's edges put a request's rows older than `late_split_after`
+into a late object of their own (`oscope-part: late`), but central
+partitioned by `toDate(received_at)` alone, so merges rejoined late and bulk
+rows, and a merged part's per-part `Timestamp` statistics (ClickHouse
+26.10's part pruning) spanned every late row it held.
+
+**Decision.**
+
+1. **An object-constant column** `late_part UInt8` on traces and logs: 1 for
+   an object whose `oscope-part` is `late`, 0 otherwise (bulk, an unsplit
+   request, an edge from before D31). It only steers partitioning: a wrong
+   value costs pruning, never a row.
+2. **`PARTITION BY (toDate(received_at), late_part)`.** An object is still
+   one part (its rows share both values), so an object's insert is still
+   atomic; late rows never merge into the bulk's parts.
+3. **Statements never mix parts** (`plan::group`): late parts and bulk
+   objects fill separate statements, so a squashed statement is still one
+   part per day and lands whole or not at all. The insert writes
+   `late_part` as a constant (`toUInt8(v)`; a mixed statement, which
+   `group` never builds, would get it per object by `_path`), and the repair
+   likewise.
+4. **Only where the column exists.** `ensure` reads `system.columns`; a table
+   without `late_part` (created before, or an operator's) gets exactly the
+   statements it got before. So the new consumer can be deployed before the
+   migration, and the migration needs no consumer change, only a restart
+   after the swap (`ensure` runs at start).
+5. **The partition parse: an exact list.** The count check's range reads
+   `_partition_value.1` (the day) and never parsed partition ids;
+   `range_partition_key` now accepts exactly `toDate(received_at)` and
+   `(toDate(received_at), late_part)` (`RANGE_PARTITION_KEYS`); anything
+   else reads every partition (exact, slower). A key accepted wrongly is the
+   hazard: under `(toDate(addHours(received_at, 12)), late_part)` the same
+   predicate silently reads the wrong partitions (a check that misses rows
+   re-inserts them: a duplicate), which a real-ClickHouse test shows; the
+   key in the other order fails loudly (`UInt8 BETWEEN Date`). The horizon
+   audit (`_partition_value.1`, per day), retention (`TTL` on `received_at`,
+   whole parts) and GC (S3 keys) need no change: nothing else reads a
+   partition id. Checked by a property (`prop_range_partition_key_is_exact`:
+   accepted ⇒ the first element is the day and the rest `late_part`; the
+   shipped keys in any spacing accepted) and on ClickHouse
+   (`the_range_reads_the_first_element_under_both_keys`: under both keys
+   the range reads exactly the rows `CheckRange::covers`, rows on and
+   around midnight, late or not, 40 random ranges each).
+6. **Migration** (`migrate_late_part.py`; ClickHouse cannot change a key in
+   place, and `ATTACH PARTITION FROM` needs the same key): `copy`, **online**
+   with the consumers running (a new table from the old one's own `SHOW
+   CREATE`, the column and key added; each day copied unless its
+   per-content-key counts already match; a key is late iff all its rows
+   are older than `late_split_after` before its `received_at`, decided per
+   key so a key never spans both values); then `final` with the consumers
+   **paused** and settled (lease TTL + budget + Keeper slack): only what
+   differs is copied again (the content keys a day lacks, or the whole day
+   if a key's count differs), every day compared, then `EXCHANGE TABLES`
+   (atomic); then the consumers restart. Every phase is restartable (a day
+   is compared before it is skipped; after the exchange `final` only
+   verifies). **Why the pause:** the consumer's checkpoints are in S3; rows
+   inserted into the old table after their day was copied and before the
+   swap would leave the live table after the consumer had verified them
+   and moved on: a silent loss. With the pause, every (content key, day)
+   count the check can read after the swap equals the one before, so the
+   fences, checks and checkpoints stay valid. The dedup window starts empty
+   on the new table (the check precedes every insert; the token is its
+   backstop). The rollup's view follows the table's name: the copy does not
+   feed it, the new table does after the swap [M].
+
+**Measured [M]** ([`otap-rs/results/consumer/late-part-key.md`](otap-rs/results/consumer/late-part-key.md); ClickHouse 26.10; D31's shape through the real Go edge
+(`parquetgo/edge` `TestLatePartitionDataset`) and the real consumer: 3 days
+of trace batches every 10 s, 200 spans each, 1% of the batches with 20 spans
+15 min–24 h old; 25,920 requests → 26,194 objects (274 late parts), 5,189,480
+spans; ids low-entropy to save disk, which changes no row or granule count;
+916 statements for either key, 32 objects each but for the late parts'
+own; 5-minute windows over day 2, `EXPLAIN indexes = 1`, as D31):
+
+| table | parts read / granules per window | with `ServiceName = …` | active parts | size |
+| --- | --- | --- | --- | --- |
+| old key, at the end of the ingest (background merges) | 3.37 / 353.8 | 3.37 / 55.5 | 14 | 147 MiB |
+| new key, at the end of the ingest | 2.75 / 62.8 | 1.00 / 9.9 | 24 | 146 MiB |
+| old key, merged (`OPTIMIZE FINAL`) | 1.91 / 431.2 | 1.91 / 65.1 | 3 | 172.2 MiB |
+| new key, merged | 2.75 / 229.7 | 1.00 / 34.0 | 6 | 173.5 MiB |
+| migrated, merged | 2.75 / 213.7 | 1.00 / 33.0 | 6 | 172.0 MiB |
+
+(D31's SQL-generated rows: 1.92 / 404 old, 2.88 / 213 new, 211 with no late
+rows.) The gain holds with the consumer's inserts: merged, 1.9× fewer
+granules (1.9× with a service filter); before the merges finish, 5.6×,
+since the late parts no longer stretch the bulk's small recent parts. The
+third part read is a late partition (small). **Insert cost: unchanged**:
+the same 916 statements and ~2,018 parts written; the server's insert time
+112.8 s (new) against 122.5 s (old), merges 549 against 562 and 16.7M
+against 20.1M rows merged (late rows no longer rewrite the bulk's big parts);
+wall 241 s against 261 s (server-wide counters, other agents on the box:
+within noise). Size +0.8% merged (6 parts per 3 days, a 1-byte column).
+
+**Migration [M].** The 60-hour table (4.3M rows) migrated while the real
+consumer ingested 6 more hours into it: `copy` 17.7 s (4.50M rows, 136 MiB
+beside 128 MiB); the consumer stopped; `final` re-copied the one day it had
+written to (1.30M rows, 3.6 s; whole-day copy then) and exchanged in 2 ms:
+**a pause of 3.9 s**; the consumer restarted on the new table and ingested
+the last 6 hours with `late_part` from metadata. Against a direct ingest of
+the same 26,194 objects: equal rows (5,189,480), keys, and counts per
+(content key, day, late_part), 0 duplicates, the rollup's counts equal to
+the rows, and the per-key late heuristic right for all 26,194 keys. The
+delta path: a day already copied that gained 728 objects (144k rows) during
+`copy` is completed in 1.0 s by key instead of its 1.73M rows; re-runs of
+`copy` skip matching days and `final` after the swap only verifies. The
+pause is bounded by what the consumers wrote during `copy`, not by the
+table.
+
+**Found on the way (a bug, fixed):** announcements' silent server fence.
+`dst_consumer` seed 1950 (and 331) failed `sameLane` / "announcements not
+ingested": an announcement statement sent just past its fence, on a server
+whose clock ran 359 ms ahead of the worker's, was a no-op answered with an
+empty OK, which `announce_first` took for landed (its only check is the
+worker's own clock), so the lane's rows went in without their resources'
+announcements. An insert's fence may be silent (the verify counts the
+rows); an announcement has no verify, so its fence is now loud
+(`throwIf(now64(3) > fence, 'OTAPRS_FENCED…')`, settled at once): the lane
+sits the round out. Regression: `a_server_fenced_announcement_is_not_taken_for_landed`
+(seed 1950), a real-ClickHouse check that a fenced announcement answers
+`OTAPRS_FENCED` settled with nothing written; 2,000 seeds pass. Two tests
+that had been silently skipped (no bucket) were broken and are fixed: the
+horizon audit's end-to-end test wrote a format-v1 lane the consumer never
+discovers, and the announcement test's TSV escaped the quotes it compared.
+
+**Tests.** Consumer unit tests (82, with S3 and ClickHouse: the statements,
+the ranged key on ClickHouse, each object in its own `late_part` partition
+one part each, `late_parts_get_statements_of_their_own` with its mutant);
+`dst_consumer` (fixed seeds, 2,000 seeds, the new mutant `mix_late_parts`
+caught, `latePart` and "a statement mixes" checked at every landing, one
+content key in five a late part); `dst_net`'s ClickHouse emulator
+(`system.columns`, the late column per object, compared with a real
+ClickHouse: equal); `hegel_props` (grouping never mixes, per-kind order and
+maximality; `late_part` spliced as a literal; the partition-key property).
+
+**Limits.** A replicated central was not migrated here: `copy` gives the
+new table `<path>_pk2` as its Keeper path and `EXCHANGE` must run on every
+replica (the pause covers it); an `ON CLUSTER` variant is not written.
+Nothing enforces the pause (a consumer still writing makes `final` fail, it
+cannot pass). Metrics objects are not split, so their tables keep the old
+key. `ClickStack`'s full DDL kept for comparison (`hyperdx/sql/clickstack_full_*`)
+and the historical `entities/sql/generated/*` keep the old key.
+
+### D35. Dead-lane retirement: a proof of empty custody, then quarantine below the bound (designed)
+
+**Status:** **designed, not built** (2026-09-28; owner decision of
+2026-09-28: "design it before any per-node publisher layout"). Design:
+[FORMAT.md](FORMAT.md) §3.1. Model: [`model/retirement.qnt`](model/retirement.qnt),
+`model/retirement_model.sh` (nightly).
+
+**Problem.** D29's limit 4: a lane that stops advancing holds its
+cluster's (and the fleet's) `complete_through` at its watermark for good,
+paged as `stale`, and nothing retires it. From S3 an idle lane, a slow one
+and a dead publisher whose volume still holds acknowledged requests look the
+same; per-node publishers would turn every scale-down into such a lane.
+
+**Decision (proposed).**
+
+1. **Retire only on a proof that the lane's custody is empty.** Two
+   proofs: (a) the publisher's **orderly close**: at shutdown it stops its
+   receivers, drains its buffer (every request committed and seen
+   committed), then commits one last slot per lane, `oscope-kind: close`,
+   whose low is its (now empty) custody floor; the lane's holder retires the
+   lane once it has passed the close (everything up to it ingested, nothing
+   after it listed), at **R = the close's low**; (b) an **operator's
+   retirement with evidence** for a publisher that died without one: its
+   volume deleted (the custody lost, acknowledged), the process gone longer
+   than a request lifetime (no PUT can still land; then the consumer
+   tombstones the epoch's head), and every slot the lane shows passed; at
+   **R = the retirement's time**, strictly after the death. A lane that is
+   merely stale is never retired.
+2. **A retired lane is +inf in every minimum**, until an object of a later
+   epoch appears (a new incarnation's birth: StatefulSet ordinal reuse);
+   then it counts again from that birth (sound as for a new lane: its new
+   requests are received after a birth that no earlier published value's
+   LIST showed).
+3. **Below R: quarantine, never ingest.** An object of a retired lane whose
+   `oscope-received` is below R can only be custody the retirement said did
+   not exist (a kept volume adopted and replayed, D19 keeping its
+   `received_at`). It is recorded in `{ctl}/quarantine/{lane}.json`, paged,
+   its slot passed; admitting it is an operator's decision that re-opens
+   the bases and windows it falls in. Ingesting it is the hazard (rows below
+   a value already published: D30 answers change, OK windows were wrong);
+   refusing it (leaving it unread) blocks the lane's checkpoint forever.
+
+**Evidence [Q].** `retirement_model.sh` (20,000 samples × 60 steps, seed
+0x5eed; ~2.5 min): the design holds `completeSound` (every request below the
+published value ingested, lost with a deleted volume, or quarantined),
+`noLateBelow` (nothing ingested below a value published before it) and
+`quarantineOnlyOnMistake` (with the evidence, the quarantine stays empty);
+six witnesses reached (retired by a close and passed, retired by an operator
+and passed, reborn and ingested, a request lost with its volume, a zombie
+PUT landing, a dead publisher's custody replayed by its adopter); six
+mutants caught: `retireStale` (retire a stale lane), `closeUndrained` (a
+close with custody left) and `staysRetired` (a reborn lane left out) break
+`completeSound`; `ingestBelow` (no quarantine) breaks `noLateBelow`;
+`retireInFlight` (no zombie wait) quarantines a request that did reach S3;
+the operator's mistake (retiring a kept volume, `opMistake`) keeps
+`noLateBelow` and loses `completeSound` for exactly the requests it declared
+gone, until they reach the quarantine. Scripted runs for each. **Three
+findings of the model, folded into the design:** an operator retirement
+with a zombie PUT landed but not yet ingested quarantined a request that did
+reach S3 (so: every visible slot passed first); retiring at the death's own
+instant let a replay received at exactly R through (so: R strictly after
+the death); and, without any retirement, deleting a volume while a PUT of
+its dead process can still land puts that request's rows below a published
+value once it lands (the scale-down runbook's PVC deletion must also wait
+out a request lifetime).
+
+**Alternatives.** Retire on staleness alone (a timeout): unsound
+(`retireStale`), and at fleet scale the common case of an evicted pod with
+a full buffer. A heartbeat-age lease per lane that expires: the same thing
+with a name. Ingest late custody and bump nothing: the hazard. Hold the
+lane forever (today): sound, but every scale-down pages and stalls its
+cluster's alerts.
+
+**What building it needs.** The close slot in both edges (Rust: after
+`durable_buffer` reports an empty custody at shutdown; Go: after the
+sending queue drains in `Shutdown`), with a shutdown grace longer than the
+drain (else no close: the lane stays stale, safe); the consumer's
+`Found::Close`, `retired_ns`/`retired_epoch` in the checkpoint, +inf in
+`watermark.rs` and a `retired` mark in `lane_wm`, un-retirement on a later
+epoch, the quarantine path (worker, document, metric), `consume
+retire-lane` with its three checks and the head tombstone; FORMAT's
+`oscope-kind: close`; a DST mutant per model mutant; the conformance run
+comparing the two edges' closes; the runbook (drain, then scale down; PVC
+deletion only after a request lifetime). Owner decisions: whether the
+operator's retirement is allowed at all before per-node publishers, and
+what `consume admit` may do.
 
 ## 6. Upstream bugs found
 

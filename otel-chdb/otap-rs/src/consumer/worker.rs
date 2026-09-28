@@ -1107,10 +1107,11 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         w.data.push(*seq);
                         w.beats.push(*seq);
                     }
-                    Found::Data { content, rows, received_ns, announce, .. } => {
+                    Found::Data { content, rows, received_ns, announce, late, .. } => {
                         w.data.push(*seq);
                         objs.push(Obj {
                             announce,
+                            late,
                             lane: id.to_string(),
                             epoch: e.clone(),
                             seq: *seq,
@@ -1221,7 +1222,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 continue;
             }
             if !k.counted {
-                for g in plan::group(list, &self.cfg.limits) {
+                for g in plan::group_parts(list, &self.cfg.limits, self.cfg.timing.mutation != Mutation::MixLateParts) {
                     self.maintain().await;
                     let refs: Vec<&Obj> = g.iter().collect();
                     let Some(fence) = self.window(&refs) else { continue };
@@ -1302,7 +1303,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     Verdict::Absent => absent.push(o),
                 }
             }
-            for g in plan::group(absent, &self.cfg.limits) {
+            for g in plan::group_parts(absent, &self.cfg.limits, self.cfg.timing.mutation != Mutation::MixLateParts) {
                 self.insert_group(&k, g, &mut ok).await;
             }
             self.stats.dedup_skipped += copies;

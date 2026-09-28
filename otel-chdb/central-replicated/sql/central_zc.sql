@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS central.otel_traces
     `SampleRate` UInt64 MATERIALIZED greatest(toUInt64OrZero(SpanAttributes['SampleRate']), 1) CODEC(T64, ZSTD(1)),
     `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
     `SpanAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), SpanAttributes::Array(Tuple(String, String))),
+    `resource_id` UInt64 CODEC(ZSTD(1)),
     `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
     `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
     `batch_id` UInt64 CODEC(ZSTD(1)),
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS central.otel_traces
     `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     `schema_version` UInt16 CODEC(ZSTD(1)),
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    `late_part` UInt8 CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_rum_session_id __hdx_materialized_rum.sessionId TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
@@ -44,7 +46,7 @@ CREATE TABLE IF NOT EXISTS central.otel_traces
     PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
 )
 ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_traces', '{replica}')
-PARTITION BY toDate(received_at)
+PARTITION BY (toDate(received_at), late_part)
 ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, ttl_only_drop_parts = 1;
@@ -55,32 +57,34 @@ CREATE TABLE IF NOT EXISTS central.otel_traces_kv_rollup_15m
     `ColumnIdentifier` LowCardinality(String),
     `Key` LowCardinality(String),
     `Value` String,
+    `cluster` LowCardinality(String),
     `count` UInt64,
     INDEX idx_count_minmax count TYPE minmax GRANULARITY 1,
     INDEX idx_timestamp_minmax Timestamp TYPE minmax GRANULARITY 1
 )
 ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/central/otel_traces_kv_rollup_15m', '{replica}')
 PARTITION BY toDate(Timestamp)
-ORDER BY (ColumnIdentifier, Key, Timestamp, Value)
+ORDER BY (ColumnIdentifier, Key, Timestamp, Value, cluster)
+PRIMARY KEY (ColumnIdentifier, Key, Timestamp, Value)
 TTL Timestamp + INTERVAL 1 DAY DELETE
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS central.otel_traces_kv_rollup_15m_mv TO central.otel_traces_kv_rollup_15m
 AS WITH elements AS (
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanName' AS Key, CAST(SpanName AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanName' AS Key, CAST(SpanName AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanKind' AS Key, CAST(SpanKind AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SpanKind' AS Key, CAST(SpanKind AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'StatusCode' AS Key, CAST(StatusCode AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'StatusCode' AS Key, CAST(StatusCode AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value FROM central.otel_traces
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value, ResourceAttributes['k8s.cluster.name'] AS cluster FROM central.otel_traces
 )
-SELECT Timestamp, ColumnIdentifier, Key, Value, count() AS count FROM elements
-GROUP BY Timestamp, ColumnIdentifier, Key, Value;
+SELECT Timestamp, ColumnIdentifier, Key, Value, cluster, count() AS count FROM elements
+GROUP BY Timestamp, ColumnIdentifier, Key, Value, cluster;
 
 CREATE TABLE IF NOT EXISTS central.otel_logs
 (
@@ -111,6 +115,7 @@ CREATE TABLE IF NOT EXISTS central.otel_logs
     `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
     `ScopeAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ScopeAttributes::Array(Tuple(String, String))),
     `LogAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), LogAttributes::Array(Tuple(String, String))),
+    `resource_id` UInt64 CODEC(ZSTD(1)),
     `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
     `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
     `batch_id` UInt64 CODEC(ZSTD(1)),
@@ -118,6 +123,7 @@ CREATE TABLE IF NOT EXISTS central.otel_logs
     `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     `schema_version` UInt16 CODEC(ZSTD(1)),
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    `late_part` UInt8 CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
     INDEX idx_scope_attr_items ScopeAttributeItems TYPE text(tokenizer = 'array'),
@@ -126,7 +132,7 @@ CREATE TABLE IF NOT EXISTS central.otel_logs
     PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
 )
 ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/central/otel_logs', '{replica}')
-PARTITION BY toDate(received_at)
+PARTITION BY (toDate(received_at), late_part)
 ORDER BY (toStartOfFiveMinutes(Timestamp), ServiceName, Timestamp)
 TTL toDateTime(received_at) + INTERVAL 3 MINUTE TO VOLUME 'cold', toDateTime(received_at) + INTERVAL 1 DAY DELETE
 SETTINGS storage_policy = 'tiered_zc', allow_remote_fs_zero_copy_replication = 1, index_granularity = 8192, ttl_only_drop_parts = 1, enable_block_number_column = 1, enable_block_offset_column = 1;
@@ -137,48 +143,50 @@ CREATE TABLE IF NOT EXISTS central.otel_logs_kv_rollup_15m
     `ColumnIdentifier` LowCardinality(String),
     `Key` LowCardinality(String),
     `Value` String,
+    `cluster` LowCardinality(String),
     `count` UInt64,
     INDEX idx_count_minmax count TYPE minmax GRANULARITY 1,
     INDEX idx_timestamp_minmax Timestamp TYPE minmax GRANULARITY 1
 )
 ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/central/otel_logs_kv_rollup_15m', '{replica}')
 PARTITION BY toDate(Timestamp)
-ORDER BY (ColumnIdentifier, Key, Timestamp, Value)
+ORDER BY (ColumnIdentifier, Key, Timestamp, Value, cluster)
+PRIMARY KEY (ColumnIdentifier, Key, Timestamp, Value)
 TTL Timestamp + INTERVAL 1 DAY DELETE
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS central.otel_logs_attr_kv_rollup_15m_mv TO central.otel_logs_kv_rollup_15m
 AS WITH elements AS (
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SeverityText' AS Key, CAST(SeverityText AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'SeverityText' AS Key, CAST(SeverityText AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ServiceName' AS Key, CAST(ServiceName AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeName' AS Key, CAST(ScopeName AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeVersion' AS Key, CAST(ScopeVersion AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ResourceSchemaUrl' AS Key, CAST(ResourceSchemaUrl AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ResourceSchemaUrl' AS Key, CAST(ResourceSchemaUrl AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeSchemaUrl' AS Key, CAST(ScopeSchemaUrl AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, 'ScopeSchemaUrl' AS Key, CAST(ScopeSchemaUrl AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.cluster.name' AS Key, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.cluster.name' AS Key, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.container.name' AS Key, CAST(`__hdx_materialized_k8s.container.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.container.name' AS Key, CAST(`__hdx_materialized_k8s.container.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.deployment.name' AS Key, CAST(`__hdx_materialized_k8s.deployment.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.deployment.name' AS Key, CAST(`__hdx_materialized_k8s.deployment.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.namespace.name' AS Key, CAST(`__hdx_materialized_k8s.namespace.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.namespace.name' AS Key, CAST(`__hdx_materialized_k8s.namespace.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.node.name' AS Key, CAST(`__hdx_materialized_k8s.node.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.node.name' AS Key, CAST(`__hdx_materialized_k8s.node.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.name' AS Key, CAST(`__hdx_materialized_k8s.pod.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.name' AS Key, CAST(`__hdx_materialized_k8s.pod.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.uid' AS Key, CAST(`__hdx_materialized_k8s.pod.uid` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_k8s.pod.uid' AS Key, CAST(`__hdx_materialized_k8s.pod.uid` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
     UNION ALL
-    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_deployment.environment.name' AS Key, CAST(`__hdx_materialized_deployment.environment.name` AS String) AS Value FROM central.otel_logs
+    SELECT 'NativeColumn' AS ColumnIdentifier, toStartOfFifteenMinutes(Timestamp) AS Timestamp, '__hdx_materialized_deployment.environment.name' AS Key, CAST(`__hdx_materialized_deployment.environment.name` AS String) AS Value, CAST(`__hdx_materialized_k8s.cluster.name` AS String) AS cluster FROM central.otel_logs
 )
-SELECT Timestamp, ColumnIdentifier, Key, Value, count() AS count FROM elements
-GROUP BY Timestamp, ColumnIdentifier, Key, Value;
+SELECT Timestamp, ColumnIdentifier, Key, Value, cluster, count() AS count FROM elements
+GROUP BY Timestamp, ColumnIdentifier, Key, Value, cluster;
 
 CREATE TABLE IF NOT EXISTS central.otel_metrics_series
 (

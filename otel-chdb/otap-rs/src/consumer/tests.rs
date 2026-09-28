@@ -937,6 +937,41 @@ async fn put_obj(b: &MemBucket, lane: &str, epoch: &str, seq: u64, content: &str
     b.insert(&key, Bytes::from(vec![0u8; 100]), meta_at(epoch, seq, content, rows, recv));
 }
 
+/// DECISIONS.md D34: an edge's late parts (`oscope-part: late`) reach
+/// central flagged `late` (the `late_part` column) and in statements of
+/// their own, bulk objects likewise, each exactly once; the `MixLateParts`
+/// mutant puts them together.
+#[tokio::test(flavor = "current_thread")]
+async fn late_parts_get_statements_of_their_own() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        let mut cf = cfg("w1");
+        cf.limits.max_objects = 8;
+        if mutant {
+            cf.timing.mutation = Mutation::MixLateParts;
+        }
+        let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+        // a split request is a bulk object then its late part, in one lane
+        for seq in 0..10u64 {
+            let key = proto::slot_key(&format!("{ROOT}/c1/p1/logs"), "E1", seq);
+            let mut m = meta_at("E1", seq, &format!("k{seq}"), 3, at(20_020, 10, 0));
+            let part = if seq % 2 == 1 { proto::PART_LATE } else { proto::PART_BULK };
+            let _ = m.insert(proto::META_PART.to_string(), part.to_string());
+            b.insert(&key, Bytes::from(vec![0u8; 100]), m);
+        }
+        for _ in 0..4 {
+            let _ = w.step().await;
+            clk.0.set(clk.0.get() + 200);
+        }
+        for seq in 0..10u64 {
+            assert_eq!(c.count("otel_logs", &format!("k{seq}")), 3, "exactly once");
+            let late = seq % 2 == 1;
+            assert_eq!(c.by_part.borrow().get(&("otel_logs".to_string(), format!("k{seq}"), late)).copied(), Some(3), "k{seq} with late = {late}");
+        }
+        assert_eq!(c.mixed_statements.get() > 0, mutant, "mixed statements (mutant {mutant})");
+    }
+}
+
 /// The check's partition range comes from the objects: a batch spanning a
 /// day boundary, and objects received days before they are ingested (with
 /// an earlier attempt already in central), are checked correctly; the
@@ -969,6 +1004,7 @@ async fn the_check_range_follows_the_data() {
             received_ns: at(20_005, 8, 0),
             seen_ms: 0,
             announce: 0,
+            late: false,
         };
         let k = super::sql::LaneKind::for_signal("logs").unwrap();
         let f = super::sql::Fence { wall_ms: u64::MAX, budget_ms: 1 };

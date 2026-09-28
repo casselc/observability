@@ -119,6 +119,21 @@ fn a_backlog_longer_than_the_lease_window_is_still_ingested() {
     }
 }
 
+/// Regression (found by seed 1950 on the fleet without late parts): the
+/// server's clock 359 ms ahead of the worker's, an announcement statement
+/// sent just past its fence was a silent no-op on the server, answered
+/// with an empty OK the worker took for landed; the lane's rows followed in
+/// a statement with a renewed fence, before their resources' announcements
+/// (`sameLane`). Announcements now carry a loud fence (sql.rs `FENCED`).
+#[test]
+fn a_server_fenced_announcement_is_not_taken_for_landed() {
+    let o = sim::run(1950, wall0(1950), false, |sim| async move {
+        NO_LATE.with(|c| c.set(true));
+        fleet(sim).await
+    });
+    assert!(o.failure.is_none(), "{:?}", o.failure);
+}
+
 /// The harness finds the model's mutants (`coord::Mutation`, the bugs the
 /// Quint models were checked against): each must fail some seed.
 #[test]
@@ -130,6 +145,7 @@ fn fleet_catches_mutants() {
         ("release_in_flight", Mutation::ReleaseInFlight),
         ("error_settles", Mutation::ErrorSettles),
         ("early_compact", Mutation::EarlyCompact),
+        ("mix_late_parts", Mutation::MixLateParts),
     ] {
         let t0 = std::time::Instant::now();
         let caught = (1..=n).find_map(|seed| {

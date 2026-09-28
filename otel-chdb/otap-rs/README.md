@@ -2247,10 +2247,29 @@ the partition key is not enough by itself, and is not safe by itself:
    an object whose assertion fired (rows from a foreign producer that
    don't match; remembered per worker, and a new holder's guarded insert
    fails the same way, deterministically, before it writes), a table whose
-   partition key isn't `toDate(received_at)` (read from `system.tables` at
-   start; e.g. an operator's `toDate(Timestamp)`), `--check-horizon all`.
+   partition key isn't one of `sql::RANGE_PARTITION_KEYS` (read from
+   `system.tables` at start: `toDate(received_at)`, or
+   `(toDate(received_at), late_part)` since D34; an operator's
+   `toDate(Timestamp)` is not), `--check-horizon all`.
    The row repair (`row_ordinal NOT IN`) always reads every partition, so
    it never adds a row that is anywhere already.
+
+**Late parts in partitions of their own (D34, 2026-09-28).** Traces and
+logs are partitioned by `(toDate(received_at), late_part)`: the consumer
+writes each object's part (`oscope-part: late` → 1, anything else 0) as an
+object-constant column, so an object is still one part, and late rows never
+merge into the bulk's parts, whose `Timestamp` statistics they would
+stretch. The range check still reads `_partition_value.1` (the day, both
+parts); `range_partition_key` accepts exactly the two keys
+(`RANGE_PARTITION_KEYS`, a property test: a key accepted wrongly would make
+the check read the wrong partitions). `plan::group` keeps late parts and
+bulk objects in separate statements (a mixed squashed statement would write
+two parts per day); `late_part` is written only where `ensure` found the
+column (`system.columns`), so a table from before D34 gets the old
+statements until it is migrated: `scripts/migrate_late_part.py` (a copy
+while the consumers run, then a short pause for the last copy and an
+`EXCHANGE TABLES`; its docstring and DECISIONS.md D34). Metrics are not
+split and keep `toDate(received_at)`.
 
 **What it assumes:** a copy is received within the horizon of its
 original (3 days by default; 1 day before the audit round). Before the
@@ -2398,8 +2417,9 @@ audit share one task and interleave at their awaits. Its queries run with
 failure (central down, a table unreadable) is logged and counted
 (`consumer_audit_runs_total{result="error"}`, the last success time stops
 moving), never fatal, and the next run covers the same window again.
-Tables whose partition key isn't `toDate(received_at)` are skipped (their
-checks read every partition already). **On a replicated central**
+Tables whose partition key isn't one the check's range understands
+(`toDate(received_at)`, or first in a tuple with `late_part`, D34) are
+skipped (their checks read every partition already). **On a replicated central**
 (2026-09-26, [`../central-replicated/README.md`](../central-replicated/README.md)):
 `--ch r1,r2` makes a run read the first replica that answers (and stick to
 it), and `--sync-replica` runs `SYSTEM SYNC REPLICA … LIGHTWEIGHT` on each
@@ -2763,7 +2783,8 @@ scripted run.
   horizon later.) A full audit reads the
   whole content projection (~20 GB and ~150 s of central CPU at fleet scale
   [E]): daily, or sampled. A table partitioned on anything but
-  `toDate(received_at)` is checked over every partition, and not audited.
+  `toDate(received_at)` (alone, or first with `late_part`) is checked over
+  every partition, and not audited.
 - **The server fence needs synchronized wall clocks** (within the margin)
   between worker and ClickHouse; the client-side bound doesn't.
 - **Replicated or SharedMergeTree central** wasn't tested here: the check

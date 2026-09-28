@@ -262,7 +262,7 @@ What the consumer keeps on top, and why:
 | | ClickStack 2.39.1 | consumer | why |
 |---|---|---|---|
 | envelope, `content_key`, `PROJECTION by_content` | – | added | the count check and repair (exactly-once) |
-| `PARTITION BY` | `toDate(Timestamp)` | `toDate(received_at)` | batch-constant: an object is one part, the count check prunes on `_partition_value` |
+| `PARTITION BY` | `toDate(Timestamp)` | `(toDate(received_at), late_part)` (D34; `toDate(received_at)` before) | object-constant: an object is one part, the count check prunes on `_partition_value.1`, and an edge's late part (D31) never merges into the bulk's parts |
 | `non_replicated_deduplication_window` | – | 1000 on the table **and on the rollup table** | the dedup token of an exact retry; on the rollup table because 26.10 runs the view for a deduplicated block and dedups the view's block only if its target has a window: without it an exact retry counted twice in the rollup [M] |
 | TTL | `toDate(Timestamp) + 30 days` (tables and rollups) | none | retention is the operator's; `toDateTime(received_at) + n` drops whole partitions (`central-replicated/scripts/ddl.py`) |
 | `idx_res_attr_key`, `idx_span_attr_key` / `idx_scope_attr_key`, `idx_log_attr_key` (text indexes on `mapKeys()`) | yes | **dropped** (option 2) | insert cost; HyperDX finds map keys through the `*_attr_items` indexes instead (§Option 2) |

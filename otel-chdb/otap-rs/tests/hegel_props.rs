@@ -40,6 +40,7 @@ fn obj(seq: u64, rows: u64, size: u64, received_ns: u64) -> Obj {
         received_ns,
         seen_ms: 0,
         announce: 0,
+        late: false,
     }
 }
 
@@ -173,8 +174,9 @@ fn prop_advance_to_stops_at_the_first_undone(tc: TestCase) {
 
 /// `group` (Kani: out of memory at two objects) keeps every object once, in
 /// order; a multi-object statement stays within every limit; an object over
-/// a solo limit goes alone; and a statement is only cut where the next
-/// object would break a limit (or goes alone).
+/// a solo limit goes alone; a statement never mixes late parts and bulk
+/// objects (DECISIONS.md D34); and a statement is only cut where the next
+/// object of its kind would break a limit (or goes alone).
 #[hegel::test]
 fn prop_group_partitions_within_limits(tc: TestCase) {
     let l = Limits {
@@ -185,18 +187,30 @@ fn prop_group_partitions_within_limits(tc: TestCase) {
         solo_bytes: tc.draw(gs::integers::<u64>().max_value(1 << 20)),
     };
     let n = tc.draw(gs::integers::<usize>().max_value(200));
+    let late_share = tc.draw(gs::sampled_from(vec![0u8, 1, 50, 100]));
     let objs: Vec<Obj> = (0..n)
-        .map(|i| obj(i as u64, tc.draw(gs::integers::<u64>().max_value(120_000)), tc.draw(gs::integers::<u64>().max_value(1 << 20)), 0))
+        .map(|i| {
+            let mut o = obj(i as u64, tc.draw(gs::integers::<u64>().max_value(120_000)), tc.draw(gs::integers::<u64>().max_value(1 << 20)), 0);
+            o.late = tc.draw(gs::integers::<u8>().max_value(99)) < late_share;
+            o
+        })
         .collect();
     let groups = plan::group(objs.clone(), &l);
+    for (gi, g) in groups.iter().enumerate() {
+        assert!(g.iter().all(|o| o.late == g[0].late), "statement {gi} mixes late parts and bulk objects");
+    }
     let solo = |o: &Obj| o.rows > l.solo_rows || o.size > l.solo_bytes;
     let mut flat: Vec<u64> = groups.iter().flatten().map(|o| o.seq).collect();
     // A solo object's statement is emitted at once, ahead of the shared
     // statement still being filled (Hegel's first finding here: `group`'s
     // doc said "in order"). Harmless: the checkpoint advances over done
     // slots in slot order, whatever order their statements ran in.
-    let shared: Vec<u64> = flat.iter().copied().filter(|s| !solo(&objs[*s as usize])).collect();
-    assert!(shared.windows(2).all(|w| w[0] < w[1]), "shared objects keep their order: {shared:?}");
+    // Likewise late parts and bulk objects fill separate statements (D34):
+    // each kind keeps its order.
+    for late in [false, true] {
+        let shared: Vec<u64> = flat.iter().copied().filter(|s| !solo(&objs[*s as usize]) && objs[*s as usize].late == late).collect();
+        assert!(shared.windows(2).all(|w| w[0] < w[1]), "shared objects (late {late}) keep their order: {shared:?}");
+    }
     flat.sort_unstable();
     assert_eq!(flat, (0..n as u64).collect::<Vec<_>>(), "every object exactly once");
     for (gi, g) in groups.iter().enumerate() {
@@ -209,8 +223,10 @@ fn prop_group_partitions_within_limits(tc: TestCase) {
             let rows: u64 = g.iter().map(|o| o.rows).sum();
             assert!(bytes <= l.max_bytes.max(g[0].size) && rows <= l.max_rows.max(g[0].rows), "statement {gi}: {bytes} B / {rows} rows over the limits");
         }
-        // Maximal: the next object (if it could share) would have broken a limit.
-        if let Some(next) = groups.get(gi + 1).and_then(|n| n.first()) {
+        // Maximal: the next shared statement of the same kind starts with an
+        // object that would have broken a limit.
+        let next_same = groups[gi + 1..].iter().find(|n| n.first().is_some_and(|f| f.late == g[0].late && !solo(f)));
+        if let Some(next) = next_same.and_then(|n| n.first()) {
             if !solo(next) && !g.iter().any(solo) {
                 let bytes: u64 = g.iter().map(|o| o.size).sum::<u64>() + next.size;
                 let rows: u64 = g.iter().map(|o| o.rows).sum::<u64>() + next.rows;
@@ -222,6 +238,53 @@ fn prop_group_partitions_within_limits(tc: TestCase) {
         || objs.iter().map(|o| o.size).sum::<u64>() >= l.max_bytes
         || objs.iter().map(|o| o.rows).sum::<u64>() >= l.max_rows
         || objs.iter().any(solo));
+}
+
+// ---- the partition keys the check's range understands (D34) --------------------------------
+
+/// `range_partition_key` accepts a key exactly when the check's
+/// `_partition_value.1 BETWEEN toDate(lo) AND toDate(hi)` reads the right
+/// partitions under it: a tuple (or a lone expression) whose FIRST element is
+/// `toDate(received_at)` and whose other elements are object-constant
+/// (`late_part`), however ClickHouse spaces it. A key accepted wrongly is the
+/// silent-loss hazard of a wrong partition parse (the check reads other
+/// days, or `late_part` values as days); one refused wrongly only costs a
+/// full read. The model here is independent of the implementation: a tiny
+/// parser of the tuple, not the list of strings the code compares with.
+#[hegel::test]
+fn prop_range_partition_key_is_exact(tc: TestCase) {
+    let atoms = vec![
+        "toDate(received_at)", "late_part", "toDate(Timestamp)", "toYYYYMM(received_at)", "received_at", "toStartOfHour(received_at)",
+        "ServiceName", "toDate(received_at, 'UTC')", "toUInt8(late_part)", "toDate(receivedat)",
+    ];
+    let k = tc.draw(gs::integers::<usize>().min_value(1).max_value(3));
+    let elems: Vec<&str> = (0..k).map(|_| tc.draw(gs::sampled_from(atoms.clone()))).collect();
+    let tuple = k > 1;
+    let sp = |tc: &TestCase| -> String { tc.draw(gs::sampled_from(vec!["", " ", "  ", "\t", "\n"])).to_string() };
+    let mut key = String::new();
+    if tuple {
+        key.push('(');
+    }
+    for (i, e) in elems.iter().enumerate() {
+        if i > 0 {
+            key.push(',');
+        }
+        key.push_str(&sp(&tc));
+        // whitespace inside the call's parentheses too
+        key.push_str(&e.replace('(', &format!("({}", sp(&tc))));
+        key.push_str(&sp(&tc));
+    }
+    if tuple {
+        key.push(')');
+    }
+    tc.note(&format!("key {key:?}"));
+    // Safe: the check reads the right partitions under the key.
+    let safe = elems[0] == "toDate(received_at)" && elems[1..].iter().all(|e| *e == "late_part");
+    // Shipped: the two keys the consumer's DDL uses, as ClickHouse prints them.
+    let shipped = elems == ["toDate(received_at)"] || elems == ["toDate(received_at)", "late_part"];
+    let accepted = consumer::sql::range_partition_key(&key);
+    assert!(!accepted || safe, "{key:?} accepted, but the check would read the wrong partitions under it");
+    assert!(!shipped || accepted, "{key:?} is a shipped key and was refused (every check would read every partition)");
 }
 
 /// A statement's dedup token names its ordered key list: equal lists, equal
@@ -321,6 +384,15 @@ fn prop_statements_keep_every_value_one_literal(tc: TestCase) {
     let secret = hostile_text(&tc, 8);
     let c = ClickHouseCentral::new("http://x", "db", Rc::new(MemBucket::default()), &key, &secret, 1000);
     let k = LaneKind::for_signal(tc.draw(gs::sampled_from(vec!["logs", "traces", "metrics_gauge"]))).unwrap();
+    // A table with `late_part` (D34), objects late or not: a mixed statement
+    // splices each path once more, into the late_part transform.
+    // (metrics tables never have the column: their objects are not split)
+    let late_col = tc.draw(gs::booleans()) && k.signal != "metrics_gauge";
+    c.set_late_part(&k, late_col);
+    let objs: Vec<Obj> = objs.into_iter().map(|mut o| {
+        o.late = tc.draw(gs::booleans());
+        o
+    }).collect();
     let refs: Vec<&Obj> = objs.iter().collect();
     let f = Fence { wall_ms: tc.draw(gs::integers::<u64>()), budget_ms: 3000 };
     let sql = c.insert_sql(&k, &refs, f, tc.draw(gs::booleans()));
@@ -346,7 +418,15 @@ fn prop_statements_keep_every_value_one_literal(tc: TestCase) {
         p
     }).collect();
     let pc = ClickHouseCentral::new("http://x", "db", Rc::new(MemBucket::default()), "k", "s", 1000);
+    pc.set_late_part(&k, late_col);
     let prefs: Vec<&Obj> = plain.iter().collect();
+    let writes = late_col;
+    assert_eq!(sql.contains(", late_part) SELECT "), writes, "late_part only where the table has it: {sql}");
+    if writes {
+        let mixed = objs.iter().any(|o| o.late != objs[0].late);
+        assert_eq!(sql.contains("transform(_path, ["), n > 1, "{sql}");
+        assert!(mixed || sql.contains(&format!(", toUInt8({}) FROM ", objs[0].late as u8)), "an agreeing statement writes a constant: {sql}");
+    }
     let guard = sql.contains("throwIf");
     let psql = pc.insert_sql(&k, &prefs, f, guard);
     assert_eq!(blank(&sql), blank(&psql));

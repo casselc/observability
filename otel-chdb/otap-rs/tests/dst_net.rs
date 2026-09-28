@@ -430,6 +430,7 @@ fn net_fleet(sim: Rc<Sim>) -> String {
             Some(ObjInfo {
                 rows: o.meta.get(proto::META_ROWS)?.parse().ok()?,
                 received_ns: o.meta.get(proto::META_RECEIVED).and_then(|v| v.parse().ok()).unwrap_or(0),
+                late: o.meta.get(proto::META_PART).map(String::as_str) == Some(proto::PART_LATE),
             })
         };
         let ch = Rc::new(ChEmu::new(Box::new(move || (wall0 as i64 + now_ms() as i64 + skew) as u64), Box::new(objects), T.slack_ms));
@@ -680,6 +681,7 @@ fn net_fleet(sim: Rc<Sim>) -> String {
     );
     trace(format!("END {summary}"));
     assert!(v.is_empty(), "invariant violations: {v:#?}\n{summary}");
+    assert_eq!(world.ch.late_mismatch.get(), 0, "rows written with another part's late_part (D34)\n{summary}");
     assert!(dup.is_empty(), "atMostOnce: {dup:?}\n{summary}");
     assert!(extra.is_empty(), "onlyCommittedIngested: {extra:?}\n{summary}");
     assert!(missing.is_empty(), "not ingested, no progress for 60 s after {quiesce_ms} ms healed: {missing:?}\n{summary}");
@@ -878,6 +880,10 @@ async fn ch_script(c: &ClickHouseCentral<S3Bucket>, objs: &[Obj]) -> Vec<String>
     out.push(format!("counts after repair: {}", counts(c.counts(&lk, &keys, None).await)));
     out.push(format!("insert new token: {:?}", c.insert(&lk, &refs[..1], fence(60_000), "dst-t3", true).await.map_err(|e| e.msg)));
     out.push(format!("counts after new token: {}", counts(c.counts(&lk, &keys, None).await)));
+    out.push(format!("writes late_part: {}", c.writes_late_part(&lk)));
+    let fq = format!("{}.{}", c.db, lk.table);
+    let parts = c.ch.query(&format!("SELECT content_key, late_part, count() FROM {fq} GROUP BY content_key, late_part ORDER BY content_key, late_part FORMAT TSV"), &[]).await;
+    out.push(format!("rows per late_part: {parts:?}"));
     out
 }
 
@@ -910,8 +916,11 @@ fn ch_emulator_matches_clickhouse() {
             let o = enc.encode(&f, &Envelope { producer: "p1".into(), epoch: "E1".into(), batch: seq as u64, received_ns: now }).unwrap();
             let key = proto::slot_key(&lane, "E1", seq as u64);
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
-            let _ = infos.insert(bucket.object_url(&key), ObjInfo { rows: n as u64, received_ns: now });
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0 });
+            // the second object is a late part (D34): one statement with both
+            // writes `late_part` per object by `_path`, a repair by constant
+            let late = seq == 1;
+            let _ = infos.insert(bucket.object_url(&key), ObjInfo { rows: n as u64, received_ns: now, late });
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, late });
         }
         let db = format!("dst_diff_{nonce}");
         let real = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), "otel", "otelsecret", 20_000);

@@ -18,10 +18,14 @@
 --    statement's, deduplicate_blocks_in_dependent_materialized_views = 1,
 --    only if the target has a window); without it an exact retry counts twice
 --    in the rollup [M];
---  ~ PARTITION BY toDate(received_at), not toDate(Timestamp): batch-constant,
---    so one object is one part (atomic), and the count check can prune on
---    `_partition_value` (src/consumer/plan.rs). ClickStack's key would split
---    an object across days and turn the range check off;
+--  + late_part: 1 for the rows of an edge's late part (`oscope-part: late`,
+--    ../../DECISIONS.md D31), 0 otherwise; constant per object;
+--  ~ PARTITION BY (toDate(received_at), late_part), not toDate(Timestamp):
+--    object-constant, so one object is one part (atomic), the count check can
+--    prune on `_partition_value.1` (src/consumer/plan.rs), and late rows
+--    never merge into the bulk's parts, whose Timestamp statistics they would
+--    stretch (../../DECISIONS.md D34). ClickStack's key would split an object
+--    across days and turn the range check off;
 --  ~ no TTL: ClickStack's is `toDate(Timestamp) + ${TRACES_TTL}` (720h by
 --    default). Retention is the operator's: `TTL toDateTime(received_at) +
 --    INTERVAL n DAY` drops whole partitions under ttl_only_drop_parts, as
@@ -73,6 +77,7 @@ CREATE TABLE IF NOT EXISTS {table}
     `received_at` DateTime64(9) CODEC(Delta(8), ZSTD(1)),
     `schema_version` UInt16 CODEC(ZSTD(1)),
     `content_key` LowCardinality(String) CODEC(ZSTD(1)),
+    `late_part` UInt8 CODEC(ZSTD(1)),
     INDEX idx_trace_id TraceId TYPE text(tokenizer = 'array'),
     INDEX idx_rum_session_id __hdx_materialized_rum.sessionId TYPE text(tokenizer = 'array'),
     INDEX idx_res_attr_items ResourceAttributeItems TYPE text(tokenizer = 'array'),
@@ -82,7 +87,7 @@ CREATE TABLE IF NOT EXISTS {table}
     PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)
 )
 ENGINE = MergeTree
-PARTITION BY toDate(received_at)
+PARTITION BY (toDate(received_at), late_part)
 ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))
 SETTINGS non_replicated_deduplication_window = 1000, index_granularity = 8192, ttl_only_drop_parts = 1;
 

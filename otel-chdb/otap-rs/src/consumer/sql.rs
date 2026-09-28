@@ -200,7 +200,7 @@ pub fn error_code(msg: &str) -> Option<u32> {
 
 /// Whether a server's error answer to an insert means nothing of it can land later.
 pub fn settles_at_once(msg: &str) -> bool {
-    msg.contains(RANGE_GUARD) || error_code(msg).is_some_and(|c| SETTLING_CODES.contains(&c))
+    msg.contains(RANGE_GUARD) || msg.contains(FENCED) || error_code(msg).is_some_and(|c| SETTLING_CODES.contains(&c))
 }
 
 impl std::fmt::Display for InsertErr {
@@ -217,6 +217,17 @@ impl std::fmt::Display for InsertErr {
 /// The marker of the range assertion's exception.
 pub const RANGE_GUARD: &str = "OTAPRS_RANGE_GUARD";
 
+/// The marker of an announcement statement that started after its fence.
+/// An insert's fence is silent (`WHERE now64(3) <= fence` selects nothing,
+/// and the verify's count finds the rows missing); an announcement has no
+/// verify, so its fence is loud (`throwIf`): a server whose clock is past
+/// the fence answers this error, settled (nothing written), and the lane
+/// sits the round out. With a silent fence the worker took the empty
+/// answer for the announcement and inserted the rows before it
+/// (dst_consumer seed 1950: the server's clock 359 ms ahead of the
+/// worker's; `sameLane`).
+pub const FENCED: &str = "OTAPRS_FENCED";
+
 /// The server-side fence of a statement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fence {
@@ -231,7 +242,7 @@ pub trait Central {
     async fn ensure(&self, k: &LaneKind) -> Result<(), String>;
     /// Rows per content key (the aggregating projection), in the partitions
     /// of `range` only (None: every partition; also what a table whose
-    /// partition key isn't `toDate(received_at)` always gets).
+    /// partition key isn't in `RANGE_PARTITION_KEYS` always gets).
     async fn counts(&self, k: &LaneKind, contents: &[&str], range: Option<CheckRange>) -> Result<HashMap<String, u64>, String>;
     /// One statement for these objects. With `guard`, every row of each
     /// object must carry the object's `received_at` (`received_ns`), or the
@@ -327,12 +338,34 @@ pub struct ClickHouseCentral<B: Bucket> {
     ranged_tables: RefCell<std::collections::HashSet<String>>,
     /// `--check-range off`: never restrict a check.
     pub use_ranges: bool,
+    /// Tables (fq) with a `late_part` column (read at `ensure`): their
+    /// inserts write each object's part (DECISIONS.md D34). A table without
+    /// it (created before the migration) gets the same statements as before.
+    late_tables: RefCell<std::collections::HashSet<String>>,
 }
+
+/// The partition keys the check's range understands, as `system.tables`
+/// prints them with the whitespace taken out: the day of `received_at`
+/// alone, or first in a tuple with the object-constant `late_part`
+/// (DECISIONS.md D34). Both put every row of an object in one partition,
+/// and in both `_partition_value.1` is that day, which is all `range_sql`
+/// reads. Any other key (ClickStack's `toDate(Timestamp)`, a tuple in
+/// another order, a finer day function, a column that isn't
+/// object-constant) is checked over every partition: exact, only slower. A
+/// key wrongly accepted here would make the check miss rows it should see
+/// (a duplicate, or a lost verdict): hence an exact list, not a pattern
+/// (tests/hegel_props.rs `prop_range_partition_key_is_exact`).
+pub const RANGE_PARTITION_KEYS: &[&str] = &["toDate(received_at)", "(toDate(received_at),late_part)"];
 
 /// A partition key the check's range understands.
 pub fn range_partition_key(key: &str) -> bool {
-    key.chars().filter(|c| !c.is_whitespace()).collect::<String>() == "toDate(received_at)"
+    let k: String = key.chars().filter(|c| !c.is_whitespace()).collect();
+    RANGE_PARTITION_KEYS.contains(&k.as_str())
 }
+
+/// The object-constant column that splits late parts into partitions of
+/// their own (DECISIONS.md D34).
+pub const LATE_PART_COLUMN: &str = "late_part";
 
 impl<B: Bucket> ClickHouseCentral<B> {
     /// `url` may list several replicas, comma-separated.
@@ -370,6 +403,35 @@ impl<B: Bucket> ClickHouseCentral<B> {
             squash: true,
             ranged_tables: RefCell::new(Default::default()),
             use_ranges: true,
+            late_tables: RefCell::new(Default::default()),
+        }
+    }
+
+    /// Records whether this lane kind's table has the `late_part` column, as
+    /// `ensure` learns it (tests, and tools that build statements offline).
+    pub fn set_late_part(&self, k: &LaneKind, on: bool) {
+        if on {
+            let _ = self.late_tables.borrow_mut().insert(self.fq(k));
+        } else {
+            let _ = self.late_tables.borrow_mut().remove(&self.fq(k));
+        }
+    }
+
+    /// Whether this lane kind's table has the `late_part` column (after `ensure`).
+    pub fn writes_late_part(&self, k: &LaneKind) -> bool {
+        k.counted && self.late_tables.borrow().contains(&self.fq(k))
+    }
+
+    /// The `late_part` select expression for these objects: a constant when
+    /// they agree (always, from `plan::group`), else per object by `_path`.
+    fn late_part_sql(&self, objs: &[&Obj]) -> String {
+        match objs.first() {
+            Some(f) if objs.iter().all(|o| o.late == f.late) => format!("toUInt8({})", f.late as u8),
+            _ => {
+                let paths: Vec<String> = objs.iter().map(|o| sq(&self.bucket.path_of(&o.key))).collect();
+                let v: Vec<String> = objs.iter().map(|o| (o.late as u8).to_string()).collect();
+                format!("transform(_path, [{}], [{}], 0)::UInt8", paths.join(", "), v.join(", "))
+            }
         }
     }
 
@@ -383,6 +445,22 @@ impl<B: Bucket> ClickHouseCentral<B> {
             let _ = self.ranged_tables.borrow_mut().insert(fq.to_string());
         } else {
             let _ = self.ranged_tables.borrow_mut().remove(fq);
+        }
+        let n = self
+            .q(
+                &format!(
+                    "SELECT count() FROM system.columns WHERE database = {} AND table = {} AND name = {}",
+                    sq(db),
+                    sq(t),
+                    sq(LATE_PART_COLUMN)
+                ),
+                &[],
+            )
+            .await?;
+        if n.trim() == "1" {
+            let _ = self.late_tables.borrow_mut().insert(fq.to_string());
+        } else {
+            let _ = self.late_tables.borrow_mut().remove(fq);
         }
         Ok(())
     }
@@ -553,7 +631,12 @@ impl<B: Bucket> ClickHouseCentral<B> {
         let url = if keys.len() == 1 { self.bucket.object_url(keys[0]) } else { format!("{}{{{}}}", self.bucket.object_url(""), keys.join(",")) };
         let src = self.s3_fn(&url, central::ANNOUNCE_STRUCTURE);
         let sig = Signal::from_name(&k.signal).unwrap_or(Signal::Traces);
-        format!("{} AND now64(3) <= fromUnixTimestamp64Milli(toInt64({}))", central::announce_insert(&self.resources_fq(), sig, &src), fence.wall_ms)
+        let msg = sq(&format!("{FENCED}: the announcement started after its fence"));
+        format!(
+            "{} AND NOT throwIf(now64(3) > fromUnixTimestamp64Milli(toInt64({})), {msg})",
+            central::announce_insert(&self.resources_fq(), sig, &src),
+            fence.wall_ms
+        )
     }
 
     pub fn insert_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, guard: bool) -> String {
@@ -571,7 +654,8 @@ impl<B: Bucket> ClickHouseCentral<B> {
             format!("transform(_path, [{}], [{}], '')", paths.join(", "), contents.join(", "))
         };
         let assert = if guard && objs.iter().all(|o| o.received_ns > 0) { self.guard_sql(objs) } else { String::new() };
-        format!("INSERT INTO {} ({}, content_key) SELECT {}, {ck} FROM {src} WHERE {fence_sql}{assert}", self.fq(k), k.cols, k.select, fence_sql = guard_fence)
+        let (lc, lv) = if self.writes_late_part(k) { (format!(", {LATE_PART_COLUMN}"), format!(", {}", self.late_part_sql(objs))) } else { Default::default() };
+        format!("INSERT INTO {} ({}, content_key{lc}) SELECT {}, {ck}{lv} FROM {src} WHERE {fence_sql}{assert}", self.fq(k), k.cols, k.select, fence_sql = guard_fence)
     }
 
     async fn run_insert(&self, fq: &str, sql: &str, fence: Fence, token: &str) -> Result<(), InsertErr> {
@@ -726,8 +810,9 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), InsertErr> {
         self.s3_creds().await?;
         let src = self.source(k, &[&obj.key]);
+        let (lc, lv) = if self.writes_late_part(k) { (format!(", {LATE_PART_COLUMN}"), format!(", {}", self.late_part_sql(&[obj]))) } else { Default::default() };
         let sql = format!(
-            "INSERT INTO {t} ({cols}, content_key) SELECT {sel}, {c} FROM {src} WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64({f})) AND row_ordinal NOT IN (SELECT row_ordinal FROM {t} WHERE content_key = {c})",
+            "INSERT INTO {t} ({cols}, content_key{lc}) SELECT {sel}, {c}{lv} FROM {src} WHERE now64(3) <= fromUnixTimestamp64Milli(toInt64({f})) AND row_ordinal NOT IN (SELECT row_ordinal FROM {t} WHERE content_key = {c})",
             t = self.fq(k),
             cols = k.cols,
             sel = k.select,
@@ -788,6 +873,11 @@ pub struct MemCentral {
     /// Every n-th announcement statement fails before writing.
     pub announce_fail_every: Cell<u64>,
     pub announce_n: Cell<u64>,
+    /// Insert statements that mixed late parts and bulk objects (DECISIONS.md
+    /// D34: `plan::group` never builds one), and rows landed per
+    /// (table, content key, late).
+    pub mixed_statements: Cell<u64>,
+    pub by_part: RefCell<BTreeMap<(String, String, bool), u64>>,
 }
 
 impl MemCentral {
@@ -868,6 +958,12 @@ impl Central for MemCentral {
 
     async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str, guard: bool) -> Result<(), InsertErr> {
         self.flush_late();
+        if objs.iter().any(|o| objs.first().is_some_and(|f| o.late != f.late)) {
+            self.mixed_statements.set(self.mixed_statements.get() + 1);
+        }
+        for o in objs {
+            *self.by_part.borrow_mut().entry((k.table.clone(), o.content.clone(), o.late)).or_default() += o.rows;
+        }
         self.n.set(self.n.get() + 1);
         let n = self.n.get();
         if self.late_error_every.get() > 0 && n % self.late_error_every.get() == 0 && self.now() <= fence.wall_ms {
@@ -914,8 +1010,9 @@ impl Central for MemCentral {
             return Err(InsertErr { msg: "injected: announcement refused".into(), settled: true, answered: true, range: false });
         }
         if self.now() > fence.wall_ms {
+            // the loud fence (`FENCED`): an error, nothing written
             self.fenced.set(self.fenced.get() + 1);
-            return Ok(());
+            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
         }
         for o in objs {
             *self.announced.borrow_mut().entry(o.key.clone()).or_default() += 1;
@@ -943,7 +1040,7 @@ mod tests {
     use crate::consumer::bucket::MemBucket;
 
     fn obj(k: &str, c: &str) -> Obj {
-        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0, announce: 0 }
+        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0, announce: 0, late: false }
     }
 
     /// Whether every single-quoted literal closes (ClickHouse: `\\` and `\'` escape).
@@ -1028,6 +1125,71 @@ mod tests {
         assert!(e.contains("Code: 158"), "{e}");
     }
 
+    /// The partition parse on a real server (DECISIONS.md D34): under both
+    /// keys the check's `_partition_value.1` range reads exactly the rows
+    /// whose `received_at` day `CheckRange::covers`, late or not, for rows
+    /// on and around day boundaries and random ranges; under a key whose
+    /// first element is a day but not `received_at`'s (refused by
+    /// `range_partition_key`) the same predicate silently reads the wrong
+    /// partitions: the hazard the refusal avoids (a check that misses rows
+    /// re-inserts them: a duplicate).
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_range_reads_the_first_element_under_both_keys() {
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let ch = otap_s3pq::central::ClickHouse::new(&url);
+        match ch.query("SELECT timezone()", &[]).await {
+            Ok(tz) if matches!(tz.trim(), "UTC" | "Etc/UTC") => {}
+            r => {
+                eprintln!("no ClickHouse at {url}, or not on UTC ({r:?}): skipped");
+                return;
+            }
+        }
+        let db = format!("pk_range_{:08x}", rand::random::<u32>());
+        ch.query(&format!("CREATE DATABASE {db}"), &[]).await.unwrap();
+        let day0 = 20_000 * DAY_NS;
+        // (received ns, late): around midnights, with a late row each
+        let mut rows: Vec<(u64, u8)> = Vec::new();
+        for d in 0..6u64 {
+            for off in [0, 1, DAY_NS / 2, DAY_NS - 1] {
+                rows.push((day0 + d * DAY_NS + off, (off % 2) as u8));
+                rows.push((day0 + d * DAY_NS + off, 1 - (off % 2) as u8));
+            }
+        }
+        let values: Vec<String> = rows.iter().enumerate().map(|(i, (ns, l))| format!("(fromUnixTimestamp64Nano(toInt64({ns})), {l}, 'k', {i})")).collect();
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for (t, key, ok) in [("a", "toDate(received_at)", true), ("b", "(toDate(received_at), late_part)", true), ("c", "(toDate(addHours(received_at, 12)), late_part)", false)] {
+            let fq = format!("{db}.{t}");
+            ch.query(&format!("CREATE TABLE {fq} (received_at DateTime64(9), late_part UInt8, content_key String, row_ordinal UInt32, PROJECTION by_content (SELECT content_key, count() GROUP BY content_key)) ENGINE MergeTree PARTITION BY {key} ORDER BY row_ordinal"), &[]).await.unwrap();
+            ch.query(&format!("INSERT INTO {fq} VALUES {}", values.join(", ")), &[]).await.unwrap();
+            let pk = ch.query(&format!("SELECT partition_key FROM system.tables WHERE database = {} AND name = {}", sq(&db), sq(t)), &[]).await.unwrap();
+            assert_eq!(range_partition_key(&pk), ok, "{pk}");
+            let mut wrong = 0;
+            for _ in 0..40 {
+                let lo = day0 - DAY_NS + next() % (8 * DAY_NS);
+                let hi = lo + next() % (3 * DAY_NS);
+                let r = CheckRange { lo_ns: lo, hi_ns: hi };
+                let want = rows.iter().filter(|(ns, _)| r.covers(*ns)).count();
+                let q = format!("SELECT count() FROM {fq} WHERE content_key IN ('k'){} FORMAT TSV", ClickHouseCentral::<MemBucket>::range_sql(&r));
+                let got: usize = ch.query(&q, &[("optimize_use_projections", "1")]).await.unwrap().trim().parse().unwrap();
+                // (the key in the other order, `(late_part, toDate(…))`, fails
+                // loudly instead: UInt8 BETWEEN Date is ILLEGAL_TYPE_OF_ARGUMENT)
+                if ok {
+                    assert_eq!(got, want, "{key}: range {r:?}");
+                } else if got != want {
+                    wrong += 1;
+                }
+            }
+            assert!(ok || wrong > 0, "the refused key would have read the wrong partitions");
+        }
+        ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+    }
+
     /// The generated statements parse on a real server (skipped when none is up).
     #[tokio::test(flavor = "current_thread")]
     async fn statements_parse_on_clickhouse() {
@@ -1083,6 +1245,24 @@ mod tests {
         assert_eq!(r, " AND _partition_value.1 BETWEEN toDate(fromUnixTimestamp64Nano(toInt64(1))) AND toDate(fromUnixTimestamp64Nano(toInt64(2)))");
         assert!(range_partition_key("toDate(received_at)") && range_partition_key(" toDate( received_at ) "));
         assert!(!range_partition_key("toDate(Timestamp)") && !range_partition_key("toYYYYMM(received_at)") && !range_partition_key(""));
+        // D34: the day first, then the object-constant late_part; nothing else
+        assert!(range_partition_key("(toDate(received_at), late_part)") && range_partition_key("(toDate(received_at),late_part)"));
+        assert!(!range_partition_key("(late_part, toDate(received_at))"), "_partition_value.1 would be late_part");
+        assert!(!range_partition_key("(toDate(received_at), ServiceName)") && !range_partition_key("(toDate(Timestamp), late_part)"));
+        // late_part: only where the table has the column, a constant for a
+        // statement of one part, per object by path otherwise
+        assert!(!c.writes_late_part(&tr) && !sql.contains("late_part"));
+        c.set_late_part(&tr, true);
+        let lz = Obj { late: true, ..z.clone() };
+        let bulk = c.insert_sql(&tr, &[&a, &z], f, false);
+        assert!(bulk.contains(", content_key, late_part) SELECT ") && bulk.contains("['H1', 'H2'], ''), toUInt8(0) FROM s3("), "{bulk}");
+        assert!(c.insert_sql(&tr, &[&lz], f, false).contains(", 'H2', toUInt8(1) FROM s3("));
+        let mixed = c.insert_sql(&tr, &[&a, &lz], f, false);
+        assert!(mixed.contains(", transform(_path, ['mem/r/p/traces/E/1.parquet', 'mem/r/p/traces/E/2.parquet'], [0, 1], 0)::UInt8 FROM s3("), "{mixed}");
+        let ga = LaneKind::for_signal("metrics_gauge").unwrap();
+        assert!(!c.writes_late_part(&ga) && !c.insert_sql(&ga, &[&lz], f, false).contains("late_part"), "another table: no column");
+        c.set_late_part(&tr, false);
+        assert_eq!(c.insert_sql(&tr, &[&a, &z], f, false), sql);
         let se = LaneKind::for_signal("metrics_series").unwrap();
         assert!(!se.counted);
         let s = c.insert_sql(&se, &[&a], f, true);
@@ -1179,8 +1359,10 @@ mod tests {
             let o = enc.encode(&f, &Envelope { producer: "p1".into(), epoch: "E1".into(), batch: seq as u64, received_ns: now }).unwrap();
             let key = format!("{lane}/E1/{seq}.parquet");
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0 });
+            // the second is a late part (D34): one statement, two partitions
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, late: seq == 1 });
         }
+        assert!(c.writes_late_part(&lk) && c.writes_late_part(&tk) && c.ranged(&lk), "the new DDL: late_part, a ranged key");
         let refs: Vec<&Obj> = objs.iter().collect();
         let rollup = || {
             let q = format!("SELECT Key, sum(count) FROM {db}.otel_logs_kv_rollup_15m GROUP BY Key ORDER BY Key FORMAT TSV");
@@ -1205,6 +1387,15 @@ mod tests {
         // Counts by the projection, as the check reads them.
         let n = c.counts(&lk, &[&objs[0].content, &objs[1].content], None).await.unwrap();
         assert_eq!((n[&objs[0].content], n[&objs[1].content]), (7, 5));
+        // ... and in the objects' own range, which spans both late_part values
+        let r = CheckRange { lo_ns: now, hi_ns: now };
+        let n = c.counts(&lk, &[&objs[0].content, &objs[1].content], Some(r)).await.unwrap();
+        assert_eq!((n[&objs[0].content], n[&objs[1].content]), (7, 5));
+        let parts = ch
+            .query(&format!("SELECT content_key = {}, late_part, count(), uniqExact(_part), any(_partition_value.2) FROM {db}.otel_logs GROUP BY 1, 2 ORDER BY 1, 2 FORMAT TSV", sq(&objs[1].content)), &[])
+            .await
+            .unwrap();
+        assert_eq!(parts, "0\t0\t7\t1\t0\n1\t1\t5\t1\t1", "each object in its own late_part partition, one part each");
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
         let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
         let _ = bucket.delete(&keys).await;
@@ -1278,18 +1469,23 @@ mod tests {
             assert_eq!(o.meta.get("oscope-announce").map(String::as_str), Some("2"));
             let key = format!("{lane}/{epoch}/{seq}.parquet");
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
-            objs.push(Obj { lane: lane.clone(), epoch: epoch.into(), seq, key, size: 1, content: f.content.clone(), rows: 8, received_ns: now, seen_ms: 0, announce: 2 });
+            objs.push(Obj { lane: lane.clone(), epoch: epoch.into(), seq, key, size: 1, content: f.content.clone(), rows: 8, received_ns: now, seen_ms: 0, announce: 2, late: false });
         }
         let fence = || Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
         c.announce(&lk, &[&objs[0]], fence(), "ann-1").await.unwrap();
         c.announce(&lk, &[&objs[0]], fence(), "ann-1").await.unwrap(); // an exact retry
         c.announce(&lk, &[&objs[0], &objs[1]], fence(), "ann-2").await.unwrap(); // regrouped, and the copy
+        // Started after its fence: an error, settled, and nothing written (the
+        // count below is unchanged by it).
+        let past = Fence { wall_ms: crate::consumer::wall_ms() - 1_000, budget_ms: 10_000 };
+        let e = c.announce(&lk, &[&objs[0], &objs[1]], past, "ann-3").await.unwrap_err();
+        assert!(e.settled && e.answered && e.msg.contains(FENCED), "{e:?}");
         let q = |sql: String| {
             let ch = &ch;
             async move { ch.query(&sql, &[]).await.unwrap() }
         };
         assert_eq!(q(format!("SELECT count() FROM {db}.otel_resources FINAL")).await, "4", "2 resources x 2 announcing objects (epochs), each once");
-        let view = q(format!("SELECT resource_id, toString(mapSort(ResourceAttributes)), announcements FROM {db}.otel_resources_announced ORDER BY resource_id FORMAT TSV")).await;
+        let view = q(format!("SELECT resource_id, toString(mapSort(ResourceAttributes)), announcements FROM {db}.otel_resources_announced ORDER BY resource_id FORMAT TSVRaw")).await;
         assert_eq!(view.lines().count(), 2, "{view}");
         assert!(view.lines().all(|l| l.ends_with("\t2") && !l.contains("telemetry.sdk") && l.contains("'k8s.namespace.name':'shop'")), "{view}");
         // The rows carry the same ids.

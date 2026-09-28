@@ -13,8 +13,10 @@
 //! **What it detects is the failure itself,** not a proxy: a content key is
 //! one request's rows, and every row an insert writes for an object carries
 //! that object's constant `received_at` (the insert asserts it), so one
-//! ingestion of an object is in exactly one partition. A key in two
-//! partitions was ingested at least twice.
+//! ingestion of an object is in exactly one partition, and in one day
+//! (`_partition_value.1`; under `(toDate(received_at), late_part)` the
+//! second element is object-constant too, DECISIONS.md D34). A key on two
+//! days was ingested at least twice.
 //!
 //! Per table, per run:
 //!
@@ -52,8 +54,9 @@
 //!
 //! What it does not see: a duplicate within one partition (a copy received
 //! the same day, which the check can always see), and a table whose
-//! partition key isn't `toDate(received_at)` (skipped: its checks read every
-//! partition anyway).
+//! partition key isn't one the check's range understands
+//! (`sql::RANGE_PARTITION_KEYS`; skipped: its checks read every partition
+//! anyway).
 //!
 //! **Duplicates by content** (AMBIGUITY.md E1, E2). A copy under a *new*
 //! content key is invisible to everything above: a gateway SIGKILL re-cuts
@@ -439,8 +442,9 @@ impl AuditState {
     }
 }
 
-/// One audit of one database: every covered table whose partition key is
-/// `toDate(received_at)`. Errors are per table and reported; nothing is fatal.
+/// One audit of one database: every covered table whose partition key the
+/// check's range understands (`toDate(received_at)`, or first in a tuple with
+/// `late_part`). Errors are per table and reported; nothing is fatal.
 pub async fn run(ch: &ClickHouse, db: &str, cfg: &AuditConfig, state: &mut AuditState, now_ns: u64) -> AuditReport {
     let t0 = super::mono_ms();
     let mut rep = AuditReport::default();
@@ -992,7 +996,9 @@ pub(crate) mod tests {
             eprintln!("no S3 at {s3}: skipped");
             return;
         }
-        let lane = format!("{root}/p1/logs");
+        // format v2: cluster/producer/signal (a lane without its cluster is never
+        // discovered: this test found nothing to ingest while it was skipped)
+        let lane = format!("{root}/c1/p1/logs");
         let now = super::super::wall_ms() * 1_000_000;
         let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet);
         let mut put = |epoch: String, seq: u64, req: Vec<u8>, recv: u64| {

@@ -35,6 +35,8 @@ const DAY_NS: u64 = 86_400_000_000_000;
 pub struct ObjInfo {
     pub rows: u64,
     pub received_ns: u64,
+    /// The object is a late part (`oscope-part: late`, DECISIONS.md D31).
+    pub late: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -77,8 +79,12 @@ impl ChFaults for NoChFaults {}
 #[derive(Default)]
 pub struct Table {
     pub partition_key: String,
+    /// The DDL has the `late_part` column (DECISIONS.md D34).
+    pub late_part: bool,
     /// content key -> rows
     pub rows: BTreeMap<String, u64>,
+    /// (content key, late_part) -> rows: the partition's second element.
+    pub by_part: BTreeMap<(String, u8), u64>,
     /// (content key, day) -> rows
     pub by_day: BTreeMap<(String, u64), u64>,
     tokens: VecDeque<String>,
@@ -111,6 +117,8 @@ pub struct ChEmu {
     n: Cell<u64>,
     pub fenced: Cell<u64>,
     pub deduplicated: Cell<u64>,
+    /// Rows written with a `late_part` other than their object's part.
+    pub late_mismatch: Cell<u64>,
 }
 
 /// The single-quoted literals of `s`, in order (ClickHouse escapes `\\`, `\'`).
@@ -155,6 +163,8 @@ struct Insert {
     table: String,
     /// (object URL, content key)
     objs: Vec<(String, String)>,
+    /// Per object, the `late_part` the statement writes (None: no column).
+    late: Vec<Option<u8>>,
     fence_ms: u64,
     repair: bool,
 }
@@ -174,6 +184,7 @@ impl ChEmu {
             n: Cell::new(0),
             fenced: Cell::new(0),
             deduplicated: Cell::new(0),
+            late_mismatch: Cell::new(0),
         }
     }
 
@@ -214,7 +225,8 @@ impl ChEmu {
         if let Some(rest) = q.strip_prefix("CREATE TABLE IF NOT EXISTS ") {
             let name: String = rest.chars().take_while(|c| !c.is_whitespace() && *c != '(').collect();
             let pk = after(rest, "PARTITION BY ").map(|r| r.lines().next().unwrap_or("").trim().to_string()).unwrap_or_default();
-            let _ = self.tables.borrow_mut().entry(name).or_insert_with(|| Table { partition_key: pk, ..Default::default() });
+            let late_part = rest.contains("`late_part` UInt8");
+            let _ = self.tables.borrow_mut().entry(name).or_insert_with(|| Table { partition_key: pk, late_part, ..Default::default() });
             return Reply::Ok(String::new());
         }
         if q.starts_with("CREATE MATERIALIZED VIEW IF NOT EXISTS ") || q.starts_with("CREATE VIEW IF NOT EXISTS ") || q.starts_with("CREATE TABLE ") {
@@ -222,6 +234,12 @@ impl ChEmu {
         }
         if q.starts_with("KILL QUERY ") || q.starts_with("SYSTEM SYNC REPLICA ") {
             return Reply::Ok(String::new());
+        }
+        if let Some(rest) = q.strip_prefix("SELECT count() FROM system.columns WHERE database = ") {
+            let l = literals(rest);
+            let (Some(db), Some(t), Some(c)) = (l.first(), l.get(1), l.get(2)) else { return syntax(q) };
+            let has = c == "late_part" && self.tables.borrow().get(&format!("{db}.{t}")).is_some_and(|t| t.late_part);
+            return Reply::Ok(format!("{}\n", has as u8));
         }
         if let Some(rest) = q.strip_prefix("SELECT ") {
             if rest.contains(" FROM system.tables WHERE database = ") {
@@ -241,6 +259,13 @@ impl ChEmu {
             }
             if rest.starts_with("content_key, count() FROM ") {
                 return self.counts(st, rest);
+            }
+            // The rows per (content key, late_part): what the partitions hold.
+            if let Some(r) = rest.strip_prefix("content_key, late_part, count() FROM ") {
+                let table = r.split(' ').next().unwrap_or("");
+                let tables = self.tables.borrow();
+                let Some(t) = tables.get(table) else { return unknown_table(table) };
+                return Reply::Ok(t.by_part.iter().filter(|(_, n)| **n > 0).map(|((c, l), n)| format!("{c}\t{l}\t{n}\n")).collect());
             }
             return syntax(q);
         }
@@ -272,7 +297,7 @@ impl ChEmu {
         let mut out = String::new();
         for k in keys {
             let n: u64 = match range {
-                Some((lo, hi)) if t.partition_key == "toDate(received_at)" => {
+                Some((lo, hi)) if ["toDate(received_at)", "(toDate(received_at), late_part)"].contains(&t.partition_key.as_str()) => {
                     t.by_day.range((k.clone(), lo / DAY_NS)..=(k.clone(), hi / DAY_NS)).map(|(_, n)| *n).sum()
                 }
                 _ => t.rows.get(&k).copied().unwrap_or(0),
@@ -302,8 +327,9 @@ impl ChEmu {
             vec![c.first().cloned().ok_or("repair content")?]
         } else if let Some(tr) = after(select, "transform(_path, [") {
             // [paths], [contents]: map each URL's path ("bucket/key") to its content key.
+            let tr = &tr[..tr.find("], '')").map_or(tr.len(), |i| i + 1)];
             let lits = literals(tr);
-            let n = lits.len().saturating_sub(1) / 2;
+            let n = lits.len() / 2;
             let (paths, cs) = (&lits[..n], &lits[n..2 * n]);
             urls.iter()
                 .map(|u| {
@@ -317,7 +343,25 @@ impl ChEmu {
         if contents.len() != urls.len() || contents.iter().any(String::is_empty) {
             return Err(format!("content keys {contents:?} for {urls:?}"));
         }
-        Ok(Insert { table, objs: urls.into_iter().zip(contents).collect(), fence_ms, repair })
+        // `, late_part)` in the column list: a constant `toUInt8(v)` or a
+        // `transform(_path, [paths], [v…], 0)::UInt8` per object.
+        let late: Vec<Option<u8>> = if !q[..from].contains(", late_part) SELECT ") {
+            vec![None; urls.len()]
+        } else if let Some(v) = number_after(select, ", toUInt8(") {
+            vec![Some(v as u8); urls.len()]
+        } else {
+            let tr = select.rfind("transform(_path, [").map(|i| &select[i..]).ok_or("late_part without a value")?;
+            let paths = literals(&tr[..tr.find(']').ok_or("late_part paths")?]);
+            let vs = &tr[tr.find("], [").ok_or("late_part values")? + 4..];
+            let vs: Vec<u8> = vs[..vs.find(']').ok_or("late_part values")?].split(", ").filter_map(|v| v.parse().ok()).collect();
+            urls.iter()
+                .map(|u| {
+                    let path = u.splitn(4, '/').nth(3).unwrap_or("");
+                    paths.iter().position(|p| p == path).and_then(|i| vs.get(i).copied()).or(Some(0))
+                })
+                .collect()
+        };
+        Ok(Insert { table, objs: urls.into_iter().zip(contents).collect(), late, fence_ms, repair })
     }
 
     async fn insert(self: Rc<Self>, st: &BTreeMap<String, String>, q: &str, peer: &str) -> Reply {
@@ -341,9 +385,9 @@ impl ChEmu {
             f(n, &urls, peer);
         }
         let mut infos = Vec::new();
-        for (u, c) in &ins.objs {
+        for ((u, c), lp) in ins.objs.iter().zip(&ins.late) {
             match (self.objects)(u) {
-                Some(i) => infos.push((u.clone(), c.clone(), i)),
+                Some(i) => infos.push((u.clone(), c.clone(), i, *lp)),
                 None => return Reply::Err(500, format!("Code: 499. DB::Exception: The specified key does not exist: {u}. (S3_ERROR)")),
             }
         }
@@ -393,7 +437,7 @@ impl ChEmu {
         }
     }
 
-    fn land(&self, n: u64, table: &str, objs: &[(String, String, ObjInfo)], token: Option<&str>, repair: bool) {
+    fn land(&self, n: u64, table: &str, objs: &[(String, String, ObjInfo, Option<u8>)], token: Option<&str>, repair: bool) {
         let mut tables = self.tables.borrow_mut();
         let Some(t) = tables.get_mut(table) else { return };
         if let Some(tok) = token.filter(|_| !repair) {
@@ -409,12 +453,19 @@ impl ChEmu {
             }
         }
         let mut landed = Vec::new();
-        for (u, c, i) in objs {
+        for (u, c, i, lp) in objs {
             let have = t.rows.get(c).copied().unwrap_or(0);
             let add = if repair { i.rows.saturating_sub(have) } else { i.rows };
             *t.rows.entry(c.clone()).or_default() += add;
             if add > 0 {
                 *t.by_day.entry((c.clone(), i.received_ns / DAY_NS)).or_default() += add;
+                // A table with the column gets each object's part; one without
+                // it, none (the column's default would be 0 for everything).
+                let lp = lp.unwrap_or(0);
+                *t.by_part.entry((c.clone(), lp)).or_default() += add;
+                if t.late_part && lp != i.late as u8 {
+                    self.late_mismatch.set(self.late_mismatch.get() + add);
+                }
             }
             landed.push((u.clone(), c.clone(), add));
         }

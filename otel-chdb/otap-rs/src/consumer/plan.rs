@@ -59,8 +59,10 @@ pub fn may_tomb(scan: &EpochScan, newest: bool, quiet_for_ms: u64, quiet_ms: u64
 /// What a slot holds, from its HEAD.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Found {
-    /// `low_ns`: the object's `oscope-low` (None: absent, as 0).
-    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64 },
+    /// `low_ns`: the object's `oscope-low` (None: absent, as 0). `late`: the
+    /// object is the late part of a split request (`oscope-part: late`,
+    /// DECISIONS.md D31); central writes it as `late_part` (D34).
+    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64, late: bool },
     /// A heartbeat (`../../FORMAT.md` §2): nothing to ingest, only its low.
     Beat { low_ns: u64 },
     Tomb,
@@ -78,6 +80,14 @@ impl Found {
     }
 }
 
+/// Whether an object is the late part of a split request (`oscope-part:
+/// late`). Anything else (bulk, absent: an unsplit request, or an edge from
+/// before D31) is bulk, `late_part` 0: the column only steers partitioning,
+/// so a wrong answer costs pruning, never a row.
+pub fn is_late_part(meta: &HashMap<String, String>) -> bool {
+    meta.get(proto::META_PART).map(String::as_str) == Some(proto::PART_LATE)
+}
+
 pub fn found(meta: &HashMap<String, String>) -> Found {
     let low_ns = meta.get(proto::META_LOW).and_then(|r| r.parse().ok());
     match proto::Slot::from_meta(meta) {
@@ -89,6 +99,7 @@ pub fn found(meta: &HashMap<String, String>) -> Found {
             received_ns: meta.get(proto::META_RECEIVED).and_then(|r| r.parse().ok()).unwrap_or(0),
             low_ns,
             announce: meta.get(proto::META_ANNOUNCE).and_then(|r| r.parse().ok()).unwrap_or(0),
+            late: is_late_part(meta),
         },
     }
 }
@@ -146,6 +157,10 @@ pub struct Obj {
     /// Resources the object announces (`oscope-announce`; traces and logs):
     /// inserted into `otel_resources` before its rows.
     pub announce: u64,
+    /// The late part of a split request (`oscope-part: late`): its rows get
+    /// `late_part = 1`, a partition of their own where the table has the
+    /// column (DECISIONS.md D34).
+    pub late: bool,
 }
 
 // ---- the check's partition range ------------------------------------------------------
@@ -270,25 +285,39 @@ impl Default for Limits {
 /// are not in slot order: harmless, as the checkpoint advances over done
 /// slots in slot order whatever order their statements ran in;
 /// tests/hegel_props.rs `prop_group_partitions_within_limits`).
+///
+/// Late parts and bulk objects never share a statement (DECISIONS.md D34):
+/// under `PARTITION BY (toDate(received_at), late_part)` a mixed statement
+/// would write two parts per day, so a squashed statement would no longer
+/// land whole or not at all, and the late rows' small parts would multiply.
+/// Each kind fills its own statements, in the objects' order.
 pub fn group(objs: Vec<Obj>, l: &Limits) -> Vec<Vec<Obj>> {
+    group_parts(objs, l, true)
+}
+
+/// `group`, with the late parts kept apart or (the `MixLateParts` mutant) not.
+pub fn group_parts(objs: Vec<Obj>, l: &Limits, apart: bool) -> Vec<Vec<Obj>> {
     let mut out: Vec<Vec<Obj>> = Vec::new();
-    let mut cur: Vec<Obj> = Vec::new();
-    let (mut bytes, mut rows) = (0, 0);
+    // [bulk, late]: (objects, bytes, rows)
+    let mut cur: [(Vec<Obj>, u64, u64); 2] = Default::default();
     for o in objs {
         if o.rows > l.solo_rows || o.size > l.solo_bytes {
             out.push(vec![o]);
             continue;
         }
-        if !cur.is_empty() && (cur.len() >= l.max_objects || bytes + o.size > l.max_bytes || rows + o.rows > l.max_rows) {
-            out.push(std::mem::take(&mut cur));
-            (bytes, rows) = (0, 0);
+        let c = &mut cur[(apart && o.late) as usize];
+        if !c.0.is_empty() && (c.0.len() >= l.max_objects || c.1 + o.size > l.max_bytes || c.2 + o.rows > l.max_rows) {
+            out.push(std::mem::take(&mut c.0));
+            (c.1, c.2) = (0, 0);
         }
-        bytes += o.size;
-        rows += o.rows;
-        cur.push(o);
+        c.1 += o.size;
+        c.2 += o.rows;
+        c.0.push(o);
     }
-    if !cur.is_empty() {
-        out.push(cur);
+    for (c, _, _) in cur {
+        if !c.is_empty() {
+            out.push(c);
+        }
     }
     out
 }
@@ -358,6 +387,7 @@ mod tests {
             received_ns: 0,
             seen_ms: 0,
             announce: 0,
+            late: false,
         }
     }
 
@@ -404,6 +434,12 @@ mod tests {
         let seqs: Vec<Vec<u64>> = g.iter().map(|s| s.iter().map(|x| x.seq).collect()).collect();
         // (a solo object is emitted at once; progress is tracked per slot, not by statement order)
         assert_eq!(seqs, vec![vec![2], vec![0, 1, 3], vec![4, 5], vec![7], vec![6]]);
+        // late parts fill statements of their own, in order, under the same limits
+        let lt = |s, r, z| Obj { late: true, ..o(s, r, z) };
+        let g = group(vec![o(0, 1, 10), lt(1, 1, 10), o(2, 1, 10), lt(3, 1, 10), lt(4, 1, 10), lt(5, 1, 10), o(6, 1, 10), lt(7, 2000, 10)], &lim);
+        let seqs: Vec<Vec<u64>> = g.iter().map(|s| s.iter().map(|x| x.seq).collect()).collect();
+        assert_eq!(seqs, vec![vec![1, 3, 4], vec![7], vec![0, 2, 6], vec![5]]);
+        assert!(g.iter().all(|s| s.iter().all(|x| x.late == s[0].late)), "never mixed");
     }
 
     #[test]
@@ -417,12 +453,19 @@ mod tests {
         m.insert(proto::META_KIND.to_string(), proto::KIND_DATA.to_string());
         m.insert(proto::META_CONTENT.to_string(), "h".to_string());
         m.insert(proto::META_ROWS.to_string(), "12".to_string());
-        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None, announce: 0 });
+        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None, announce: 0, late: false });
+        let _ = m.insert(proto::META_PART.into(), proto::PART_BULK.into());
+        assert!(!is_late_part(&m));
+        let _ = m.insert(proto::META_PART.into(), proto::PART_LATE.into());
+        assert!(is_late_part(&m) && matches!(found(&m), Found::Data { late: true, .. }));
+        let _ = m.insert(proto::META_PART.into(), "LATE".into());
+        assert!(!is_late_part(&m), "only the exact value: anything else is bulk (pruning only)");
+        let _ = m.remove(proto::META_PART);
         let _ = m.insert(proto::META_LOW.into(), "7".into());
         assert_eq!(found(&m).low_ns(), 7);
         let _ = m.insert(proto::META_KIND.into(), proto::KIND_BEAT.into());
         assert_eq!(found(&m), Found::Beat { low_ns: 7 });
-        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None, announce: 0 });
+        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None, announce: 0, late: false });
         // nothing pending: M; a pending request below M: its received_at; unknown: none
         assert_eq!(lane_wm(50, &[]), Some(50));
         assert_eq!(lane_wm(50, &[vec![Some(Found::Beat { low_ns: 60 }), d(40)], vec![d(45)]]), Some(40));

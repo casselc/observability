@@ -1601,7 +1601,10 @@ reference:
   protocol): a **birth** per registered lane (the layout's namespaces)
   before the exporter takes requests (Go: in `Start`, which runs before the
   receivers; Rust: before the exporter's loop, up to `birth_timeout`), then
-  one per lane idle for `heartbeat.interval` (30 s). Cost at 30 s: about
+  one per lane idle for `heartbeat.interval` (30 s). Residual: a brand-new
+  Rust publisher with Quiver takes requests into its WAL while its births
+  are still pending, so if the store is unreachable at its very first
+  start its lanes are unregistered until they commit (FORMAT.md §2). Cost at 30 s: about
   86 k PUTs per idle lane-month (≈$0.43), seven lanes per publisher.
 - **The lane watermark** is computed by the lane's holder at each full
   listing: `min(max low passed before the LIST, min received_at of the data

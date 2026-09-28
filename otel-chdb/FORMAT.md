@@ -112,6 +112,16 @@ resolve-by-HEAD, halt on a tombstone), with `oscope-low` and no rows:
 - then one per lane that has committed nothing for `heartbeat.interval`
   (default 30 s).
 
+Residual: "before it takes custody" holds for the Go edge (exporters start
+before receivers, and `Start` waits for the births up to `birth_timeout`)
+and for the Rust edge without a buffer (requests wait in its inbox), not for
+a Rust edge with Quiver, whose receiver and WAL run beside the exporter. It
+matters only for a producer whose lanes have never existed (a restart's
+lanes are registered already) and whose births cannot commit at its first
+start (the store unreachable): until they do, the consumer's minimum does
+not include it. A pre-start registration step (an init container) would
+close it; not built.
+
 The consumer ingests nothing for a heartbeat; it only moves the
 checkpoint and the lane's watermark. GC deletes heartbeats like data slots.
 

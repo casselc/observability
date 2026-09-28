@@ -202,6 +202,12 @@ pub struct Stats {
     pub objects_inserted: u64,
     pub rows_inserted: u64,
     pub series_objects_inserted: u64,
+    /// Resource announcements: statements, objects whose announcements
+    /// landed, and objects held back a round because their lane's did not
+    /// surely land.
+    pub announce_statements: u64,
+    pub announce_objects: u64,
+    pub announce_deferred: u64,
     pub dedup_skipped: u64,
     pub statements: u64,
     pub statement_objects: u64,
@@ -1101,9 +1107,10 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         w.data.push(*seq);
                         w.beats.push(*seq);
                     }
-                    Found::Data { content, rows, received_ns, .. } => {
+                    Found::Data { content, rows, received_ns, announce, .. } => {
                         w.data.push(*seq);
                         objs.push(Obj {
+                            announce,
                             lane: id.to_string(),
                             epoch: e.clone(),
                             seq: *seq,
@@ -1242,6 +1249,12 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
                 continue;
             }
+            // Announcements before rows: an object's announcements must
+            // have landed before any row of its lane goes in this round.
+            let list = if k.announce { self.announce_first(&k, list).await } else { list };
+            if list.is_empty() {
+                continue;
+            }
             // Every slot's content, for mapping results back to slots.
             let slots: Vec<(SlotId, String)> =
                 list.iter().map(|o| ((o.lane.clone(), o.epoch.clone(), o.seq), o.content.clone())).collect();
@@ -1300,6 +1313,60 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
         }
         done
+    }
+
+    /// Inserts the resource announcements these objects carry (`oscope-announce`
+    /// > 0, traces and logs) into `otel_resources`, before any of their rows:
+    /// the rows that use a resource come in the object that announces it or
+    /// after it in its lane's epoch, so ingesting a lane's announcements
+    /// first means no row reaches central before the announcement of its
+    /// resource, and a row is exact once the dictionaries have loaded
+    /// (`../../model/entityCatalog.qnt`, `sameLane`: exactAfterLag). A lane
+    /// whose announcement statement did not surely land (an error, no
+    /// answer, answered past its fence, no lease window) sits this round
+    /// out; announcements are idempotent, so the retry is harmless.
+    async fn announce_first(&mut self, k: &LaneKind, list: Vec<Obj>) -> Vec<Obj> {
+        let ann: Vec<Obj> = list.iter().filter(|o| o.announce > 0).cloned().collect();
+        if ann.is_empty() {
+            return list;
+        }
+        let mut held: HashSet<String> = HashSet::new();
+        for g in plan::group(ann, &self.cfg.limits) {
+            self.maintain().await;
+            let refs: Vec<&Obj> = g.iter().collect();
+            let Some(fence) = self.window(&refs) else {
+                held.extend(g.iter().map(|o| o.lane.clone()));
+                continue;
+            };
+            let keys: Vec<&str> = g.iter().map(|o| o.key.as_str()).collect();
+            let token = plan::token(&format!("{}-announce", k.signal), &keys);
+            self.stats.announce_statements += 1;
+            match self.central.announce(k, &refs, fence, &token).await {
+                Ok(()) if self.clock.wall() <= fence.wall_ms + fence.budget_ms => self.stats.announce_objects += g.len() as u64,
+                Ok(()) => {
+                    self.stats.fenced_by_server += g.len() as u64;
+                    held.extend(g.iter().map(|o| o.lane.clone()));
+                }
+                Err(e) => {
+                    self.stats.insert_errors += 1;
+                    log(&self.cfg, &format!("announce {}: {e}", k.signal));
+                    // No answer, or one that may still commit: like any
+                    // statement, it must settle inside the lease that sent it
+                    // (found by dst_consumer: a TIMEOUT_EXCEEDED announcement
+                    // landed after the lane changed hands).
+                    if !self.settled(&e) {
+                        self.unsettle(&refs, &e);
+                    }
+                    held.extend(g.iter().map(|o| o.lane.clone()));
+                }
+            }
+        }
+        if held.is_empty() {
+            return list;
+        }
+        let (keep, wait): (Vec<Obj>, Vec<Obj>) = list.into_iter().partition(|o| !held.contains(&o.lane));
+        self.stats.announce_deferred += wait.len() as u64;
+        keep
     }
 
     /// Whether a table's pending objects wait for more (the linger): the

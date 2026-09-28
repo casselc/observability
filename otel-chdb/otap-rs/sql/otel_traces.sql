@@ -7,6 +7,9 @@
 --  + the edge envelope (producer_id … schema_version), content_key and the
 --    by_content projection: the consumer's exactly-once count check
 --    (FASTPATH.md §4; src/consumer/sql.rs `counts`);
+--  + resource_id: the content address of the row's covered resource
+--    attributes (../../entities/README.md §3.1, ../../FORMAT.md §2), beside
+--    ResourceAttributes, which the rows still carry in full;
 --  + non_replicated_deduplication_window = 1000 on the table AND on the
 --    rollup table: the dedup token of a retried insert (central.rs
 --    `ONE_BLOCK`). On the rollup it is what makes the view's block of an
@@ -62,6 +65,7 @@ CREATE TABLE IF NOT EXISTS {table}
     `SampleRate` UInt64 MATERIALIZED greatest(toUInt64OrZero(SpanAttributes['SampleRate']), 1) CODEC(T64, ZSTD(1)),
     `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
     `SpanAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), SpanAttributes::Array(Tuple(String, String))),
+    `resource_id` UInt64 CODEC(ZSTD(1)),
     `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
     `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
     `batch_id` UInt64 CODEC(ZSTD(1)),

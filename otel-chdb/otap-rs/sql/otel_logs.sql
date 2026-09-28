@@ -2,7 +2,7 @@
 -- (hyperdx@885d30c docker/otel-collector/schema/seed/00002_otel_logs.sql,
 -- the ClickHouse >= 26.2 variant with text indexes) and its key-value rollup
 -- (00006_otel_logs_rollups.sql), with the consumer's additions and the same
--- deliberate deviations as otel_traces.sql (envelope, content_key and the
+-- deliberate deviations as otel_traces.sql (envelope, resource_id, content_key and the
 -- by_content projection, the dedup window on the table and the rollup table;
 -- PARTITION BY toDate(received_at) instead of toDate(Timestamp); no TTL; no
 -- idx_res_attr_key / idx_scope_attr_key / idx_log_attr_key, for their insert
@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS {table}
     `ResourceAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ResourceAttributes::Array(Tuple(String, String))),
     `ScopeAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), ScopeAttributes::Array(Tuple(String, String))),
     `LogAttributeItems` Array(String) ALIAS arrayMap((arr) -> concat(arr.1, '=', arr.2), LogAttributes::Array(Tuple(String, String))),
+    `resource_id` UInt64 CODEC(ZSTD(1)),
     `producer_id` LowCardinality(String) CODEC(ZSTD(1)),
     `producer_epoch` LowCardinality(String) CODEC(ZSTD(1)),
     `batch_id` UInt64 CODEC(ZSTD(1)),

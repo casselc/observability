@@ -27,6 +27,12 @@ pub const LOGS_COLS: &str = "Timestamp, TraceId, SpanId, TraceFlags, SeverityTex
 
 pub const ENV_COLS: &str = ", producer_id, producer_epoch, batch_id, row_ordinal, received_at, schema_version";
 
+/// Traces and logs: the row's resource_id (`resource.rs`), between the
+/// ClickStack columns and the envelope. `resource_announce` is not a table
+/// column: it goes to `otel_resources` (`announce_*`).
+pub const RES_STRUCTURE: &str = ", resource_id UInt64";
+pub const RES_COLS: &str = ", resource_id";
+
 const CENTRAL_ENV: &str = ", producer_id LowCardinality(String), producer_epoch LowCardinality(String), batch_id UInt64, row_ordinal UInt32, received_at DateTime64(9), schema_version UInt16, content_key LowCardinality(String)";
 
 /// Settings that make an `INSERT … SELECT FROM s3()` of one batch one block
@@ -45,16 +51,16 @@ pub const ONE_BLOCK: &[(&str, &str)] = &[
 
 pub fn structure(signal: crate::Signal) -> String {
     match signal {
-        crate::Signal::Traces => format!("{TRACES_STRUCTURE}{ENV_STRUCTURE}"),
-        crate::Signal::Logs => format!("{LOGS_STRUCTURE}{ENV_STRUCTURE}"),
+        crate::Signal::Traces => format!("{TRACES_STRUCTURE}{RES_STRUCTURE}{ENV_STRUCTURE}"),
+        crate::Signal::Logs => format!("{LOGS_STRUCTURE}{RES_STRUCTURE}{ENV_STRUCTURE}"),
         m => metrics_structure(m),
     }
 }
 
 pub fn cols(signal: crate::Signal) -> String {
     match signal {
-        crate::Signal::Traces => format!("{TRACES_COLS}{ENV_COLS}"),
-        crate::Signal::Logs => format!("{LOGS_COLS}{ENV_COLS}"),
+        crate::Signal::Traces => format!("{TRACES_COLS}{RES_COLS}{ENV_COLS}"),
+        crate::Signal::Logs => format!("{LOGS_COLS}{RES_COLS}{ENV_COLS}"),
         m => content_cols(m) + ENV_COLS,
     }
 }
@@ -174,6 +180,38 @@ pub fn clickstack_statements(table: &str, signal: crate::Signal) -> Vec<String> 
 /// after the table, one statement each. Empty for metrics.
 pub fn create_rollups(table: &str, signal: crate::Signal) -> Vec<String> {
     clickstack_statements(table, signal).into_iter().skip(1).collect()
+}
+
+// ---- resource announcements (sql/otel_resources.sql) -----------------------------------
+
+const RESOURCES_DDL: &str = include_str!("../sql/otel_resources.sql");
+
+/// The announcements table's name.
+pub const RESOURCES_TABLE: &str = "otel_resources";
+
+/// The s3() structure an announcement statement reads from a trace or log object.
+pub const ANNOUNCE_STRUCTURE: &str =
+    "resource_id UInt64, resource_announce Map(String, String), producer_id String, producer_epoch String, batch_id UInt64, received_at DateTime64(9)";
+
+/// `sql/otel_resources.sql` for `table` (fully qualified): the table, then its view.
+pub fn resources_statements(table: &str) -> Vec<String> {
+    let body: Vec<&str> = RESOURCES_DDL.lines().filter(|l| !l.trim_start().starts_with("--")).collect();
+    body.join("\n")
+        .split(";\n")
+        .map(|s| s.trim().trim_end_matches(';').trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.replace("{table}", table))
+        .collect()
+}
+
+/// The announcement statement's head and select list for objects of
+/// `signal`, read from `src` (the s3() call); the caller adds the fence.
+pub fn announce_insert(table: &str, signal: crate::Signal, src: &str) -> String {
+    format!(
+        "INSERT INTO {table} (resource_id, ResourceAttributes, signal, producer_id, producer_epoch, batch_id, seen_at) \
+         SELECT resource_id, resource_announce, {}, producer_id, producer_epoch, batch_id, received_at FROM {src} WHERE length(resource_announce) > 0",
+        sq(signal.name())
+    )
 }
 
 // ---- metrics layout B (sql/series_tables.sql) ------------------------------------------

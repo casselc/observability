@@ -47,6 +47,9 @@ pub struct LaneKind {
     /// Target columns, and the matching select expressions.
     pub cols: String,
     pub select: String,
+    /// Traces and logs: objects may announce resources (`oscope-announce`),
+    /// inserted into `otel_resources` before their rows.
+    pub announce: bool,
 }
 
 impl LaneKind {
@@ -68,6 +71,7 @@ impl LaneKind {
                 structure,
                 cols,
                 select,
+                announce: false,
             });
         }
         let cols = central::cols(s);
@@ -78,6 +82,7 @@ impl LaneKind {
             structure: central::structure(s),
             select: cols.clone(),
             cols,
+            announce: matches!(s, Signal::Traces | Signal::Logs),
         })
     }
 
@@ -236,6 +241,10 @@ pub trait Central {
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, token: &str) -> Result<(), InsertErr>;
     /// Whether `counts` honours ranges for this lane kind's table (after `ensure`).
     fn ranged(&self, k: &LaneKind) -> bool;
+    /// One statement inserting the resource announcements of these objects
+    /// (`oscope-announce` > 0) into `otel_resources`. Idempotent: the table
+    /// keeps each (resource, object) once.
+    async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr>;
 }
 
 // ---- ClickHouse --------------------------------------------------------------------
@@ -437,6 +446,21 @@ impl<B: Bucket> ClickHouseCentral<B> {
         format!("s3({}, {}, {}, 'Parquet', {})", sq(&url), sq(&self.s3_key), sq(&self.s3_secret), sq(&k.structure))
     }
 
+    /// `{db}.otel_resources`.
+    pub fn resources_fq(&self) -> String {
+        format!("{}.{}", self.db, central::RESOURCES_TABLE)
+    }
+
+    /// The announcement statement for these objects: their
+    /// `resource_announce` rows, fenced like an insert.
+    pub fn announce_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence) -> String {
+        let keys: Vec<&str> = objs.iter().map(|o| o.key.as_str()).collect();
+        let url = if keys.len() == 1 { self.bucket.object_url(keys[0]) } else { format!("{}{{{}}}", self.bucket.object_url(""), keys.join(",")) };
+        let src = format!("s3({}, {}, {}, 'Parquet', {})", sq(&url), sq(&self.s3_key), sq(&self.s3_secret), sq(central::ANNOUNCE_STRUCTURE));
+        let sig = Signal::from_name(&k.signal).unwrap_or(Signal::Traces);
+        format!("{} AND now64(3) <= fromUnixTimestamp64Milli(toInt64({}))", central::announce_insert(&self.resources_fq(), sig, &src), fence.wall_ms)
+    }
+
     pub fn insert_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, guard: bool) -> String {
         let keys: Vec<&str> = objs.iter().map(|o| o.key.as_str()).collect();
         let src = self.source(k, &keys);
@@ -543,7 +567,18 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
         for st in k.create_rollups(&fq) {
             self.q(&st, &[]).await?;
         }
+        if k.announce {
+            for st in central::resources_statements(&self.resources_fq()) {
+                self.q(&st, &[]).await?;
+            }
+        }
         self.learn_partition_key(&fq).await
+    }
+
+    async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr> {
+        let sql = self.announce_sql(k, objs, fence);
+        let fq = self.resources_fq();
+        self.run_insert(&fq, &sql, fence, token).await
     }
 
     fn ranged(&self, k: &LaneKind) -> bool {
@@ -643,6 +678,12 @@ pub struct MemCentral {
     pub slack_ms: Cell<u64>,
     pub late: RefCell<Vec<(u64, String, Vec<Obj>)>>,
     pub landed_late: Cell<u64>,
+    /// Announcement statements applied, per object key (the table keeps
+    /// one row per announcement whatever this counts).
+    pub announced: RefCell<BTreeMap<String, u64>>,
+    /// Every n-th announcement statement fails before writing.
+    pub announce_fail_every: Cell<u64>,
+    pub announce_n: Cell<u64>,
 }
 
 impl MemCentral {
@@ -763,6 +804,21 @@ impl Central for MemCentral {
         Ok(())
     }
 
+    async fn announce(&self, _k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), InsertErr> {
+        self.announce_n.set(self.announce_n.get() + 1);
+        if self.announce_fail_every.get() > 0 && self.announce_n.get() % self.announce_fail_every.get() == 0 {
+            return Err(InsertErr { msg: "injected: announcement refused".into(), settled: true, answered: true, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            self.fenced.set(self.fenced.get() + 1);
+            return Ok(());
+        }
+        for o in objs {
+            *self.announced.borrow_mut().entry(o.key.clone()).or_default() += 1;
+        }
+        Ok(())
+    }
+
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), InsertErr> {
         self.flush_late();
         if self.now() > fence.wall_ms {
@@ -783,7 +839,7 @@ mod tests {
     use crate::consumer::bucket::MemBucket;
 
     fn obj(k: &str, c: &str) -> Obj {
-        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0 }
+        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0, announce: 0 }
     }
 
     /// Whether every single-quoted literal closes (ClickHouse: `\\` and `\'` escape).
@@ -887,7 +943,7 @@ mod tests {
         let f = Fence { wall_ms: 1234, budget_ms: 3000 };
         let r = CheckRange { lo_ns: 1, hi_ns: 2 };
         let count = format!("SELECT content_key, count() FROM db.t WHERE content_key IN ('a'){} GROUP BY content_key", ClickHouseCentral::<MemBucket>::range_sql(&r));
-        for sql in [c.insert_sql(&tr, &[&a, &z], f, true), c.insert_sql(&tr, &[&a], f, true), c.insert_sql(&tr, &[&a, &z], f, false), count] {
+        for sql in [c.insert_sql(&tr, &[&a, &z], f, true), c.insert_sql(&tr, &[&a], f, true), c.insert_sql(&tr, &[&a, &z], f, false), count, c.announce_sql(&tr, &[&a, &z], f), c.announce_sql(&tr, &[&a], f)] {
             let r = ch.query(&format!("EXPLAIN AST {sql}"), &[]).await;
             assert!(r.is_ok(), "{sql}\n{r:?}");
         }
@@ -1006,6 +1062,7 @@ mod tests {
         assert_eq!(
             tables,
             "otel_logs\tMergeTree\notel_logs_attr_kv_rollup_15m_mv\tMaterializedView\notel_logs_kv_rollup_15m\tSummingMergeTree\n\
+             otel_resources\tReplacingMergeTree\notel_resources_announced\tView\n\
              otel_traces\tMergeTree\notel_traces_kv_rollup_15m\tSummingMergeTree\notel_traces_kv_rollup_15m_mv\tMaterializedView"
         );
         // Two logs objects on S3, as an edge writes them.
@@ -1018,7 +1075,7 @@ mod tests {
             let o = enc.encode(&f, &Envelope { producer: "p1".into(), epoch: "E1".into(), batch: seq as u64, received_ns: now }).unwrap();
             let key = format!("{lane}/E1/{seq}.parquet");
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0 });
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0 });
         }
         let refs: Vec<&Obj> = objs.iter().collect();
         let rollup = || {
@@ -1044,6 +1101,101 @@ mod tests {
         // Counts by the projection, as the check reads them.
         let n = c.counts(&lk, &[&objs[0].content, &objs[1].content], None).await.unwrap();
         assert_eq!((n[&objs[0].content], n[&objs[1].content]), (7, 5));
+        ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+        let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
+        let _ = bucket.delete(&keys).await;
+    }
+
+    /// Resource announcements on a real server: an object announcing two
+    /// resources (one of them twice in the object, rows of a third without
+    /// covered attributes), its announcements inserted twice (a retry) and a
+    /// copy of the object in another epoch announcing again: otel_resources
+    /// holds each announcement once (FINAL), with the covered set only, the
+    /// ids the rows carry, and the view one row per resource.
+    #[tokio::test(flavor = "current_thread")]
+    async fn announcements_land_once_with_the_rows_ids() {
+        use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
+        use otap_s3pq::batch::{Encoder, Format, Input};
+        use otap_s3pq::encode::ParquetOptions;
+        use otap_s3pq::flatten::Envelope;
+        use otel_arrow_dfe_pdata::proto::opentelemetry::common::v1::{AnyValue, KeyValue, any_value::Value};
+        use otel_arrow_dfe_pdata::proto::opentelemetry::logs::v1::{LogRecord, LogsData, ResourceLogs, ScopeLogs};
+        use otel_arrow_dfe_pdata::proto::opentelemetry::resource::v1::Resource;
+        use prost::Message;
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let ch = ClickHouse::new(&url);
+        if ch.query("SELECT 1", &[]).await.is_err() {
+            eprintln!("no ClickHouse at {url}: skipped");
+            return;
+        }
+        let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
+        let id = format!("{:08x}", rand::random::<u32>());
+        let store = otap_s3pq::store::S3Config {
+            url: format!("{s3}/announce-it-{id}/edges"),
+            access_key_id: Some("otel".into()),
+            secret_access_key: Some("otelsecret".into()),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        let root = store.prefix.clone();
+        let bucket = Rc::new(S3Bucket::new(store));
+        if bucket.list(&root, None).await.is_err() {
+            eprintln!("no S3 at {s3}: skipped");
+            return;
+        }
+        let db = format!("announce_it_{id}");
+        let c = ClickHouseCentral::new(&url, &db, bucket.clone(), "otel", "otelsecret", 20_000);
+        let lk = LaneKind::for_signal("logs").unwrap();
+        c.ensure(&lk).await.unwrap();
+        let kv = |k: &str, v: &str| KeyValue { key: k.into(), value: Some(AnyValue { value: Some(Value::StringValue(v.into())) }) };
+        let res = |pod: &str| Resource {
+            attributes: vec![kv("k8s.pod.name", pod), kv("k8s.namespace.name", "shop"), kv("telemetry.sdk.name", "opentelemetry")],
+            dropped_attributes_count: 0,
+            entity_refs: Vec::new(),
+        };
+        let rl = |r: Option<Resource>, n: u64| ResourceLogs {
+            resource: r,
+            schema_url: String::new(),
+            scope_logs: vec![ScopeLogs {
+                scope: None,
+                schema_url: String::new(),
+                log_records: (0..n).map(|i| LogRecord { time_unix_nano: 1_790_000_000_000_000_000 + i, ..Default::default() }).collect(),
+            }],
+        };
+        let req = LogsData { resource_logs: vec![rl(Some(res("a-1")), 3), rl(None, 2), rl(Some(res("b-1")), 1), rl(Some(res("a-1")), 2)] }.encode_to_vec();
+        let now = crate::consumer::wall_ms() * 1_000_000;
+        let lane = format!("{root}/c1/p1/logs");
+        let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet);
+        let f = enc.flatten(&Input::Otlp(Signal::Logs, &req)).unwrap();
+        let mut objs = Vec::new();
+        for (epoch, seq) in [("E1", 0u64), ("E2", 0)] {
+            let o = enc.encode(&f, &Envelope { producer: "p1".into(), epoch: epoch.into(), batch: seq, received_ns: now }).unwrap();
+            assert_eq!(o.meta.get("oscope-announce").map(String::as_str), Some("2"));
+            let key = format!("{lane}/{epoch}/{seq}.parquet");
+            assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
+            objs.push(Obj { lane: lane.clone(), epoch: epoch.into(), seq, key, size: 1, content: f.content.clone(), rows: 8, received_ns: now, seen_ms: 0, announce: 2 });
+        }
+        let fence = || Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
+        c.announce(&lk, &[&objs[0]], fence(), "ann-1").await.unwrap();
+        c.announce(&lk, &[&objs[0]], fence(), "ann-1").await.unwrap(); // an exact retry
+        c.announce(&lk, &[&objs[0], &objs[1]], fence(), "ann-2").await.unwrap(); // regrouped, and the copy
+        let q = |sql: String| {
+            let ch = &ch;
+            async move { ch.query(&sql, &[]).await.unwrap() }
+        };
+        assert_eq!(q(format!("SELECT count() FROM {db}.otel_resources FINAL")).await, "4", "2 resources x 2 announcing objects (epochs), each once");
+        let view = q(format!("SELECT resource_id, toString(mapSort(ResourceAttributes)), announcements FROM {db}.otel_resources_announced ORDER BY resource_id FORMAT TSV")).await;
+        assert_eq!(view.lines().count(), 2, "{view}");
+        assert!(view.lines().all(|l| l.ends_with("\t2") && !l.contains("telemetry.sdk") && l.contains("'k8s.namespace.name':'shop'")), "{view}");
+        // The rows carry the same ids.
+        c.insert(&lk, &[&objs[0]], fence(), "rows-1", true).await.unwrap();
+        let joined = q(format!(
+            "SELECT countIf(resource_id IN (SELECT resource_id FROM {db}.otel_resources_announced)), countIf(resource_id = {}), count() FROM {db}.otel_logs FORMAT TSV",
+            otap_s3pq::resource::empty_id()
+        ))
+        .await;
+        assert_eq!(joined, "6\t2\t8", "rows of announced resources, rows without covered attributes, all rows");
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
         let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
         let _ = bucket.delete(&keys).await;

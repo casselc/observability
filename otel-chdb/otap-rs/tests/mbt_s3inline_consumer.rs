@@ -516,6 +516,7 @@ impl ConsumerDriver {
             rows: 1,
             received_ns: day_ns(self.day_of(o)),
             seen_ms: 0,
+            announce: 0,
         }
     }
 

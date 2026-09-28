@@ -968,6 +968,7 @@ async fn the_check_range_follows_the_data() {
             rows: 6,
             received_ns: at(20_005, 8, 0),
             seen_ms: 0,
+            announce: 0,
         };
         let k = super::sql::LaneKind::for_signal("logs").unwrap();
         let f = super::sql::Fence { wall_ms: u64::MAX, budget_ms: 1 };
@@ -1346,4 +1347,36 @@ async fn births_register_lanes_and_heartbeats_advance_idle_ones() {
     assert!(d.complete_through_ns > 0 && lag_ms <= 16_000, "heartbeats carried the watermark: lag {lag_ms} ms");
     assert!(w.stats.lane_lists - lists0 < 100, "an idle lane with heartbeats backs off: {} LISTs in 300 polls", w.stats.lane_lists - lists0);
     assert_eq!(w.stats.objects_inserted, 0);
+}
+
+/// Resource announcements go in before any row of their lane: a lane whose
+/// announcement statement fails sits the round out (nothing of it is
+/// ingested), other lanes go on, and once the announcements land the rows
+/// follow; only the objects that announce anything are read for it.
+#[tokio::test(flavor = "current_thread")]
+async fn announcements_go_in_before_their_lanes_rows() {
+    let (b, c, clk) = setup();
+    for (seq, (content, ann)) in [("h0", 1), ("h1", 0), ("h2", 2)].into_iter().enumerate() {
+        let key = proto::slot_key(&format!("{ROOT}/c1/p1/logs"), "E0001", seq as u64);
+        let mut m = meta("E0001", seq as u64, content, 4);
+        let _ = m.insert(proto::META_ANNOUNCE.to_string(), ann.to_string());
+        b.insert(&key, Bytes::from(vec![0u8; 100]), m);
+    }
+    let mut e = Edge::new("c1/p2", "traces");
+    let _ = e.commit(&b, "t0", 3).await;
+    c.announce_fail_every.set(1); // every announcement statement is refused
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    run(&mut ws, &clk, 3, 100).await;
+    assert_eq!(c.count("otel_logs", "h1"), 0, "no row of the lane before its announcements");
+    assert_eq!(c.count("otel_traces", "t0"), 3, "other lanes go on");
+    assert!(ws[0].stats.announce_deferred > 0 && ws[0].stats.announce_objects == 0, "{:?}", ws[0].stats);
+    c.announce_fail_every.set(0);
+    run(&mut ws, &clk, 3, 100).await;
+    for h in ["h0", "h1", "h2"] {
+        assert_eq!(c.count("otel_logs", h), 4, "{h}");
+    }
+    let ann = c.announced.borrow();
+    assert_eq!(ann.len(), 2, "the two announcing objects, and only them: {ann:?}");
+    assert_eq!(ws[0].stats.announce_objects, 2);
+    assert_eq!(ws[0].checkpoint("c1/p1/logs").unwrap().next("E0001"), 3);
 }

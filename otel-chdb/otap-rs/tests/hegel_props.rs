@@ -39,6 +39,7 @@ fn obj(seq: u64, rows: u64, size: u64, received_ns: u64) -> Obj {
         rows,
         received_ns,
         seen_ms: 0,
+        announce: 0,
     }
 }
 
@@ -483,7 +484,7 @@ fn any_value(tc: &TestCase, depth: u32, huge: bool) -> AnyValue {
 
 fn kv(tc: &TestCase, depth: u32, huge: bool) -> KeyValue {
     // Keys repeat now and then (duplicate keys are legal in OTLP).
-    let key = if tc.draw(gs::booleans()) { tc.draw(gs::sampled_from(vec!["k", "service.name", "a.b", ""])).to_string() } else { string(tc, false) };
+    let key = if tc.draw(gs::booleans()) { tc.draw(gs::sampled_from(vec!["k", "service.name", "a.b", "", "k8s.pod.name", "k8s.pod.label.a"])).to_string() } else { string(tc, false) };
     let value = if tc.draw(gs::integers::<u8>().max_value(9)) == 0 { None } else { Some(any_value(tc, depth, huge)) };
     KeyValue { key, value }
 }
@@ -598,7 +599,7 @@ use arrow::array::{Array, ArrayRef, BinaryArray, MapArray, RecordBatch, Timestam
 use otap_s3pq::Signal;
 use otap_s3pq::batch::{Encoder, Format, Input};
 use otap_s3pq::encode::{ParquetOptions, RowGroupSplit, SortBy, SortOptions};
-use otap_s3pq::flatten::{Envelope, record_batch};
+use otap_s3pq::flatten::Envelope;
 
 enum Req {
     Traces(TracesData),
@@ -703,6 +704,9 @@ fn prop_otap_rows_match_otlp_and_do_not_depend_on_the_process(tc: TestCase) {
             return;
         }
     };
+    let res = |f: &otap_s3pq::batch::Flat| f.resources.iter().map(|(c, r)| (c.id, c.pairs.clone(), *r)).collect::<Vec<_>>();
+    let via = Encoder::new(ParquetOptions::default(), Format::Parquet).flatten(&Input::Otap(sig, &recs)).expect("flatten otap");
+    assert_eq!(res(&via), res(&direct), "the resources to announce differ between the OTLP and OTAP paths");
     let flat_on_thread = |recs: OtapArrowRecords| {
         std::thread::spawn(move || {
             let f = Encoder::new(ParquetOptions::default(), Format::Parquet).flatten(&Input::Otap(sig, &recs)).expect("flatten otap");
@@ -888,7 +892,7 @@ fn prop_parquet_round_trip(tc: TestCase) {
     let f = enc.flatten(&Input::Otlp(sig, &b)).expect("flatten");
     let obj = enc.encode(&f, &e).expect("encode");
     let sc = enc.schemas(sig);
-    let want = record_batch(sc, f.cols.clone(), f.stats.rows, &e);
+    let want = enc.rows(&f, &e, &|_| true).0;
     let mut got = decode(sc, &obj.body);
     assert_eq!(got.num_rows(), want.num_rows());
     if o.sort.enabled() {

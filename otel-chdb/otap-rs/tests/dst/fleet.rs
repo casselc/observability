@@ -175,6 +175,11 @@ impl Profile {
 pub struct ChState {
     pub rows: BTreeMap<(String, String), u64>,
     pub by_day: BTreeMap<(String, String, u64), u64>,
+    /// otel_resources: resource -> physical rows landed (ReplacingMergeTree
+    /// keeps one per (resource, object); the count shows the retries).
+    pub announced: BTreeMap<String, u64>,
+    /// The announcing objects whose announcement landed.
+    pub announced_objs: BTreeSet<(String, String, u64)>,
 }
 
 #[derive(Default, Debug)]
@@ -201,6 +206,11 @@ pub struct Tally {
     pub ckpt_checks: u64,
     pub gc_runs: u64,
     pub gc_deleted: u64,
+    /// Objects committed with an announcement; announcement statements; rows
+    /// that landed after their resource's announcement (checked).
+    pub announcing_objs: u64,
+    pub ann_stmts: u64,
+    pub rows_after_ann: u64,
 }
 
 pub struct World {
@@ -226,7 +236,15 @@ pub struct World {
     /// Per (process, lease key): the body of its last lease PUT, and whether
     /// a read of that key failed since (for `on_log`'s lane-drop check).
     pub lease_puts: RefCell<BTreeMap<(String, String), (Bytes, bool)>>,
+    /// The resource each content key's rows use (traces, logs).
+    pub res_of: RefCell<BTreeMap<String, String>>,
+    /// Committed data objects that announce a resource: slot -> resource.
+    pub ann_of: RefCell<BTreeMap<(String, String, u64), String>>,
 }
+
+/// A sim object's resource (S3 metadata; the real object carries it in
+/// `resource_announce` and `resource_id`).
+pub const META_SIM_RESOURCE: &str = "sim-resource";
 
 /// A fault a driver injects into one process's next matching request
 /// (`tests/hegel_dst.rs`); the per-seed rates of `Profile` are independent.
@@ -318,6 +336,12 @@ impl World {
             if meta.get(proto::META_KIND).map(String::as_str) == Some(proto::KIND_DATA) {
                 let content = meta.get(proto::META_CONTENT).cloned().unwrap_or_default();
                 let _ = self.ever.borrow_mut().insert((lane.clone(), epoch.clone(), seq), content);
+                if meta.get(proto::META_ANNOUNCE).is_some_and(|n| n != "0") {
+                    if let Some(r) = meta.get(META_SIM_RESOURCE) {
+                        self.tally.borrow_mut().announcing_objs += 1;
+                        let _ = self.ann_of.borrow_mut().insert((lane.clone(), epoch.clone(), seq), r.clone());
+                    }
+                }
                 if let Some(ck) = self.ckpt_of(&lane) {
                     if ck.closed(&epoch) && seq >= ck.next(&epoch) {
                         self.violation(format!("noCommitAfterClose: data at {lane} {epoch}/{seq} after its tombstone at {}", ck.next(&epoch)));
@@ -391,7 +415,8 @@ impl World {
 
     /// A statement lands: its rows go in, if its lanes' lease versions are
     /// still the ones it was issued under.
-    pub fn land(&self, n: u64, table: &str, objs: &[Obj], leases: &[(String, u64)], repair: bool) {
+    pub fn land(&self, n: u64, table: &str, objs: &[Obj], leases: &[(String, u64)], kind: Stmt) {
+        let repair = kind == Stmt::Repair;
         for (lane, ep) in leases {
             let cur = self.lease_of(lane);
             if cur.as_ref().map(|d| d.epoch) != Some(*ep) {
@@ -403,7 +428,30 @@ impl World {
         }
         self.tally.borrow_mut().landed += 1;
         let mut ch = self.ch.borrow_mut();
+        if kind == Stmt::Announce {
+            for o in objs {
+                let slot = (o.lane.clone(), o.epoch.clone(), o.seq);
+                match self.ann_of.borrow().get(&slot) {
+                    Some(r) => {
+                        *ch.announced.entry(r.clone()).or_default() += 1;
+                        let _ = ch.announced_objs.insert(slot);
+                        trace(format!("CH #{n} announces {r} ({} {}/{})", o.lane, o.epoch, o.seq));
+                    }
+                    None => self.violation(format!("statement #{n} announces from {} {}/{}, which announces nothing", o.lane, o.epoch, o.seq)),
+                }
+            }
+            return;
+        }
         for o in objs {
+            // sameLane: a row reaches central only after the announcement of
+            // its resource (entityCatalog.qnt ingestRow).
+            if let Some(r) = self.res_of.borrow().get(&o.content) {
+                if ch.announced.contains_key(r) {
+                    self.tally.borrow_mut().rows_after_ann += 1;
+                } else {
+                    self.violation(format!("sameLane: rows of {} ({table}, {} {}/{}) land before the announcement of {r}", o.content, o.lane, o.epoch, o.seq));
+                }
+            }
             let have = ch.rows.get(&(table.to_string(), o.content.clone())).copied().unwrap_or(0);
             let add = if repair { o.rows.saturating_sub(have) } else { o.rows };
             *ch.rows.entry((table.to_string(), o.content.clone())).or_default() += add;
@@ -708,6 +756,14 @@ pub enum Outcome {
     TimeoutCommit,
 }
 
+/// What a statement is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stmt {
+    Insert,
+    Repair,
+    Announce,
+}
+
 pub fn no_answer(msg: &str) -> InsertErr {
     InsertErr { msg: msg.into(), settled: false, answered: false, range: false }
 }
@@ -752,7 +808,8 @@ impl SimCentral {
     /// A statement (an insert, or a row repair): issued now, run on the
     /// server as its own task (a killed client doesn't stop it), landing and
     /// answering as `draw` says.
-    pub async fn statement(&self, k: &LaneKind, objs: Vec<Obj>, fence: Fence, repair: bool) -> Result<(), InsertErr> {
+    pub async fn statement(&self, k: &LaneKind, objs: Vec<Obj>, fence: Fence, kind: Stmt) -> Result<(), InsertErr> {
+        let repair = kind == Stmt::Repair;
         let w = self.w.clone();
         let n = w.stmt_n.get() + 1;
         w.stmt_n.set(n);
@@ -771,7 +828,7 @@ impl SimCentral {
             }
         }
         let contents: Vec<&str> = objs.iter().map(|o| o.content.as_str()).collect();
-        let what = format!("CH #{n} {} {} {contents:?} fence {}", if repair { "REPAIR" } else { "INSERT" }, k.table, fence.wall_ms);
+        let what = format!("CH #{n} {kind:?} {} {contents:?} fence {}", k.table, fence.wall_ms);
         self.p.gate().await;
         if self.p.cut() {
             w.tally.borrow_mut().cut_reqs += 1;
@@ -800,7 +857,7 @@ impl SimCentral {
             match outcome {
                 Outcome::Normal => {
                     sleep_ms(exec).await;
-                    w.land(n, &table, &objs, &leases, repair);
+                    w.land(n, &table, &objs, &leases, kind);
                     let _ = tx.send(Ok(()));
                 }
                 Outcome::SettledErr => {
@@ -809,18 +866,18 @@ impl SimCentral {
                 }
                 Outcome::Partial => {
                     sleep_ms(exec).await;
-                    w.land(n, &table, &objs[..1], &leases, repair);
+                    w.land(n, &table, &objs[..1], &leases, kind);
                     let _ = tx.send(Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, answered: true, range: false }));
                 }
                 Outcome::Lost => {
                     sleep_ms(exec).await;
-                    w.land(n, &table, &objs, &leases, repair);
+                    w.land(n, &table, &objs, &leases, kind);
                     drop(tx);
                 }
                 Outcome::Late => {
                     let at = w.at_server(latest_srv);
                     sleep_until_ms(w.sim.range(now_ms(), at.max(now_ms()))).await;
-                    w.land(n, &table, &objs, &leases, repair);
+                    w.land(n, &table, &objs, &leases, kind);
                     drop(tx);
                 }
                 Outcome::TimeoutCommit => {
@@ -829,7 +886,7 @@ impl SimCentral {
                     let _ = tx.send(Err(InsertErr { settled: settles_at_once(&msg), answered: true, range: false, msg }));
                     let at = w.at_server(latest_srv);
                     sleep_until_ms(w.sim.range(now_ms(), at.max(now_ms()))).await;
-                    w.land(n, &table, &objs, &leases, repair);
+                    w.land(n, &table, &objs, &leases, kind);
                 }
             }
         }));
@@ -890,11 +947,16 @@ impl Central for SimCentral {
     }
 
     async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str, _guard: bool) -> Result<(), InsertErr> {
-        self.statement(k, objs.iter().map(|o| (*o).clone()).collect(), fence, false).await
+        self.statement(k, objs.iter().map(|o| (*o).clone()).collect(), fence, Stmt::Insert).await
     }
 
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), InsertErr> {
-        self.statement(k, vec![obj.clone()], fence, true).await
+        self.statement(k, vec![obj.clone()], fence, Stmt::Repair).await
+    }
+
+    async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), InsertErr> {
+        self.w.tally.borrow_mut().ann_stmts += 1;
+        self.statement(k, objs.iter().map(|o| (*o).clone()).collect(), fence, Stmt::Announce).await
     }
 }
 
@@ -910,6 +972,16 @@ pub struct Edge {
     pub n_epochs: u32,
     pub next: u64,
     pub last: Option<(String, u64, u64)>,
+    /// Resources announced in this epoch (traces, logs): the exporter's
+    /// `AnnounceCache`, marked only once the announcing object committed.
+    pub cache: BTreeSet<String>,
+    /// The resource pool's generation (`EdgeCmd::NewResources`).
+    pub res_gen: u64,
+}
+
+/// Whether a signal's objects carry resources.
+pub fn has_resources(signal: &str) -> bool {
+    signal == "traces" || signal == "logs"
 }
 
 impl Edge {
@@ -920,11 +992,23 @@ impl Edge {
         self.n_epochs += 1;
         self.epoch = format!("E{:04}", self.n_epochs);
         self.next = 0;
+        self.cache.clear(); // a new epoch announces everything again
+    }
+    /// A batch's resource: one of three per pool generation, per producer.
+    pub fn resource(&self, w: &World) -> String {
+        format!("{}-g{}-r{}", self.producer, self.res_gen, w.sim.range(0, 3))
     }
     pub async fn commit(&mut self, b: &SimBucket, content: &str, rows: u64, recv_ns: u64) {
+        let res = if has_resources(&self.signal) { b.w.res_of.borrow().get(content).cloned() } else { None };
         loop {
             let key = proto::slot_key(&self.prefix(), &self.epoch, self.next);
+            // Decided per attempt, for this slot's epoch.
+            let announce = res.as_ref().filter(|r| !self.cache.contains(*r)).cloned();
             let mut m = BTreeMap::new();
+            if let Some(r) = &res {
+                let _ = m.insert(META_SIM_RESOURCE.to_string(), r.clone());
+                let _ = m.insert(proto::META_ANNOUNCE.to_string(), if announce.is_some() { "1" } else { "0" }.to_string());
+            }
             for (k, v) in [
                 (proto::META_KIND, proto::KIND_DATA.to_string()),
                 (proto::META_EPOCH, self.epoch.clone()),
@@ -940,6 +1024,7 @@ impl Edge {
             match b.put(&key, Bytes::from_static(&[0u8; 64]), Cond::Create, &m).await {
                 Put::Ok(_) => {
                     self.next += 1;
+                    self.cache.extend(announce);
                     return;
                 }
                 _ => loop {
@@ -949,7 +1034,11 @@ impl Edge {
                                 proto::Slot::Tomb => self.new_epoch(),
                                 proto::Slot::Data { epoch, content: c } if epoch == self.epoch && c == content => {
                                     self.next += 1;
-                                    return; // ours: it applied
+                                    // ours: it applied, and so did what it announced
+                                    if h.get(proto::META_ANNOUNCE).is_some_and(|n| n != "0") {
+                                        self.cache.extend(h.get(META_SIM_RESOURCE).cloned());
+                                    }
+                                    return;
                                 }
                                 _ => self.next += 1,
                             }
@@ -1049,6 +1138,8 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
         n_content: Cell::new(0),
         edge_backlog: Cell::new(0),
         lease_puts: RefCell::new(BTreeMap::new()),
+        res_of: RefCell::new(BTreeMap::new()),
+        ann_of: RefCell::new(BTreeMap::new()),
     });
     let stop = Rc::new(Cell::new(false));
     // Edges.
@@ -1062,7 +1153,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
             let name = format!("edge-p{pi}-{s}");
             edge_tasks.push(tokio::task::spawn_local(async move {
                 let b = SimBucket { w: w.clone(), p: Proc::new(&name) };
-                let mut e = Edge { producer: format!("c{}/p{pi}", pi % 2), signal: s.to_string(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
+                let mut e = Edge { producer: format!("c{}/p{pi}", pi % 2), signal: s.to_string(), epoch: String::new(), n_epochs: 0, next: 0, last: None, cache: BTreeSet::new(), res_gen: 0 };
                 e.new_epoch();
                 let table = table_of(s);
                 let gap = w.sim.range(100, 2_000);
@@ -1088,6 +1179,9 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
                     let rows = w.sim.range(1, 9);
                     let recv = if w.p.scale { w.sim.wall() * 1_000_000 } else { 0 };
                     let _ = w.rows_of.borrow_mut().insert((table.clone(), c.clone()), rows);
+                    if has_resources(s) {
+                        let _ = w.res_of.borrow_mut().insert(c.clone(), e.resource(&w));
+                    }
                     e.commit(&b, &c, rows, recv).await;
                     e.last = Some((c, rows, recv));
                 }
@@ -1185,6 +1279,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
     trace("END");
     // The final state.
     let (missing, dup, extra) = final_state(&w);
+    let (ann_missing, ann_extra, _) = announcement_state(&w);
     let rows_of = w.rows_of.borrow().clone();
     let v = w.violations.borrow().clone();
     let tally = format!("{:?}", w.tally.borrow());
@@ -1202,6 +1297,8 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
     assert!(dup.is_empty(), "atMostOnce: ingested more than once: {dup:?}\n{summary}");
     assert!(extra.is_empty(), "onlyCommittedIngested: {extra:?}\n{summary}");
     assert!(missing.is_empty(), "not ingested, no progress for 60 s after {quiesce_ms} ms healed (neverSkipsCommitted / liveness): {missing:?}\n{summary}");
+    assert!(ann_missing.is_empty(), "announcements committed and not ingested: {ann_missing:?}\n{summary}");
+    assert!(ann_extra.is_empty(), "announcements ingested and never committed: {ann_extra:?}\n{summary}");
     summary
 }
 
@@ -1256,6 +1353,22 @@ pub fn final_state(w: &World) -> (Vec<String>, Vec<String>, Vec<String>) {
     (missing, dup, extra)
 }
 
+/// Announcements, exactly once: every committed announcement landed (its
+/// resource is in otel_resources), and nothing else did. Physical copies
+/// (a retried statement, an object's copy in a later epoch) are the
+/// ReplacingMergeTree's to fold; they are counted, not failed. Returns
+/// (missing, extra, physical duplicates).
+pub fn announcement_state(w: &World) -> (Vec<String>, Vec<String>, u64) {
+    let ann_of = w.ann_of.borrow();
+    let ch = w.ch.borrow();
+    let missing: Vec<String> =
+        ann_of.iter().filter(|(slot, _)| !ch.announced_objs.contains(*slot)).map(|((l, e, s), r)| format!("{r} from {l} {e}/{s}")).collect();
+    let want: BTreeSet<&String> = ann_of.values().collect();
+    let extra: Vec<String> = ch.announced.keys().filter(|r| !want.contains(r)).cloned().collect();
+    let dups = ch.announced.values().sum::<u64>() - ch.announced_objs.len() as u64;
+    (missing, extra, dups)
+}
+
 /// A command for an edge driver (`spawn_edge`).
 #[derive(Clone, Copy, Debug)]
 pub enum EdgeCmd {
@@ -1264,6 +1377,9 @@ pub enum EdgeCmd {
     /// Restart: a new epoch, the last batch resent into it (its received
     /// time kept); the old epoch's head stays free for the consumer to close.
     Restart,
+    /// New resources (a rollout): the next batches use resources this lane
+    /// has never announced.
+    NewResources,
 }
 
 /// A writer lane driven by commands instead of its own clock: the same
@@ -1277,7 +1393,7 @@ pub fn spawn_edge(w: &Rc<World>, producer: usize, signal: &str) -> (tokio::sync:
     drop(tokio::task::spawn_local(async move {
         let name = p2.name.clone();
         let b = SimBucket { w: w.clone(), p: p2 };
-        let mut e = Edge { producer: format!("c{}/p{producer}", producer % 2), signal: s.clone(), epoch: String::new(), n_epochs: 0, next: 0, last: None };
+        let mut e = Edge { producer: format!("c{}/p{producer}", producer % 2), signal: s.clone(), epoch: String::new(), n_epochs: 0, next: 0, last: None, cache: BTreeSet::new(), res_gen: 0 };
         e.new_epoch();
         let table = table_of(&s);
         while let Some(cmd) = rx.recv().await {
@@ -1289,10 +1405,18 @@ pub fn spawn_edge(w: &Rc<World>, producer: usize, signal: &str) -> (tokio::sync:
                         let rows = w.sim.range(1, 9);
                         let recv = if w.p.scale { w.sim.wall() * 1_000_000 } else { 0 };
                         let _ = w.rows_of.borrow_mut().insert((table.clone(), c.clone()), rows);
+                        if has_resources(&s) {
+                            let _ = w.res_of.borrow_mut().insert(c.clone(), e.resource(&w));
+                        }
                         e.commit(&b, &c, rows, recv).await;
                         e.last = Some((c, rows, recv));
                         w.edge_backlog.set(w.edge_backlog.get() - 1);
                     }
+                }
+                EdgeCmd::NewResources => {
+                    e.res_gen += 1;
+                    trace(format!("{name} NEW RESOURCES g{}", e.res_gen));
+                    w.edge_backlog.set(w.edge_backlog.get() - 1);
                 }
                 EdgeCmd::Restart => {
                     w.tally.borrow_mut().edge_restarts += 1;
@@ -1327,6 +1451,8 @@ impl World {
             n_content: Cell::new(0),
         edge_backlog: Cell::new(0),
             lease_puts: RefCell::new(BTreeMap::new()),
+            res_of: RefCell::new(BTreeMap::new()),
+            ann_of: RefCell::new(BTreeMap::new()),
         })
     }
 

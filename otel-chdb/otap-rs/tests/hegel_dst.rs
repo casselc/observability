@@ -306,6 +306,13 @@ async fn finish(f: Rc<Fleet>) -> Reply {
     if !missing.is_empty() {
         return Err(format!("not ingested, no progress for 60 s after {q} ms healed (neverSkipsCommitted / liveness): {missing:?}"));
     }
+    let (ann_missing, ann_extra, _) = announcement_state(&f.w);
+    if !ann_missing.is_empty() {
+        return Err(format!("announcements committed and not ingested: {ann_missing:?}"));
+    }
+    if !ann_extra.is_empty() {
+        return Err(format!("announcements ingested and never committed: {ann_extra:?}"));
+    }
     Ok(format!("{:?}", f.w.tally.borrow()))
 }
 
@@ -380,6 +387,20 @@ impl FleetMachine {
         self.step(&tc, move |f| async move {
             f.w.edge_backlog.set(f.w.edge_backlog.get() + n as u64);
             let _ = f.edges[lane].0.send(EdgeCmd::Write(n));
+            Ok(String::new())
+        });
+    }
+
+    /// A producer lane's resources change (a rollout: new pods): its next
+    /// batches use resources it has never announced, so their objects carry
+    /// announcements, which must reach otel_resources before their rows
+    /// (sameLane), exactly once (after the ReplacingMergeTree's folding).
+    #[rule]
+    fn announce(&mut self, tc: TestCase) {
+        let lane = tc.draw(gs::integers::<usize>().max_value(self.lanes - 1));
+        self.step(&tc, move |f| async move {
+            f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
+            let _ = f.edges[lane].0.send(EdgeCmd::NewResources);
             Ok(String::new())
         });
     }

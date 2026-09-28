@@ -217,7 +217,7 @@ impl ChEmu {
             let _ = self.tables.borrow_mut().entry(name).or_insert_with(|| Table { partition_key: pk, ..Default::default() });
             return Reply::Ok(String::new());
         }
-        if q.starts_with("CREATE MATERIALIZED VIEW IF NOT EXISTS ") || q.starts_with("CREATE TABLE ") {
+        if q.starts_with("CREATE MATERIALIZED VIEW IF NOT EXISTS ") || q.starts_with("CREATE VIEW IF NOT EXISTS ") || q.starts_with("CREATE TABLE ") {
             return Reply::Ok(String::new());
         }
         if q.starts_with("KILL QUERY ") || q.starts_with("SYSTEM SYNC REPLICA ") {

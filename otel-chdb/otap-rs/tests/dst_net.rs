@@ -911,7 +911,7 @@ fn ch_emulator_matches_clickhouse() {
             let key = proto::slot_key(&lane, "E1", seq as u64);
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
             let _ = infos.insert(bucket.object_url(&key), ObjInfo { rows: n as u64, received_ns: now });
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0 });
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0 });
         }
         let db = format!("dst_diff_{nonce}");
         let real = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), "otel", "otelsecret", 20_000);

@@ -60,7 +60,7 @@ pub fn may_tomb(scan: &EpochScan, newest: bool, quiet_for_ms: u64, quiet_ms: u64
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Found {
     /// `low_ns`: the object's `oscope-low` (None: absent, as 0).
-    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64> },
+    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64 },
     /// A heartbeat (`../../FORMAT.md` §2): nothing to ingest, only its low.
     Beat { low_ns: u64 },
     Tomb,
@@ -88,6 +88,7 @@ pub fn found(meta: &HashMap<String, String>) -> Found {
             rows: meta.get(proto::META_ROWS).and_then(|r| r.parse().ok()).unwrap_or(0),
             received_ns: meta.get(proto::META_RECEIVED).and_then(|r| r.parse().ok()).unwrap_or(0),
             low_ns,
+            announce: meta.get(proto::META_ANNOUNCE).and_then(|r| r.parse().ok()).unwrap_or(0),
         },
     }
 }
@@ -142,6 +143,9 @@ pub struct Obj {
     pub received_ns: u64,
     /// When this worker first HEADed the slot (monotonic ms): the linger's clock.
     pub seen_ms: u64,
+    /// Resources the object announces (`oscope-announce`; traces and logs):
+    /// inserted into `otel_resources` before its rows.
+    pub announce: u64,
 }
 
 // ---- the check's partition range ------------------------------------------------------
@@ -353,6 +357,7 @@ mod tests {
             rows,
             received_ns: 0,
             seen_ms: 0,
+            announce: 0,
         }
     }
 
@@ -412,12 +417,12 @@ mod tests {
         m.insert(proto::META_KIND.to_string(), proto::KIND_DATA.to_string());
         m.insert(proto::META_CONTENT.to_string(), "h".to_string());
         m.insert(proto::META_ROWS.to_string(), "12".to_string());
-        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None });
+        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None, announce: 0 });
         let _ = m.insert(proto::META_LOW.into(), "7".into());
         assert_eq!(found(&m).low_ns(), 7);
         let _ = m.insert(proto::META_KIND.into(), proto::KIND_BEAT.into());
         assert_eq!(found(&m), Found::Beat { low_ns: 7 });
-        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None });
+        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None, announce: 0 });
         // nothing pending: M; a pending request below M: its received_at; unknown: none
         assert_eq!(lane_wm(50, &[]), Some(50));
         assert_eq!(lane_wm(50, &[vec![Some(Found::Beat { low_ns: 60 }), d(40)], vec![d(45)]]), Some(40));

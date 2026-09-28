@@ -155,6 +155,9 @@ pub fn worker_families(p: &mut Prom, v: &serde_json::Value, horizon_ms: Option<u
     p.counter("consumer_objects_ingested_total", "Committed objects inserted into central (verified).", &with(("kind", "data")), n("objects_inserted"));
     p.counter("consumer_objects_ingested_total", "", &with(("kind", "series")), n("series_objects_inserted"));
     p.counter("consumer_rows_ingested_total", "Rows inserted into central.", wl, n("rows_inserted"));
+    p.counter("consumer_announce_statements_total", "Resource announcement statements (otel_resources).", wl, n("announce_statements"));
+    p.counter("consumer_announced_objects_total", "Objects whose resource announcements landed before their rows.", wl, n("announce_objects"));
+    p.counter("consumer_announce_deferred_total", "Objects held back a round because their lane's announcements did not surely land.", wl, n("announce_deferred"));
     p.counter("consumer_statements_total", "INSERT statements sent (a statement holds up to --max-batch objects).", wl, n("statements"));
     p.counter("consumer_copies_skipped_total", "Objects the count check found already in central (copies and retries).", wl, n("dedup_skipped"));
     p.counter("consumer_repairs_total", "Objects re-inserted after a verify: missing (whole object) or partial (row repair).", &with(("kind", "missing")), n("retried_missing"));

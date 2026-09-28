@@ -34,6 +34,10 @@ export function labelOf(plan) {
     startComplete: plan.startComplete !== false,
     watermarkStatus: plan.watermark?.status ?? '',
     note: plan.watermark?.note ?? '',
+    // D29: whose complete_through this is (the plan's clusters and signal),
+    // and the lanes holding it back
+    scope: plan.watermark?.scope ?? null,
+    holding: plan.watermark?.holding ?? [],
   }
 }
 
@@ -135,6 +139,13 @@ export function niceStep(fromNs, toNs, max = 60) {
   return units[units.length - 1]
 }
 
+/** " (clusters: a, b; signals: logs)" from a label's scope (D29), or "". */
+export function scopeText(scope) {
+  if (!scope) return ''
+  const list = (x) => (!x || (x.length === 1 && x[0] === '*') ? 'all' : x.join(', '))
+  return ` (clusters: ${list(scope.clusters)}; signals: ${list(scope.signals)})`
+}
+
 /** The words every view shows (R-S1: source and complete-through on every view). */
 export function bannerText(label, read = {}, fmt = String) {
   const parts = []
@@ -146,7 +157,11 @@ export function bannerText(label, read = {}, fmt = String) {
     parts.push('Completeness UNKNOWN: the watermark is ' + (label.watermarkStatus || 'missing') + '; nothing here may be read as settled')
   } else if (label.completeThroughNs !== null && label.completeThroughNs !== undefined) {
     const s = incompleteStart(label)
-    parts.push(`Complete through ${fmt(label.completeThroughNs)}` + (s !== null ? `; incomplete from ${fmt(s)} (rows may still arrive)` : ''))
+    parts.push(`Complete through ${fmt(label.completeThroughNs)}` + scopeText(label.scope) +
+      (s !== null ? `; incomplete from ${fmt(s)} (rows may still arrive)` : ''))
+    if (s !== null && label.holding && label.holding.length) {
+      parts.push('held by ' + label.holding.map(h => `${h.lane} (${Math.round(h.lag_s ?? 0)} s behind)`).join(', '))
+    }
     if (label.maxLatenessNs === null || label.maxLatenessNs === undefined) {
       parts.push('the service did not report max_lateness: complete_through is receive time, so no event time is shown as settled')
     } else {

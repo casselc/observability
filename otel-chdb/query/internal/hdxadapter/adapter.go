@@ -80,7 +80,7 @@ func (a *Adapter) count(k string) {
 var LabelHeaders = []string{"X-Otel-Request-Id", "X-Otel-Source", "X-Otel-Completeness", "X-Otel-Complete-Through",
 	"X-Otel-Incomplete-From", "X-Otel-Watermark-Status", "X-Otel-Watermark-Lag-S", "X-Otel-Watermark-Note",
 	"X-Otel-Window-From", "X-Otel-Window-To", "X-Otel-Dropped-Settings", "X-Otel-Statement",
-	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows"}
+	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows", "X-Otel-Watermark-Scope", "X-Otel-Watermark-Holding"}
 
 // clientKeys are URL parameters of the HTTP interface that are not settings.
 var clientKeys = map[string]bool{"query": true, "query_id": true, "database": true, "default_format": true,
@@ -188,6 +188,17 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Set("X-Otel-Watermark-Status", resp.Watermark.Status)
 		if resp.Watermark.LagS != nil {
 			h.Set("X-Otel-Watermark-Lag-S", strconv.FormatFloat(*resp.Watermark.LagS, 'f', 1, 64))
+		}
+		// D29: whose complete_through this is, and the lanes holding it
+		if sc := resp.Watermark.Scope; sc != nil {
+			h.Set("X-Otel-Watermark-Scope", headerSafe("clusters="+strings.Join(sc.Clusters, ",")+"; signals="+strings.Join(sc.Signals, ",")))
+		}
+		if len(resp.Watermark.Holding) > 0 {
+			var hs []string
+			for _, l := range resp.Watermark.Holding {
+				hs = append(hs, l.Lane+" "+strconv.FormatFloat(l.LagS, 'f', 0, 64)+"s")
+			}
+			h.Set("X-Otel-Watermark-Holding", headerSafe(strings.Join(hs, ", ")))
 		}
 		if resp.Watermark.Note != "" {
 			h.Set("X-Otel-Watermark-Note", headerSafe(resp.Watermark.Note))
@@ -317,9 +328,18 @@ type serviceAnswer struct {
 	Partial         bool     `json:"partial"`
 	IncompleteFrom  *string  `json:"incomplete_from"`
 	Watermark       struct {
-		Status string   `json:"status"`
-		LagS   *float64 `json:"lag_s"`
-		Note   string   `json:"note"`
+		Status  string   `json:"status"`
+		LagS    *float64 `json:"lag_s"`
+		Note    string   `json:"note"`
+		Holding []struct {
+			Lane string  `json:"lane"`
+			LagS float64 `json:"lag_s"`
+		} `json:"holding"`
+		// D29: the clusters and signals complete_through was narrowed to
+		Scope *struct {
+			Clusters []string `json:"clusters"`
+			Signals  []string `json:"signals"`
+		} `json:"scope"`
 	} `json:"watermark"`
 	Late struct {
 		Status string `json:"status"`

@@ -19,9 +19,9 @@
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold <budget+slack+2s>]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
-//!           [--depth 3 --wm-skew 5s --wm-stale 5m | --no-watermark]
+//!           [--depth 3 --wm-skew 5s --wm-stale 5m [--wm-cluster-every 0s | --no-cluster-watermarks] | --no-watermark]
 //!   consume watermark --s3 ... [--ctl PREFIX] [--every 5s --run-for 10m] [--depth 3 --wm-skew 5s --wm-stale 5m]
-//!           (complete_through alone: {ctl}/watermark.json, ../../FORMAT.md §3)
+//!           (complete_through alone: {ctl}/watermark.json and {ctl}/watermark/{cluster}.json, ../../FORMAT.md §3, D29)
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
 //!   consume --print-ddl SIGNAL | --print-rollups SIGNAL | --print-structure SIGNAL | --print-cols SIGNAL
 //!   consume horizon-audit --s3 ... --ch URL --db DB [--every 1h [--run-for D]] [--metrics-addr HOST:PORT]
@@ -157,10 +157,21 @@ struct Metrics {
     horizon_ms: Option<u64>,
     wm: Option<consumer::watermark::WmDoc>,
     wm_err: u64,
+    /// Per-cluster documents that failed to write (D29).
+    wm_cluster_err: u64,
 }
 
 /// `complete_through` as metrics (../../FORMAT.md §3).
-fn wm_families(p: &mut metrics::Prom, d: &consumer::watermark::WmDoc, errors: u64) {
+fn wm_families(p: &mut metrics::Prom, d: &consumer::watermark::WmDoc, errors: u64, cluster_errors: u64) {
+    p.declare("consumer_cluster_complete_through_seconds", metrics::Kind::Gauge, "A cluster's published complete_through (Unix s, D29).");
+    for (c, ns) in &d.clusters {
+        p.gauge("consumer_cluster_complete_through_seconds", "", &[("cluster", c.as_str())], *ns as f64 / 1e9);
+    }
+    p.declare("consumer_cluster_complete_through_lag_seconds", metrics::Kind::Gauge, "Wall clock minus a cluster's complete_through at the last run.");
+    for (c, ns) in &d.clusters {
+        p.gauge("consumer_cluster_complete_through_lag_seconds", "", &[("cluster", c.as_str())], (d.wall_ms as f64 / 1e3 - *ns as f64 / 1e9).max(0.0));
+    }
+    p.counter("consumer_cluster_watermark_errors_total", "Per-cluster watermark documents that could not be written.", &[], cluster_errors as f64);
     p.gauge("consumer_complete_through_seconds", "The published complete_through (Unix s): every request received before it is ingested.", &[], d.complete_through_ns as f64 / 1e9);
     p.gauge("consumer_complete_through_lag_seconds", "Wall clock minus complete_through at the last run.", &[], (d.wall_ms as f64 / 1e3 - d.complete_through_ns as f64 / 1e9).max(0.0));
     p.gauge("consumer_watermark_lanes", "Lanes the last run saw.", &[], d.lanes as f64);
@@ -377,7 +388,7 @@ async fn main() {
                 metrics::audit_families(&mut p, &st.audit, &st.audit_m, st.horizon_ms);
             }
             if let Some(d) = &st.wm {
-                wm_families(&mut p, d, st.wm_err);
+                wm_families(&mut p, d, st.wm_err, st.wm_cluster_err);
             }
             metrics::publish(&prom, p.render());
         };
@@ -390,6 +401,8 @@ async fn main() {
                 depth: arg(&args, "--depth").map_or(3, |d| d.parse().expect("--depth")),
                 skew_ms: opt_ms(&args, "--wm-skew", "5s"),
                 stale_ms: opt_ms(&args, "--wm-stale", "5m"),
+                per_cluster: !flag(&args, "--no-cluster-watermarks"),
+                cluster_every_ms: opt_ms(&args, "--wm-cluster-every", "0s"),
                 ..consumer::watermark::WmConfig::new(&root, &ctl)
             });
             let cfg = GcConfig {
@@ -401,12 +414,16 @@ async fn main() {
             };
             loop {
                 if let Some(wc) = &wm_cfg {
-                    let r = consumer::watermark::watermark_step(&*bucket, wc, consumer::wall_ms()).await;
+                    let r = consumer::watermark::watermark_run(&*bucket, wc, consumer::wall_ms()).await;
                     let mut st = state.borrow_mut();
                     match r {
-                        Ok(d) => {
-                            println!("{}", serde_json::json!({"watermark": d}));
-                            st.wm = Some(d);
+                        Ok(run) => {
+                            println!("{}", serde_json::json!({"watermark": run.fleet, "cluster_docs": run.clusters.len()}));
+                            for e in &run.errors {
+                                eprintln!("watermark: {e}");
+                            }
+                            st.wm_cluster_err += run.errors.len() as u64;
+                            st.wm = Some(run.fleet);
                         }
                         Err(e) => {
                             st.wm_err += 1;

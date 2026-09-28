@@ -37,7 +37,7 @@ runs() { # file main match
 # ---- completeness: complete_through and the alert evaluator (LS-6, LS-7, LS-8) ----
 C=completeness.qnt
 sim $C completenessDesign safety 20000 80 ok
-for w in wFire wOk wOkIdleLane wLakeServed wPageNoSource wPageStale wReplayEvaluated wZombieLanded wRegress wNotOldestFirst wAllWindows; do
+for w in wFire wOk wOkIdleLane wLakeServed wPageNoSource wPageStale wReplayEvaluated wZombieLanded wRegress wNotOldestFirst wAllWindows wClusterAhead; do
   sim $C completenessDesign "not($w)" 20000 80 VIOLATED
 done
 sim $C noHeartbeat safety 5000 80 ok "(safe; stalls: idleLaneStallsTest)"
@@ -54,6 +54,20 @@ runs $C completenessDesign "DesignTest|idleLaneStallsTest"
 for m in listTimeIdle lastReceived maxNotPrefix noBirth evalPastComplete noDataOk unlabeledFallback; do runs $C $m "${m}BreaksTest"; done
 runs $C noHeartbeat idleLaneStallsTest
 runs $C completenessImpl "DesignTest"
+# per cluster (D29), three lanes in two clusters: a rule on cluster 2 alone evaluates while cluster 1 stalls; mutants
+sim $C clusterDesign safety 20000 80 ok "(a rule on both clusters)"
+sim $C clusterDesign "not(wClusterAhead)" 20000 80 VIOLATED
+sim $C clusterScoped safety 20000 80 ok "(a rule on cluster 2, gated on cluster 2's complete_through)"
+sim $C clusterScoped "not(wIsolatedEval)" 20000 80 VIOLATED
+sim $C clusterScopedFleetGate safety 5000 80 ok "(the fleet gate before D29: safe)"
+sim $C clusterScopedFleetGate "not(wIsolatedEval)" 5000 80 ok "(and never evaluates past the fleet value)"
+sim $C scopeMax resultLabeled 20000 80 VIOLATED
+sim $C clusterSplit clusterSound 20000 80 VIOLATED
+runs $C clusterDesign "stalledClusterScopedTest|clusterSplitHeldTest"
+runs $C clusterScoped "stalledCluster"
+runs $C clusterScopedFleetGate "stalledClusterScopedTest"
+runs $C scopeMax scopeMaxBreaksTest
+runs $C clusterSplit clusterSplitBreaksTest
 
 # ---- entityCatalog: grace window, controller outages, the announcement lane (LS-5) ----
 E=entityCatalog.qnt

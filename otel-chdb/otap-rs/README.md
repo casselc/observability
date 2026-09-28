@@ -1489,7 +1489,8 @@ scripts: `scripts/consumer_*.sh`; compaction:
 {root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet   the edges' slots (format v2, ../FORMAT.md)
 {ctl}/lease/{cluster}/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
 {ctl}/ckpt/{cluster}/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed}}, max_low_ns, wm_ns}
-{ctl}/watermark.json                    CAS'd complete_through (running max; consume gc / consume watermark)
+{ctl}/watermark.json                    CAS'd complete_through (running max; consume gc / consume watermark), per cluster and signal too (D29)
+{ctl}/watermark/{cluster}.json          CAS'd one cluster's complete_through, per signal and per lane (D29; --wm-cluster-every, --no-cluster-watermarks)
 {ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
 {ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions and floor}, retired epochs
 ```

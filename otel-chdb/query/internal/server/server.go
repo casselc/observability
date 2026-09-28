@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -276,6 +277,22 @@ func scopeOf(p *auth.Principal) sqlscope.Scope {
 	return sqlscope.Scope{AllClusters: p.AllClusters, Clusters: p.Clusters, AllNamespaces: p.AllNamespaces, Namespaces: p.Namespaces}
 }
 
+// labelScope is what a statement's label depends on (D29): the scope's
+// clusters (every cluster for a fleet caller, or when a table has no
+// per-row cluster scope) and the signals of the tables it reads.
+func labelScope(sc sqlscope.Scope, tables []*sqlscope.Table) completeness.Scope {
+	out := completeness.Scope{Signals: sqlscope.SignalsOf(tables)}
+	if !sc.AllClusters {
+		out.Clusters = sc.Clusters
+	}
+	for _, t := range tables {
+		if t.Scope == "fleet" {
+			out.Clusters = nil
+		}
+	}
+	return out
+}
+
 func scopeLists(p *auth.Principal) ([]string, []string) {
 	c, n := p.Clusters, p.Namespaces
 	if p.AllClusters {
@@ -335,6 +352,10 @@ type QueryRequest struct {
 	// Output changes how values are written, never which rows: only
 	// OutputSettings' names and values are accepted.
 	Output map[string]string `json:"output"`
+	// Clusters narrows the statement to some of the token's clusters (D29):
+	// rows are filtered to them, and the label is their complete_through.
+	// Default: every cluster in the token's scope.
+	Clusters []string `json:"clusters"`
 }
 
 // OutputSettings are the output-format settings a caller may choose (a UI
@@ -414,6 +435,24 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	in := sha256.Sum256([]byte(body.SQL))
 	base.InputHash = hex.EncodeToString(in[:])
 	scope := scopeOf(p)
+	if len(body.Clusters) > 0 {
+		var cs []string
+		for _, c := range body.Clusters {
+			if !sqlscope.ClusterRE.MatchString(c) {
+				deny(http.StatusBadRequest, "bad_cluster", fmt.Sprintf("cluster %q is not a valid name", c), base)
+				return
+			}
+			if !p.MayCluster(c) {
+				deny(http.StatusForbidden, "cluster_not_in_scope", fmt.Sprintf("cluster %q is not in the token's scope", c), base)
+				return
+			}
+			if !slices.Contains(cs, c) {
+				cs = append(cs, c)
+			}
+		}
+		scope.AllClusters, scope.Clusters = false, cs
+		base.Clusters = cs
+	}
 	var window *completeness.Window
 	if body.Window != nil {
 		from, okF, err1 := timeArg(body.Window.From)
@@ -437,7 +476,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		deny(rejectionCode(rj.Reason), rj.Reason, rj.Detail, base)
 		return
 	}
-	restricted := !p.AllClusters || !p.AllNamespaces
+	restricted := !scope.AllClusters || !scope.AllNamespaces
 	for _, t := range pr.Tables() {
 		if t.Scope == "catalog" && restricted {
 			if s.Catalog == nil {
@@ -474,7 +513,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	// the label's watermark is read before the statement runs: rows below it
 	// were in central before the statement started
-	wm := s.Watermark.Get(r.Context())
+	wm := s.Watermark.For(r.Context(), labelScope(scope, pr.Tables()))
 	started := s.Now()
 	comment := "qs:" + rq.id + ":" + p.Subject
 	settings := central.Settings(limits, res.FiltersSetting(), rq.id, truncate(comment, 200))
@@ -511,8 +550,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	label := completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
 	late := s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
 	var want []string
-	if !p.AllClusters {
-		want = p.Clusters
+	if !scope.AllClusters {
+		want = scope.Clusters
 	}
 	resp := QueryResponse{RequestID: rq.id, Label: label, Result: out, Late: late,
 		Catalog: s.Catalog.Lag(r.Context(), p.MayCluster, want),

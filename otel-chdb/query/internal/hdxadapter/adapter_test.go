@@ -41,7 +41,8 @@ func (f *fakeService) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 const okAnswer = `{"request_id":"r1","source":"central","complete_through":"2026-09-28T12:00:00Z","complete_through_ns":1,
  "max_lateness_s":60,"settled_through":"2026-09-28T11:59:00Z","late":{"status":"counted","rows":4},
  "completeness":"partial","partial":true,"incomplete_from":"2026-09-28T11:59:00Z",
- "watermark":{"status":"ok","lag_s":28.84},"query":{"rows_read":5,"elapsed_ms":1.5},
+ "watermark":{"status":"ok","lag_s":28.84,"holding":[{"lane":"prod-a/pub-0/logs","wm_ns":1,"lag_s":28.84}],
+  "scope":{"clusters":["prod-a"],"signals":["logs"]}},"query":{"rows_read":5,"elapsed_ms":1.5},
  "result":{"meta":[{"name":"b","type":"String"},{"name":"a","type":"UInt64"},{"name":"b","type":"Array(String)"}],
   "data":[{"b":"x/y","a":"7","b":["p", "q"]},{"b":"é","a":"8","b":[]}],"rows":2,"statistics":{"elapsed":0.001}}}`
 
@@ -100,7 +101,8 @@ func TestAdapterForwardsWithTokenAndLabels(t *testing.T) {
 		"X-Otel-Dropped-Settings": "add_http_cors_header,max_execution_time,result_overflow_mode", "X-Clickhouse-Query-Id": "q-1",
 		"X-Otel-Window-From": "1970-01-01T00:00:01Z", "X-Otel-Window-To": "1970-01-01T00:00:02.000000001Z",
 		"X-Otel-Max-Lateness-S": "60", "X-Otel-Settled-Through": "2026-09-28T11:59:00Z", "X-Otel-Incomplete-From": "2026-09-28T11:59:00Z",
-		"X-Otel-Late-Rows": "4"} {
+		"X-Otel-Late-Rows": "4", "X-Otel-Watermark-Scope": "clusters=prod-a; signals=logs",
+		"X-Otel-Watermark-Holding": "prod-a/pub-0/logs 29s"} {
 		if h.Get(k) != want {
 			t.Errorf("%s = %q, want %q", k, h.Get(k), want)
 		}

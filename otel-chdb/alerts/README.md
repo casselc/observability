@@ -71,6 +71,7 @@ rules:
     lateness: 30s       # default evaluation.lateness_s; a margin on top of the service's max_lateness
     severity: page
     identity: default
+    clusters: [prod-eu-1]       # optional (D29): narrows the identity's scope; rows and complete_through are these clusters'
     labels: {team: sre}
     annotations: {summary: "{{labels.service}}: {{value}} errors"}
     cannot_evaluate_after: 5m   # default evaluation.cannot_evaluate_after_s
@@ -81,6 +82,12 @@ rules:
 - The statement goes to `/v1/query` with `window: {from, to}`: the query
   service restricts every table's time column to it (query README §3), so
   the completeness label describes the rows the statement saw.
+- **Scope** (D29): the rule's identity's token, narrowed by `clusters` (sent
+  as the request's `clusters`; one outside the token is a refusal, 403). The
+  query service labels the result with that scope's `complete_through` (per
+  cluster, and per signal of the tables read), so a rule on one cluster is
+  not held by another cluster's stalled edge; its "cannot evaluate" page
+  names only its scope's lanes.
 - **Each row is a group.** The condition's column is the value; every other
   column is a label. A value that is missing, null, not a number or not
   finite, two rows for one group, or more than `max_groups` rows is a
@@ -302,21 +309,27 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
   20,000 × 40-step traces; the witnesses are reached; mutants
   `evalPastCt` (also loses an episode: LS-7's story), `ackOnNoAnswer`,
   `blindWrite` are caught (`alert_model.sh`).
-- **`integration`** [M] (100 s): the Go edge for clusters `aa` and `ab`,
+- **`integration`** [M] (160 s): the Go edge for clusters `aa` and `ab`,
   SeaweedFS, the Rust consumer (`consume run` and `consume watermark`
   pumped every ~2 s), ClickHouse with a read-only user, **queryd built from
   `../query`** with a small OIDC issuer (JWKS + client credentials), two
   evaluator replicas with their state on SeaweedFS, and a fake
-  Alertmanager. Errors in both clusters fire (the fleet rule sees both, the
-  `aa` identity only `aa`'s) and resolve; the first delivery is taken and
+  Alertmanager. Errors in both clusters fire (the fleet rule sees both; the
+  `aa` identity's rule and the fleet identity's rule narrowed by
+  `clusters: [aa]` only `aa`'s) and resolve; the first delivery is taken and
   its answer lost, and is re-sent with the same key. Then `ab`'s edge stops:
-  errors sent to `aa` meanwhile are **not** evaluated; after 24 s both
-  rules page "cannot evaluate" naming `ab`'s lanes; one replica stops; the
-  consumer stops publishing and the reason becomes a stale watermark. The
-  edge returns with a third replica: the missed windows are evaluated in
-  order, the stall's errors page 16 s after recovery (evaluation delay
-  40 s), both pages resolve, no window was skipped, no episode appears
-  under two keys. Everything is named `alr-…` / `alr_…` and removed.
+  the fleet rule does **not** evaluate the errors sent to `aa` meanwhile and
+  pages "cannot evaluate" naming `ab`'s lanes (after 43 s), while the two
+  rules scoped to `aa` evaluate them on time (they fire 15 s after the stall
+  began) and never page (D29); one replica stops; the consumer stops
+  publishing and the reason becomes a stale watermark. The edge returns
+  with a third replica: the missed windows are evaluated in order, the
+  stall's errors page for the fleet rule 13 s after recovery (evaluation
+  delay 90 s), the pages resolve, no window was skipped, no episode appears
+  under two keys. Everything is named `alr-…` / `alr_…` and removed. (The
+  service's `max_age_s` is 30 and `cannot_evaluate_after` 45 s: one pump
+  cycle, `consume run` then `consume watermark`, takes 13–16 s on the shared
+  test box, which a 12 s `max_age_s` read as a stale watermark.)
   Nightly in CI (`alerts-integration`).
 
 ## 8. What it does not do

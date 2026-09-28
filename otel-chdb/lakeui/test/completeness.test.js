@@ -5,6 +5,17 @@ import { bannerText, bucketState, buckets, incompleteStart, resultState, rowStat
 
 const L = (over) => ({ state: 'partial', fromNs: 0n, toNs: 1000n, completeThroughNs: 600n, incompleteFromNs: 600n, maxLatenessNs: 0n, startComplete: true, watermarkStatus: 'ok', ...over })
 
+test('the banner names the scope complete_through is for, and the lanes holding it (D29)', () => {
+  const t = bannerText(L({ scope: { clusters: ['prod-a'], signals: ['logs'] }, holding: [{ lane: 'prod-a/pub-0/logs', lag_s: 41.2 }] })).text
+  assert.match(t, /Complete through 600 \(clusters: prod-a; signals: logs\); incomplete from 600/)
+  assert.match(t, /held by prod-a\/pub-0\/logs \(41 s behind\)/)
+  assert.match(bannerText(L({ scope: { clusters: ['*'], signals: ['*'] } })).text, /\(clusters: all; signals: all\)/)
+  // settled: no holding lanes shown
+  assert.doesNotMatch(bannerText(L({ state: 'complete', toNs: 600n, holding: [{ lane: 'x/y/logs', lag_s: 1 }] })).text, /held by/)
+  // a service before D29: no scope, the banner as before
+  assert.match(bannerText(L()).text, /Complete through 600; incomplete from 600/)
+})
+
 test('examples: complete, partial, unknown', () => {
   assert.deepEqual(segments(L({ state: 'complete', toNs: 600n })), [{ fromNs: 0n, toNs: 600n, state: 'complete' }])
   assert.deepEqual(segments(L()), [{ fromNs: 0n, toNs: 600n, state: 'complete' }, { fromNs: 600n, toNs: 1000n, state: 'incomplete' }])

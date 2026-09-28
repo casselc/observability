@@ -53,6 +53,12 @@ type Table struct {
 	// Columns: for a metadata table, the only columns a statement may read
 	// (default: MetadataColumns[name]). Not allowed on other scopes.
 	Columns []string `json:"columns"`
+	// Signals: the lane namespaces (FORMAT.md §1) whose rows this table
+	// holds, e.g. ["logs"] for otel_logs. A result over the table is
+	// labelled with the watermark of those signals only (D29); a table
+	// without them is labelled with every signal's (the conservative
+	// default).
+	Signals []string `json:"signals"`
 
 	cluster, namespace, rid, tcol, rcol chp.Expr
 	projection                          string // metadata: SELECT <Columns> FROM system.<name>
@@ -114,6 +120,11 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 		if t.Scope != "metadata" && len(t.Columns) > 0 {
 			return nil, fmt.Errorf("table %s: columns is an allow-list for metadata tables only", t.FQN())
 		}
+		for _, s := range t.Signals {
+			if !signalRE.MatchString(s) {
+				return nil, fmt.Errorf("table %s: signal %q is not a lane namespace name", t.FQN(), s)
+			}
+		}
 		if t.ReceivedColumn != "" && t.TimeColumn == "" {
 			return nil, fmt.Errorf("table %s: received_column needs a time_column (late rows are received − time)", t.FQN())
 		}
@@ -128,6 +139,28 @@ func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 }
 
 var nameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+var signalRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// SignalsOf is the signals a statement over tables reads (D29): the union
+// of their Signals, or nil (every signal) when any table names none.
+func SignalsOf(tables []*Table) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range tables {
+		if len(t.Signals) == 0 {
+			return nil
+		}
+		for _, s := range t.Signals {
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
 
 func parseExpr(s string) (chp.Expr, error) {
 	st, err := chp.NewParser("SELECT " + s).ParseStmts()

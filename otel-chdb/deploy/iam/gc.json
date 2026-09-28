@@ -32,7 +32,8 @@
       "Effect": "Allow",
       "Action": "s3:PutObject",
       "Resource": ["arn:aws:s3:::BUCKET/ROOT/_consumer/gc.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/audit/*",
-                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/format.json"]
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark/*",
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/format.json"]
     }
   ]
 }

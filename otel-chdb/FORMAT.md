@@ -29,7 +29,8 @@ the **resource announcements** in the data object itself (§2.1).
 {ctl}/workers/{worker}.json                                        consumer worker heartbeats (D8)
 {ctl}/gc.json                                                      GC marks, deletions, retired epochs (D12)
 {ctl}/audit/{db}.json                                              horizon-audit state (D11)
-{ctl}/watermark.json                                               complete_through (§4)
+{ctl}/watermark.json                                               complete_through (§3, §4)
+{ctl}/watermark/{cluster}.json                                     one cluster's complete_through, per signal and per lane (§3, D29)
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.delta.ndjson.gz          entity lanes
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.sync.{syncAtMs}.ndjson.gz
 {root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix             lake index segments (§7)
@@ -232,11 +233,45 @@ it back (`holding`), and those whose watermark is older than `--wm-stale`
 (`consumer_complete_through_seconds`, `consumer_watermark_stale_lanes`,
 `consumer_lane_watermark_lag_seconds{lane}` for the stale ones).
 
+**Per cluster, per signal, per lane ([D29](DECISIONS.md#d29-complete_through-per-cluster-per-signal-and-per-lane)).**
+The same minimum over a subset of the lanes is sound for the requests of
+that subset: a lane's watermark speaks only for its own requests, and a lane
+of the subset born after the LIST is above `t_list − skew` like any other.
+So each run also publishes, each a running max like the fleet value and
+floored by the coarser one (a coarser value is sound for every subset):
+
+```
+clusters[c]          = max(previous, fleet, min(t_list - skew, min over c's lanes))
+signals[s]           = max(previous, fleet, min(t_list - skew, min over the lanes of signal s))
+unlisted_signals_ns  = max(previous, fleet, t_list - skew)      a signal no listed lane carries
+```
+
+in `watermark.json`, and one document per listed cluster,
+`{ctl}/watermark/{cluster}.json` (CAS by ETag, written after the fleet one),
+with that cluster's value, its per-signal values (the minimum over the
+cluster's lanes of that signal), its unlisted-signal value, and every lane's
+published value `lane_wm["{producer}/{signal}"]` (floored by its signal's).
+A cluster or signal first listed takes the previous fleet (or unlisted)
+value as its floor. A per-cluster document that fails to write is reported
+(`consumer_cluster_watermark_errors_total`) and keeps its previous values,
+which stay sound. `consume … --no-cluster-watermarks` writes only the fleet
+document. Metrics: `consumer_cluster_complete_through_seconds{cluster}`,
+`consumer_cluster_complete_through_lag_seconds{cluster}`.
+
+A reader scoped to some clusters and signals takes, per cluster, the highest
+value published for a superset of its lanes (the fleet's, the cluster's,
+the cluster's per signal) and the minimum over its clusters; a cluster
+without a document falls back to the fleet value, never above it. One
+cluster's stalled lane then holds its own cluster, the fleet value and the
+signals it carries, and nothing else. The query service does this
+(`query/internal/completeness` `Reader.For`).
+
 A reader that gates on it (an alert evaluator, R-S3) evaluates a window
-only once its end is at or below the serving source's `complete_through`,
-pages on a stalled watermark, and labels every result with its source and
-that source's value (completeness.qnt `evalWithinComplete`,
-`resultLabeled`). The lake's sealer publishes its own, by the same rule.
+only once its end is at or below the serving source's `complete_through`
+for the window's scope, pages on a stalled watermark, and labels every
+result with its source and that source's value (completeness.qnt
+`evalWithinComplete`, `resultLabeled`, `clusterSound`). The lake's sealer
+publishes its own, by the same rule.
 
 ## 4. Control documents
 
@@ -248,7 +283,8 @@ that source's value (completeness.qnt `evalWithinComplete`,
 | `workers/…` | each worker (plain PUT) | `{worker, beat, wall_ms, load, lanes}` |
 | `gc.json` | `consume gc` (CAS) | `{version, marks, deleted_below, retired}` (D12) |
 | `audit/{db}.json` | `consume horizon-audit` | reported copies (D11) |
-| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s}` |
+| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s, clusters: {cluster: ns}, signals: {signal: ns}, unlisted_signals_ns}` (the last three since D29; a reader treats them as absent in older documents) |
+| `watermark/{cluster}.json` | `consume gc` (CAS) | `{format, version, cluster, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, signals: {signal: ns}, unlisted_signals_ns, lane_wm: {"{producer}/{signal}": ns}, holding, stale, stale_after_s}` (D29) |
 
 ## 5. Versioning and compatibility
 

@@ -1222,7 +1222,7 @@ async fn completeness_run(seed: u64, mode: LowMode) -> (Vec<String>, u64, u64) {
         wc.timing.mutation = Mutation::WmIgnoresPending;
     }
     let mut w = Worker::new(wc, b.clone(), c.clone(), clk.clone());
-    let mut history: Vec<(String, &'static str, u64)> = Vec::new(); // (content, signal, received_ns)
+    let mut history: Vec<(String, &'static str, u64, usize)> = Vec::new(); // (content, signal, received_ns, edge)
     let (mut violations, mut regress, mut published) = (Vec::new(), 0u64, 0u64);
     let mut id = 0u64;
     for step in 0..900 {
@@ -1234,7 +1234,7 @@ async fn completeness_run(seed: u64, mode: LowMode) -> (Vec<String>, u64, u64) {
                 id += 1;
                 let s = if rng.below(2) == 0 { "traces" } else { "logs" };
                 edges[i].buffer.push((id, s, now));
-                history.push((format!("q{id}"), s, now));
+                history.push((format!("q{id}"), s, now, i));
             }
             4..=8 if !edges[i].buffer.is_empty() => {
                 // any buffered request (not the oldest first), maybe left in flight by a crash
@@ -1269,15 +1269,31 @@ async fn completeness_run(seed: u64, mode: LowMode) -> (Vec<String>, u64, u64) {
                 }
             }
             13..=14 => {
-                let d = super::watermark::watermark_step(&*b, &wcfg, clk.0.get()).await.unwrap();
+                let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+                assert!(run.errors.is_empty(), "{:?}", run.errors);
+                let d = run.fleet;
                 if d.computed_ns < published {
                     regress += 1;
                 }
                 published = d.complete_through_ns;
-                for (content, s, r) in &history {
+                // D29: the finest published value that speaks for each request
+                // (its lane's, in its cluster's document) and every coarser
+                // one (its signal's and cluster's, fleet-wide and per cluster)
+                for (content, s, r, e) in &history {
                     let table = otap_s3pq::Signal::from_name(s).unwrap().table();
-                    if *r < published && c.count(table, content) == 0 {
-                        violations.push(format!("seed {seed} step {step}: {content} ({s}, received {r}) not ingested below complete_through {published}"));
+                    let (cluster, prod) = edges[*e].producer.split_once('/').unwrap();
+                    let cd = run.clusters.iter().find(|x| x.cluster == cluster);
+                    let mut bounds = vec![("fleet", published), ("fleet signal", d.signals.get(*s).copied().unwrap_or(d.unlisted_signals_ns))];
+                    bounds.extend(d.clusters.get(cluster).map(|v| ("fleet cluster", *v)));
+                    if let Some(cd) = cd {
+                        bounds.push(("cluster", cd.complete_through_ns));
+                        bounds.push(("cluster signal", cd.signals.get(*s).copied().unwrap_or(cd.unlisted_signals_ns)));
+                        bounds.extend(cd.lane_wm.get(&format!("{prod}/{s}")).map(|v| ("lane", *v)));
+                    }
+                    for (what, v) in bounds {
+                        if *r < v && c.count(table, content) == 0 {
+                            violations.push(format!("seed {seed} step {step}: {content} ({cluster} {s}, received {r}) not ingested below the {what} value {v}"));
+                        }
                     }
                 }
             }
@@ -1301,6 +1317,81 @@ async fn complete_through_is_sound_and_advances() {
     }
     assert!(regress > 0, "a zombie PUT made the recomputed watermark dip (the running max held)");
     assert!(advanced >= 15, "the watermark advanced in most runs: {advanced} of 20");
+}
+
+/// D29: one cluster's stalled edge (a request in its custody, never
+/// committed) holds the fleet value and its own cluster's, and not another
+/// cluster's, which keeps advancing with its heartbeats; the stalled cluster
+/// catches up once the request is committed and ingested.
+#[tokio::test(flavor = "current_thread")]
+async fn a_stalled_cluster_holds_only_its_own_watermark() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let mut e1 = CustodyEdge::new("c1/p0", vec!["logs", "traces"], LowMode::Custody);
+    let mut e2 = CustodyEdge::new("c2/p1", vec!["logs"], LowMode::Custody);
+    for (e, sigs) in [(&mut e1, vec!["logs", "traces"]), (&mut e2, vec!["logs"])] {
+        for s in sigs {
+            assert!(e.put(&b, s, 0, &format!("beat-birth-{}-{s}", e.producer), proto::KIND_BEAT, 0, 0, false).await);
+        }
+    }
+    let now_ns = |clk: &FakeClock| clk.0.get() * 1_000_000;
+    // c2's edge takes a request into custody and stalls with it
+    let r0 = now_ns(&clk);
+    e2.buffer.push((1, "logs", r0));
+    let mut w = Worker::new(cfg("w1"), b.clone(), c.clone(), clk.clone());
+    for i in 0..200u64 {
+        if i % 20 == 0 {
+            let now = now_ns(&clk);
+            for s in ["logs", "traces"] {
+                assert!(e1.put(&b, s, 0, &format!("beat-{i}-{s}"), proto::KIND_BEAT, 0, e1.low(now, None), false).await);
+            }
+        }
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    assert!(run.errors.is_empty(), "{:?}", run.errors);
+    let doc = |c: &str| run.clusters.iter().find(|d| d.cluster == c).unwrap().clone();
+    let (d1, d2) = (doc("c1"), doc("c2"));
+    let lag_ms = |ns: u64| clk.0.get().saturating_sub(ns / 1_000_000);
+    assert!(run.fleet.complete_through_ns <= r0, "the fleet value is held by c2");
+    assert!(d2.complete_through_ns <= r0 && d2.signals["logs"] <= r0, "c2 is held by its own edge");
+    assert!(lag_ms(d1.complete_through_ns) <= 10_000, "c1 advances: lag {} ms", lag_ms(d1.complete_through_ns));
+    assert_eq!(run.fleet.clusters["c1"], d1.complete_through_ns);
+    assert!(d1.lane_wm["p0/logs"] >= d1.complete_through_ns && d1.lane_wm["p0/traces"] >= d1.complete_through_ns);
+    assert!(d1.holding.iter().all(|l| l.lane.starts_with("c1/")), "a cluster's document names only its lanes: {:?}", d1.holding);
+    assert_eq!(d2.holding[0].lane, "c2/p1/logs");
+    assert_eq!(run.fleet.holding[0].lane, "c2/p1/logs");
+    // the fleet document's signals: logs is held by c2, traces is c1's alone
+    assert!(run.fleet.signals["logs"] <= r0 && lag_ms(run.fleet.signals["traces"]) <= 10_000, "{:?}", run.fleet.signals);
+    // c2's edge commits its request; once ingested, c2 catches up
+    let low = e2.low(now_ns(&clk), Some(r0));
+    assert!(e2.put(&b, "logs", 0, "q1", proto::KIND_DATA, r0, low, false).await);
+    e2.buffer.clear();
+    for i in 0..60u64 {
+        if i % 20 == 0 {
+            let now = now_ns(&clk);
+            assert!(e2.put(&b, "logs", 0, &format!("beat2-{i}"), proto::KIND_BEAT, 0, e2.low(now, None), false).await);
+            for s in ["logs", "traces"] {
+                assert!(e1.put(&b, s, 0, &format!("beat2-{i}-{s}"), proto::KIND_BEAT, 0, e1.low(now, None), false).await);
+            }
+        }
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert!(c.count("otel_logs", "q1") > 0, "q1 ingested");
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let d2 = run.clusters.iter().find(|d| d.cluster == "c2").unwrap();
+    assert!(d2.complete_through_ns > r0 && run.fleet.complete_through_ns > r0, "c2 and the fleet caught up");
+    // --wm-cluster-every: a cluster document written recently is left alone
+    // (the fleet document still carries its value)
+    let (v1, v2) = (d2.version, run.fleet.version);
+    let slow = super::watermark::WmConfig { cluster_every_ms: 60_000, ..wcfg.clone() };
+    let again = super::watermark::watermark_run(&*b, &slow, clk.0.get() + 1_000).await.unwrap();
+    let d2b = again.clusters.iter().find(|d| d.cluster == "c2").unwrap();
+    assert_eq!((d2b.version, again.fleet.version), (v1, v2 + 1));
+    // the documents are where FORMAT.md says
+    assert!(b.get(&super::watermark::cluster_wm_key(CTL, "c1")).await.unwrap().is_some());
 }
 
 /// The mutants the model rejects are caught here as well.

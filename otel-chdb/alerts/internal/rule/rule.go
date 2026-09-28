@@ -117,6 +117,11 @@ type Rule struct {
 	// MaxGroups bounds the rows one evaluation may return (default 1000);
 	// more is a failed evaluation, not a truncated one.
 	MaxGroups int `yaml:"max_groups"`
+	// Clusters narrows the rule to some of its identity's clusters (D29):
+	// the query service filters rows to them and labels the result with
+	// their complete_through only, so another cluster's stalled lane does
+	// not hold this rule. Default: the identity's whole scope.
+	Clusters []string `yaml:"clusters"`
 }
 
 // File is a rules file.
@@ -126,6 +131,9 @@ type File struct {
 
 var nameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_.-]{0,127}$`)
 var labelRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// clusterRe is FORMAT.md §1's cluster name.
+var clusterRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
 
 // Reserved labels the evaluator sets itself.
 var Reserved = map[string]bool{"alertname": true, "severity": true, "alert_rule": true, "alert_episode": true, "alert_kind": true}
@@ -178,6 +186,11 @@ func (r *Rule) Validate() error {
 	}
 	if r.Identity == "" {
 		r.Identity = "default"
+	}
+	for _, c := range r.Clusters {
+		if !clusterRe.MatchString(c) {
+			return fmt.Errorf("rule %s: cluster %q is not a cluster name", r.Name, c)
+		}
 	}
 	if r.Lateness < 0 {
 		return fmt.Errorf("rule %s: lateness must be ≥ 0", r.Name)

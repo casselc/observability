@@ -17,13 +17,17 @@
 // The story: errors in both clusters fire (the fleet rule sees both, the
 // rule running as cluster aa's identity sees only aa), are resolved, and
 // the first send to the pager goes unanswered and is re-sent with the same
-// key. Then cluster ab's edge stops: complete_through stalls, the windows
-// stay partial, errors sent to aa meanwhile are NOT evaluated, and past the
-// bound each rule pages "cannot evaluate" naming ab's lanes; the consumer
+// key. Then cluster ab's edge stops: the fleet's complete_through stalls,
+// the fleet rule's windows stay partial, errors sent to aa meanwhile are NOT
+// evaluated by it, and past the bound it pages "cannot evaluate" naming ab's
+// lanes; the rules scoped to cluster aa (by their identity's token, or by
+// the rule's `clusters`) are labelled with aa's own complete_through (D29):
+// they evaluate the stall's errors on time and never page. The consumer
 // then stops publishing and the reason becomes a stale watermark. One
 // replica is stopped. The edge comes back with a third replica: the
 // watermark advances, the missed windows are evaluated in order, the errors
-// from the stall fire late, and the "cannot evaluate" pages resolve.
+// from the stall fire late for the fleet rule, and the "cannot evaluate"
+// pages resolve.
 package integration
 
 import (
@@ -229,8 +233,12 @@ func (r *rig) startPump() *pump {
 			default:
 			}
 			if p.on.Load() {
+				t0 := time.Now()
 				if err := r.pumpOnce(); err != nil {
 					r.t.Logf("pump: %v", err)
+				}
+				if d := time.Since(t0); d > 6*time.Second {
+					r.t.Logf("pump: one cycle took %v (the service's watermark max_age_s is 30)", d.Round(100*time.Millisecond))
 				}
 			} else {
 				time.Sleep(200 * time.Millisecond)
@@ -375,11 +383,12 @@ func TestIntegration(t *testing.T) {
 		"audit": map[string]any{"path": filepath.Join(r.dir, "audit.jsonl")},
 		"central": map[string]any{"url": r.ch, "user": r.ro, "password_env": "ALR_IT_RO_PASS", "database": r.db,
 			"tables": []any{map[string]any{"name": "otel_logs", "time_column": "Timestamp", "received_column": "received_at", "scope": "columns",
-				"cluster_expr": "`__hdx_materialized_k8s.cluster.name`", "namespace_expr": "`__hdx_materialized_k8s.namespace.name`"}}},
+				"cluster_expr": "`__hdx_materialized_k8s.cluster.name`", "namespace_expr": "`__hdx_materialized_k8s.namespace.name`",
+				"signals": []string{"logs"}}}},
 		"s3":   map[string]any{"endpoint": r.s3url, "bucket": r.bucket, "region": "us-east-1"},
 		"lake": map[string]any{"root": r.run},
 		// max_lateness 1 s + the rules' lateness 1 s: the 2 s the story was timed with
-		"watermark": map[string]any{"cache_s": 1, "max_age_s": 12, "max_lateness_s": 1},
+		"watermark": map[string]any{"cache_s": 1, "max_age_s": 30, "max_lateness_s": 1},
 	}
 	qb, _ := json.Marshal(qcfg)
 	qpath := filepath.Join(r.dir, "queryd.json")
@@ -427,6 +436,12 @@ rules:
     window: 10s
     condition: {op: ">", threshold: 0}
     identity: team-aa
+  - name: aa_via_fleet
+    sql: SELECT ServiceName AS service, count() AS value FROM otel_logs WHERE SeverityText = 'ERROR' GROUP BY service
+    window: 10s
+    condition: {op: ">", threshold: 0}
+    identity: fleet
+    clusters: [aa]
 `
 	t.Setenv("ALR_IT_SECRET_FLEET", "fleet-secret")
 	t.Setenv("ALR_IT_SECRET_AA", "aa-secret")
@@ -443,7 +458,7 @@ rules:
 			},
 			State: store.S3Config{Endpoint: r.s3url, Bucket: r.bucket, Prefix: r.run + "/alr-state", AccessKey: "otel", SecretKey: "otelsecret"},
 			Sink:  notify.Config{URL: amsrv.URL + "/api/v2/alerts", TimeoutS: 2},
-			Eval: config.EvalConfig{TickS: 1, CannotEvaluateAfterS: 20, RefreshS: 3, HoldResolvedS: 1, BackoffBaseS: 1, BackoffMaxS: 3,
+			Eval: config.EvalConfig{TickS: 1, CannotEvaluateAfterS: 45, RefreshS: 3, HoldResolvedS: 1, BackoffBaseS: 1, BackoffMaxS: 3,
 				LatenessS: &lateness, MaxWindowsPerTick: 3}}
 		logf, _ := os.Create(filepath.Join(r.dir, "alertd-"+name+".log"))
 		rr, err := config.Build(context.Background(), c, rules, slog.New(slog.NewJSONHandler(logf, nil)))
@@ -473,10 +488,13 @@ rules:
 	}
 	waitFor(t, "fleet_errors firing for checkout and payments", 90*time.Second, func() bool {
 		return len(am.find(isFiring("fleet_errors", "checkout"))) > 0 && len(am.find(isFiring("fleet_errors", "payments"))) > 0 &&
-			len(am.find(isFiring("aa_errors", "checkout"))) > 0
+			len(am.find(isFiring("aa_errors", "checkout"))) > 0 && len(am.find(isFiring("aa_via_fleet", "checkout"))) > 0
 	})
 	if len(am.find(isFiring("aa_errors", "payments"))) != 0 {
 		t.Fatal("the rule running as cluster aa's identity saw cluster ab's errors")
+	}
+	if len(am.find(isFiring("aa_via_fleet", "payments"))) != 0 {
+		t.Fatal("the rule narrowed to cluster aa saw cluster ab's errors")
 	}
 	first := am.find(isFiring("fleet_errors", "checkout"))[0].alert
 	if first.Annotations["summary"] != "checkout: 5 errors in 10 s" || first.Labels["team"] != "sre" || first.Labels["severity"] != "page" {
@@ -498,17 +516,31 @@ rules:
 	time.Sleep(2 * time.Second)
 	t2 := time.Now()
 	r.errors(aa, "checkout", 6, t2)
-	if n := len(am.find(func(x got) bool { return x.alert.Labels["alertname"] == "AlertCannotEvaluate" })); n != 0 {
-		t.Fatalf("%d cannot-evaluate pages before the stall", n)
+	if early := am.find(func(x got) bool { return x.alert.Labels["alertname"] == "AlertCannotEvaluate" }); len(early) != 0 {
+		t.Fatalf("%d cannot-evaluate pages before the stall, the first: %v %v", len(early), early[0].alert.Labels, early[0].alert.Annotations)
 	}
 	cannot := func(ruleName string) func(got) bool {
 		return func(x got) bool {
 			return x.alert.Labels["alertname"] == "AlertCannotEvaluate" && x.alert.Labels["alert_rule"] == ruleName && !resolved(x)
 		}
 	}
-	waitFor(t, "cannot evaluate pages", 90*time.Second, func() bool {
-		return len(am.find(cannot("fleet_errors"))) > 0 && len(am.find(cannot("aa_errors"))) > 0
+	// D29: the rules scoped to aa evaluate the stall's errors on time
+	onTime := func(ruleName string) func(got) bool {
+		return func(x got) bool {
+			st, _ := time.Parse(time.RFC3339Nano, x.alert.StartsAt)
+			return isFiringLabels(x, ruleName, "checkout") && !st.Before(t2.Truncate(10*time.Second))
+		}
+	}
+	waitFor(t, "cannot evaluate page for the fleet rule; aa's rules fire on time", 150*time.Second, func() bool {
+		return len(am.find(cannot("fleet_errors"))) > 0 && len(am.find(onTime("aa_errors"))) > 0 && len(am.find(onTime("aa_via_fleet"))) > 0
 	})
+	t.Logf("aa's rules fired %v after the stall began; the fleet rule paged cannot-evaluate",
+		am.find(onTime("aa_errors"))[0].at.Sub(tStall).Round(time.Second))
+	for _, rn := range []string{"aa_errors", "aa_via_fleet"} {
+		if n := len(am.find(cannot(rn))); n != 0 {
+			t.Fatalf("%s paged cannot-evaluate while only cluster ab stalled: %v", rn, am.find(cannot(rn))[0].alert.Annotations)
+		}
+	}
 	page := am.find(cannot("fleet_errors"))[0].alert
 	t.Logf("cannot-evaluate page after %v: %s", time.Since(tStall).Round(time.Second), page.Annotations["reason"])
 	if !strings.Contains(page.Annotations["reason"], "ab/pub-0/") || !strings.Contains(page.Annotations["clusters"], "ab") {
@@ -526,7 +558,7 @@ rules:
 	<-done1
 	_ = r1
 	p.on.Store(false)
-	waitFor(t, "the reason to become a stale watermark", 60*time.Second, func() bool {
+	waitFor(t, "the reason to become a stale watermark", 90*time.Second, func() bool {
 		for _, x := range am.find(cannot("fleet_errors")) {
 			if strings.Contains(x.alert.Annotations["reason"], "watermark stale") {
 				return true
@@ -536,6 +568,14 @@ rules:
 	})
 	if n := len(am.find(episode2)); n != 0 {
 		t.Fatal("evaluated on a stale watermark")
+	}
+
+	// (aa's rules may page too once the watermark itself is stale: any such
+	// page must resolve at recovery)
+	settled := func(rn string) bool {
+		return len(am.find(cannot(rn))) == 0 || len(am.find(func(x got) bool {
+			return x.alert.Labels["alertname"] == "AlertCannotEvaluate" && x.alert.Labels["alert_rule"] == rn && resolved(x)
+		})) > 0
 	}
 
 	// 6. ab's edge comes back, the consumer publishes again, a third replica joins
@@ -549,9 +589,7 @@ rules:
 			len(am.find(func(x got) bool {
 				return x.alert.Labels["alertname"] == "AlertCannotEvaluate" && x.alert.Labels["alert_rule"] == "fleet_errors" && resolved(x)
 			})) > 0 &&
-			len(am.find(func(x got) bool {
-				return x.alert.Labels["alertname"] == "AlertCannotEvaluate" && x.alert.Labels["alert_rule"] == "aa_errors" && resolved(x)
-			})) > 0
+			settled("aa_errors") && settled("aa_via_fleet")
 	})
 	late := am.find(episode2)[0]
 	if late.at.Before(tRecover) {
@@ -560,7 +598,7 @@ rules:
 	t.Logf("stall errors paged %v after recovery, evaluation_delay %s", late.at.Sub(tRecover).Round(time.Second), late.alert.Annotations["evaluation_delay"])
 
 	// 7. the committed state: every window from the start evaluated once, in order
-	for _, name := range []string{"fleet_errors", "aa_errors"} {
+	for _, name := range []string{"fleet_errors", "aa_errors", "aa_via_fleet"} {
 		st, _, err := r3.Load(context.Background(), name)
 		if err != nil || st == nil {
 			t.Fatal(name, err)

@@ -96,7 +96,11 @@ func (c *Client) do(ctx context.Context, ts TokenSource, r *rule.Rule, w rule.Wi
 	if err != nil {
 		return engine.Result{Outcome: failure(ctx, engine.Failed), Err: "token: " + err.Error()}, 0
 	}
-	body, _ := json.Marshal(map[string]any{"sql": r.SQL, "window": map[string]int64{"from": w.FromNs, "to": w.ToNs}})
+	q := map[string]any{"sql": r.SQL, "window": map[string]int64{"from": w.FromNs, "to": w.ToNs}}
+	if len(r.Clusters) > 0 {
+		q["clusters"] = r.Clusters
+	}
+	body, _ := json.Marshal(q)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.URL, "/")+"/v1/query", bytes.NewReader(body))
 	if err != nil {
 		return engine.Result{Outcome: engine.Refused, Err: err.Error()}, 0

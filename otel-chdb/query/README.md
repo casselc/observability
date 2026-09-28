@@ -97,6 +97,14 @@ it is given, every table read with a `time_column` is restricted to
 `[from, to)` by the service (§3), so the completeness label describes the
 rows the statement could see.
 
+`clusters` is optional (D29): a subset of the token's clusters the
+statement is narrowed to. Rows are filtered to them and the label is their
+`complete_through`; a named cluster outside the token is **403
+`cluster_not_in_scope`**, a name outside FORMAT.md's pattern **400
+`bad_cluster`**. Default: every cluster in the token's scope. (A fleet
+caller that names clusters becomes a restricted caller: `fleet`-scoped
+tables are then refused, as for any restricted caller.)
+
 `output` is optional: output-format settings that change how values are
 written, never which rows, from an allow-list (`OutputSettings`: today only
 `date_time_output_format` = `simple` | `iso` | `unix_timestamp`, which HyperDX
@@ -111,7 +119,9 @@ runs.
  "completeness": "partial", "partial": true,
  "incomplete_from": "2026-09-28T12:58:31.2Z", "incomplete_from_ns": 1790…,
  "watermark": {"status": "ok", "key": "edges/_consumer/watermark.json", "age_s": 12.1, "lag_s": 28.8,
-               "fetched_at": "…", "holding": [{"lane": "prod-eu-1/pub-0/logs", "wm_ns": 1790…, "lag_s": 28.8}]},
+               "fetched_at": "…", "holding": [{"lane": "prod-eu-1/pub-0/logs", "wm_ns": 1790…, "lag_s": 28.8}],
+               "scope": {"clusters": ["prod-eu-1"], "signals": ["logs"],
+                         "by_cluster": [{"cluster": "prod-eu-1", "complete_through_ns": 1790…, "basis": "cluster_signals", "doc_age_s": 12.1}]}},
  "catalog": {"status": "ok", "clusters": {"prod-eu-1": {"last_put": "…", "lag_s": 41.0, "status": "ok"}}},
  "late": {"max_lateness_s": 60, "status": "counted", "rows": 0, "tables": {"otel.otel_logs": 0}},
  "query": {"hash": "9e1d…", "tables": ["otel.otel_logs"], "sql": "SELECT ServiceName, count() FROM otel.otel_logs GROUP BY ServiceName",
@@ -153,7 +163,21 @@ runs.
   `error`: unreadable, or the last good copy is older than `max_age_s`),
   `age_s` (now − the document's `wall_ms`), `lag_s` (now −
   `complete_through`), and the lanes holding it back or stale, **cut to the
-  caller's clusters** (another cluster's lane names are not disclosed).
+  statement's scope** (another cluster's lane names are not disclosed).
+- **Whose `complete_through`** (D29, `watermark.scope`): the minimum, over
+  the statement's clusters (the token's, narrowed by `clusters`; every
+  cluster, `["*"]`, for a fleet caller or a `fleet`-scoped table), of each
+  cluster's value for the signals of the tables it reads (the table's
+  `signals` in the configuration: `["logs"]` for `otel_logs`; a table
+  without them counts as every signal, `["*"]`). Each cluster's value is the
+  highest the consumer published for a superset of its lanes (FORMAT.md
+  §3): `by_cluster[].basis` is `cluster_signals` (its document, per
+  signal), `cluster` (its value, from its document or the fleet
+  document), `unlisted` (none of its lanes existed at the consumer's last
+  LIST: the list cap) or `fleet` (no per-cluster value: a consumer before
+  D29, or its document unreadable, `error` then says why). So one cluster's
+  stalled lane holds its own cluster's results and the fleet's, never
+  another cluster's. `status` and `age_s` stay the fleet document's.
 - **`catalog`** (R-S5): per cluster in the caller's scope, the newest entity
   object the aggregator has ingested (`ingest_log`) and its age; `lagging`
   past `catalog.lag_max_s`, `missing` for a cluster with no entry,
@@ -562,10 +586,11 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
    ranges make catalog-scoped lake plans possible.
 5. **R-S5's second half**: count rows whose `resource_id` the catalog lacks
    (`resource_evidence`), per result or as a metric.
-6. **Per-cluster `complete_through`**: the document carries only the
-   minimum over every lane and the lanes holding it; a restricted caller's
-   label is conservative (another cluster's stall holds it back). The
-   consumer could publish a watermark per cluster.
+6. ~~**Per-cluster `complete_through`**~~ done (D29): per cluster and per
+   signal (§2.1 "Whose `complete_through`"). Per namespace or service (the
+   lanes of the nodes a scope's pods ran on) is not: the reference
+   deployment's producers are publishers fed round-robin, not nodes
+   (DECISIONS D29).
 7. **Rate limits** beyond concurrency (statements per minute, bytes read per
    hour), and a cost estimate (`EXPLAIN ESTIMATE`) before cold statements
    (SEC-5).
@@ -666,8 +691,12 @@ On every answer (except schema answers, `X-Otel-Source: metadata`):
 `complete_through − max_lateness`), `X-Otel-Late-Rows` (a count, or
 `no_window` / `not_measured` / `disabled` / `error`),
 `X-Otel-Window-From` / `-To`, `X-Otel-Request-Id` (the audit record),
-`X-Otel-Dropped-Settings`; exposed for CORS. The fork records them per
-statement and shows the worst on the page (fork README, patch 0002).
+`X-Otel-Dropped-Settings`, and since D29 `X-Otel-Watermark-Scope`
+(`clusters=…; signals=…`: whose `complete_through` this is) and
+`X-Otel-Watermark-Holding` (the scope's lanes holding it, with their lag);
+exposed for CORS. The fork records them per statement and shows the worst
+on the page (fork README, patch 0002; the two D29 headers are not shown by
+the patch yet).
 
 **Window.** The service restricts every read of a table with a time column
 to the window it is given, and labels against it. The adapter derives the

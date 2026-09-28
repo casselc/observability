@@ -136,7 +136,7 @@ retire the risks of §4.
 | `model/s3InlineConsumerCompact.qnt` | the above plus `neverSkipsCommittedCompact`, `noCommitBelowFloor`, `floorSound`, `viewFloorSound`, `bounded` | 5,000 × 60; `compactBound` 20,000 × 150; mutants `earlyCompact`, `floorOnly` | code mutant `early_compact` (`9f2c75d`) |
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
-| `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | the watermark: `consumer::tests::complete_through_*` (D19); the evaluator side (`evalWithinComplete`, `noDataOk`, `noSilentOk`): `alerts/` (D23), gated on the query service's label |
+| `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`); since D29 also per cluster (`clusterSound`, the rule's cluster scope; mutants `scopeMax`, `clusterSplit`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | the watermark: `consumer::tests::complete_through_*` (D19); the evaluator side (`evalWithinComplete`, `noDataOk`, `noSilentOk`): `alerts/` (D23), gated on the query service's label |
 | `model/alertEvaluator.qnt` ([`alerts/`](alerts/README.md), D23) | `evalOnlyComplete`, `resolvedAfterFiringAck`, `noLostEpisode`, `nextMonotone` (two replicas, compare-and-swap with lost answers and writes, a pager that loses answers) | 20,000 × 40; 2 witnesses reached; mutants `evalPastCt`, `ackOnNoAnswer`, `blindWrite` caught (`model/alert_model.sh`, nightly) | `alerts/internal/runner/sim_test.go` (two-replica simulation), `internal/engine/prop_test.go` |
 | `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on four instances (`sameObject`, as built, since 2026-09-28); mutants `noAnnounce`, `announceEarly`, `sameObjectEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | **built** ([D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object)): `tests/dst/fleet.rs` checks `sameLane` (no row lands before its resource's announcement) and announcements exactly once under the fault menu (`hegel_dst` rule `announce`); `entities/scripts/announce_e2e.py` (a pod the controller never saw exact 34.7–59.1 s after its rows, with `LIFETIME(MIN 30 MAX 60)`) |
 | `model/retention.qnt` (open scenario: STPA LS-10, R-S6) | `acceptedVisible` (an acked request is never inserted into an expired partition), `noEdgeDrop`, `custodyAgeBounded` | 20,000 × 50; 6 witnesses; mutants `retentionShort`, `cutDuringOutage`, `capSized` (retention sized as cap ÷ rate) caught; `dropOldest` keeps `acceptedVisible` and breaks `noEdgeDrop`. **Finding:** D19's retention rule was wrong ([D19](#d19-durable-buffer-at-the-edge)) | not applicable (a sizing rule) |
@@ -147,7 +147,9 @@ Rust evaluator), a row per check with its expected verdict: every row as
 expected at seed 0x5eed (`abe3e97`; the script has 82 rows, the commit
 message counts 86) [Q]. 2026-09-28: the `entityCatalog` rows rerun with the
 built design (`sameObject`) and its mutant (`sameObjectEarly`): 26 rows,
-all as expected; the script now has 89 rows. They are sampled simulations
+all as expected; the script now has 89 rows. 2026-09-28 (D29): the
+`completeness` rows rerun with the per-cluster watermark: 46 rows (14 new),
+all as expected; the script now has 103 rows. They are sampled simulations
 and scripted runs of small instances, not proofs; only `entityCatalog`'s
 ingest rule is mirrored in code (`tests/dst/fleet.rs` `sameLane`), and CI's
 `ci/model-check.sh` runs `consumer_model.sh`, not this script.
@@ -1704,7 +1706,8 @@ reference:
   watermark`) to `{ctl}/watermark.json` by CAS: `max(previous, min(t_list −
   skew, min over listed lanes))`, a lane without a watermark counting as 0.
   The document names the lanes holding it back and the stale ones
-  (`--wm-stale`, 5 min); the same goes to metrics. Chosen over a
+  (`--wm-stale`, 5 min); the same goes to metrics. Since D29 the same run
+  also publishes per-cluster, per-signal and per-lane values. Chosen over a
   ClickHouse table because it must outlive central (the lake's sealer and
   the evaluator's fallback read it with one GET) and CAS gives the running
   max across publishers; a query service caches it.
@@ -2620,6 +2623,155 @@ is broken (the spike's e2e guards it); brush edges are pixel-rounded with
 pre-aggregation. Mosaic is 0.x and pins a DuckDB-WASM dev build: pin and
 re-run the e2e on every upgrade. Not measured: a WAN or throttled link,
 Firefox/Safari, L2-sized files.
+
+### D29. `complete_through` per cluster, per signal and per lane
+
+**Status:** built (2026-09-28): the consumer (`otap-rs/src/consumer/watermark.rs`),
+the query service's label (`query/internal/completeness` `Reader.For`,
+`/v1/query`'s `clusters`, tables' `signals`), the lake plan, the alert
+evaluator's rule `clusters`, the lake UI banner and the HyperDX adapter's
+headers; [FORMAT.md](FORMAT.md) §3–§4; `model/completeness.qnt`. Owner
+decision 2026-09-28: "Watermarks per cluster, or per node if it makes
+sense." Per node: evaluated, **not built** (below).
+
+**Problem.** D19's `complete_through` is one fleet-wide minimum over every
+lane. One cluster's stalled lane (an edge offline or wedged with data in
+custody) held every scope's label at `partial`/`unknown` and stopped every
+alert rule, a single-cluster rule on a healthy cluster included (AMBIGUITY
+X5 (b); the query service README's open item "per-cluster
+`complete_through`").
+
+**The argument.** The fleet rule's soundness is per lane: a lane's
+watermark promises only that the lane's own requests below it are ingested
+(FORMAT.md §3), and the LIST cap covers any lane born after the LIST. So the
+minimum over any *subset* of the lanes, capped the same way, is sound for the
+requests of that subset; a value sound for a set is sound for every subset
+(the fleet value for every cluster, a cluster's for each of its signals and
+lanes); and a sound value stays sound (ingested stays ingested), so each is
+published as a running max, floored by the coarser one: lane ≥ its signal in
+its cluster ≥ its cluster ≥ the fleet. The custody order (`oscope-low`),
+heartbeats, birth slots and stale lanes carry over unchanged, because
+nothing about how a lane's watermark is computed changed; only which lanes a
+minimum is taken over. A cluster or signal first listed takes the previous
+fleet (or "unlisted signal") value as its floor: its lanes did not exist at
+that LIST. `model/completeness.qnt` has it (`clusterSound`, the rule scope).
+
+**Layout: the fleet document extended, plus one document per cluster.**
+
+- `{ctl}/watermark.json` keeps every field (compatibility: a reader before
+  D29 sees the same fleet value) and adds `clusters: {cluster: ns}`,
+  `signals: {signal: ns}` and `unlisted_signals_ns`: O(clusters + signals),
+  so a fleet reader needs one GET for any cluster or signal value.
+- `{ctl}/watermark/{cluster}.json` per listed cluster: its value, its
+  per-signal values, every lane's published value (`lane_wm`, keyed
+  `{producer}/{signal}`), its holding and stale lanes. Per-cluster keys
+  because a reader scoped to some clusters must be able to read only their
+  objects (the same unit as D18's prefix ABAC: a grant on
+  `_consumer/watermark/${aws:PrincipalTag/cluster}.json`), and because the
+  per-lane values are O(lanes): a cluster of 1,000 DaemonSet publishers × 7
+  signals is ~7,000 entries, ~350 KB [E], which should not be rewritten
+  into one fleet document every run.
+- **Overwrite by CAS, not create-only versions.** The running max needs a
+  read-modify-write, the fleet document already works that way, and
+  create-only versions would need their own GC and a "latest" pointer.
+  Cost: one GET and one PUT per cluster per run (`consume gc --every`); at
+  5 s that is ~17k PUTs a day per cluster (~$0.09/day at $0.005/1k) [E].
+  `--wm-cluster-every` bounds it (a cluster document written less than that
+  ago is left alone; the fleet document still carries each cluster's value
+  every run), `--no-cluster-watermarks` turns it off. Freshness stays the
+  fleet document's (`wall_ms`): the service's `stale`/`missing` rule is
+  unchanged.
+- Writes: the fleet document first, then each cluster's, sequentially. A
+  cluster document that fails is counted
+  (`consumer_cluster_watermark_errors_total`) and keeps its previous values,
+  which stay sound; its readers fall back to the fleet document's value for
+  the cluster. Metrics: `consumer_cluster_complete_through_seconds{cluster}`,
+  `consumer_cluster_complete_through_lag_seconds{cluster}`.
+
+**Readers.**
+
+- **Query service.** `Reader.For(scope)`: the fleet state (status and
+  freshness as before), with `complete_through` raised to the scope's value:
+  per cluster in the scope, the highest of the fleet value, the fleet
+  document's value for the cluster, the cluster document's value and its
+  per-signal minimum over the scope's signals (a cluster not listed at the
+  last LIST: the list cap; a cluster without a document: the fleet value),
+  then the minimum over the scope's clusters. The scope is the statement's:
+  the token's clusters, narrowed by the request's new `clusters` (a subset
+  of the token's, else 403 `cluster_not_in_scope`; it also narrows the rows),
+  every cluster when a table is `fleet`-scoped; and the signals of the
+  tables it reads (the table's new `signals` in the configuration; a table
+  without them means every signal). The label's `watermark.scope` says which
+  clusters and signals and, per cluster, the value and its basis
+  (`cluster_signals`, `cluster`, `unlisted`, `fleet`); `holding` and
+  `stale_lanes` are the scope's lanes. The lake plan uses its clusters and
+  its signal the same way.
+- **Alert evaluator.** A rule's scope is its identity's token, narrowed by
+  the rule's new `clusters`; the query service labels it with that scope's
+  value, so a rule on a healthy cluster evaluates while another cluster
+  stalls, and the "cannot evaluate" page names only the scope's lanes.
+- **Lake UI** (banner: "Complete through T (clusters: …; signals: …)",
+  "held by lane (N s behind)") and **HyperDX adapter**
+  (`X-Otel-Watermark-Scope`, `X-Otel-Watermark-Holding`). The fork's
+  banner does not show the two new headers yet (patch 0002 not changed).
+
+**Per node: not built.** A scope (namespace, service, pod) could in
+principle be settled by only the lanes its pods' data went through, and the
+entity catalog knows pod → node. It does not make sense here:
+
+1. **Producers are not nodes in the reference deployment**
+   ([deploy/](deploy/README.md)): DaemonSet agents forward round-robin to a
+   StatefulSet of publishers (or by service ring through a gateway, D16);
+   the producer is the publisher pod. A pod's rows can be in any publisher's
+   lane of its cluster, so pod → node says nothing about lanes. Only an edge
+   on every node (producer = node name, hostPath buffer) would give a
+   structural map, and none is deployed.
+2. **Announcements cannot stand in** for the map: `otel_resources.producer_id`
+   says which publishers *have committed* a resource, but a publisher still
+   holding a resource's rows in custody has not announced it, and ruling it
+   out needs its lane watermark: circular.
+3. **Soundness needs the whole window's history**: every node a scope's
+   pods ran on during the window (pods rescheduled, nodes drained), with
+   relist gap records and `uncertain` catalog rows forcing a fall back to
+   the cluster value. That is buildable once (1) holds, and the per-lane
+   values it would read are already published (`lane_wm`).
+4. **Dead lanes.** In a per-node topology every scale-down leaves a lane
+   that never advances and holds its cluster (it is `stale` and paged, and
+   nothing retires it). Retiring a lane needs proof its custody is empty
+   (the node's buffer drained or destroyed), an operator's or a
+   controller's action: an owner decision before per-node publishers.
+
+**Evidence.** Consumer: `watermark::tests::per_cluster_and_per_signal_values_see_only_their_lanes`,
+`consumer::tests::complete_through_is_sound_and_advances` (20 randomized
+runs, now checking every published value, fleet, per signal, per cluster,
+per cluster and signal, per lane, against central after every publication),
+`a_stalled_cluster_holds_only_its_own_watermark`; a hand mutation (a
+cluster's value above its lanes) fails both [M]. Query:
+`TestScopedWatermark`, `TestScopedWatermarkFallback` (no, unreadable, or a
+misplaced cluster document; a missing or stale fleet document), the rapid
+property `TestScopedWatermarkProperty` (never above the scope's lowest
+lane, never below the fleet value; the "maximum over clusters" mutation
+fails it), `TestQueryPerClusterWatermark` (labels, narrowing, refusals, the
+plan) [M]. Alerts: `TestRuleClustersNarrowTheQuery`, and the integration
+story (two clusters, cluster `ab`'s edge stopped: the fleet rule pages
+"cannot evaluate" naming `ab`'s lanes while the rules on `aa`, by token
+and by `clusters`, evaluate the stall's errors on time and never page).
+Model: `completeness.qnt` publishes `cwm` (per cluster) beside the fleet
+value and checks `clusterSound` in `safety`; the evaluator's rule has a
+cluster `SCOPE`. The earlier instances (one lane per cluster) keep every
+earlier result (safety, the 11 witnesses, the 7 mutants, the scripted
+runs) and add `wClusterAhead`; new instances with three lanes in two
+clusters (`clusterDesign`, `clusterScoped` for a rule on cluster 2 alone):
+safe, the rule on cluster 2 evaluates past the fleet value while cluster
+1's lane holds it (`wIsolatedEval`, `stalledClusterEvalTest`),
+`clusterScopedFleetGate` (the pre-D29 gate) never does, mutants `scopeMax`
+(`resultLabeled`) and `clusterSplit` (`clusterSound`) caught by simulation
+and scripted runs (`model/open_models.sh`) [Q].
+
+**Limits.** A cluster whose lanes all disappear keeps its last document
+(sound, and aging); nothing retires a dead lane (above); the per-lane values
+are published but no reader narrows by them; `max_lateness` is still one
+fleet-wide value (X12).
 
 ## 6. Upstream bugs found
 

@@ -84,9 +84,9 @@ localhost), **[E]** estimate.
 - **Page index / offset index** reads are off (hyparquet's `usePageIndex`),
   and there is one row group per edge object, so pruning inside an object is
   by row group only.
-- Per-cluster `complete_through`: the plan's watermark is the fleet minimum
-  (query README §7 item 6), so a one-cluster view can be more conservative
-  than it needs to be.
+- ~~Per-cluster `complete_through`~~: since D29 the plan's watermark is its
+  clusters' and signal's, and the banner names that scope and the lanes
+  holding it ("Complete through T (clusters: …; signals: …)", "held by …").
 - Only Chromium is tested; no WAN or throttled-link numbers; no metric
   catalog (the gauge name is typed); no histogram/sum metric types.
 - `config.json` in this directory is an example; a deployment serves its own

@@ -89,6 +89,23 @@
  *    carries central's watermark.
  *  - HEARTBEAT = false (`noHeartbeat`): no safety violation; an idle lane
  *    stalls every window until it pages (a scripted run shows it).
+ *
+ * Per cluster (D29). Each lane belongs to a cluster (CLUSTER_OF): one lane
+ * per cluster in the instances above, and in the cluster instances below
+ * lanes 1 and 2 are cluster 1's and lane 3 is cluster 2's. Each
+ * publication also publishes, per cluster, the running max of the minimum
+ * over that cluster's lanes, floored by the new fleet value (`cwm`);
+ * `clusterSound` is completeSound per cluster: no lane of the cluster can
+ * still commit a request below it. The evaluator's rule covers the clusters
+ * SCOPE, counts only their requests, and (PER_CLUSTER) gates on the minimum
+ * of their `cwm`, so a rule on cluster 2 evaluates while cluster 1's lane
+ * holds the fleet value back (`wIsolatedEval`, `stalledClusterScopedTest`);
+ * PER_CLUSTER = false is the fleet gate before D29 (safe, and in the same run
+ * it cannot evaluate). Mutants:
+ *  - SCOPE_MAX (`scopeMax`): the label takes the maximum over the scope's
+ *    clusters instead of the minimum;
+ *  - SPLIT (`clusterSplit`): a cluster's value misses one of its lanes (lane
+ *    2 counted in no cluster: a lane id parsed into the wrong cluster).
  */
 module completeness {
   const LOW_META: bool
@@ -100,8 +117,15 @@ module completeness {
   const GATE: bool
   const NODATA_OK: bool
   const LABEL: bool
+  const LANES: Set[int]
+  const CLUSTER_OF: int -> int
+  const PER_CLUSTER: bool
+  const SCOPE_MAX: bool
+  const SPLIT: bool
+  const SCOPE: Set[int]
 
-  pure val LANES: Set[int] = Set(1, 2)
+  val CLUSTERS: Set[int] = LANES.map(l => CLUSTER_OF.get(l))
+  def clusterOf(l: int): int = CLUSTER_OF.get(l)
   pure val SOURCES: Set[int] = Set(1, 2)     // 1: central (the consumer), 2: the lake (the sealer)
   pure val CENTRAL: int = 1
   pure val LAKE: int = 2
@@ -137,6 +161,7 @@ module completeness {
   var ing: int -> Set[Obj]         // source -> slots it has ingested / sealed
   var up: int -> bool              // source reachable
   var wm: int -> int               // source -> published complete_through
+  var cwm: int -> (int -> int)     // source -> cluster -> published per-cluster complete_through (D29)
   var verdict: int -> Verdict      // window -> verdict
   var results: Set[Result]
   var events: Set[str]
@@ -174,22 +199,34 @@ module completeness {
   }
   def knownLanes: Set[int] = LANES.filter(l => BIRTH or objs.exists(o => o.lane == l))
   def computedWm(s: int): int = knownLanes.fold(now, (m, l) => imin(m, laneWm(s, l)))
+  // A cluster's lanes (SPLIT: lane 2 lands in no cluster).
+  def member(l: int, c: int): bool = clusterOf(l) == c and not(SPLIT and l == 2)
+  def clusterComputed(s: int, c: int): int = knownLanes.filter(l => member(l, c)).fold(now, (m, l) => imin(m, laneWm(s, l)))
+  // The rule's scope: its clusters' requests.
+  def inScope(l: int): bool = SCOPE.contains(clusterOf(l))
+  // The scope's sound value: the minimum of its clusters' published values.
+  def trueScope(s: int): int = SCOPE.fold(NEVER, (m, c) => imin(m, cwm.get(s).get(c)))
+  // What the label says for the scope.
+  def scopeWm(s: int): int =
+    if (not(PER_CLUSTER)) wm.get(s)
+    else if (SCOPE_MAX) SCOPE.fold(-1, (m, c) => imax(m, cwm.get(s).get(c)))
+    else trueScope(s)
 
   // What an alert on window k counts from source s: ingested error requests in it.
   def errorsIn(s: int, k: int): int =
-    history.filter(q => q.err and inWin(q.r, k) and ing.get(s).exists(o => o.kind == Data and o.req == q.id)).size()
+    history.filter(q => q.err and inScope(q.lane) and inWin(q.r, k) and ing.get(s).exists(o => o.kind == Data and o.req == q.id)).size()
 
   // The query service: central if reachable, else the lake.
   def served: int = if (up.get(CENTRAL)) CENTRAL else if (up.get(LAKE)) LAKE else NOSRC
   // The freshness a result is labelled with.
-  def labelOf(s: int): int = if (LABEL) wm.get(s) else wm.get(CENTRAL)
+  def labelOf(s: int): int = if (LABEL) scopeWm(s) else scopeWm(CENTRAL)
   // The evaluator's gate.
   def gateOpen(k: int, s: int): bool = if (GATE) wEnd(k) <= labelOf(s) else now >= wEnd(k)
   def mayEval(k: int): bool = verdict.get(k) == Pending and served != NOSRC and gateOpen(k, served)
 
   // ---- helpers ----------------------------------------------------------------------
   action keepEdge = all { nextId' = nextId, buffer' = buffer, history' = history, writers' = writers, puts' = puts, objs' = objs }
-  action keepRead = all { ing' = ing, up' = up, wm' = wm, verdict' = verdict, results' = results }
+  action keepRead = all { ing' = ing, up' = up, wm' = wm, cwm' = cwm, verdict' = verdict, results' = results }
 
   // ---- the edge ---------------------------------------------------------------------
   // A request enters the edge's custody now (received_at = now).
@@ -287,15 +324,19 @@ module completeness {
   action ingest(s: int, o: Obj): bool = all {
     up.get(s), objs.contains(o), not(ing.get(s).contains(o)),
     ing' = ing.setBy(s, x => x.union(Set(o))),
-    now' = now, keepEdge, up' = up, wm' = wm, verdict' = verdict, results' = results, events' = events,
+    now' = now, keepEdge, up' = up, wm' = wm, cwm' = cwm, verdict' = verdict, results' = results, events' = events,
   }
 
   // Publish complete_through (in the checkpoint, or the snapshot summary).
   action publish(s: int): bool = {
     val c = computedWm(s)
+    val nw = imax(wm.get(s), c)
+    // D29: each cluster's running max, floored by the new fleet value
+    val nc = CLUSTERS.mapBy(k => imax(cwm.get(s).get(k), imax(nw, clusterComputed(s, k))))
     all {
-      up.get(s), c != wm.get(s),
-      wm' = wm.set(s, imax(wm.get(s), c)),
+      up.get(s), c != wm.get(s) or nc != cwm.get(s),
+      wm' = wm.set(s, nw),
+      cwm' = cwm.set(s, nc),
       events' = events.union(if (c < wm.get(s)) Set("regress") else Set()),
       now' = now, keepEdge, ing' = ing, up' = up, verdict' = verdict, results' = results,
     }
@@ -304,7 +345,7 @@ module completeness {
   action flip(s: int): bool = all {
     up' = up.set(s, not(up.get(s))),
     events' = events.union(Set(if (up.get(s)) "down" else "up")),
-    now' = now, keepEdge, ing' = ing, wm' = wm, verdict' = verdict, results' = results,
+    now' = now, keepEdge, ing' = ing, wm' = wm, cwm' = cwm, verdict' = verdict, results' = results,
   }
 
   // ---- the alert evaluator ----------------------------------------------------------------
@@ -314,9 +355,9 @@ module completeness {
     all {
       mayEval(k),
       verdict' = verdict.set(k, if (n > 0) Fire else Ok),
-      results' = results.union(Set({ window: k, src: s, through: labelOf(s), trueWm: wm.get(s), count: n })),
+      results' = results.union(Set({ window: k, src: s, through: labelOf(s), trueWm: trueScope(s), count: n })),
       events' = events.union(Set(if (s == LAKE) "lakeServed" else "centralServed")),
-      now' = now, keepEdge, ing' = ing, up' = up, wm' = wm,
+      now' = now, keepEdge, ing' = ing, up' = up, wm' = wm, cwm' = cwm,
     }
   }
 
@@ -326,7 +367,7 @@ module completeness {
     if (NODATA_OK) all { now >= wEnd(k), verdict' = verdict.set(k, Ok) }
     else all { now >= wEnd(k) + DEADLINE, verdict' = verdict.set(k, PageNoSource) },
     events' = events.union(Set("noSource")),
-    now' = now, keepEdge, ing' = ing, up' = up, wm' = wm, results' = results,
+    now' = now, keepEdge, ing' = ing, up' = up, wm' = wm, cwm' = cwm, results' = results,
   }
 
   // A source answers but its watermark has not reached the window: page once it is STALE.
@@ -334,7 +375,7 @@ module completeness {
     verdict.get(k) == Pending, served != NOSRC, not(gateOpen(k, served)), now >= wEnd(k) + STALE,
     verdict' = verdict.set(k, PageStale),
     events' = events.union(Set("stale")),
-    now' = now, keepEdge, ing' = ing, up' = up, wm' = wm, results' = results,
+    now' = now, keepEdge, ing' = ing, up' = up, wm' = wm, cwm' = cwm, results' = results,
   }
 
   // ---- state machine ------------------------------------------------------------------------
@@ -350,6 +391,7 @@ module completeness {
     ing' = SOURCES.mapBy(_ => Set()),
     up' = SOURCES.mapBy(_ => true),
     wm' = SOURCES.mapBy(_ => 0),
+    cwm' = SOURCES.mapBy(_ => CLUSTERS.mapBy(_ => 0)),
     verdict' = WINDOWS.mapBy(_ => Pending),
     results' = Set(),
     events' = Set(),
@@ -378,7 +420,11 @@ module completeness {
     history.forall(q => q.r < wm.get(s) implies ing.get(s).exists(o => o.kind == Data and o.req == q.id)))
   // LS-7: an OK verdict means the window had no error request, ever.
   val okMeansNoErrors: bool = WINDOWS.forall(k =>
-    verdict.get(k) == Ok implies not(history.exists(q => q.err and inWin(q.r, k))))
+    verdict.get(k) == Ok implies not(history.exists(q => q.err and inScope(q.lane) and inWin(q.r, k))))
+  // D29: per cluster, every request of the cluster received before its
+  // published value is ingested (no lane of it can still commit below it).
+  val clusterSound: bool = SOURCES.forall(s => CLUSTERS.forall(c =>
+    history.forall(q => clusterOf(q.lane) == c and q.r < cwm.get(s).get(c) implies ing.get(s).exists(o => o.kind == Data and o.req == q.id))))
   // R-S3: the evaluator never evaluates past the serving source's complete_through.
   val evalWithinComplete: bool = results.forall(x => wEnd(x.window) <= x.trueWm)
   // R-S1: every result is labelled with its source and no more freshness than that source has.
@@ -386,8 +432,8 @@ module completeness {
   // LS-8: an OK comes only from a source's answer.
   val noSilentOk: bool = WINDOWS.forall(k => verdict.get(k) == Ok implies results.exists(x => x.window == k))
   // The published watermark never passes the clock.
-  val wmBounded: bool = SOURCES.forall(s => wm.get(s) <= now)
-  val safety: bool = and { completeSound, okMeansNoErrors, evalWithinComplete, resultLabeled, noSilentOk, wmBounded }
+  val wmBounded: bool = SOURCES.forall(s => wm.get(s) <= now and CLUSTERS.forall(c => cwm.get(s).get(c) <= now))
+  val safety: bool = and { completeSound, clusterSound, okMeansNoErrors, evalWithinComplete, resultLabeled, noSilentOk, wmBounded }
 
   // ---- witnesses (a violation of not(w) means w was reached) ------------------------------------
   val wFire: bool = WINDOWS.exists(k => verdict.get(k) == Fire)
@@ -406,6 +452,10 @@ module completeness {
   val wRegress: bool = events.contains("regress")
   val wNotOldestFirst: bool = events.contains("notOldestFirst") and wFire
   val wAllWindows: bool = WINDOWS.forall(k => verdict.get(k) == Ok or verdict.get(k) == Fire)
+  // D29: a cluster's published value passed the fleet's (another cluster holds the fleet back).
+  val wClusterAhead: bool = SOURCES.exists(s => CLUSTERS.exists(c => cwm.get(s).get(c) > wm.get(s)))
+  // D29: a window evaluated past the serving source's fleet value (its scope's clusters were complete).
+  val wIsolatedEval: bool = results.exists(x => wEnd(x.window) > wm.get(x.src))
 
   // ---- scripted scenarios ----------------------------------------------------------------------------
   // (Each mutant's counterexample as a fixed run: `*BreaksTest` on the mutant
@@ -421,7 +471,7 @@ module completeness {
   action ingestAll(s: int): bool = all {
     up.get(s),
     ing' = ing.set(s, objs),
-    now' = now, keepEdge, up' = up, wm' = wm, verdict' = verdict, results' = results, events' = events,
+    now' = now, keepEdge, up' = up, wm' = wm, cwm' = cwm, verdict' = verdict, results' = results, events' = events,
   }
 
   // An error received at t=0 on lane 1 stays in custody (the edge is offline
@@ -507,55 +557,123 @@ module completeness {
       .then(ingestAll(CENTRAL)).then(publish(CENTRAL))
       .then(all { puts != Set(), nondet o = puts.oneOf() land(o) }).then(publish(CENTRAL)).then(evaluate(0))
       .expect(and { wZombieLanded, wRegress, wm.get(CENTRAL) == 2, verdict.get(0) == Fire, safety })
+
+  // ---- per cluster (D29; the three-lane instances) ------------------------------------------------
+  // Cluster 1's lane 1 holds an error received at t=0 in custody (its edge
+  // stalled); lane 2 (cluster 1) and lane 3 (cluster 2) heartbeat at t=2.
+  run stalledClusterPrefix =
+    init.then(receive(1, true)).then(tick).then(tick).then(beat(2)).then(beat(3)).then(ingestAll(CENTRAL)).then(publish(CENTRAL))
+  // Cluster 2 is complete through 2, cluster 1 and the fleet through 0: a
+  // rule on cluster 2 alone may evaluate window 0; one on both clusters, or
+  // one gated on the fleet value (before D29), may not.
+  run stalledClusterScopedTest =
+    stalledClusterPrefix
+      .expect(and { cwm.get(CENTRAL).get(2) == 2, cwm.get(CENTRAL).get(1) == 0, wm.get(CENTRAL) == 0, wClusterAhead, safety,
+                    mayEval(0) == (PER_CLUSTER and not(SCOPE.contains(1))) })
+  // ... and it does, OK (cluster 2 had no error), past the fleet value.
+  run stalledClusterEvalTest =
+    stalledClusterPrefix.then(evaluate(0)).expect(and { verdict.get(0) == Ok, wIsolatedEval, safety })
+  // The mutant: the scope's maximum opens window 0 for a rule on both
+  // clusters, and it reads cluster 1's error, still in custody, as OK.
+  run scopeMaxBreaksTest =
+    stalledClusterPrefix.then(evaluate(0)).expect(and { not(resultLabeled), not(evalWithinComplete), not(okMeansNoErrors) })
+  // Lane 2 (cluster 1) holds the error instead: cluster 1's value stays at 0
+  // (lane 2 is one of its lanes); the split cluster 1 misses it.
+  run splitPrefix =
+    init.then(receive(2, true)).then(tick).then(tick).then(beat(1)).then(beat(3)).then(ingestAll(CENTRAL)).then(publish(CENTRAL))
+  run clusterSplitHeldTest =
+    splitPrefix.expect(and { cwm.get(CENTRAL).get(1) == 0, cwm.get(CENTRAL).get(2) == 2, clusterSound, not(mayEval(0)) })
+  run clusterSplitBreaksTest = splitPrefix.expect(and { cwm.get(CENTRAL).get(1) == 2, not(clusterSound) })
 }
 
 // The rule as implemented (min of the ingested max low and the pending received_at).
 module completenessImpl {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // The design.
 module completenessDesign {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // §5.4 as first written: an idle lane is caught up to the LIST time.
 module listTimeIdle {
   import completeness(LOW_META = true, IDLE_AS_LIST = true, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // The lane's watermark from received_at alone (no low in the metadata).
 module lastReceived {
   import completeness(LOW_META = false, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // The highest ingested object, not the ingested prefix.
 module maxNotPrefix {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = false, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // The minimum over the lanes seen so far (lanes not registered before custody).
 module noBirth {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = false, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // LS-7: the evaluator runs when the wall clock passes the window.
 module evalPastComplete {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = false, NODATA_OK = false, LABEL = true).*
+    GATE = false, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // LS-8: no source reachable reads as no data, OK.
 module noDataOk {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = true, LABEL = true).*
+    GATE = true, NODATA_OK = true, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // LS-6: the lake's results carry central's freshness.
 module unlabeledFallback {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = true,
-    GATE = true, NODATA_OK = false, LABEL = false).*
+    GATE = true, NODATA_OK = false, LABEL = false,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
 }
 // No heartbeats: safe, but an idle lane stalls every window until it pages.
 module noHeartbeat {
   import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = false, BIRTH = true, HEARTBEAT = false,
-    GATE = true, NODATA_OK = false, LABEL = true).*
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2), CLUSTER_OF = Map(1 -> 1, 2 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
+}
+
+// D29: three lanes in two clusters (lanes 1 and 2 are cluster 1's); a rule on both clusters.
+module clusterDesign {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2, 3), CLUSTER_OF = Map(1 -> 1, 2 -> 1, 3 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(1, 2)).*
+}
+// A rule on cluster 2 alone, gated on cluster 2's value (as implemented).
+module clusterScoped {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2, 3), CLUSTER_OF = Map(1 -> 1, 2 -> 1, 3 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(2)).*
+}
+// The same rule gated on the fleet value (before D29): safe, and a stalled cluster 1 stops it.
+module clusterScopedFleetGate {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2, 3), CLUSTER_OF = Map(1 -> 1, 2 -> 1, 3 -> 2), PER_CLUSTER = false, SCOPE_MAX = false, SPLIT = false, SCOPE = Set(2)).*
+}
+// A rule on both clusters labelled with the maximum of their values.
+module scopeMax {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2, 3), CLUSTER_OF = Map(1 -> 1, 2 -> 1, 3 -> 2), PER_CLUSTER = true, SCOPE_MAX = true, SPLIT = false, SCOPE = Set(1, 2)).*
+}
+// A cluster's value computed without one of its lanes.
+module clusterSplit {
+  import completeness(LOW_META = true, IDLE_AS_LIST = false, PREFIX = true, PENDING = true, BIRTH = true, HEARTBEAT = true,
+    GATE = true, NODATA_OK = false, LABEL = true,
+    LANES = Set(1, 2, 3), CLUSTER_OF = Map(1 -> 1, 2 -> 1, 3 -> 2), PER_CLUSTER = true, SCOPE_MAX = false, SPLIT = true, SCOPE = Set(1, 2)).*
 }

@@ -279,7 +279,12 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	// the watermark first: whatever it covers was committed before the
 	// document was written, so before the LIST below
-	wmState := p.wm.Get(ctx)
+	// (D29: the watermark of the plan's clusters and signal only)
+	wmScope := completeness.Scope{Clusters: clusters, Signals: []string{req.Signal}}
+	if pr.AllClusters && len(req.Clusters) == 0 {
+		wmScope.Clusters = nil
+	}
+	wmState := p.wm.For(ctx, wmScope)
 	listedAt := p.now()
 	lowLM := time.Unix(0, req.FromNs).Add(-time.Duration(p.cfg.SkewS) * time.Second)
 	type cand struct {

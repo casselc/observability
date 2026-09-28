@@ -20,6 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +47,29 @@ type Doc struct {
 	Holding           []LaneWm `json:"holding"`
 	Stale             []LaneWm `json:"stale"`
 	StaleAfterS       uint64   `json:"stale_after_s"`
+	// D29 (absent from a consumer that predates it): each listed cluster's
+	// value, each listed signal's over the fleet, and a signal no listed
+	// lane carries. Each is sound for its subset and >= CompleteThroughNs.
+	Clusters          map[string]uint64 `json:"clusters,omitempty"`
+	Signals           map[string]uint64 `json:"signals,omitempty"`
+	UnlistedSignalsNs uint64            `json:"unlisted_signals_ns,omitempty"`
+}
+
+// ClusterDoc is {ctl}/watermark/{cluster}.json (D29): one cluster's values.
+type ClusterDoc struct {
+	Format            int               `json:"format"`
+	Version           uint64            `json:"version"`
+	Cluster           string            `json:"cluster"`
+	CompleteThroughNs uint64            `json:"complete_through_ns"`
+	WallMs            uint64            `json:"wall_ms"`
+	ListCapNs         uint64            `json:"list_cap_ns"`
+	Lanes             int               `json:"lanes"`
+	Signals           map[string]uint64 `json:"signals"`
+	UnlistedSignalsNs uint64            `json:"unlisted_signals_ns"`
+	// LaneWm: every listed lane's value, keyed {producer}/{signal}.
+	LaneWm  map[string]uint64 `json:"lane_wm"`
+	Holding []LaneWm          `json:"holding"`
+	Stale   []LaneWm          `json:"stale"`
 }
 
 // Status of the watermark as the service sees it.
@@ -67,8 +93,16 @@ type Reader struct {
 	// maxLateness bridges custody time and event time (package comment).
 	maxLateness time.Duration
 
-	mu    sync.Mutex
-	state State
+	mu       sync.Mutex
+	state    State
+	clusters map[string]*clusterState
+}
+
+// clusterState is one cluster document's cache entry.
+type clusterState struct {
+	doc     *ClusterDoc
+	triedAt time.Time
+	err     string
 }
 
 // State is one read's result.
@@ -78,6 +112,44 @@ type State struct {
 	FetchedAt time.Time // when Doc was last read successfully
 	TriedAt   time.Time
 	Err       string
+	// Scope is set by For: what Doc's complete_through was narrowed to.
+	Scope *ScopeInfo
+}
+
+// Scope is what a result depends on (D29): its clusters (nil: every
+// cluster, the fleet) and the signals of the tables it reads (nil: every
+// signal).
+type Scope struct {
+	Clusters []string
+	Signals  []string
+}
+
+// ScopeInfo is the label's account of the scope's complete_through.
+type ScopeInfo struct {
+	Clusters []string `json:"clusters"` // ["*"]: the fleet
+	Signals  []string `json:"signals"`  // ["*"]: every signal
+	// By cluster: each cluster's value for the signals and where it came
+	// from; the scope's complete_through is their minimum. Absent for the
+	// fleet.
+	By []ClusterValue `json:"by_cluster,omitempty"`
+}
+
+// ClusterValue is one cluster's value in a scope.
+type ClusterValue struct {
+	Cluster           string `json:"cluster"`
+	CompleteThroughNs uint64 `json:"complete_through_ns"`
+	// Basis: "cluster_signals" (its document, per signal), "cluster" (its
+	// document or the fleet document's value for it), "unlisted" (no lane
+	// of it at the consumer's last LIST), or "fleet" (no per-cluster value:
+	// a consumer before D29, or its document unreadable).
+	Basis string   `json:"basis"`
+	AgeS  *float64 `json:"doc_age_s,omitempty"`
+	Error string   `json:"error,omitempty"`
+}
+
+// ClusterKey is the per-cluster document's key beside the fleet one.
+func (r *Reader) ClusterKey(cluster string) string {
+	return strings.TrimSuffix(r.key, "watermark.json") + "watermark/" + cluster + ".json"
 }
 
 // DefaultMaxLateness is max_lateness when the configuration names none
@@ -132,6 +204,160 @@ func (r *Reader) Get(ctx context.Context) State {
 		}
 	}
 	return r.classify(r.state, now)
+}
+
+var clusterNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`)
+
+// cluster returns cluster c's document (cached like the fleet one; nil when
+// there is none) and the last read's error. A document that could not be
+// re-read keeps its last good copy: every value in it stays sound.
+func (r *Reader) cluster(ctx context.Context, c string) (*ClusterDoc, string) {
+	if !clusterNameRE.MatchString(c) {
+		return nil, "not a cluster name"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.clusters == nil {
+		r.clusters = map[string]*clusterState{}
+	}
+	cs := r.clusters[c]
+	now := r.now()
+	if cs != nil && now.Sub(cs.triedAt) < r.ttl {
+		return cs.doc, cs.err
+	}
+	if cs == nil {
+		cs = &clusterState{}
+		r.clusters[c] = cs
+	}
+	cs.triedAt = now
+	key := r.ClusterKey(c)
+	body, err := r.get(ctx, key)
+	switch {
+	case err != nil:
+		cs.err = err.Error()
+	case body == nil:
+		cs.doc, cs.err = nil, ""
+	default:
+		var d ClusterDoc
+		if err := json.Unmarshal(body, &d); err != nil {
+			cs.err = fmt.Sprintf("%s: %v", key, err)
+		} else if d.Cluster != c {
+			cs.err = fmt.Sprintf("%s names cluster %q", key, d.Cluster)
+		} else {
+			cs.doc, cs.err = &d, ""
+		}
+	}
+	return cs.doc, cs.err
+}
+
+// For is Get narrowed to a scope (D29): the fleet document's state (its
+// status and freshness are the publisher's), with complete_through raised
+// to the scope's own value, the minimum over the scope's clusters of each
+// cluster's value for the scope's signals, and the holding and stale lanes
+// cut to the scope. Each cluster's value is the highest of the values
+// published for a superset of its lanes in the scope (the fleet's, the
+// cluster's, the cluster's per signal): each is sound for the subset, so
+// the highest is. A cluster without a document falls back to the fleet
+// document, never to nothing.
+func (r *Reader) For(ctx context.Context, sc Scope) State {
+	s := r.Get(ctx)
+	if s.Doc == nil {
+		return s
+	}
+	d := *s.Doc
+	info := &ScopeInfo{Clusters: orStar(sc.Clusters), Signals: orStar(sc.Signals)}
+	sigs := func(m map[string]uint64, unlisted uint64) (uint64, bool) {
+		if len(sc.Signals) == 0 || len(m) == 0 {
+			return 0, false
+		}
+		v := uint64(math.MaxUint64)
+		for _, x := range sc.Signals {
+			w, ok := m[x]
+			if !ok {
+				w = unlisted
+			}
+			v = min(v, w)
+		}
+		return v, true
+	}
+	var holding, stale []LaneWm
+	if sc.Clusters == nil {
+		if v, ok := sigs(d.Signals, d.UnlistedSignalsNs); ok {
+			d.CompleteThroughNs = max(d.CompleteThroughNs, v)
+		}
+		holding, stale = cutLanes(d.Holding, "", sc.Signals), cutLanes(d.Stale, "", sc.Signals)
+	} else {
+		ct := uint64(math.MaxUint64)
+		now := r.now()
+		for _, c := range sc.Clusters {
+			cv := ClusterValue{Cluster: c, Basis: "fleet"}
+			v := d.CompleteThroughNs
+			if fv, ok := d.Clusters[c]; ok {
+				v, cv.Basis = max(v, fv), "cluster"
+			} else if len(d.Clusters) > 0 {
+				// the consumer names every listed cluster: none of c's lanes
+				// existed at its LIST, so all of them were born after the cap
+				v, cv.Basis = max(v, d.ListCapNs), "unlisted"
+			}
+			cd, err := r.cluster(ctx, c)
+			cv.Error = err
+			if cd != nil {
+				v, cv.Basis = max(v, cd.CompleteThroughNs), "cluster"
+				if sv, ok := sigs(cd.Signals, cd.UnlistedSignalsNs); ok {
+					v, cv.Basis = max(v, sv), "cluster_signals"
+				}
+				age := now.Sub(time.UnixMilli(int64(cd.WallMs))).Seconds()
+				cv.AgeS = &age
+				holding = append(holding, cutLanes(cd.Holding, c, sc.Signals)...)
+				stale = append(stale, cutLanes(cd.Stale, c, sc.Signals)...)
+			} else {
+				holding = append(holding, cutLanes(d.Holding, c, sc.Signals)...)
+				stale = append(stale, cutLanes(d.Stale, c, sc.Signals)...)
+			}
+			cv.CompleteThroughNs = v
+			info.By = append(info.By, cv)
+			ct = min(ct, v)
+		}
+		if len(sc.Clusters) > 0 {
+			d.CompleteThroughNs = ct
+		}
+	}
+	sort.SliceStable(holding, func(i, j int) bool {
+		if holding[i].WmNs != holding[j].WmNs {
+			return holding[i].WmNs < holding[j].WmNs
+		}
+		return holding[i].Lane < holding[j].Lane
+	})
+	if len(holding) > maxHolding {
+		holding = holding[:maxHolding]
+	}
+	d.Holding, d.Stale = holding, stale
+	s.Doc, s.Scope = &d, info
+	return s
+}
+
+// maxHolding is how many holding lanes a scoped label names.
+const maxHolding = 5
+
+func orStar(x []string) []string {
+	if x == nil {
+		return []string{"*"}
+	}
+	return x
+}
+
+// cutLanes keeps the lanes of cluster (every cluster when "") and of the
+// signals (every signal when nil). A lane id is {cluster}/{producer}/{signal}.
+func cutLanes(lanes []LaneWm, cluster string, signals []string) []LaneWm {
+	var out []LaneWm
+	for _, l := range lanes {
+		c, _, _ := strings.Cut(l.Lane, "/")
+		sig := l.Lane[strings.LastIndexByte(l.Lane, '/')+1:]
+		if (cluster == "" || c == cluster) && (signals == nil || slices.Contains(signals, sig)) {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // classify decides the status from ages: a good copy older than maxAge (the
@@ -198,6 +424,9 @@ type WmInfo struct {
 	Holding   []LaneWm `json:"holding,omitempty"`
 	Stale     []LaneWm `json:"stale_lanes,omitempty"`
 	Error     string   `json:"error,omitempty"`
+	// Scope: the clusters and signals complete_through was narrowed to
+	// (D29), and each cluster's value.
+	Scope *ScopeInfo `json:"scope,omitempty"`
 	// Note says why completeness is unknown.
 	Note string `json:"note,omitempty"`
 }
@@ -208,7 +437,7 @@ type WmInfo struct {
 // the document.
 func MakeLabel(source string, s State, w *Window, now time.Time, key string, mayCluster func(string) bool, maxLateness time.Duration) Label {
 	maxLateness = max(maxLateness, 0)
-	l := Label{Source: source, MaxLatenessS: maxLateness.Seconds(), Watermark: WmInfo{Status: s.Status, Key: key, Error: s.Err}}
+	l := Label{Source: source, MaxLatenessS: maxLateness.Seconds(), Watermark: WmInfo{Status: s.Status, Key: key, Error: s.Err, Scope: s.Scope}}
 	if !s.FetchedAt.IsZero() {
 		l.Watermark.FetchedAt = s.FetchedAt.UTC().Format(time.RFC3339Nano)
 	}

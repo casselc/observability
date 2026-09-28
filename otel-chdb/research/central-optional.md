@@ -487,8 +487,14 @@ not the only exception. What the model needs:
   reads "no data" as OK, and every result carries its source and that
   source's W.
 
-None of it is built. The sealer's W over committed slots (§5.1) is
-modelled in `model/sealer.qnt` with low = `received_at`, the in-order case.
+**Built (2026-09-27, format v2; [../FORMAT.md](../FORMAT.md) §2–§3,
+[../DECISIONS.md](../DECISIONS.md) D19)** for central: `oscope-low` on both
+edges, birth and idle-lane heartbeats, the lane watermark in the consumer's
+checkpoint and `complete_through` in `{ctl}/watermark.json` (a running
+max, with the lanes holding it back and the stale ones). The evaluator
+rules are not built (no evaluator yet). The sealer's W over committed
+slots (§5.1) is modelled in `model/sealer.qnt` with low = `received_at`,
+the in-order case; a sealer would compute its own by the same lane rule.
 
 ### 5.5 GC with snapshots
 

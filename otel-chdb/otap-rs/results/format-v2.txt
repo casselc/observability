@@ -1,0 +1,41 @@
+# format v2 checks, 2026-09-28 (local SeaweedFS 4.47, ClickHouse 26.10)
+
+## conformance/run.sh (layout B, births, HEARTBEAT=1h)
+0 failed
+254 PASS
+
+## otap-rs/scripts/faults.sh (Rust edge)
+PASS ambiguous: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS applylate: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS dropped: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS crash: requests=6 objects=7 zero-byte(tombstones+heartbeats)=2 central(rows, distinct content, epochs)=60000 6 2
+PASS zombie: requests=6 objects=6 zero-byte(tombstones+heartbeats)=4 central(rows, distinct content, epochs)=60000 6 3
+
+## conformance/go_faults.sh (Go edge)
+PASS ambiguous: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS applylate: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS dropped: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS unresolved: requests=6 objects=6 zero-byte(tombstones+heartbeats)=1 central(rows, distinct content, epochs)=60000 6 1
+PASS crash: requests=6 objects=7 zero-byte(tombstones+heartbeats)=2 central(rows, distinct content, epochs)=60000 6 2
+PASS zombie: requests=6 objects=6 zero-byte(tombstones+heartbeats)=4 central(rows, distinct content, epochs)=60000 6 3
+
+## conformance/go_replay.sh (Go file_storage replay; replays before the probe carry oscope-low 0)
+go: 6 objects, 4 requests, 2 replayed in a second epoch; metadata == rows' received_at in every object: True; replays with the original's received_at: 2/2 (all before the restart: True)
+  central: 40000 rows (expected 40000), 4 requests, 4 epochs; horizon-audit WARN lines: 0
+  PASS
+
+## otap-rs/scripts/consumer_soak.sh DURATION=300 (3 edges, 3 workers, chaos; consume gc publishing watermark.json)
+00:59:41.640 chaos over: 8 worker kills, 5 worker pauses, 4 edge kills
+00:59:42.651 senders done: 6522 requests acked
+committed objects: 13094 ({'logs': 2445, 'metrics_exponential_histogram_points': 1642, 'metrics_histogram_points': 1641, 'metrics_number_points': 1640, 'metrics_series': 1642, 'metrics_summary_points': 1642, 'traces': 24
+PASS traces: committed batches 2440, central batches 2440, rows 488000 (committed 488000); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS logs: committed batches 2444, central batches 2444, rows 488800 (committed 488800); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_number_points: committed batches 1638, central batches 1638, rows 65520 (committed 65520); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_histogram_points: committed batches 1638, central batches 1638, rows 32760 (committed 32760); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_exponential_histogram_points: committed batches 1638, central batches 1638, rows 32760 (committed 32760); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS metrics_summary_points: committed batches 1638, central batches 1638, rows 32760 (committed 32760); missing 0, partial 0, duplicated 0, uncommitted 0
+PASS traces requests acked 2440: rows exactly once for 2440
+PASS logs requests acked 2444: rows exactly once for 2444
+PASS metrics requests acked 1638: points exactly once per request through its series for 1638; points without a series row: {'number_points': 0, 'histogram_points': 0, 'exponential_histogram_points': 0, 'summary_points':
+VERDICT: PASS
+watermark: 64 runs, 0 errors; last: 21 lanes, complete_through 33.6 s behind the wall clock after the senders stopped, 0 stale

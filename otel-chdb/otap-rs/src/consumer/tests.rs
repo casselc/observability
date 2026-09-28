@@ -1313,3 +1313,37 @@ async fn complete_through_mutants_break_soundness() {
         assert!(broken > 0, "mutant {} went unnoticed", mode as u8);
     }
 }
+
+/// Registration and idle lanes: a birth heartbeat makes a lane known (its
+/// watermark 0 holds complete_through down) before it has data; heartbeats
+/// alone then advance its watermark, without taking the lane off its idle
+/// LIST backoff.
+#[tokio::test(flavor = "current_thread")]
+async fn births_register_lanes_and_heartbeats_advance_idle_ones() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    assert!(e.put(&b, "logs", 0, "beat-birth", proto::KIND_BEAT, 0, 0, false).await);
+    let d = super::watermark::watermark_step(&*b, &wcfg, clk.0.get()).await.unwrap();
+    assert_eq!((d.lanes, d.complete_through_ns), (1, 0), "a born lane without a watermark holds it at 0");
+    let mut cf = cfg("w1");
+    cf.backoff = Backoff { after_ms: 1_000, min_ms: 1_000, max_ms: 8_000, jitter: 0.0 };
+    cf.poll_ms = 200;
+    cf.full_list_ms = 0;
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    let lists0 = w.stats.lane_lists;
+    for i in 0..300u64 {
+        if i % 25 == 0 {
+            let now = clk.0.get() * 1_000_000;
+            assert!(e.put(&b, "logs", 0, &format!("beat-{i}"), proto::KIND_BEAT, 0, now, false).await);
+        }
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    let d = super::watermark::watermark_step(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let lag_ms = clk.0.get().saturating_sub(d.complete_through_ns / 1_000_000);
+    // at most a heartbeat interval (5 s) plus the idle LIST backoff cap (8 s) and a couple of polls behind
+    assert!(d.complete_through_ns > 0 && lag_ms <= 16_000, "heartbeats carried the watermark: lag {lag_ms} ms");
+    assert!(w.stats.lane_lists - lists0 < 100, "an idle lane with heartbeats backs off: {} LISTs in 300 polls", w.stats.lane_lists - lists0);
+    assert_eq!(w.stats.objects_inserted, 0);
+}

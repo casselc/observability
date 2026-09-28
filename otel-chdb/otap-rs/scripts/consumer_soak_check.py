@@ -43,6 +43,7 @@ def rows(q):
 committed = collections.defaultdict(dict)  # signal -> content -> rows
 objects = collections.Counter()
 tombs = 0
+beats = 0
 epochs = set()
 copies = collections.Counter()
 for line in open(os.path.join(OUT, "committed.jsonl")):
@@ -51,6 +52,9 @@ for line in open(os.path.join(OUT, "committed.jsonl")):
     if o.get("kind") == "tomb":
         tombs += 1
         continue
+    if o.get("kind") == "beat":  # heartbeat slots (../../FORMAT.md §2): nothing to ingest
+        beats += 1
+        continue
     objects[o["signal"]] += 1
     c = committed[o["signal"]]
     if o["content"] in c:
@@ -58,7 +62,7 @@ for line in open(os.path.join(OUT, "committed.jsonl")):
     c[o["content"]] = o["rows"]
 
 ok = True
-print(f"committed objects: {sum(objects.values())} ({dict(objects)}); tombstones {tombs}; epochs {len(epochs)}; "
+print(f"committed objects: {sum(objects.values())} ({dict(objects)}); tombstones {tombs}; heartbeats {beats}; epochs {len(epochs)}; "
       f"cross-epoch copies {sum(copies.values())} ({dict(copies)})")
 for sig, table in TABLES.items():
     central = {c: int(n) for c, n in rows(f"SELECT content_key, count() FROM {DB}.{table} GROUP BY content_key")}

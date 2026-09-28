@@ -376,7 +376,7 @@ write side is proposed in [../DECISIONS.md](../DECISIONS.md) under D18,
 the same layout and adds the lake's read side:
 
 ```
-{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet    raw edge slots (D3); today {root}/{producer}/…
+{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet    raw edge slots (D3; format v2 since 2026-09-27, ../FORMAT.md)
 {entities}/{cluster}/…                                              entity lanes, one writer per cluster controller
 {lake}/{cluster}/{namespace}/{signal}/date={d}/hour={h}/…           compacted L2/L3 files (compactor), per namespace
 {lake}/{cluster}/{signal}/l1/…                                      L1 (5 min), per cluster (§6.4)

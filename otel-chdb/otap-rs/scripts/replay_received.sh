@@ -80,7 +80,7 @@ ready() { for _ in $(seq 100); do curl -s -o /dev/null "http://127.0.0.1:$port/"
 objs() { # prefix -> "path \t min(row received_at) \t max \t rows", one line per data object
   q "SELECT _path, toUnixTimestamp64Nano(min(received_at)), toUnixTimestamp64Nano(max(received_at)), count()
      FROM s3('$S3/$BUCKET/$1/**.parquet', '$AWS_ACCESS_KEY_ID', '$AWS_SECRET_ACCESS_KEY', 'Parquet', 'received_at DateTime64(9)')
-     GROUP BY _path ORDER BY _path FORMAT TSV" 2>/dev/null
+     GROUP BY _path ORDER BY _path FORMAT TSV SETTINGS s3_skip_empty_files = 1" 2>/dev/null
 }
 head_meta() { # path-in-bucket name -> x-amz-meta-oscope-<name> (HEAD through the unauthenticated gateway)
   curl -sSI "http://127.0.0.1:$NOAUTH_PORT/$BUCKET/$1" | tr -d '\r' | awk -F': ' -v k="x-amz-meta-oscope-$2" 'tolower($1)==k{print $2}'

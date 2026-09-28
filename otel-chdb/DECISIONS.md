@@ -21,8 +21,8 @@ disagreed with each other, and how each was resolved.
 ```
  k8s cluster (×20 per region)                         S3 (AWS) or Nutanix Objects
  ┌──────────────────────────────────────┐            ┌──────────────────────────────────────────┐
- │ pods → gateway collectors (3/cluster)│  1 create- │ {root}/{producer}/{signal}/{epoch}/       │
- │   Rust otap-dataflow + s3pq exporter │  only PUT  │     {seq:020d}.parquet   (data = commit)  │
+ │ pods → gateway collectors (3/cluster)│  1 create- │ {root}/{cluster}/{producer}/{signal}/     │
+ │   Rust otap-dataflow + s3pq exporter │  only PUT  │  {epoch}/{seq:020d}.parquet (FORMAT.md)   │
  │   (or Go collector + parquetgo)      │ ─────────► │ {ctl}/lease/…  {ctl}/ckpt/…  (CAS'd)      │
  │   ack upstream only after the commit │  per batch │ {ctl}/gc.json               (CAS'd)       │
  └──────────────────────────────────────┘            └──────────────────┬───────────────────────┘
@@ -264,7 +264,7 @@ supported edge for collectors that must stay Go. The Go edge is now the
 deployed by `deploy/base/go`):
 
 - **Manifest-less for every signal:** `parquetgo/commit` ports the Rust lane
-  (`PUT If-None-Match: *` at `{root}/{producer}/{namespace}/{epoch}/{seq:020d}.parquet`,
+  (`PUT If-None-Match: *` at `{root}/{cluster}/{producer}/{namespace}/{epoch}/{seq:020d}.parquet` (format v2),
   HEAD on a 412 or no answer, epochs named at the first write, tombstone
   halts) with the Rust keys, epoch names, `x-amz-meta-oscope-*` metadata and
   BLAKE3 content keys; a metrics request is acked only when every object has

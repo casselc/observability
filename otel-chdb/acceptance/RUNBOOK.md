@@ -258,7 +258,7 @@ Notes:
   s3()`, `s3_plain_rewritable` disks, worker heartbeats and CopyObject send no
   conditional headers, and would get 403. A CopyObject into a covered prefix
   fails with 403, or 501 with the header. With the otap-rs inline layout,
-  slots live at `{root}/{producer}/{signal}/{epoch}/*.parquet` and control
+  slots live at `{root}/{cluster}/{producer}/{signal}/{epoch}/*.parquet` (format v2) and control
   objects under `{root}/_consumer/`. If such a policy already covers the
   bucket, `plain-put` FAILs and `bucket-config` WARNs.
 

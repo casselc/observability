@@ -139,7 +139,7 @@ otap-s3pq (one binary)
                        (not on the near-unique columns), page statistics + page index, bloom
                        filter on TraceId sized for the batch, footer key-value = the batch
                        description; no ARROW:schema
-         commit        lane: PUT If-None-Match: * at {prefix}/{signal}/{epoch}/{seq:020d}.parquet,
+         commit        lane: PUT If-None-Match: * at {root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet,
                        x-amz-meta-oscope-*; HEAD on 412 / no answer; resend / learn / halt
          ack           upstream ACK once the commit resolves; NACK (retryable) while unresolved;
                        NACK permanent (400) for undecodable input
@@ -1444,9 +1444,10 @@ scripts: `scripts/consumer_*.sh`; compaction:
 ### What it does
 
 ```
-{root}/{producer}/{signal}/{epoch}/{seq:020d}.parquet      the edges' slots (unchanged)
-{ctl}/lease/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
-{ctl}/ckpt/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed}}}
+{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet   the edges' slots (format v2, ../FORMAT.md)
+{ctl}/lease/{cluster}/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
+{ctl}/ckpt/{cluster}/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed}}, max_low_ns, wm_ns}
+{ctl}/watermark.json                    CAS'd complete_through (running max; consume gc / consume watermark)
 {ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
 {ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions and floor}, retired epochs
 ```

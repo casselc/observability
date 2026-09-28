@@ -45,13 +45,13 @@ consume() { # extra args
 }
 verdict() { # expected requests
   local objs rows want
-  objs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size > 0")
-  tombs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size = 0 SETTINGS s3_skip_empty_files = 0")
+  objs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/*/*/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size > 0")
+  tombs=$(ch "SELECT count() FROM s3('$S3/$BP/faults/$RUN/$SCEN/*/*/traces/**/*.parquet', 'otel', 'otelsecret', 'One') WHERE _size = 0 SETTINGS s3_skip_empty_files = 0")
   rows=$(ch "SELECT count(), uniqExact(content_key), uniqExact(producer_epoch) FROM $DB.$SCEN FORMAT TSV")
   want="$(( $1 * 10000 ))	$1"
   local ok=FAIL
   [ "$(echo "$rows" | cut -f1,2)" = "$want" ] && ok=PASS
-  echo "$ok $SCEN: requests=$1 objects=$objs tombstones=$tombs central(rows, distinct content, epochs)=$(echo $rows)" | tee -a "$OUT/summary.txt"
+  echo "$ok $SCEN: requests=$1 objects=$objs zero-byte(tombstones+heartbeats)=$tombs central(rows, distinct content, epochs)=$(echo $rows)" | tee -a "$OUT/summary.txt"
   grep -ho '"committed".*"heads": [0-9]*' "$OUT/$SCEN.edge.log" | sed 's/^/  edge: /' | tee -a "$OUT/summary.txt"
   grep -h '"summary"' "$OUT/$SCEN.consume.log" | tail -1 | cut -c1-400 | sed 's/^/  consumer: /' | tee -a "$OUT/summary.txt"
   grep -hc "PUT" "$OUT/$SCEN.proxy.log" | sed 's/^/  proxy PUT lines: /' | tee -a "$OUT/summary.txt"

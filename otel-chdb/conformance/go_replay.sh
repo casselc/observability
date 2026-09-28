@@ -46,7 +46,7 @@ s3 -X PUT "$S3/$BUCKET" > /dev/null
 
 sed -e 's#0.0.0.0:4317#127.0.0.1:14817#; s#0.0.0.0:4318#127.0.0.1:14818#; s#0.0.0.0:13133#127.0.0.1:14833#' \
     -e 's#host: 0.0.0.0#host: 127.0.0.1#; s#port: 8888#port: 14888#' "$here/deploy/base/go/publisher-config.yaml" > "$tmp/publisher.yaml"
-export PRODUCER=goreplay S3_REGION=us-east-1 QUEUE_DIR=$tmp/queue
+export CLUSTER=replay PRODUCER=goreplay S3_REGION=us-east-1 QUEUE_DIR=$tmp/queue
 pub() { # s3-base  (background; the pid in $tmp/pub.pid)
   S3_BASE=$1 setsid bash -c 'echo $$ > "$0"; exec "$@"' "$tmp/pub.pid" "$B/otelcol-s3pq" --config "$tmp/publisher.yaml" >> "$OUT/pub.log" 2>&1 < /dev/null &
   for _ in $(seq 100); do curl -s -o /dev/null http://127.0.0.1:14818/ && return; sleep 0.1; done
@@ -77,7 +77,7 @@ sleep 1; kill -INT "$(cat "$tmp/pub.pid")"; sleep 3
 
 q "SELECT _path, toUnixTimestamp64Nano(min(received_at)), toUnixTimestamp64Nano(max(received_at)), count()
    FROM s3('$S3/$BUCKET/$RUN/**.parquet', '$AWS_ACCESS_KEY_ID', '$AWS_SECRET_ACCESS_KEY', 'Parquet', 'received_at DateTime64(9)')
-   GROUP BY _path ORDER BY _path FORMAT TSV" | while IFS=$'\t' read -r path lo hi rows; do
+   GROUP BY _path ORDER BY _path FORMAT TSV SETTINGS s3_skip_empty_files = 1" | while IFS=$'\t' read -r path lo hi rows; do
   h=$(s3 -I "$S3/$path" | tr -d '\r')
   m() { echo "$h" | awk -F': ' -v k="x-amz-meta-oscope-$1" 'tolower($1)==k{print $2}'; }
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "${path#"$BUCKET/"}" "$(m content)" "$(m received)" "$lo" "$hi" "$rows"
@@ -110,5 +110,7 @@ print(f"  {'PASS' if ok else 'FAIL'}")
 EOF
 grep -o 's3pq stop.*' "$OUT/pub.log" | tail -2 | cut -c1-300 | sed 's/^/  publisher: /' | tee -a "$OUT/summary.txt"
 q "DROP DATABASE IF EXISTS $db"
-[ -n "${KEEP:-}" ] || { s3 -X DELETE "$S3/$BUCKET" > /dev/null 2>&1; }
+# Only this run's objects: the bucket may be shared (SeaweedFS deletes a
+# bucket that still holds objects, everyone's).
+[ -n "${KEEP:-}" ] || "$B/consume" purge --s3 "$S3/$BUCKET/$RUN" --key "$AWS_ACCESS_KEY_ID" --secret "$AWS_SECRET_ACCESS_KEY" > /dev/null 2>&1
 rm -rf "$tmp"

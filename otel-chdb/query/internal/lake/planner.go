@@ -68,6 +68,12 @@ func (c *Config) defaults() {
 	if c.ReplanMarginS <= 0 {
 		c.ReplanMarginS = 60
 	}
+	// a margin at or above the lifetime makes every plan stale as it is
+	// issued (replan_after ≤ signed_at): a client following X8 re-plans
+	// forever. A plan stays usable for at least half its URLs' lifetime.
+	if c.ReplanMarginS > c.URLTTLS/2 {
+		c.ReplanMarginS = c.URLTTLS / 2
+	}
 	if c.MaxObjects <= 0 {
 		c.MaxObjects = 2000
 	}

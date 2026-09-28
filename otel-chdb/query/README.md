@@ -189,7 +189,8 @@ would lift this for older data.
 **The rules the plan carries (AMBIGUITY.md X8)**, in every plan's `rules`:
 
 1. Each URL is valid until `expires_at`. **Re-plan before `replan_after`**
-   (`expires_at` − `replan_margin_s`, 60 s); never start reading an object
+   (`expires_at` − `replan_margin_s`, 60 s, cut to half the URL lifetime so a
+   plan is never stale when issued); never start reading an object
    whose URL expires within the margin.
 2. **A 403 (or any error) on a planned object means re-plan, never "no
    data"**: a query that could not read every planned object is incomplete

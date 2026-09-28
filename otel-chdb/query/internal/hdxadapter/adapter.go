@@ -33,6 +33,12 @@ type Config struct {
 	TokenHeader  string `json:"token_header"`
 	MaxBodyBytes int64  `json:"max_body_bytes"`
 	TimeoutS     int    `json:"timeout_s"`
+	// BasisURL is the service's POST /v1/basis (default: beside QueryURL);
+	// BasisGroupTTLS how long a dashboard refresh's basis is kept for its
+	// group (default 900 s), BasisGroups how many groups (default 10,000).
+	BasisURL       string `json:"basis_url"`
+	BasisGroupTTLS int    `json:"basis_group_ttl_s"`
+	BasisGroups    int    `json:"basis_groups"`
 }
 
 // Adapter is the HTTP handler.
@@ -43,6 +49,7 @@ type Adapter struct {
 
 	mu     sync.Mutex
 	counts map[string]int64
+	groups *basisGroups
 }
 
 // New returns an adapter.
@@ -66,7 +73,14 @@ func New(cfg Config, client *http.Client) *Adapter {
 		}
 		tc[k] = v
 	}
-	return &Adapter{cfg: cfg, client: client, tables: Tables{DefaultDatabase: cfg.DefaultDatabase, TimeColumns: tc}, counts: map[string]int64{}}
+	if cfg.BasisGroupTTLS <= 0 {
+		cfg.BasisGroupTTLS = 900
+	}
+	if cfg.BasisGroups <= 0 {
+		cfg.BasisGroups = 10_000
+	}
+	return &Adapter{cfg: cfg, client: client, tables: Tables{DefaultDatabase: cfg.DefaultDatabase, TimeColumns: tc}, counts: map[string]int64{},
+		groups: &basisGroups{entries: map[string]*groupEntry{}, ttl: time.Duration(cfg.BasisGroupTTLS) * time.Second, max: cfg.BasisGroups, now: time.Now}}
 }
 
 func (a *Adapter) count(k string) {
@@ -80,7 +94,8 @@ func (a *Adapter) count(k string) {
 var LabelHeaders = []string{"X-Otel-Request-Id", "X-Otel-Source", "X-Otel-Completeness", "X-Otel-Complete-Through",
 	"X-Otel-Incomplete-From", "X-Otel-Watermark-Status", "X-Otel-Watermark-Lag-S", "X-Otel-Watermark-Note",
 	"X-Otel-Window-From", "X-Otel-Window-To", "X-Otel-Dropped-Settings", "X-Otel-Statement",
-	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows", "X-Otel-Watermark-Scope", "X-Otel-Watermark-Holding"}
+	"X-Otel-Max-Lateness-S", "X-Otel-Settled-Through", "X-Otel-Late-Rows", "X-Otel-Watermark-Scope", "X-Otel-Watermark-Holding",
+	"X-Otel-Basis", "X-Otel-At-Basis", "X-Otel-Basis-Info"}
 
 // clientKeys are URL parameters of the HTTP interface that are not settings.
 var clientKeys = map[string]bool{"query": true, "query_id": true, "database": true, "default_format": true,
@@ -140,7 +155,23 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(output) > 0 {
 		body["output"] = output
 	}
+	basis, group, err := a.requestBasis(r.Context(), r, req.token)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if basis != "" {
+		body["basis"] = basis
+	}
 	resp, err := a.forward(r.Context(), req.token, body, req.values.Get("query_id"))
+	if err != nil && group != "" && retryableBasis(err) {
+		// the group's basis is no longer accepted: one new one for the group
+		a.groups.drop(req.token, group)
+		if basis, _, err = a.requestBasis(r.Context(), r, req.token); err == nil {
+			body["basis"] = basis
+			resp, err = a.forward(r.Context(), req.token, body, req.values.Get("query_id"))
+		}
+	}
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -156,6 +187,7 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h := w.Header()
 	h.Set("X-Otel-Request-Id", resp.RequestID)
+	basisHeaders(h, resp)
 	h.Set("X-Otel-Statement", st.Kind)
 	if len(dropped) > 0 {
 		h.Set("X-Otel-Dropped-Settings", strings.Join(dropped, ","))
@@ -350,6 +382,15 @@ type serviceAnswer struct {
 		ElapsedMs float64 `json:"elapsed_ms"`
 	} `json:"query"`
 	Result json.RawMessage `json:"result"`
+	// D30
+	Basis     *string `json:"basis"`
+	AtBasis   bool    `json:"at_basis"`
+	BasisInfo *struct {
+		Clusters []struct {
+			Cluster        string `json:"cluster"`
+			ReceivedBefore string `json:"received_before"`
+		} `json:"clusters"`
+	} `json:"basis_info"`
 	// errors
 	Error  string `json:"error"`
 	Detail string `json:"detail"`
@@ -404,6 +445,10 @@ func serviceError(status int, ans serviceAnswer) *Error {
 			code, name = 158, "TOO_MANY_ROWS"
 		}
 		return refuse(status, code, name, ans.Error, "%s", msg)
+	case strings.HasPrefix(ans.Error, "basis_"):
+		// a basis the service cannot serve (D30): the reason is in
+		// X-Otel-Refusal; the fork re-pins on basis_expired / basis_ahead
+		return refuse(status, 36, "BAD_ARGUMENTS", ans.Error, "%s", msg)
 	case status == 400 && ans.Error == "central_rejected":
 		// ClickHouse's own error: keep its code
 		code, name := 62, "SYNTAX_ERROR"

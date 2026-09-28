@@ -56,6 +56,7 @@
   "lake": {"root": "edges", "url_ttl_s": 300, "replan_margin_s": 60, "max_objects": 2000, "max_heads": 2000,
            "skew_s": 300, "max_window_s": 86400},
   "watermark": {"cache_s": 15, "max_age_s": 300, "max_lateness_s": 60, "count_late": true},
+  "basis": {"keys_env": "QS_BASIS_KEYS", "retention_s": 7776000, "skew_s": 300},
   "cors_origins": ["https://lake-ui.example.com"],
   "max_body_bytes": 1048576
 }

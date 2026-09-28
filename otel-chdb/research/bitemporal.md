@@ -150,8 +150,33 @@ this with a row 15 minutes late, and the plan already marks such objects
 
 (a) keeps every reader simple, since each object's min/max is honest, and it
 maps onto XTDB's split of recent from historical. (b) needs no change to the
-object layout, but every reader of the metadata must understand it. The
-implementation evaluates both and measures planned bytes on skewed data.
+object layout, but every reader of the metadata must understand it.
+
+**Chosen: (a), built at both edges (D31).** Measured through the real Go edge
+on 26 h of traces (9,360 objects; one sender 5 min behind; 1% of batches with
+spans 15 min to 24 h old) [M]:
+
+| Window | Before (planned / brute force) | After, 15 min bound |
+| --- | --- | --- |
+| 5 min, historical | ×1.44 objects, ×1.47 bytes | equal to brute force |
+| 1 h, historical | ×1.06 | equal to brute force |
+
+- At a 15 min bound both options reach brute force; (a) costs +0.9% objects.
+  Below the fleet's clock skew both fail, so **the bound must stay above
+  skew** (default 15 min, `late_split_after`, 0 disables).
+- The cut is relative to the request's **newest row**, not `received_at`:
+  without a persistent queue `received_at` is re-stamped per attempt, and a
+  cut that moves between attempts under the same content key would lose
+  rows. A changed bound between attempts gives duplicates, never loss.
+- Metrics are not split yet.
+
+**Central.** ClickHouse 26.10 prunes parts by per-part `Timestamp`
+statistics, and late rows stretch them: 1.92 parts and 404 granules per
+5-minute window against 1.00 and 211 without late rows [M]. Inserting late
+objects separately does not help (merges rejoin them). Proposed, not built:
+an object-constant `late_part` column and the partition key
+`(toDate(received_at), late_part)`: 213 granules [M], at the cost of a
+migration and a change to the consumer's partition-range check.
 
 ## 5. The entity catalog as bitemporal events (D32, proposed)
 
@@ -239,6 +264,6 @@ Worth taking later:
 | Item | Decision | Status |
 | --- | --- | --- |
 | Basis token: query service, lake plan, alert evaluator's late-data delta, lake UI and adapter caches, fork patch 0003 | D30 | **built** 2026-09-28 (045929b); lake UI e2e does not exercise it yet |
-| Late rows kept out of normal plans (edge split or outlier metadata) | D31 | started 2026-09-28 |
+| Late rows kept out of normal plans | D31 | **built** 2026-09-28 (dc90809): split at both edges, planner reports `part`; central partition key proposed; metrics not split |
 | Catalog as bitemporal events: model and reference resolver | D32 (proposed) | **model and resolver built** 2026-09-28 (5a311c1); storage not started |
 | Hash-prefix sharding of index levels; metrics' last-value table | — | not started |

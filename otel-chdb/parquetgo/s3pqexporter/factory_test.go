@@ -43,8 +43,17 @@ func TestConfig(t *testing.T) {
 	ec := cfg.EdgeConfig()
 	if ec.Lanes != 2 || ec.Series.Window != 30*time.Minute || ec.Series.ByteStreamSplit || !ec.Series.MergeNumberPoints ||
 		ec.Parquet.BloomFilters || ec.Parquet.CompressionLevel != 6 || *ec.S3.PathStyle != true || ec.PutTimeout != 5*time.Second ||
-		ec.S3.SecretAccessKey != "s" {
+		ec.S3.SecretAccessKey != "s" || ec.LateSplitAfter != 15*time.Minute {
 		t.Fatalf("%+v", ec)
+	}
+	// D31: the late split is a policy value; 0 turns it off, negative is refused.
+	if c := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
+		"late_split_after": "0s"}); c.Validate() != nil || c.EdgeConfig().LateSplitAfter != 0 {
+		t.Fatal("late_split_after: 0s")
+	}
+	if c := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},
+		"late_split_after": "-1m"}); c.Validate() == nil || !strings.Contains(c.Validate().Error(), "late_split_after") {
+		t.Fatal("late_split_after: -1m")
 	}
 	// D4: no max_elapsed_time, no batching after the queue.
 	bad := load(t, map[string]any{"cluster": "c1", "producer_id": "p", "s3": map[string]any{"url": "s3://b/p"},

@@ -44,9 +44,30 @@ requests (testgen, the hostile sets, wire-built duplicate keys, and a new
 unicode / huge-value / enum / histogram / exemplar set) through both edges,
 then the Rust consumer: every table equal by count + hash and `EXCEPT ALL`
 both ways, the same content keys, metadata, footers and Parquet schema.
-Layout B 228 checks, ClickStack tables 187, 0 failures. One known
+Layout B 228 checks, ClickStack tables 187, 0 failures (272 layout-B checks
+with the late split, 2026-09-28). One known
 difference, from the Rust side: span kinds outside the enum (Rust
 `Unspecified`, Go and contrib `''`).
+
+**Late rows in their own object** (D31, 2026-09-28; `edge/late.go`,
+`../FORMAT.md` §2.2). A traces or logs request with rows more than
+`late_split_after` (default 15m, 0 off) older than its newest row is
+committed as two objects in its lane, the bulk and then the late rows, each
+with its own time range, content key (`"{signal}/{part}/{bound}\0"` +
+request) and `oscope-part`; the walker skips the other part's rows
+(`Envelope.Keep`). On a 26 h dataset through this edge (1% of batches with
+rows 15 min–24 h old, one sender 5 min behind) it takes the lake plan of a
+historical 5-minute window from 86.7 objects / 2.15 MB to 60.2 / 1.47 MB,
+the brute-force minimum, for 0.9% more objects; see D31 for the numbers and
+why the bound must stay above the fleet's clock skew. Measured by
+`edge/late_measure_test.go` (`LAT_MEASURE_OUT`) and
+`../query/internal/lake/late_measure_test.go` (`LAT_DUMP`). Found on the
+way: parquet-go keeps a writer's key-value metadata across `Reset`, so the
+first unsplit object after a split one kept `oscope-part` in its footer
+(the conformance run caught it; `pgo.go` now starts a new writer when a
+file's keys would drop one, `TestLateSplitTraces`). And `commit.Lane.Append`
+now gives up after `MaxResends` (8) resends of one slot (`resend_test.go`):
+a store failing every PUT had it spin, holding the lane.
 
 **Model** [M] (`modelcheck/`, quintgo, Quint 0.32, TypeScript backend):
 the lane's events, the store's decisions and a model consumer are recorded

@@ -163,6 +163,13 @@ encbench: the in-process edge benchmark (pubbench's accounting)
     shared vectors (`../entities/testdata/resource_id_vectors.json`) and,
     with Hegel, arbitrary attribute lists against the controller's
     definition, through the OTLP and the OTAP walk.
+  - Since 2026-09-28 (D31, `src/late.rs`, `../FORMAT.md` §2.2) a traces or
+    logs request with rows more than `late_split_after` (default `15m`,
+    `0s` off) older than its newest row is two objects in its lane, bulk
+    then late, each with its own range, content key and `oscope-part`,
+    exactly as the Go edge splits it (`../conformance`: 272 checks, 0
+    failures). `runner::append` gives up after `MAX_RESENDS` (8) resends of
+    one slot instead of spinning while every PUT fails.
   - Values render as `pcommon.Value.AsString` does:
     - `Server` / `Ok`, not `SPAN_KIND_SERVER` / `STATUS_CODE_OK`;
     - `5`, not `5.0`; `1e+21` and `1e-7`; `NaN` / `Infinity`;

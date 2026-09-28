@@ -58,6 +58,14 @@ const (
 	// in resource_announce (../../FORMAT.md §2); the consumer inserts
 	// announcements only from objects with a nonzero count.
 	MetaAnnounce = "oscope-announce"
+	// MetaPart and MetaLateAfter (traces, logs; DECISIONS.md D31): on the
+	// two objects of a request split by event time, PartBulk (the rows at
+	// or after the request's newest row − the bound) or PartLate (the rest),
+	// and the bound in ns. Absent on an object that holds its whole request.
+	MetaPart      = "oscope-part"
+	MetaLateAfter = "oscope-late-after"
+	PartBulk      = "bulk"
+	PartLate      = "late"
 
 	KindData = "data"
 	KindTomb = "tomb"

@@ -119,6 +119,16 @@ type Config struct {
 	Now func() time.Time
 	// Resources: announcements (zero value: the defaults).
 	Resources ResourceOptions
+	// LateSplitAfter is the late split (DECISIONS.md D31): a traces or
+	// logs request with rows more than this older (event time) than its
+	// newest row is committed as two objects in its lane, the bulk and the
+	// late rows, each with its own tight time range, so one old row does not
+	// stretch the bulk object's oscope-min-time over every window in
+	// between. 0: never split (the package default; the s3pq exporter's is
+	// 15m). A policy value: change it only with the queue drained, since a
+	// replay under another bound publishes other objects (duplicates, never
+	// a loss: the split's content keys name the bound).
+	LateSplitAfter time.Duration
 	// Custody is the floor of what waits for the edge before it has it (a
 	// persistent queue: ../s3pqexporter), in ns; nil: nothing does (a sender
 	// waits for the commit). Every object's oscope-low is the lowest of it,
@@ -438,7 +448,7 @@ func (e *Edge) committed(a *announcing, r commit.Ref) {
 // pgObject encodes one object with the PGEncoder: walk (via enc) with the
 // slot's envelope, the description into the footer once the rows are known.
 // ann (traces, logs) decides and records the object's announcements.
-func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *announcing,
+func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *announcing, extra map[string]string,
 	walk func(*parquetgo.PGEncoder, *bytes.Buffer, *parquetgo.Envelope) (int, error)) (commit.Object, error) {
 	enc := e.encs.Get()
 	defer e.encs.Put(enc)
@@ -447,6 +457,9 @@ func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *
 		meta = e.description(ns, rows, env.MinTS, env.MaxTS, received)
 		if ann != nil {
 			meta[commit.MetaAnnounce] = strconv.Itoa(len(env.Announced))
+		}
+		for k, v := range extra {
+			meta[k] = v
 		}
 		return footerOf(meta, r, content)
 	}
@@ -513,13 +526,17 @@ func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 	if err != nil {
 		return &PermanentError{err}
 	}
+	walk := func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+		return enc.Traces(buf, td, env)
+	}
+	if cut, ok := LateCut(SpanTimes(td), e.cfg.LateSplitAfter); ok {
+		return e.pushSplit(ctx, "traces", b, received, cut, walk)
+	}
 	content := commit.ContentHash("traces", b)
 	l := e.lane("traces", content)
 	ann := e.announcing(l, received)
 	r, err := l.Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
-		return e.pgObject("traces", content, r, received, ann, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
-			return enc.Traces(buf, td, env)
-		})
+		return e.pgObject("traces", content, r, received, ann, nil, walk)
 	})
 	if err == nil {
 		e.touch("traces")
@@ -540,13 +557,17 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 	if err != nil {
 		return &PermanentError{err}
 	}
+	walk := func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+		return enc.Logs(buf, ld, env)
+	}
+	if cut, ok := LateCut(LogTimes(ld), e.cfg.LateSplitAfter); ok {
+		return e.pushSplit(ctx, "logs", b, received, cut, walk)
+	}
 	content := commit.ContentHash("logs", b)
 	l := e.lane("logs", content)
 	ann := e.announcing(l, received)
 	r, err := l.Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
-		return e.pgObject("logs", content, r, received, ann, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
-			return enc.Logs(buf, ld, env)
-		})
+		return e.pgObject("logs", content, r, received, ann, nil, walk)
 	})
 	if err == nil {
 		e.touch("logs")
@@ -622,18 +643,24 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 			ns := parquetgo.MetricSignals[t]
 			content := commit.ContentHash(ns, b)
 			parts = append(parts, part{ns: ns, content: content, encode: func(r commit.Ref) (commit.Object, error) {
-				return e.pgObject(ns, content, r, received, nil, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+				return e.pgObject(ns, content, r, received, nil, nil, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 					return enc.MetricsOf(buf, md, t, env)
 				})
 			}})
 		}
 	}
+	return e.commitParts(ctx, parts, false)
+}
+
+// commitParts appends a request's objects, each to its namespace's lane,
+// and succeeds only when all of them have committed: concurrently, or in
+// order (a split request's parts share a lane: bulk, then late, as the
+// Rust edge appends them, so both edges fill the same slots).
+func (e *Edge) commitParts(ctx context.Context, parts []part, inOrder bool) error {
 	outs := make([]commit.PartOutcome, len(parts))
 	var wg sync.WaitGroup
 	for i, p := range parts {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		one := func() {
 			r, err := e.lane(p.ns, p.content).Append(ctx, p.content, p.encode)
 			if err == nil {
 				e.touch(p.ns)
@@ -642,6 +669,15 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 				p.onCommit(r)
 			}
 			outs[i] = commit.PartOutcome{Signal: p.ns, Ref: r, Err: err}
+		}
+		if inOrder {
+			one()
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			one()
 		}()
 	}
 	wg.Wait()

@@ -102,6 +102,17 @@ pub struct Config {
     /// Resource announcements (`resource.rs`, `../FORMAT.md` §2).
     #[serde(default)]
     pub resources: crate::resource::ResourceOptions,
+    /// The late split (`late.rs`, DECISIONS.md D31): a traces or logs
+    /// request with rows more than this older (event time) than its newest
+    /// row is committed as two objects, the bulk and the late rows, each
+    /// with its own tight time range; 0s never splits. Default 15m: keep it
+    /// above the fleet's clock skew. The Go edge's `late_split_after`.
+    #[serde(default = "default_late_split_after", with = "humantime_serde")]
+    pub late_split_after: std::time::Duration,
+}
+
+fn default_late_split_after() -> std::time::Duration {
+    std::time::Duration::from_secs(15 * 60)
 }
 
 /// Where the requests this exporter publishes wait before it has them.
@@ -247,6 +258,8 @@ struct Shared {
     /// When each lane last committed anything (heartbeats are for idle lanes).
     last_commit: RefCell<HashMap<Signal, Instant>>,
     resources: crate::resource::ResourceOptions,
+    /// `late_split_after` in ns (0: never split).
+    late_split_ns: u64,
 }
 
 impl Shared {
@@ -347,8 +360,35 @@ fn received_ns(ingestion_time: Option<SystemTime>, now: impl FnOnce() -> u64) ->
         .unwrap_or_else(now)
 }
 
-/// Content hash + flattened columns for each of a request's objects.
+/// Content hash + flattened columns for each of a request's objects; a
+/// traces or logs request with late rows is two objects (`late.rs`).
 fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
+    let flats = prepare_whole(sh, pdata, path)?;
+    if sh.late_split_ns == 0 || signal_of(pdata.signal_type()).is_metrics() {
+        return Ok(flats);
+    }
+    let enc = sh.encoder.borrow();
+    let mut out = Vec::with_capacity(flats.len() + 1);
+    for f in flats {
+        // The parts' keys: over the request's bytes when it has them (both
+        // OTLP paths, as the Go edge), else over the part's rows.
+        let parts = match pdata.payload_ref().data() {
+            PayloadData::OtlpBytes(b) => {
+                let bytes: &[u8] = match b {
+                    OtlpProtoBytes::ExportTracesRequest(x)
+                    | OtlpProtoBytes::ExportLogsRequest(x)
+                    | OtlpProtoBytes::ExportMetricsRequest(x) => x,
+                };
+                enc.split_late(f, sh.late_split_ns, |ns, _| crate::batch::content_hash_named(ns, bytes))
+            }
+            PayloadData::OtapArrowRecords(_) => enc.split_late(f, sh.late_split_ns, crate::batch::content_hash_cols_named),
+        };
+        out.extend(parts.map_err(|e| e.0)?);
+    }
+    Ok(out)
+}
+
+fn prepare_whole(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
     let signal = signal_of(pdata.signal_type());
     let mut enc = sh.encoder.borrow_mut();
     match pdata.payload_ref().data() {
@@ -485,7 +525,17 @@ fn commit(sh: Rc<Shared>, pdata: OtapPdata, flats: Vec<Flat>, received_ns: u64) 
         let started = Instant::now();
         let rows = flats.iter().map(|f| f.stats.rows).sum();
         sh.hold(received_ns);
-        let parts = futures::future::join_all(flats.into_iter().map(|f| commit_one(sh.clone(), f, received_ns))).await;
+        let parts = if flats.iter().any(|f| f.split.is_some()) {
+            // A split request's parts share a lane: bulk, then late, in
+            // order, as the Go edge appends them (late.rs).
+            let mut v = Vec::with_capacity(flats.len());
+            for f in flats {
+                v.push(commit_one(sh.clone(), f, received_ns).await);
+            }
+            v
+        } else {
+            futures::future::join_all(flats.into_iter().map(|f| commit_one(sh.clone(), f, received_ns))).await
+        };
         sh.release(received_ns);
         (pdata, parts, started, rows)
     })
@@ -544,6 +594,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
             in_hands: RefCell::new(Default::default()),
             last_commit: RefCell::new(HashMap::new()),
             resources: cfg.resources.clone(),
+            late_split_ns: cfg.late_split_after.as_nanos().min(u64::MAX as u128) as u64,
         });
         // Heartbeats: the births first (every lane this publisher can write
         // is registered before it takes a request, up to birth_timeout),

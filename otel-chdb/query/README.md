@@ -259,7 +259,14 @@ which is kept by its rows' event-time range), then HEADs the rest (up to `max_he
 `oscope-cluster` and `oscope-received`, and keeps data objects whose rows
 overlap the window. An object received more than `max_lateness` after its
 earliest row is marked `late` (and counted in `late_objects`): late data,
-visible in the lake too. An
+visible in the lake too. Since D31 the edges put a request's rows more
+than `late_split_after` (15 min) older than its newest row in their own
+object, so one old row no longer stretches a bulk object over every window
+in between; such objects carry `part: "bulk"` or `"late"` in the plan
+(`oscope-part`, FORMAT.md §2.2). Nothing in the planner depends on it: the
+split only makes each object's range honest for its own rows
+(`TestPlanSupersetOnSkewedData`: the plan is a superset of the brute-force
+answer on skewed data, split or not, with any HEAD budget). An
 object whose `oscope-cluster` names another cluster than its prefix is never
 planned (`mismatched`, and a metric). Past the HEAD budget, objects are
 planned on their LIST entry alone (`refined: false`: a superset, never a

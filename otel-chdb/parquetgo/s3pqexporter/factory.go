@@ -49,6 +49,8 @@ func createDefaultConfig() component.Config {
 		S3:            S3Config{Region: "us-east-1", PutTimeout: 10 * time.Second, HeadTimeout: 2 * time.Second},
 		Heartbeat:     HeartbeatConfig{Interval: 30 * time.Second, BirthTimeout: 30 * time.Second},
 		Resources:     ResourcesConfig{Announce: true, Window: time.Hour, CacheSize: 65536},
+		// DECISIONS.md D31: above a 5-minute clock skew with margin.
+		LateSplitAfter: 15 * time.Minute,
 	}
 }
 

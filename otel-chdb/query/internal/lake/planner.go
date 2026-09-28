@@ -203,6 +203,10 @@ type Object struct {
 	// holds at least one row later than the label's policy allows.
 	ReceivedNs *int64 `json:"received_ns,omitempty"`
 	Late       bool   `json:"late,omitempty"`
+	// Part is the slot's oscope-part: "bulk" or "late" when the edge split
+	// its request by event time (D31, FORMAT.md §2.2), each part with its
+	// own honest range; empty for an object holding its whole request.
+	Part string `json:"part,omitempty"`
 	// Refined is false when the HEAD budget ran out: the object is planned
 	// on its LIST entry alone (a superset, never a loss).
 	Refined bool `json:"refined"`
@@ -397,6 +401,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		basisCheck         bool
 		minT, maxT, rows   int64
 		recv               *int64
+		part               string
 	}
 	res := make([]refined, len(cands))
 	sem := make(chan struct{}, p.cfg.HeadConcurrency)
@@ -437,6 +442,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 			if v, err := strconv.ParseInt(meta["oscope-received"], 10, 64); err == nil && v > 0 {
 				r.recv = &v
 			}
+			r.part = meta["oscope-part"]
 			r.keep = r.maxT >= req.FromNs && r.minT < req.ToNs
 			res[i] = r
 		}(i)
@@ -510,7 +516,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 			LastModified: c.obj.LastModified.UTC().Format(time.RFC3339Nano), Refined: r.ok}
 		if r.ok {
 			minT, maxT, rows := r.minT, r.maxT, r.rows
-			o.MinTimeNs, o.MaxTimeNs, o.Rows = &minT, &maxT, &rows
+			o.MinTimeNs, o.MaxTimeNs, o.Rows, o.Part = &minT, &maxT, &rows, r.part
 			if r.recv != nil {
 				o.ReceivedNs = r.recv
 				// received − min_time > max_lateness, without overflow

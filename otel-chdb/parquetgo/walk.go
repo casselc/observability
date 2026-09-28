@@ -47,8 +47,15 @@ type Envelope struct {
 	MinTS, MaxTS    uint64
 	Announce        func(id uint64) bool
 	Announced       []uint64
-	res             Resources
+	// Keep, when set, selects the rows written by their event time (the
+	// late split, DECISIONS.md D31): a row it rejects is skipped entirely,
+	// and row_ordinal counts the rows written.
+	Keep func(ts uint64) bool
+	res  Resources
 }
+
+// skip reports whether env's Keep rejects a row with event time ts.
+func (e *Envelope) skip(ts uint64) bool { return e != nil && e.Keep != nil && !e.Keep(ts) }
 
 // resourceCols writes a row's resource_id and resource_announce: the
 // covered set on the first row of a resource the object announces.
@@ -142,6 +149,9 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 			spans := ss.Spans()
 			for k := 0; k < spans.Len(); k++ {
 				s := spans.At(k)
+				if env.skip(uint64(s.StartTimestamp())) {
+					continue
+				}
 				w.row()
 				w.ts(uint64(s.StartTimestamp()))
 				w.traceID(s.TraceID())
@@ -233,6 +243,9 @@ func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 				ts := r.Timestamp()
 				if ts == 0 {
 					ts = r.ObservedTimestamp()
+				}
+				if env.skip(uint64(ts)) {
+					continue
 				}
 				w.row()
 				w.ts(uint64(ts))

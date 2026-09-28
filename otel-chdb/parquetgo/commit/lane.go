@@ -113,7 +113,7 @@ type Stats struct {
 // Event is one protocol step, for an Observer (the quintgo trace recorder).
 type Event struct {
 	Lane     string // "{signal}/{lane index}"
-	Kind     string // start, known, put, putResult, head, committed, resolvedOwn, resend, learnedOther, halted, inconsistent, headError
+	Kind     string // start, known, put, putResult, head, committed, resolvedOwn, resend, learnedOther, halted, inconsistent, headError, resendLimit
 	Ref      Ref
 	Content  string
 	Outcome  PutOutcome // putResult
@@ -143,6 +143,15 @@ func (e *ErrEncode) Error() string { return "encode: " + e.Err.Error() }
 func (e *ErrEncode) Unwrap() error { return e.Err }
 
 const recentCap = 4096
+
+// MaxResends bounds the resends of one Append (a PUT without an answer,
+// then a HEAD that finds the slot free): past it the call returns
+// *ErrUnresolved, and the lane stays at the slot for the next call. Without
+// it a store that fails every PUT (a full SeaweedFS volume, 503 SlowDown),
+// or a caller whose deadline has passed (every PUT then fails at once),
+// spins on the slot forever, holding the lane and its heartbeats. The
+// Rust edge's runner.rs MAX_RESENDS.
+const MaxResends = 8
 
 // Timeouts bound the PUT and the HEAD that resolves it.
 type Timeouts struct{ Put, Head time.Duration }
@@ -273,6 +282,7 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 	l.phase = Ready
 	l.after412 = false
 	l.emit(Event{Kind: "start", Content: content})
+	resends := 0
 	for {
 		if l.epoch == "" {
 			l.epoch = l.newEpoch()
@@ -357,7 +367,17 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 			l.phase = Unresolved
 			l.emit(Event{Kind: "inconsistent", Ref: here, Content: content})
 			return Ref{}, &ErrUnresolved{fmt.Sprintf("put %s: 412 but HEAD finds no object (store not read-after-write consistent?)", key)}
+		case found1.Kind == Free && resends >= MaxResends:
+			// Not sent again by this call: the PUT may still land, so the
+			// slot stays unresolved (the next Append starts there).
+			inc(&st.Unresolved)
+			l.phase = Unresolved
+			// To the model the lane is ready to resend, and the next call's
+			// PUT is that resend: nothing to translate (modelcheck).
+			l.emit(Event{Kind: "resendLimit", Ref: here, Content: content})
+			return Ref{}, &ErrUnresolved{fmt.Sprintf("put %s: %v, and %d resends after HEADs found the slot free", key, o, resends)}
 		case found1.Kind == Free:
+			resends++
 			inc(&st.Resent)
 			l.phase = Ready
 			l.emit(Event{Kind: "resend", Ref: here, Content: content})

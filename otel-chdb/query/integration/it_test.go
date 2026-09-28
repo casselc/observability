@@ -530,6 +530,22 @@ func TestIntegration(t *testing.T) {
 		// 2. the late row (within max_lateness of its event time) and one
 		// far outside it, through the real Go edge
 		round(resource{"qa", "shop", "cart-1", 1, 0, t0.Add(-2 * time.Second)}, resource{"qa", "pay", "pay-1", 1, 0, at.Add(-5 * time.Minute)})
+		// D31: that request's oldest row is more than late_split_after (15m)
+		// behind its newest, so the Go edge split it: the old window plans
+		// the late part alone, and the bulk's range does not reach back to it
+		if code, pl := c.post("/v1/plan", qaTok, map[string]any{"signal": "logs",
+			"from": at.Add(-6 * time.Minute).Format(time.RFC3339Nano), "to": at.Add(-4 * time.Minute).Format(time.RFC3339Nano)}); code != 200 {
+			t.Fatalf("plan of the old window: %d %v", code, pl)
+		} else {
+			parts := map[string]int{}
+			for _, o := range pl["objects"].([]any) {
+				parts[fmt.Sprint(o.(map[string]any)["part"])]++
+			}
+			if parts["late"] != 1 || parts["bulk"] != 0 {
+				t.Fatalf("old window plans %v objects by part, want the late part alone", parts)
+			}
+			t.Logf("old window plan: %v objects by part", parts)
+		}
 		lag := r.sql(fmt.Sprintf("SELECT toUnixTimestamp64Milli(received_at) - toUnixTimestamp64Milli(Timestamp) FROM %s.otel_logs WHERE Timestamp = fromUnixTimestamp64Nano(toInt64(%d))",
 			r.db, t0.Add(-time.Second).UnixNano()))
 		t.Logf("the late row: received %s ms after its event time (max_lateness %v)", lag, L)

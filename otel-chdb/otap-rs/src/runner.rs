@@ -58,6 +58,12 @@ impl std::fmt::Display for AppendError {
     }
 }
 
+/// Resends one `append` makes (a PUT without an answer, then a HEAD that
+/// finds the slot free) before it returns `Unresolved`, the lane staying at
+/// the slot: without it a store that fails every PUT spins on the slot
+/// forever, holding the lane and its heartbeats. parquetgo `commit.MaxResends`.
+pub const MAX_RESENDS: u32 = 8;
+
 /// The last encoding of a batch, kept so that a resend, or a retry of the
 /// same batch into the same slot, sends identical bytes.
 #[derive(Default)]
@@ -91,6 +97,7 @@ pub async fn append<S: SlotStore>(
         inc(&stats.known_skipped);
         return Ok(r);
     }
+    let mut resends = 0u32;
     loop {
         // A lane made without an epoch names it now, at its first write, not
         // when the lane was made: an idle lane's first slot must not land
@@ -162,7 +169,17 @@ pub async fn append<S: SlotStore>(
                 inc(&stats.resolved_own);
                 return Ok(at);
             }
-            Step::Put => inc(&stats.resent),
+            Step::Put if resends >= MAX_RESENDS => {
+                // Not sent again by this call: the PUT may still land, so
+                // the slot stays unresolved (the next append starts there).
+                inc(&stats.unresolved);
+                lane.phase = proto::Phase::Unresolved;
+                return Err(AppendError::Unresolved(format!("put {key}: {o:?}, and {resends} resends after HEADs found the slot free")));
+            }
+            Step::Put => {
+                resends += 1;
+                inc(&stats.resent);
+            }
             Step::LearnedOther { .. } => inc(&stats.learned_other),
             Step::Halted => {
                 // The consumer closed this log. A new epoch, at slot 0.
@@ -301,5 +318,22 @@ mod tests {
         assert!(matches!(append(&mut l, &mut c, &s, "p", "prod", "a", &mut enc, &t(), &st).await, Err(AppendError::Unresolved(_))));
         assert_eq!((st.unresolved.get(), st.inconsistent.get(), st.committed.get()), (1, 1, 0));
         assert_eq!(crate::commit_metrics::totals(&st), [0, 0, 0, 0, 0, 0, 1, 1]);
+    }
+
+    /// A store that fails every PUT, whose HEADs find the slot free: the
+    /// append gives up after `MAX_RESENDS` resends instead of spinning on
+    /// the slot while holding the lane, and the next append commits in that
+    /// slot. parquetgo `commit.TestAppendResendLimit` (found in the D31
+    /// integration run).
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_store_that_fails_every_put_is_not_resent_forever() {
+        let st = Stats::default();
+        let mut c = EncodedCache::default();
+        let mut l = Lane::new("E".into());
+        let s = Fixed { put: PutOutcome::Unknown, head_fails: false };
+        assert!(matches!(append(&mut l, &mut c, &s, "p", "prod", "a", &mut enc, &t(), &st).await, Err(AppendError::Unresolved(_))));
+        assert_eq!((st.puts.get(), st.resent.get(), st.unresolved.get()), (u64::from(MAX_RESENDS) + 1, u64::from(MAX_RESENDS), 1));
+        let m = MemStore::default();
+        assert_eq!(append(&mut l, &mut c, &m, "p", "prod", "a", &mut enc, &t(), &st).await.unwrap(), Ref { epoch: "E".into(), seq: 0 });
     }
 }

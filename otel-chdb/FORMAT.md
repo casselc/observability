@@ -85,6 +85,7 @@ metadata only.
 | `oscope-announce` | data (traces, logs) | how many resources the object announces in `resource_announce` (§2.1); the consumer reads announcements only from objects where it is nonzero |
 | `oscope-received` | data | `received_at` (ns since the Unix epoch): when the request entered the edge's durable custody, kept across retries and replays (D19) |
 | `oscope-low` | data, beat | the custody floor (ns), below |
+| `oscope-part`, `oscope-late-after` | data (traces, logs), split requests only | `bulk` or `late`, and the split's bound in ns (§2.2); absent on an object that holds its whole request |
 
 **`oscope-low`** ([`model/completeness.qnt`](model/completeness.qnt)):
 
@@ -187,6 +188,39 @@ trace and log object (schema 2; Rust `src/schema.rs`, Go `schema.go` /
   past its fence) inserts nothing that round; an unanswered one is waited
   out like any statement (D9). The entity aggregator merges the view with
   the controller's catalog ([`entities/controller/sql/announced.sql`](entities/controller/sql/announced.sql)).
+
+### 2.2 Late rows in their own object (traces and logs; D31)
+
+An object's `oscope-min-time`/`oscope-max-time` span all its rows, so one
+old row (a late batch, a replay, a skewed clock) would stretch its range
+over every window in between. Both edges therefore split a traces or logs
+request whose rows reach back more than a bound B (`late_split_after`,
+default 15 min, 0 turns it off) before its **newest** row:
+
+- `M` = the highest event time over the request's rows (a span's start, a
+  log record's time or, when 0, its observed time; compared as unsigned
+  64-bit ns), `cut = M − B`;
+- no row below `cut` (or `M < B`): one object, as always;
+- otherwise two data objects in the request's lane, appended in order: the
+  **bulk** (rows with event time ≥ `cut`) and then the **late** part (the
+  rest). Each is an ordinary data slot: its own content key, rows, time
+  range, `row_ordinal` 0..n−1, announcements and `oscope-low`; both carry
+  the request's `received_at`, `oscope-part` and `oscope-late-after`. The
+  request is acknowledged only once both have committed, like a metrics
+  request's objects.
+- Content keys: BLAKE3-128 of `"{signal}/{part}/{B}\0"` + the request's
+  bytes (B in ns; an OTAP request without canonical bytes: of the part's
+  rows under that name). A signal holds no `/`, so a part never shares a key
+  with a whole request.
+
+The cut is relative to the request's own newest row, not to `received_at`,
+so it depends only on the request's bytes and B: a retry or a replay (with
+or without a persistent queue) splits the same rows the same way and finds
+its committed parts by their keys. Changing B while requests wait in a
+queue gives the replays other keys: at worst duplicates, never a loss. Nothing a reader relies on changes: every object's metadata
+stays honest for its own rows, the consumer ingests the parts as two
+slots, and `oscope-low` and `complete_through` are per slot as before.
+Metrics requests are not split.
 
 ## 3. What the consumer promises: `complete_through`
 
@@ -319,6 +353,10 @@ A version-1 bucket is drained with a version-1 consumer, or purged
 (`consume purge`), before version 2 is deployed on it. A future version 3
 bumps `oscope-format` and `format.json`, and adds a reader for both only if
 real data then exists.
+
+**The late split (D31, 2026-09-28) is not a format change** either: its
+objects are ordinary data slots, and `oscope-part` / `oscope-late-after`
+are two more metadata keys that no reader needs.
 
 **The resource columns (2026-09-28) are not a format change.** No object
 kind, key, lane or control document is new: announcements ride in data

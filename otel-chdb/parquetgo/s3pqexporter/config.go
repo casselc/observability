@@ -52,6 +52,13 @@ type Config struct {
 	// Resources: announcements of the resources traces and logs use
 	// (../resource.go, ../../FORMAT.md §2), as the Rust edge's `resources:`.
 	Resources ResourcesConfig `mapstructure:"resources"`
+	// LateSplitAfter: a traces or logs request with rows more than this
+	// older (event time) than its newest row is committed as two objects,
+	// the bulk and the late rows, each with its own tight time range
+	// (../edge/late.go, DECISIONS.md D31); 0 never splits. Default 15m: keep
+	// it above the fleet's clock skew, or every request with a skewed
+	// sender splits. The Rust edge's `late_split_after`.
+	LateSplitAfter time.Duration `mapstructure:"late_split_after"`
 }
 
 // ResourcesConfig: announce each resource once per window per lane epoch
@@ -141,6 +148,9 @@ func (c *Config) Validate() error {
 	default:
 		errs = append(errs, fmt.Errorf("parquet.statistics %q: want none or page", c.Parquet.Statistics))
 	}
+	if c.LateSplitAfter < 0 {
+		errs = append(errs, fmt.Errorf("late_split_after %v: want >= 0 (0: never split)", c.LateSplitAfter))
+	}
 	if c.Lanes < 0 || c.Lanes > 64 {
 		errs = append(errs, fmt.Errorf("lanes %d: want 1..64", c.Lanes))
 	}
@@ -184,6 +194,6 @@ func (c *Config) EdgeConfig() edge.Config {
 		series.Statistics = d.Statistics
 	}
 	return edge.Config{S3: s3, Cluster: c.Cluster, ProducerID: c.ProducerID, Lanes: c.Lanes, MetricsLayout: c.MetricsLayout,
-		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout,
+		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout, LateSplitAfter: c.LateSplitAfter,
 		Resources: edge.ResourceOptions{Off: !c.Resources.Announce, Window: c.Resources.Window, CacheSize: c.Resources.CacheSize}}
 }

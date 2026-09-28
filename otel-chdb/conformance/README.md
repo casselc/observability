@@ -23,6 +23,17 @@ ClickHouse 26.10 on localhost.
 
 `results/series_table.txt` and `results/clickstack_tables.txt` are the runs.
 
+**With the late split (D31, 2026-09-28)** [M]: both edges at their default
+`late_split_after: 15m`; the `nasty-700` traces and logs, whose timestamps
+reach from 1 ns to `i64::MAX`, are each split into a bulk and a late object
+by both edges alike (the same slots, keys, rows, metadata and footers).
+Layout B: **272 PASS, 0 FAIL** (`results/series_table.txt`, replaced); the
+tables' rows are unchanged (traces and logs 4,180, now under 4 content keys
+each). The first run failed on two findings, both fixed: the Go edge
+committed the two parts concurrently, so their slot order differed from the
+Rust edge's (both now append bulk, then late), and a reused parquet-go
+writer kept the split's footer keys on the next unsplit object.
+
 **The one difference, span kinds outside the enum.** A span with kind 6
 (invalid on the wire) is stored as `''` by the Go edge, which is what
 `pdata.SpanKind.String()` and so the contrib exporter store, and as

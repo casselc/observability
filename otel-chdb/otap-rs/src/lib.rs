@@ -26,6 +26,7 @@ pub mod creds;
 pub mod encode;
 pub mod exporter;
 pub mod flatten;
+pub mod late;
 pub mod gosort;
 pub mod metrics;
 pub mod proto;

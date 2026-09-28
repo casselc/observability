@@ -176,6 +176,10 @@ type pgSignal struct {
 	kvs     []attrKV    // sortedAttrs' buffer
 	arena   []byte      // hex ids and rendered values, referenced by vals until flush
 	hex     [32]byte
+
+	// wKeys: every key w has been given (parquet-go keeps them across
+	// Reset); a file whose footer lacks one of them needs a new writer.
+	wKeys map[string]bool
 }
 
 const pgPageRows = 1024
@@ -337,14 +341,26 @@ func newPGSignalNamed(root string, cols []pgCol, o Options) (*pgSignal, error) {
 }
 
 // setFooter sets the key-value metadata of the files flushed from now on
-// (sorted by key). parquet-go keeps a writer's metadata across Reset, so a
-// signal is always flushed with the same set of keys.
+// (sorted by key). parquet-go keeps a writer's metadata across Reset, so
+// flush starts a new writer when a file's keys lack one the writer holds
+// (a split part's oscope-part before a whole request's object, D31).
 func (s *pgSignal) setFooter(kv map[string]string) {
 	s.footer = s.footer[:0]
 	for k, v := range kv {
 		s.footer = append(s.footer, [2]string{k, v})
 	}
 	slices.SortFunc(s.footer, func(a, b [2]string) int { return strings.Compare(a[0], b[0]) })
+}
+
+// keepsKeys: the next file's footer names every key the writer holds.
+func (s *pgSignal) keepsKeys() bool {
+	n := 0
+	for _, kv := range s.footer {
+		if s.wKeys[kv[0]] {
+			n++
+		}
+	}
+	return n == len(s.wKeys)
 }
 
 func (s *pgSignal) reset() {
@@ -357,8 +373,12 @@ func (s *pgSignal) reset() {
 }
 
 func (s *pgSignal) flush(dst io.Writer) error {
+	if s.w != nil && s.reusable && !s.keepsKeys() {
+		s.w = nil
+	}
 	if s.w == nil || !s.reusable {
 		s.w = parquet.NewWriter(dst, s.opts...)
+		s.wKeys = map[string]bool{}
 	} else {
 		s.w.Reset(dst)
 		// parquet-go v0.32.0: Reset zeroes the writer's column paths
@@ -371,10 +391,12 @@ func (s *pgSignal) flush(dst io.Writer) error {
 		s.reusable = restoreColumnPaths(s.w, s.schema)
 		if !s.reusable {
 			s.w = parquet.NewWriter(dst, s.opts...)
+			s.wKeys = map[string]bool{}
 		}
 	}
 	for _, kv := range s.footer {
 		s.w.SetKeyValueMetadata(kv[0], kv[1])
+		s.wKeys[kv[0]] = true
 	}
 	cws := s.w.ColumnWriters()
 	// Page-sized runs of whole rows per column; the writer cuts a page when

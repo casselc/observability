@@ -56,6 +56,9 @@ pub struct Flat {
     /// row that uses it (`resource.rs`); the rows' ids are the last content
     /// column.
     pub resources: Vec<(Covered, u32)>,
+    /// Set on the two objects of a request split by event time (`late.rs`,
+    /// DECISIONS.md D31): which part, and the bound in ns.
+    pub split: Option<(crate::late::Part, u64)>,
 }
 
 /// Content hash of an OTLP request: BLAKE3 over "{signal}\0{protobuf}",
@@ -64,8 +67,14 @@ pub struct Flat {
 /// 10k-span request here. A client's retry resends the same bytes, so it
 /// hashes the same in any process.
 pub fn content_hash_otlp(signal: Signal, bytes: &[u8]) -> String {
+    content_hash_named(signal.name(), bytes)
+}
+
+/// `content_hash_otlp` under any namespace name (a split part's, `late.rs`):
+/// BLAKE3 over "{name}\0{protobuf}", parquetgo `commit.ContentHash`.
+pub fn content_hash_named(name: &str, bytes: &[u8]) -> String {
     let mut h = blake3::Hasher::new();
-    let _ = h.update(signal.name().as_bytes());
+    let _ = h.update(name.as_bytes());
     let _ = h.update(&[0]);
     let _ = h.update(bytes);
     hex::encode(&h.finalize().as_bytes()[..16])
@@ -74,6 +83,11 @@ pub fn content_hash_otlp(signal: Signal, bytes: &[u8]) -> String {
 /// Content hash of flattened rows (for OTAP input, which has no canonical
 /// bytes): BLAKE3 over every content column's buffers.
 pub fn content_hash_cols(signal: Signal, cols: &[ArrayRef]) -> String {
+    content_hash_cols_named(signal.name(), cols)
+}
+
+/// `content_hash_cols` under any namespace name (a split part's, `late.rs`).
+pub fn content_hash_cols_named(name: &str, cols: &[ArrayRef]) -> String {
     fn feed(h: &mut blake3::Hasher, d: &arrow::array::ArrayData) {
         let _ = h.update(&(d.len() as u64).to_le_bytes());
         for b in d.buffers() {
@@ -86,7 +100,7 @@ pub fn content_hash_cols(signal: Signal, cols: &[ArrayRef]) -> String {
     }
     let mut h = blake3::Hasher::new();
     let _ = h.update(b"rows:");
-    let _ = h.update(signal.name().as_bytes());
+    let _ = h.update(name.as_bytes());
     for c in cols {
         feed(&mut h, &c.to_data());
     }
@@ -232,7 +246,7 @@ impl Encoder {
             let cols = self.metrics.content_arrays(sig, &self.metrics_sc[i]);
             if stats.rows > 0 {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new(), split: None });
             }
         }
         out
@@ -254,10 +268,10 @@ impl Encoder {
             }
             if sig == Signal::MetricsSeries {
                 let content = content_hash_cols(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new(), resources: Vec::new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new(), resources: Vec::new(), split: None });
             } else {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new(), split: None });
             }
         }
         out
@@ -294,7 +308,7 @@ impl Encoder {
             Input::Otap(s, _) => content_hash_cols(*s, &cols),
             _ => unreachable!(),
         };
-        Ok(Flat { signal, content, cols, stats, announce: Vec::new(), resources })
+        Ok(Flat { signal, content, cols, stats, announce: Vec::new(), resources, split: None })
     }
 
     /// The object for one slot: envelope added, encoded, described. Every
@@ -347,6 +361,10 @@ impl Encoder {
             (proto::META_RECEIVED, env.received_ns.to_string()),
         ] {
             let _ = meta.insert(k.to_string(), v);
+        }
+        if let Some((part, after_ns)) = f.split {
+            let _ = meta.insert(proto::META_PART.to_string(), part.name().to_string());
+            let _ = meta.insert(proto::META_LATE_AFTER.to_string(), after_ns.to_string());
         }
         // The footer carries the whole description, the slot identity and
         // the content key included, so the object stands on its own.

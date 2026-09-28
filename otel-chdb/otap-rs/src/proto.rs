@@ -39,6 +39,13 @@ pub const META_LOW: &str = "oscope-low";
 /// (`resource_announce`, `../../FORMAT.md` §2); the consumer inserts
 /// announcements only from objects with a nonzero count.
 pub const META_ANNOUNCE: &str = "oscope-announce";
+/// Traces and logs split by event time (DECISIONS.md D31, `late.rs`): which
+/// part of its request an object holds (`PART_BULK`, `PART_LATE`), and the
+/// bound (ns). Absent on an object that holds its whole request.
+pub const META_PART: &str = "oscope-part";
+pub const META_LATE_AFTER: &str = "oscope-late-after";
+pub const PART_BULK: &str = "bulk";
+pub const PART_LATE: &str = "late";
 pub const KIND_DATA: &str = "data";
 pub const KIND_TOMB: &str = "tomb";
 /// A heartbeat: a zero-byte slot carrying only `oscope-low`.

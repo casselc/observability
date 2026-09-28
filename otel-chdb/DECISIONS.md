@@ -2891,6 +2891,126 @@ in the label (C3), so a basis inherits that gap. An unwindowed statement at
 a basis is stable only until retention removes its oldest rows. The lake
 UI's browser e2e does not exercise the basis yet.
 
+### D31. Late rows in their own object: the edges split a request by event time
+
+**Status:** built (2026-09-28): the Go edge (`parquetgo/edge/late.go`,
+`s3pq` exporter `late_split_after`), the Rust edge (`otap-rs/src/late.rs`,
+exporter `late_split_after`), the plan's `part` (`query/internal/lake`),
+[FORMAT.md](FORMAT.md) §2.2, the conformance run. Central's partition key:
+measured and **proposed, not built** (below). Design note:
+[research/bitemporal.md](research/bitemporal.md) §4.
+
+**Problem.** An edge object's `oscope-min-time`/`oscope-max-time` span all
+its rows, so one row with an old event time (a late batch, a replay, a
+skewed clock) stretches its range, and the lake planner reads the object for
+every window in between (XTDB's "40×" case). D26 marks such objects `late`
+but still reads them.
+
+**Measured before [M].** 26 h of trace batches through the real Go edge
+(`parquetgo/edge/late_measure_test.go`: a batch every 10 s, 20 senders × 10
+spans, one sender's clock 5 min behind, 1% of batches with 20 spans 15 min–
+24 h old; 9,360 objects, 228 MB), planned by the real planner against brute
+force (`query/internal/lake/late_measure_test.go`):
+
+| dataset | window | planned objects / MB | objects with a row in the window / MB |
+| --- | --- | --- | --- |
+| skewed sender + late batches | 5 min, 22 h back | 86.7 / 2.15 | 60.2 / 1.47 (×1.44 / ×1.47) |
+| | 1 h, 22 h back | 416 / 10.2 | 392 / 9.55 (×1.06) |
+| | last hour | ×1.01 | |
+| late batches only | 5 min, 22 h back | 57.0 / 1.43 | 30.2 / 0.74 (×1.89 / ×1.94) |
+
+(With a 5-minute skewed sender every object is marked D26-`late`: that mark
+is noise under ordinary clock skew.)
+
+**Options, with numbers [M].** (a) split at the edge, (b) one object with a
+bulk range and an outlier range (simulated on the same objects):
+
+| | extra objects stored | 5-min windows, skewed + late | late only |
+| --- | --- | --- | --- |
+| (a) bound 15 min | +0.9% (9,444), +0.6% bytes | 60.2 / 1.47 MB = brute force | = brute force |
+| (a) bound 1 or 5 min (below the skew) | **+100% objects, +40% bytes** (every batch with the skewed sender splits; small Parquet files cost their footer, page index and bloom filter) | ×1.44 objects, ×1.31 bytes (the late part holds skewed and late rows, still stretched) | bound 1 min: brute force |
+| (b) bound 15 min | none | brute force | brute force |
+| (b) bound 1 or 5 min | none | ×1.42 | bound 1 min: brute force |
+
+Both reach the minimum once the bound is above the fleet's clock skew, and
+both fail alike below it. **(a) is chosen:** every reader stays as it is
+(the planner, the lake UI's DuckDB and its row-group statistics, the index,
+any later sealer) because each object's range is honest for its own rows;
+(b) needs every reader of the metadata to understand a second range, still
+reads the whole object when a window hits an outlier, and cannot help
+central, where (a) makes the late rows separable (below). Its cost is <1%
+more objects at a 15-min bound.
+
+**The rule** (both edges, identical; FORMAT.md §2.2). With `B` =
+`late_split_after` (default 15 min, 0 off, a config value on both edges),
+`M` = the request's newest row (a span's start, a log record's time or its
+observed time), the rows below `M − B` go into a second data object in the
+same lane, appended after the bulk. The cut is relative to the request's
+own newest row, **not to `received_at`**: it is a function of the request's
+bytes and `B` alone, so a retry or a replay splits the same rows the same
+way, with or without a persistent queue (without one the edge re-stamps
+`received_at` per attempt, and a `received_at`-relative cut would put a
+boundary row in the late part of one attempt and the bulk of another:
+under one content key, the consumer would have skipped one copy and lost
+rows). Content keys name the part and the bound (`"{signal}/{part}/{B}\0"` +
+the request), so a bound changed between attempts gives new keys: at worst
+duplicates, never a loss. Each part is an ordinary slot: the commit
+protocol, `oscope-low`, `complete_through` and the consumer's per-key count
+check are unchanged (the request is held in custody until both parts
+commit, like a metrics request's objects). Metrics are not split (below).
+
+**After [M]** (the same dataset, bound 15 min): historical 5-minute windows
+plan 60.2 objects / 1.47 MB, 1-hour windows 392 / 9.54 MB, both equal to
+brute force; the planner's code is unchanged but for reporting `part`.
+Conformance, Go = Rust with the split on: 272 checks, 0 failures; the
+nasty traces and logs (timestamps from 1 ns to `i64::MAX`) split alike; the
+first run found two bugs, fixed before commit: the Go edge committed the
+parts concurrently (slot order differed; both now append bulk, then late),
+and a reused parquet-go writer kept the split's footer keys on the next
+unsplit object. The query integration test's 15-minute-late row is now in
+its own object, and the old window plans that object alone.
+
+**Central [M, proposed].** ClickHouse 26.10 prunes parts by per-part column
+statistics (`auto_statistics_types` basic, `use_statistics_for_part_pruning`),
+so late rows do stretch a part's `Timestamp` range. Three days of
+trace-shaped rows under the consumer's `PARTITION BY toDate(received_at)`
+and `ORDER BY (ServiceName, SpanName, toDateTime(Timestamp))`, 5-minute
+windows over day 2 (`EXPLAIN indexes = 1`):
+
+| data | parts read | granules | with `ServiceName = …` |
+| --- | --- | --- | --- |
+| no late rows | 1.00 | 211 | 31 |
+| 1% of batches with rows 15 min–24 h late (± a skewed sender) | 1.92 | 404 | 59 |
+| late rows in their own partition: `PARTITION BY (toDate(received_at), late_part)` | 2.88 | 213 | 33 |
+
+Separate inserts alone do not help (merges join parts in a partition), and
+`received_at ≥ from − skew` prunes nothing here. **Proposal:** the consumer
+writes an object-constant `late_part UInt8` (1 for `oscope-part: late`) and
+central partitions by `(toDate(received_at), late_part)`; an object stays
+one part, so the count check stays atomic, but `plan.rs`'s partition-range
+check must read the tuple's first element, and existing tables need a
+migration. Owner decision. (Also seen: for a `Timestamp`-only filter the
+primary key prunes no granule inside a day's part, since the 280
+service × span prefixes are each about one granule.)
+
+**Limits.** Metrics are not split: the Go edge's layout-B points are
+encoded into value buffers before the objects exist, and both edges must
+agree; a late metric point still stretches its object. One late object per
+request: late rows from very different times share a range (small objects,
+so small cost). A row far in the future (a clock ahead) becomes the newest,
+and the ordinary rows go to the "late" part: both ranges are honest, the
+name is wrong. The bound must stay above the fleet's clock skew or every
+request with a skewed sender splits (+100% objects). A plan for a window
+far back still HEADs every object written after it (the LIST cut is
+one-sided), independent of this decision.
+
+Found on the way (a bug, fixed): `Lane.Append` / `runner::append` resent
+without bound when every PUT failed and each HEAD found the slot free; in
+the integration run (SeaweedFS refusing writes near its disk floor) a Go
+edge spun at 40% CPU for 11 minutes holding the lane and its heartbeats.
+Both now return unresolved after 8 resends (`MaxResends`, `MAX_RESENDS`),
+the lane staying at the slot.
+
 ### D32. The entity catalog as bitemporal events, resolved at query time (proposed)
 
 **Status:** **proposed, not decided** (2026-09-28). First step built: the

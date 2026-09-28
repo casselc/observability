@@ -59,17 +59,21 @@ runs $C completenessImpl "DesignTest"
 E=entityCatalog.qnt
 sim $E catalogDesign safety 20000 60 ok
 sim $E sameLane "and { safety, exactAfterLag }" 20000 60 ok
+sim $E sameObject "and { safety, exactAfterLag }" 20000 60 ok "(as built: announcements are columns of the data object)"
+for w in wOutageLife wReannounced wGraceRow; do sim $E sameObject "not($w)" 20000 60 VIOLATED; done
 sim $E catalogHealthy "and { safety, exactAtQuery }" 20000 60 ok
 sim $E catalogDesign exactAfterLag 20000 60 VIOLATED "finding: a separate announcement lane lags its rows"
 sim $E catalogDesign exactAtQuery 20000 60 VIOLATED "finding: outages are transiently inexact"
 for w in wOutageLife wHealed wGraceRow wReannounced wAnnLost; do sim $E catalogDesign "not($w)" 20000 60 VIOLATED; done
 sim $E noAnnounce noPermanentOrphan 20000 60 VIOLATED
 sim $E announceEarly noPermanentOrphan 20000 60 VIOLATED
+sim $E sameObjectEarly noPermanentOrphan 20000 60 VIOLATED
 sim $E shortGrace exactAtQuery 20000 60 VIOLATED
 runs $E catalogDesign "outageAnnouncedDesignTest|separateLane"
 runs $E sameLane sameLaneDesignTest
+runs $E sameObject sameObjectDesignTest
 runs $E catalogHealthy graceDesignTest
-for m in noAnnounce announceEarly shortGrace; do runs $E $m "${m}BreaksTest"; done
+for m in noAnnounce announceEarly sameObjectEarly shortGrace; do runs $E $m "${m}BreaksTest"; done
 
 # ---- retention: TTL against edge custody age (LS-10) ----
 R=retention.qnt

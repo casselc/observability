@@ -61,6 +61,7 @@ disagreed with each other, and how each was resolved.
 | [D18](#d18-s3-client-and-credentials) | S3 client and credentials | accepted |
 | [D19](#d19-durable-buffer-at-the-edge) | Durable buffer at the edge | accepted: Go persistent queue; Rust Quiver on in the deployed publisher (`backpressure`); `received_at` = entry into the buffer, kept across replays (2026-09-27); **retention bounds custody age, not cap ÷ rate** (model, 2026-09-27) |
 | [D20](#d20-pbt-defect-fixes-in-chdbexporter) | PBT defect fixes in chdbexporter | 1–3 fixed; 4–7 open |
+| [D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object) | Entity catalog: `resource_id` at both edges, announcements in the data object | **built** (2026-09-28): `resource_id` on every trace/log row and the announcement lane; central keeps `ResourceAttributes` (the schema switch and the rewrite proxy not decided) |
 
 ---
 
@@ -132,16 +133,19 @@ retire the risks of §4.
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
 | `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | not built |
-| `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on three instances; mutants `noAnnounce`, `announceEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | not built |
+| `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on four instances (`sameObject`, as built, since 2026-09-28); mutants `noAnnounce`, `announceEarly`, `sameObjectEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | **built** ([D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object)): `tests/dst/fleet.rs` checks `sameLane` (no row lands before its resource's announcement) and announcements exactly once under the fault menu (`hegel_dst` rule `announce`); `entities/scripts/announce_e2e.py` (a pod the controller never saw exact 34.7–59.1 s after its rows, with `LIFETIME(MIN 30 MAX 60)`) |
 | `model/retention.qnt` (open scenario: STPA LS-10, R-S6) | `acceptedVisible` (an acked request is never inserted into an expired partition), `noEdgeDrop`, `custodyAgeBounded` | 20,000 × 50; 6 witnesses; mutants `retentionShort`, `cutDuringOutage`, `capSized` (retention sized as cap ÷ rate) caught; `dropOldest` keeps `acceptedVisible` and breaks `noEdgeDrop`. **Finding:** D19's retention rule was wrong ([D19](#d19-durable-buffer-at-the-edge)) | not applicable (a sizing rule) |
 | `model/sealer.qnt` (open scenario: the lake's snapshot log, [research §5.1](research/central-optional.md#51-the-sealer-is-a-consumer-group-with-a-table-log-sink)) | `monotone`, `repeatableAsOf`, `atMostOncePerSnapshot`, `neverSkipsSealed`, `wmSound` | 20,000 × 40; 5 witnesses; mutants `blindCommit`, `noRebase`, `wmFromList`, `noDedup` (`abe3e97`) | not built |
 
 The four open-scenario models run from `model/open_models.sh` (quint 0.32,
 Rust evaluator), a row per check with its expected verdict: every row as
 expected at seed 0x5eed (`abe3e97`; the script has 82 rows, the commit
-message counts 86) [Q]. They are sampled simulations and scripted runs of
-small instances, not proofs; nothing in code is linked to them yet, and
-CI's `ci/model-check.sh` runs `consumer_model.sh`, not this script.
+message counts 86) [Q]. 2026-09-28: the `entityCatalog` rows rerun with the
+built design (`sameObject`) and its mutant (`sameObjectEarly`): 26 rows,
+all as expected; the script now has 89 rows. They are sampled simulations
+and scripted runs of small instances, not proofs; only `entityCatalog`'s
+ingest rule is mirrored in code (`tests/dst/fleet.rs` `sameLane`), and CI's
+`ci/model-check.sh` runs `consumer_model.sh`, not this script.
 
 Assumptions every model makes, and which the code must therefore guarantee:
 
@@ -1702,6 +1706,98 @@ The same work checked real publisher runs against `edgePublish.qnt` through
 quintgo, both ways: publisher traces are validated against the model, and
 model traces drive the publisher. 20 of 20 end states agree, and the
 manifest-before-Parquet mutant is caught.
+
+### D21. Entity catalog: `resource_id` at the edges, announcements in the data object
+
+**Status:** built (2026-09-28). Both edges write `resource_id` on every
+trace and log row and announce new resources in the data object; the
+consumer inserts announcements into `otel_resources` before the rows; the
+entity aggregator merges them with the controller's catalog. Central's
+tables still carry the full `ResourceAttributes` with `resource_id` beside
+it: switching them to `resource_id` + residual (the `ALIAS` column, the
+rewrite proxy, [`entities/README.md`](entities/README.md) §1) is not
+decided here.
+
+**Context.** The entity catalog ([`entities/README.md`](entities/README.md))
+puts resource attributes back at query time from a dictionary keyed by a
+content hash of the covered attributes. Its correctness must not depend on
+the controller: a pod born and dead inside a controller outage (or an
+informer gap, AMBIGUITY.md X1) never reaches the catalog (STPA LS-5), and
+its rows would stay residual-only. §6.3 proposed an edge announcement lane;
+[`model/entityCatalog.qnt`](model/entityCatalog.qnt) then showed that a
+*separate* lane closes the permanent gap but not the transient one, because
+the consumer ingests lanes in any order.
+
+**Decision.**
+
+1. **`resource_id` is the controller's `rid.ID(rid.Split(attributes))`**
+   at both edges (`otap-rs/src/resource.rs`, `parquetgo/resource.go`): the
+   covered keys are a fixed list plus `k8s.pod.label.*`; the first
+   occurrence of a key decides; only non-empty string values without NUL
+   are covered. `entities/testdata/resource_id_vectors.json` (17 vectors,
+   hostile: unicode, invalid UTF-8, duplicate keys, 300 labels, NUL,
+   non-string values, near-miss keys) is generated by the controller and
+   checked by the controller, both edges and ClickHouse's own expression
+   (17 of 17 [M]); Hegel checks the Rust side against a transcription of the
+   controller for arbitrary attribute lists and orders, through the OTLP and
+   the OTAP walk.
+2. **Announcements are columns of the data object** (`resource_announce`:
+   the covered set on the first row of each resource the object announces;
+   `oscope-announce` counts them), not a lane of their own and not a
+   sidecar. Weighed against the model and the slot protocol
+   ([`FORMAT.md`](FORMAT.md) §2.1):
+
+   | | separate `resources` lane | sidecar object in the same slot | **columns of the data object** |
+   |---|---|---|---|
+   | gap bound (`exactAfterLag`) | no: lanes are ingested in any order, whatever the edge's commit order | only if the consumer reads the sidecar before the slot, and a sidecar key is outside the slot protocol (a second PUT, its own ambiguity) | **yes**: the announcement commits with the rows and is inserted before them |
+   | "announced only after commit" | a second commit to track per request, a request acked only when both commit | a second create-only PUT, not atomic with the slot | **one commit**: the cache is marked when the data object commits |
+   | PUTs | +1 per announcing request, serial (the announcement before the data) | +1 per announcing request | **none** |
+   | format | a new namespace and registered lanes (births, heartbeats, ABAC entries) | a new key shape in every lane | **none**: two columns, one metadata key, `oscope-schema` 2 |
+   | bytes | an object per announcement | the same | **~400 B per announced resource** (16 covered keys, zstd) [M]; nothing on the other rows but an empty map |
+
+   The cache is per writer lane and epoch (D7's rule for series), windowed
+   (a resource is announced again every hour, so central keeps first- and
+   last-seen evidence), bounded (65,536 per lane, the least recently
+   announced eighth evicted and re-announced), and marked only when the
+   object committed as encoded (entityCatalog.qnt `sameObjectEarly` is the
+   mutant that marks it at encode time).
+3. **The consumer** inserts a round's announcements before its rows
+   (`announce_first`) into `otel_resources` (ReplacingMergeTree keyed by
+   resource and announcing object: idempotent, read once with FINAL), and a
+   lane whose announcement statement did not surely land inserts nothing
+   that round. An unanswered announcement statement is waited out like a data
+   statement (D9); the first version did not, and `dst_consumer` found it
+   landing after the lane changed hands.
+4. **The aggregator** (`entities/controller`, `-announced db.otel_resources`)
+   merges: the controller is the authority for a resource's attributes and
+   history; an announcement is evidence that the resource existed. The
+   catalog's `resources` view takes the controller's row where there is one,
+   else the announcement's, `uncertain = 1` with a lifetime from first seen
+   to last seen + 2 windows (`sql/announced.sql`); `resource_evidence` says
+   which ids the controller lacks. X1's gap handling is unchanged.
+5. **No format version bump**: no new object kind ([`FORMAT.md`](FORMAT.md) §5).
+
+**Evidence** [M]: conformance Go = Rust, 260 PASS 0 FAIL (the objects'
+schema, metadata and `oscope-announce`; `otel_traces`/`otel_logs` with
+`resource_id`; `otel_resources` and its view). `dst_consumer` (300 seeds)
+and `hegel_dst` with the rule `announce`: no row lands before its
+resource's announcement (`sameLane`), every committed announcement lands and
+nothing else (a planted consumer that ingests rows without waiting for the
+announcement is caught by both). End to end
+(`entities/scripts/announce_e2e.py`, real edge, SeaweedFS, consumer,
+ClickHouse, the aggregator's view and a flat dictionary): a pod the
+controller never saw is exact 34.7 s and 59.1 s (two runs) after its rows
+became visible with `LIFETIME(MIN 30 MAX 60)`, 4.6 s with 5–10 s; a pod the
+controller knew is exact at once, and a pod behind an edge with
+announcements off stays residual-only.
+
+**What it does not do.** Metrics carry no `resource_id` yet (layout B's
+series rows are the place: next). The residual still travels in full in
+`ResourceAttributes`; the grace window of §3.6 matters only after the
+schema switch. An edge's covered keys that drift from the controller's
+(another label list) now show up as announced-only resources the
+controller lacks (`resource_evidence.in_controller = 0` for live pods), the
+unknown-id alert of §6.1.
 
 ---
 

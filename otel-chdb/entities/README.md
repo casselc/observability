@@ -77,10 +77,12 @@ query shapes take 766 ms of server time against the table's 1,340.
    edge makes new resources exact before the catalog knows them. A resource
    the catalog never learns about degrades to residual-only rows, and it
    heals at query time once the catalog learns it (§3.6). The remaining hole,
-   a pod the controller never saw, is closed by an **edge announcement lane**
-   (D7's series objects, for resources). That makes the controller an
-   optimization, not a dependency. Variant **ann** tests this lane's row
-   shape. The lane itself was not built.
+   a pod the controller never saw, is closed by an **edge announcement lane**.
+   That makes the controller an optimization, not a dependency. Variant
+   **ann** tests this lane's row shape. **Built 2026-09-28 (§6.3):** the
+   announcements ride in the data objects themselves, and a pod the
+   controller never saw was exact 35–59 s after its rows landed, end to
+   end: the dictionary's reload.
 5. **Discovery (HyperDX's filter keys and values) is served from the
    catalog.** It goes into the key-value rollup HyperDX already reads,
    written by a periodic job rather than by a materialized view on every
@@ -88,8 +90,11 @@ query shapes take 766 ms of server time against the table's 1,340.
    condition on how the materialized views are named (§3.5).
 
 What it would take, in order: the rewrite (a HyperDX feature request, or a
-~200-line proxy); `resource_id` in both edges; the catalog controller; the
-announcement lane; incremental dictionary refresh. §7 lists the open items.
+~200-line proxy: [`rwproxy/`](rwproxy/README.md)); `resource_id` in both
+edges (**built 2026-09-28**, beside `ResourceAttributes`); the catalog
+controller ([`controller/`](controller/README.md)); the announcement lane
+(**built 2026-09-28**); incremental dictionary refresh. §7 lists the open
+items.
 Two things stay unmeasured: **HyperDX was not run live**, because the disk
 had 3.2–6 GB free while other agents' CI ran (§5); and **the data is
 synthetic**, so absolute bytes/row depend on its density (§4.1).
@@ -107,6 +112,7 @@ synthetic**, so absolute bytes/row depend on its density (§4.1).
 | loads | `scripts/load.py`, `scripts/objects.py` | query databases: one object per INSERT, in the consumer's statement shape, from a staging table. Insert benchmark: 30 Parquet objects per signal per shape, written by ClickHouse's Parquet writer to SeaweedFS and read with `s3()`. **Not the real edge → S3 → consumer pipeline, and not the edges' Parquet writers.** |
 | checks | `scripts/conformance.py`, `scripts/race.py`, `scripts/refresh_lag.py` | view = table; the race cases |
 | measurements | `scripts/bench.py`, `scripts/merge.py`, `scripts/queries.py`, `scripts/discovery.py`, `scripts/hdx_strategy.py` | §4 |
+| the edges' `resource_id` and announcements (2026-09-28) | `testdata/resource_id_vectors.json`, `../otap-rs/src/resource.rs`, `../parquetgo/resource.go`, `controller/internal/rid/covered.go`, `controller/sql/announced.sql`, `scripts/announce_e2e.py` | §6.1, §6.3; **the real edges → S3 → consumer → central**, unlike the rows above |
 
 The schemas compared:
 
@@ -328,7 +334,8 @@ else follows from content addressing (`scripts/race.py`,
 - **What is not covered:**
   - a pod the controller never sees at all: a controller outage longer than
     the pod's life, since informers relist live objects only. Its rows stay
-    residual-only for good. This is why §6.3's announcement lane exists;
+    residual-only for good. This is why §6.3's announcement lane exists
+    (built 2026-09-28: such a pod is exact once the dictionaries reload);
   - informer lag on label changes, which the content id turns into "a new
     id, briefly unknown". The generator changes labels exactly at version
     boundaries, so that lag was not simulated.
@@ -500,6 +507,15 @@ regular expressions over HyperDX's fixed rendering. **Proxy mode is what
 
 ### 6.1 The edge computes `resource_id`
 
+**Built 2026-09-28** in both publishers, with the covered set defined once
+(the controller's `internal/rid`: `CoveredKeys`, `Split`, `ID`) and shared
+as test vectors (`testdata/resource_id_vectors.json`: 17 cases, hostile
+included; the controller, the Rust and the Go edge and ClickHouse's own
+expression agree on all 17 [M]). Every trace and log row carries
+`resource_id` next to its full `ResourceAttributes`; the split into a
+residual (below) waits for the schema decision (§7). The rest of this
+section is the design as proposed.
+
 - The agents (`../deploy`, DaemonSet, the Go collector) need
   `k8sattributes` and `resourcedetection`, which they don't run today [D:
   `deploy/base/*/agent-*.yaml`].
@@ -564,7 +580,50 @@ regular expressions over HyperDX's fixed rendering. **Proxy mode is what
   - **Kubernetes API load.** One watch per kind per cluster, the same as any
     multicluster operator.
 
-### 6.3 The announcement lane (recommended, not built)
+### 6.3 The announcement lane (built 2026-09-28)
+
+**As built** ([`../FORMAT.md`](../FORMAT.md) §2.1, [`../DECISIONS.md`](../DECISIONS.md) D21):
+
+- **In the data object, not a lane of its own.** A trace or log object
+  carries `resource_announce`: the covered set of each resource it
+  announces, on that resource's first row (`oscope-announce` counts them).
+  It commits exactly when the rows that need it do, in the data's own lane
+  and epoch, with no extra PUT; the consumer, which ingests a lane in slot
+  order, inserts an object's announcements into `otel_resources` before its
+  rows (`model/entityCatalog.qnt` `sameObject`: `exactAfterLag` holds).
+- **Once per window per lane epoch.** Each writer lane caches the resources
+  it announced in its epoch; an object announces what the cache lacks for
+  the request's hour, and the cache is marked only once the object has
+  committed. A restart, a new epoch after a tombstone, an unknown PUT outcome
+  or an eviction (65,536 per lane) announce again, which is always safe.
+- **The merge** (`controller/sql/announced.sql`, the aggregator's
+  `-announced`): the controller is the authority for attributes and
+  history; an announcement is evidence a resource existed. The catalog's
+  `resources` view takes the controller's row where there is one, else the
+  announcement's (`source = 'announce'`, `uncertain = 1`, valid from first
+  seen to last seen + 2 h); `resource_evidence` lists the ids the
+  controller lacks.
+- **End to end** [M] (`scripts/announce_e2e.py`, `results/announce_e2e.json`:
+  the Rust edge's binary, SeaweedFS, `consume`, ClickHouse 26.10, the merged
+  view and a flat `HASHED` dictionary over it):
+
+  | pod | controller | edge | rows visible | exact |
+  |---|---|---|---:|---:|
+  | `known` | wrote it before any row | announces | 0.5 s | 0.5 s |
+  | `orphan` | never saw it (born and gone in an outage) | announces | 0.5 s | **59.6 s** (35.2 s in an earlier run): the dictionary's next reload, `LIFETIME(MIN 30 MAX 60)` |
+  | `silent` | never saw it | `announce: false` | 0.5 s | never (the `noAnnounce` mutant) |
+
+  The orphan's gap (rows visible → exact) was 59.1 s and 34.7 s in two runs,
+  inside the dictionary's `MAX 60` (§3.6 measured 17.7–52.0 s for the
+  controller's own writes), and 4.6 s with `LIFETIME(MIN 5 MAX 10)`: the gap
+  is the dictionary's lag, as the model says. An announcing object of 100
+  log rows was 8,189 B against 7,788 B for the same request not announcing
+  (the second time) and 7,796 B from the edge with announcements off:
+  **~400 B per announced resource** (16 covered attributes). No extra
+  object, PUT or LIST: the announcing edge's logs lane held 6 objects (a
+  birth and 5 data slots) for 5 requests.
+
+The design as proposed, and what the model found:
 
 - D7's `metrics_series` objects, for resources. A publisher writes
   (`resource_id`, covered set) once per id per hour, **committed before**
@@ -603,11 +662,18 @@ regular expressions over HyperDX's fixed rendering. **Proxy mode is what
 2. **Measure on real data**: one real cluster's resource maps and rates,
    stored bytes after merges at full density. The ratio in §4.1 is from
    synthetic, time-sparse rows.
-3. **`resource_id` in both edges**, with a conformance test (Rust = Go, id
-   for id). The agents gain `k8sattributes`.
+3. ~~**`resource_id` in both edges**, with a conformance test (Rust = Go, id
+   for id).~~ Built 2026-09-28 (§6.1), beside `ResourceAttributes`. The
+   agents still need `k8sattributes`.
 4. **The controller**, with SCD2 writes, `res_index`, the discovery job, and
    the unknown-id alert.
-5. **The announcement lane** (§6.3).
+5. ~~**The announcement lane** (§6.3).~~ Built 2026-09-28, in the data
+   objects. Next: `resource_id` on metrics (layout B's series rows), and the
+   **schema switch**: rows carry `resource_id` + `ResourceResidual` (the
+   edge splits and applies the grace window of §3.6), `ResourceAttributes`
+   becomes the `ALIAS` column over dictionaries built from the merged
+   `resources` view, and HyperDX's resource filters go through the rewrite
+   proxy. Until then central pays for both the map and the id.
 6. **Dictionary refresh at fleet scale**: `update_field`, a hot/cold split
    (7 days hashed, older via `CACHE` / `DIRECT`), and memory per replica
    under the replicated central (`../central-replicated`).
@@ -673,7 +739,12 @@ dropped at the end.
   - `generated/{b1,b2,c,ann}_{traces,logs}.sql`: the derived DDL and views.
 - `scripts/`: as §2; `recon.py` holds the reconstruction expression, and
   `chlib.py` the helpers.
+- `testdata/resource_id_vectors.json`: the shared `resource_id` vectors
+  (generated by `controller/internal/rid`: `go test ./internal/rid -run
+  TestVectors -update`).
+- `scripts/announce_e2e.py`: the announcement lane end to end (§6.3).
 - `results/`:
+  - `announce_e2e.json`: that run;
   - `bench.jsonl`, `merge.jsonl`, `bench.md`: insert, merge, bytes;
   - `queries.jsonl`, `queries.md`;
   - `conformance.jsonl`;

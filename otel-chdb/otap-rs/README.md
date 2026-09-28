@@ -132,6 +132,9 @@ otap-s3pq (one binary)
     -> exporter:s3pq (this crate)
          metrics       layout B by default (series.rs): points objects + a series object for
                        series new this hour, announced only once it commits; or the ClickStack tables
+         traces, logs  resource_id on every row; the covered set of resources not yet announced
+                       in the lane's epoch this hour in resource_announce (resource.rs,
+                       ../FORMAT.md §2.1), marked announced only once the object commits
          content key   BLAKE3("{signal}\0" + the OTLP request bytes), 128 bits hex
          flatten       otap-dataflow's view traits: RawTraceData / RawLogsData (OTLP bytes,
                        zero-copy) or OtapTracesView / OtapLogsView (OTAP records), one walker
@@ -152,6 +155,14 @@ encbench: the in-process edge benchmark (pubbench's accounting)
     `otel_traces` / `otel_logs` columns with plain types, plus the envelope
     (`producer_id`, `producer_epoch`, `batch_id` = the slot's seq,
     `row_ordinal`, `received_at`, `schema_version`).
+  - Since 2026-09-28 (schema 2) traces and logs also carry `resource_id` and
+    `resource_announce` before the envelope (`src/resource.rs`,
+    `../FORMAT.md` §2.1, `../DECISIONS.md` D21). The exporter's
+    `resources:` block: `announce` (default true), `window` (1h),
+    `cache_size` (65,536 per lane). `tests/resource_id.rs` checks the
+    shared vectors (`../entities/testdata/resource_id_vectors.json`) and,
+    with Hegel, arbitrary attribute lists against the controller's
+    definition, through the OTLP and the OTAP walk.
   - Values render as `pcommon.Value.AsString` does:
     - `Server` / `Ok`, not `SPAN_KIND_SERVER` / `STATUS_CODE_OK`;
     - `5`, not `5.0`; `1e+21` and `1e-7`; `NaN` / `Infinity`;

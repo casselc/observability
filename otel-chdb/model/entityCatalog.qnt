@@ -48,17 +48,30 @@
  *    controller is up or not; it needs the announcement ingested no later
  *    than the rows (SAME_LANE).
  *
+ * SAME_OBJECT is what was built (2026-09-28, FORMAT.md §2,
+ * otap-rs src/resource.rs, parquetgo resource.go): the announcement is not
+ * an object of its own but columns of the data object (`resource_announce`
+ * on the first row of each resource it announces), so it commits exactly
+ * when the rows that need it do (`emit` below commits both); the edge marks
+ * it announced for the epoch only after that commit (`annMark`), and until
+ * then every object of the resource carries it again. The consumer inserts
+ * an object's announcements before its rows (`ingestRow` needs
+ * `annIngested`, as SAME_LANE).
+ *
  * Instances: `catalogDesign` (announcements in their own lane, as §6.3
  * specifies, controller faults); `catalogHealthy` (no announcements, the
- * controller up: the grace window alone); `sameLane`. Mutants: `noAnnounce`
- * (the catalog without announcements, controller faults), `announceEarly`
- * (marked announced when sent; a lost PUT leaves the resource unannounced),
+ * controller up: the grace window alone); `sameLane`; `sameObject` (as
+ * built). Mutants: `noAnnounce` (the catalog without announcements,
+ * controller faults), `announceEarly` (marked announced when sent; a lost
+ * PUT leaves the resource unannounced), `sameObjectEarly` (the same mistake
+ * as built: marked when the object is encoded, and the object is lost),
  * `shortGrace` (G < D + LAG).
  */
 module entityCatalog {
   const ANNOUNCE: bool       // the edge announcement lane
   const EARLY: bool          // mutation: a resource is marked announced when its announcement is sent
   const SAME_LANE: bool      // announcements are objects in the data lane, before the rows that use them
+  const SAME_OBJECT: bool    // announcements are columns of the data object itself (implies SAME_LANE)
   const CTRL_FAULTS: bool    // the controller can be down
   const G: int               // grace window
 
@@ -134,21 +147,38 @@ module entityCatalog {
     annIngested' = annIngested, rows' = rows, ingested' = ingested, catalog' = catalog, ctrlUp' = ctrlUp,
   }
 
-  // A row of a live resource commits (only once its resource is announced in this epoch).
+  // A row of a live resource commits (only once its resource is announced in
+  // this epoch; SAME_OBJECT: or its object carries the announcement, which
+  // then commits with it).
   action emit(i: int): bool = {
     val r = { id: rows.size() + 1, res: i, t: now, full: now < firstSeen.get(i) + G, epoch: epoch }
+    val carries = SAME_OBJECT and not(cache.contains(i))
     all {
       life.get(i) == Alive, rows.size() < MAX_ROWS,
-      ANNOUNCE implies cache.contains(i),
+      ANNOUNCE implies (cache.contains(i) or SAME_OBJECT),
       rows' = rows.union(Set(r)),
-      now' = now, life' = life, born' = born, firstSeen' = firstSeen, epoch' = epoch, keepAnn, ingested' = ingested,
+      annCommitted' = if (carries) annCommitted.union(Set({ res: i, epoch: epoch })) else annCommitted,
+      cache' = cache, annInflight' = annInflight, annIngested' = annIngested,
+      now' = now, life' = life, born' = born, firstSeen' = firstSeen, epoch' = epoch, ingested' = ingested,
       catalog' = catalog, ctrlUp' = ctrlUp, events' = events,
     }
   }
 
+  // Mutation (SAME_OBJECT and EARLY): the object carrying the announcement is
+  // encoded, the resource marked announced then, and the object is lost (its
+  // PUT never lands; nothing of it commits).
+  action objLostEarly(i: int): bool = all {
+    SAME_OBJECT, EARLY, life.get(i) == Alive, not(cache.contains(i)),
+    cache' = cache.union(Set(i)),
+    events' = events.union(Set("annLost")),
+    now' = now, life' = life, born' = born, firstSeen' = firstSeen, epoch' = epoch, annInflight' = annInflight,
+    annCommitted' = annCommitted, annIngested' = annIngested, rows' = rows, ingested' = ingested, catalog' = catalog,
+    ctrlUp' = ctrlUp,
+  }
+
   // ---- the announcement lane (edge) --------------------------------------------------------
   action annSend(i: int): bool = all {
-    ANNOUNCE, life.get(i) == Alive, not(cache.contains(i)), not(annInflight.contains({ res: i, epoch: epoch })),
+    ANNOUNCE, not(SAME_OBJECT), life.get(i) == Alive, not(cache.contains(i)), not(annInflight.contains({ res: i, epoch: epoch })),
     annInflight' = annInflight.union(Set({ res: i, epoch: epoch })),
     cache' = if (EARLY) cache.union(Set(i)) else cache,
     now' = now, life' = life, born' = born, firstSeen' = firstSeen, epoch' = epoch, annCommitted' = annCommitted,
@@ -222,7 +252,7 @@ module entityCatalog {
     nondet i = RES.oneOf()
     any {
       tick, spawn(i), die(i), restart, emit(i),
-      annSend(i), annMark(i), annIngest(i),
+      annSend(i), annMark(i), annIngest(i), objLostEarly(i),
       all { annInflight != Set(), nondet a = annInflight.oneOf() any { annLand(a), annLose(a) } },
       all { rows != Set(), nondet r = rows.oneOf() ingestRow(r) },
       observe(i), ctrlFlip,
@@ -275,6 +305,18 @@ module entityCatalog {
   run sameLaneDesignTest =
     outagePrefix.then(announce(1)).then(G.reps(_ => tick)).then(emit(1)).then(annIngest(1)).then(ingestRow(row(1)))
       .then(LAG.reps(_ => tick)).expect(and { safety, exactAfterLag, exactAtQuery })
+  // As built: the first row's object carries the announcement; the edge
+  // marks it after the commit, the next row's object carries none; the
+  // consumer inserts the announcement before the rows.
+  run sameObjectDesignTest =
+    outagePrefix.then(emit(1)).then(annMark(1)).then(G.reps(_ => tick)).then(emit(1)).then(die(1))
+      .then(annIngest(1)).then(ingestRow(row(1))).then(ingestRow(row(2))).then(LAG.reps(_ => tick))
+      .expect(and { safety, exactAfterLag, exactAtQuery, wOutageLife })
+  // Marked when encoded, the object lost: later objects carry no
+  // announcement, and the resource dies unannounced.
+  run sameObjectEarlyBreaksTest =
+    outagePrefix.then(objLostEarly(1)).then(G.reps(_ => tick)).then(emit(1)).then(die(1))
+      .expect(and { not(noPermanentOrphan), not(announcedAfterCommit) })
   run separateLaneHealsTest =
     laneOrderPrefix.then(annIngest(1)).then(LAG.reps(_ => tick)).expect(and { safety, exactAfterLag, exactAtQuery })
   // The controller healthy, no announcements: a row just past the grace
@@ -289,25 +331,33 @@ module entityCatalog {
 
 // §6.3 as specified: announcements in their own lane; the controller can be down.
 module catalogDesign {
-  import entityCatalog(ANNOUNCE = true, EARLY = false, SAME_LANE = false, CTRL_FAULTS = true, G = 2).*
+  import entityCatalog(ANNOUNCE = true, EARLY = false, SAME_LANE = false, SAME_OBJECT = false, CTRL_FAULTS = true, G = 2).*
 }
 // The announcement ahead of its rows in the data lane.
 module sameLane {
-  import entityCatalog(ANNOUNCE = true, EARLY = false, SAME_LANE = true, CTRL_FAULTS = true, G = 2).*
+  import entityCatalog(ANNOUNCE = true, EARLY = false, SAME_LANE = true, SAME_OBJECT = false, CTRL_FAULTS = true, G = 2).*
+}
+// As built: the announcement is columns of the data object (FORMAT.md §2).
+module sameObject {
+  import entityCatalog(ANNOUNCE = true, EARLY = false, SAME_LANE = true, SAME_OBJECT = true, CTRL_FAULTS = true, G = 2).*
+}
+// As built, marked announced when the object is encoded (before its commit).
+module sameObjectEarly {
+  import entityCatalog(ANNOUNCE = true, EARLY = true, SAME_LANE = true, SAME_OBJECT = true, CTRL_FAULTS = true, G = 2).*
 }
 // No announcements, the controller always up: the grace window alone (G = D + LAG).
 module catalogHealthy {
-  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, CTRL_FAULTS = false, G = 2).*
+  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, SAME_OBJECT = false, CTRL_FAULTS = false, G = 2).*
 }
 // LS-5: the catalog without announcements, and a controller that can be down.
 module noAnnounce {
-  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, CTRL_FAULTS = true, G = 2).*
+  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, SAME_OBJECT = false, CTRL_FAULTS = true, G = 2).*
 }
 // Marked announced when sent.
 module announceEarly {
-  import entityCatalog(ANNOUNCE = true, EARLY = true, SAME_LANE = false, CTRL_FAULTS = true, G = 2).*
+  import entityCatalog(ANNOUNCE = true, EARLY = true, SAME_LANE = false, SAME_OBJECT = false, CTRL_FAULTS = true, G = 2).*
 }
 // A grace window shorter than the controller's delay plus the dictionary lag.
 module shortGrace {
-  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, CTRL_FAULTS = false, G = 1).*
+  import entityCatalog(ANNOUNCE = false, EARLY = false, SAME_LANE = false, SAME_OBJECT = false, CTRL_FAULTS = false, G = 1).*
 }

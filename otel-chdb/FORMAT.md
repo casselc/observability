@@ -4,15 +4,20 @@ The single reference for what the edges write to the bucket, what the
 consumer writes beside it, and how a reader tells versions apart. The
 decisions behind it are in [DECISIONS.md](DECISIONS.md) (D3 commit protocol,
 D8–D12 consumer, D18 credentials and write-side ABAC, D19 custody and
-`complete_through`); the proofs obligations are in
-[`model/completeness.qnt`](model/completeness.qnt) and
-[`model/s3Inline.qnt`](model/s3Inline.qnt).
+`complete_through`, D21 resource ids and announcements); the proofs
+obligations are in [`model/completeness.qnt`](model/completeness.qnt),
+[`model/s3Inline.qnt`](model/s3Inline.qnt) and
+[`model/entityCatalog.qnt`](model/entityCatalog.qnt).
 
 Version 2 (2026-09-27) changes three things from version 1: the cluster
 comes first in every key (so write access can be scoped by prefix, STPA
 R-S7), every object carries `oscope-low` (the edge's custody floor), and
 edges commit heartbeat slots (so an idle lane still advances). Together the
 last two let a reader publish `complete_through` (R-S1, R-S3).
+
+Envelope schema 2 of traces and logs (2026-09-28, still format 2: no new
+object kind, §5) adds the resource columns: every row's `resource_id`, and
+the **resource announcements** in the data object itself (§2.1).
 
 ## 1. Keys
 
@@ -73,7 +78,8 @@ metadata only.
 | `oscope-producer` | data, beat | the key's `{producer}` |
 | `oscope-epoch`, `oscope-seq` | data, beat | the slot |
 | `oscope-content` | data, beat | the content key: BLAKE3-128 hex of `"{signal}\0" + request bytes` (layout-B series objects: of their rows); a heartbeat's is `beat-` + 16 random hex digits |
-| `oscope-signal`, `oscope-schema`, `oscope-rows`, `oscope-min-time`, `oscope-max-time` | data | the namespace, envelope schema version, row count and the rows' event-time range (ns) |
+| `oscope-signal`, `oscope-schema`, `oscope-rows`, `oscope-min-time`, `oscope-max-time` | data | the namespace, envelope schema version (traces and logs `2`, metrics `1`), row count and the rows' event-time range (ns) |
+| `oscope-announce` | data (traces, logs) | how many resources the object announces in `resource_announce` (§2.1); the consumer reads announcements only from objects where it is nonzero |
 | `oscope-received` | data | `received_at` (ns since the Unix epoch): when the request entered the edge's durable custody, kept across retries and replays (D19) |
 | `oscope-low` | data, beat | the custody floor (ns), below |
 
@@ -124,6 +130,60 @@ close it; not built.
 
 The consumer ingests nothing for a heartbeat; it only moves the
 checkpoint and the lane's watermark. GC deletes heartbeats like data slots.
+
+### 2.1 Resources: `resource_id` and announcements (traces and logs)
+
+Two columns sit between the ClickStack columns and the envelope of every
+trace and log object (schema 2; Rust `src/schema.rs`, Go `schema.go` /
+`pgo.go`):
+
+| column | type | value |
+|---|---|---|
+| `resource_id` | UINT64 | the content address of the row's resource: `xxh3_64("res.v1\0" ‖ for (k, v) in covered, sorted by k bytewise: k ‖ "\0" ‖ v ‖ "\0")`, seed 0 ([`entities/README.md`](entities/README.md) §3.1) |
+| `resource_announce` | MAP(STRING, STRING) | the resource's covered set on the first row of each resource the object **announces**; an empty map on every other row |
+
+- **Covered** is the resource's attributes that the entity catalog can
+  reproduce: the FIRST occurrence of each key, kept when the key is one of
+  27 fixed names (`k8s.*`, `host.*`, `cloud.*`, `container.image.*`,
+  `deployment.environment.name`, `service.name`) or `k8s.pod.label.` plus a
+  non-empty rest, and the value is a non-empty string without NUL. Anything
+  else is the residual and is never hashed or announced. A resource without
+  a covered attribute has the id of the empty set and is never announced.
+  The definition is the entity controller's `internal/rid` (`Split`, `ID`);
+  [`entities/testdata/resource_id_vectors.json`](entities/testdata/resource_id_vectors.json)
+  is the vector file the controller, both edges and ClickHouse's own
+  expression agree on (hostile cases included).
+- **When a resource is announced.** Each writer lane (one per `{signal,
+  lane}`, so per epoch) keeps a cache of the resources it has announced in
+  its **current epoch**. An object announces every resource it uses that the
+  cache does not hold for the request's window (`resources.window`, 1 h, of
+  `received_at`), decided when the object is encoded for its slot. The cache
+  marks them only once that object has **committed** (resolved as ours, or
+  found committed with this encoding); an object whose outcome is unknown
+  marks nothing, so the next object of the lane announces again. A new
+  epoch starts with an empty cache. The cache is bounded
+  (`resources.cache_size`, 65,536 per lane); what it evicts is announced
+  again. Re-announcing is always safe, so every doubt resolves that way.
+- **Why in the data object** ([`model/entityCatalog.qnt`](model/entityCatalog.qnt),
+  `sameObject`): an announcement then commits exactly when the rows that
+  need it do, in the data's own lane and epoch, with no extra PUT, and the
+  consumer, which ingests a lane in slot order, inserts an object's
+  announcements before its rows. So a row never reaches central before the
+  announcement of its resource, and it is exact once the dictionaries have
+  loaded (`exactAfterLag`), whatever the entity controller saw. A separate
+  announcement lane would have allowed rows ahead of their announcement
+  (`catalogDesign`: `exactAfterLag` fails).
+- **What the consumer does** (`src/consumer/worker.rs` `announce_first`):
+  for the trace and log objects of a round with `oscope-announce` > 0, one
+  statement per group inserts `(resource_id, resource_announce, signal,
+  producer_id, producer_epoch, batch_id, received_at)` into
+  `{db}.otel_resources` (a ReplacingMergeTree: an announcement re-inserted is
+  one row; `sql/otel_resources.sql`, with the per-resource view
+  `otel_resources_announced`), before the round's row inserts. A lane whose
+  announcement statement did not surely land (an error, no answer, an answer
+  past its fence) inserts nothing that round; an unanswered one is waited
+  out like any statement (D9). The entity aggregator merges the view with
+  the controller's catalog ([`entities/controller/sql/announced.sql`](entities/controller/sql/announced.sql)).
 
 ## 3. What the consumer promises: `complete_through`
 
@@ -210,6 +270,18 @@ A version-1 bucket is drained with a version-1 consumer, or purged
 bumps `oscope-format` and `format.json`, and adds a reader for both only if
 real data then exists.
 
+**The resource columns (2026-09-28) are not a format change.** No object
+kind, key, lane or control document is new: announcements ride in data
+objects, `oscope-announce` is one more metadata key, and the object's own
+`oscope-schema` says which columns it has (traces and logs `2`). Both
+directions read: a schema-1 object gives `resource_id` 0 and no
+announcements (ClickHouse fills a column the Parquet file lacks with its
+default, `input_format_parquet_allow_missing_columns`, on in 26.10 [M]), and
+a consumer from before reads schema-2 objects and ignores the two columns
+(its `s3()` structure names the columns it takes). Central's `otel_traces`
+and `otel_logs` gain `resource_id` (`ALTER TABLE … ADD COLUMN resource_id
+UInt64` on a table created before, or recreate it: no real data exists).
+
 ## 6. Who may write what (D18, ABAC)
 
 | role | may | may not |
@@ -217,6 +289,12 @@ real data then exists.
 | edge publisher (cluster C) | `PutObject` under `{root}/C/*`; `GetObject` and `ListBucket` there (resolve-by-HEAD) | delete anything; touch `{ctl}`, `{entities}` or another cluster |
 | entity controller (cluster C) | `PutObject` under `{entities}/C/*` | the same |
 | consumer, GC, sealer | read `{root}` and `{entities}`; write and delete `{ctl}`; delete lane slots (GC only); write tombstones into lanes | — |
+
+Announcements need no policy of their own: they are in the data objects, so
+an edge can announce resources only in its own cluster's prefix, and the
+consumer inserts them with the rows' credentials. That a resource's
+`k8s.cluster.uid` is the publishing cluster's is not checked (as for
+`ResourceAttributes` today).
 
 The cluster comes from the credentials (`${aws:PrincipalTag/cluster}` on
 AWS; per-cluster identities elsewhere). Policies and the SeaweedFS

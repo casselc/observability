@@ -35,9 +35,12 @@ cmd/fleetsim     builds and churns the spike's fleet shape in a KWOK cluster
 cmd/ridcheck     agree (resource_id vs the agent's derivation), probe (freshness), watchlog (ground truth)
 internal/ctrl    informers, derivation of the six levels, version open/close
 internal/lane    the record type and the create-only S3 lane writer
-internal/rid     resource_id = xxh3_64("res.v1\0" ‖ sorted covered k\0v\0), as in ../sql/resources.sql
+internal/rid     resource_id = xxh3_64("res.v1\0" ‖ sorted covered k\0v\0), as in ../sql/resources.sql;
+                 CoveredKeys / Split: the covered set as the edges compute it; the shared
+                 vectors ../testdata/resource_id_vectors.json (go test ./internal/rid -run TestVectors -update)
 internal/ch      a minimal ClickHouse HTTP client
 sql/aggregator.sql  records, versions (AggregatingMergeTree), versions_final, catalog views, lane_progress, ingest_log
+sql/announced.sql   with -announced: {db}.resources merged with the edges' announcements (the consumer's otel_resources)
 ```
 
 ## Design
@@ -100,7 +103,8 @@ with an `INSERT … SELECT` of close records.
 ```sh
 go build -o bin/ ./cmd/...
 export AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… S3_ENDPOINT=http://localhost:18333   # empty: AWS
-bin/aggregator --create sql/aggregator.sql --db k8s_cat --bucket k8s-entities
+bin/aggregator --create sql/aggregator.sql --db k8s_cat --bucket k8s-entities \
+  --announced otel.otel_resources      # optional: merge the edges' announcements (sql/announced.sql)
 bin/entityctl --kubeconfig k.yaml --cluster prod-use1-00 --bucket k8s-entities \
   --static cloud.provider=aws,cloud.platform=aws_eks,cloud.region=us-east-1,cloud.account.id=…,deployment.environment.name=prod \
   --metrics 127.0.0.1:19900            # /stats; also logged every 30 s
@@ -125,6 +129,12 @@ No manifest is written yet.
 | deltas per day [E] | ~0.55 MB | ~3.7 MB |
 | one sync / per day at 10 min [E] | 1.75 MB / 250 MB | 8.9 MB / 1.28 GB |
 
+**Covered attributes are the edges' too.** `rid.CoveredKeys` (+
+`k8s.pod.label.*`) is the list the edges split resources by; `entityctl`
+refuses a `--static` key outside it, and `internal/ctrl/covered_test.go`
+checks that every derived resource hashes to what an edge computes from the
+same attributes.
+
 **Covered attributes follow the agent's rules, not the truth.** The two
 cases the KWOK run caught disagreeing:
 
@@ -143,9 +153,12 @@ record the true owner.
 1. **Agreement after the rule fix is unit-tested only.** Rerun `ridcheck
    agree` on a KWOK cluster with `--edge-cases`.
 2. **Controller outages lose short-lived pods.** A pod that lives and dies
-   entirely inside the outage never reaches the catalog (4 of 4 in a 10-min
-   outage at 24× churn). The mitigation is two replicas per cluster; the
-   merge rule already allows two writers.
+   entirely inside the outage never reaches the controller's catalog (4 of
+   4 in a 10-min outage at 24× churn). Since 2026-09-28 the edges announce
+   every resource they see (../README.md §6.3), and `--announced` merges
+   those into `resources` (`source = 'announce'`, `uncertain = 1`), so only a
+   pod that sent no telemetry stays missing. Two replicas per cluster still
+   help; the merge rule already allows two writers.
 3. **Syncs dominate volume.** Sync at start plus hourly, or write key-only
    syncs.
 4. **No liveness.** A controller that stops for good leaves its cluster's

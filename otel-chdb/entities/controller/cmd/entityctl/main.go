@@ -21,6 +21,7 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/ctrl"
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/lane"
+	"github.com/casselc/observability/otel-chdb/entities/controller/internal/rid"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -58,6 +59,11 @@ func main() {
 		if k, v, ok := strings.Cut(kv, "="); ok {
 			st[k] = v
 		}
+	}
+	// A static key the edges don't cover would put it in every controller
+	// resource_id and in none of the edges': nothing would ever join.
+	if bad := rid.Covered(st); len(bad) > 0 {
+		log.Fatalf("--static keys outside the covered set (internal/rid.CoveredKeys): %v", bad)
 	}
 	var rc *rest.Config
 	var err error

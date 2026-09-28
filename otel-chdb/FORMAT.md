@@ -266,6 +266,18 @@ cluster's stalled lane then holds its own cluster, the fleet value and the
 signals it carries, and nothing else. The query service does this
 (`query/internal/completeness` `Reader.For`).
 
+**Reading at a basis (D30).** Because every value above is sound for its
+lanes and never goes back, a reader can name one (per cluster, `C`) and read
+only rows with `received_at < C`: that set never grows. The bound is
+**strict**: the promise is for `received_at < wm`, and a pending object may
+carry `received_at == wm` exactly. The query service does this for
+`/v1/query` (a per-row filter on the tables' `received_at`) and `/v1/plan`
+(an object's `oscope-received`, from its HEAD or, for an object it could
+not HEAD, from the Parquet footer by the reader, §2). A row with
+`received_at < C` was ingested before the document that allowed `C` was
+written, so its slot's `LastModified` precedes that write; the planner uses
+this (with its clock skew bound) to leave newer objects out without a HEAD.
+
 A reader that gates on it (an alert evaluator, R-S3) evaluates a window
 only once its end is at or below the serving source's `complete_through`
 for the window's scope, pages on a stalled watermark, and labels every

@@ -66,6 +66,7 @@ disagreed with each other, and how each was resolved.
 | [D23](#d23-alert-evaluator-gated-on-the-query-services-label-state-by-compare-and-swap-an-outbox-ledger) | Alert evaluator: rules as data through the query service, evaluated only on `complete` windows, "cannot evaluate" pages, compare-and-swap state on S3 (two replicas, no lease), an outbox ledger with stable dedup keys | **built** (2026-09-28, [`alerts/`](alerts/README.md)): R-S3, AMBIGUITY X5/X6/X11 partly; tested against a fake Alertmanager |
 | [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
 | [D28](#d28-mosaic-vgplot--duckdb-wasm-for-the-lake-uis-analytical-views-fed-by-the-range-reader-proposed) | Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical, cross-filtered views, fed by lakeui's range reader; hyparquet-only stays for search and trace | **proposed** (2026-09-28): spike [`lakeui/mosaic/`](lakeui/mosaic/README.md), [research/mosaic.md](research/mosaic.md); owner to decide |
+| [D30](#d30-the-basis-answers-at-a-named-custody-time) | The basis: every query and plan answer names a custody time per cluster (an HMAC-protected token); a request at a basis reads only rows received before it (strictly), so its answer never changes; deltas between bases; the alert evaluator re-checks evaluated windows for late rows (`on_late`); one basis per dashboard refresh and per lake UI run; caches keyed on it | **built** (2026-09-28): `query/internal/basis`, the service, the lake plan, the adapter and fork patch 0003, the lake UI, the evaluator; [research/bitemporal.md](research/bitemporal.md) §3 |
 
 ---
 
@@ -137,7 +138,7 @@ retire the risks of §4.
 | `model/fastPath.qnt` | `onlyCommittedIngested`, `batchIngestedAtMostOnce`, `noLostBehindCheckpoint` | 1,500 × 40, 23 scenarios; Apalache ≤ 10 steps ([`model/FASTPATH.md`](model/FASTPATH.md), `bd1ae88`) | not applicable: not built ([D6](#d6-no-edge-to-central-fast-path)) |
 | `model/s3Native.qnt` (superseded) | 13 invariants, including `noWriteFromFencedWriter`, `gcKeepsLiveData`, `nsSingleWriter` | 3,000 × 120; Apalache ≤ 6 steps ([`model/S3NATIVE.md`](model/S3NATIVE.md), `30210a5`) | `s3cas` protocol tests only |
 | `model/completeness.qnt` (open scenario: `complete_through` and the alert evaluator; [research §5.4](research/central-optional.md#54-complete_through-a-watermark-for-deterministic-alerts)) | `completeSound` (every request with `received_at` below the published watermark is ingested), `evalWithinComplete`, `okMeansNoErrors`, `noSilentOk`, `resultLabeled`, `wmBounded` | 20,000 × 80; 11 witnesses reached; mutants `lastReceived`, `listTimeIdle`, `maxNotPrefix`, `noBirth`, `evalPastComplete`, `noDataOk`, `unlabeledFallback` caught by simulation and by scripted runs; `noHeartbeat` safe but stalls every window (scripted) (`cadd7a1`); since D29 also per cluster (`clusterSound`, the rule's cluster scope; mutants `scopeMax`, `clusterSplit`). **Finding:** §5.4's rules are unsound (an open requirement, recorded under [D19](#d19-durable-buffer-at-the-edge)) | the watermark: `consumer::tests::complete_through_*` (D19); the evaluator side (`evalWithinComplete`, `noDataOk`, `noSilentOk`): `alerts/` (D23), gated on the query service's label |
-| `model/alertEvaluator.qnt` ([`alerts/`](alerts/README.md), D23) | `evalOnlyComplete`, `resolvedAfterFiringAck`, `noLostEpisode`, `nextMonotone` (two replicas, compare-and-swap with lost answers and writes, a pager that loses answers) | 20,000 × 40; 2 witnesses reached; mutants `evalPastCt`, `ackOnNoAnswer`, `blindWrite` caught (`model/alert_model.sh`, nightly) | `alerts/internal/runner/sim_test.go` (two-replica simulation), `internal/engine/prop_test.go` |
+| `model/alertEvaluator.qnt` ([`alerts/`](alerts/README.md), D23) | `evalOnlyComplete`, `resolvedAfterFiringAck`, `noLostEpisode`, `nextMonotone` (two replicas, compare-and-swap with lost answers and writes, a pager that loses answers) | 20,000 × 40; 2 witnesses reached; mutants `evalPastCt`, `ackOnNoAnswer`, `blindWrite` caught (`model/alert_model.sh`, nightly). Since D30 also late data: `noDoubleCount`, `lateNeverResolves`, `lateOnlyIfHolds`; 3 more witnesses; mutants `lateDouble`, `lateResolves` caught | `alerts/internal/runner/sim_test.go` (two-replica simulation), `simlate_test.go` (with late rows), `internal/engine/prop_test.go` |
 | `model/entityCatalog.qnt` (open scenario: [`entities/`](entities/README.md), STPA LS-5) | `noPermanentOrphan`, `announcedAfterCommit`; `exactAtQuery` (controller up, G ≥ D + LAG); `exactAfterLag` (announcements in the data lane) | 20,000 × 60 on four instances (`sameObject`, as built, since 2026-09-28); mutants `noAnnounce`, `announceEarly`, `sameObjectEarly`, `shortGrace`. **Finding:** a separate announcement lane closes only the permanent gap: rows can land before their announcement (`exactAfterLag` fails); announcements ahead of their rows in the data lane bound the gap to the dictionary lag | **built** ([D21](#d21-entity-catalog-resource_id-at-the-edges-announcements-in-the-data-object)): `tests/dst/fleet.rs` checks `sameLane` (no row lands before its resource's announcement) and announcements exactly once under the fault menu (`hegel_dst` rule `announce`); `entities/scripts/announce_e2e.py` (a pod the controller never saw exact 34.7–59.1 s after its rows, with `LIFETIME(MIN 30 MAX 60)`) |
 | `model/retention.qnt` (open scenario: STPA LS-10, R-S6) | `acceptedVisible` (an acked request is never inserted into an expired partition), `noEdgeDrop`, `custodyAgeBounded` | 20,000 × 50; 6 witnesses; mutants `retentionShort`, `cutDuringOutage`, `capSized` (retention sized as cap ÷ rate) caught; `dropOldest` keeps `acceptedVisible` and breaks `noEdgeDrop`. **Finding:** D19's retention rule was wrong ([D19](#d19-durable-buffer-at-the-edge)) | not applicable (a sizing rule) |
 | `model/sealer.qnt` (open scenario: the lake's snapshot log, [research §5.1](research/central-optional.md#51-the-sealer-is-a-consumer-group-with-a-table-log-sink)) | `monotone`, `repeatableAsOf`, `atMostOncePerSnapshot`, `neverSkipsSealed`, `wmSound` | 20,000 × 40; 5 witnesses; mutants `blindCommit`, `noRebase`, `wmFromList`, `noDedup` (`abe3e97`) | not built |
@@ -2772,6 +2773,116 @@ and scripted runs (`model/open_models.sh`) [Q].
 (sound, and aging); nothing retires a dead lane (above); the per-lane values
 are published but no reader narrows by them; `max_lateness` is still one
 fleet-wide value (X12).
+
+### D30. The basis: answers at a named custody time
+
+**Status:** built (2026-09-28). `query/internal/basis` (token, checks),
+`query/internal/server` (`basis` / `basis_from` on `/v1/query`, `basis` on
+`/v1/plan`, `POST /v1/basis`), `query/internal/sqlscope` (the filter, the
+delta count), `query/internal/lake` (plans at a basis),
+`query/internal/hdxadapter` (basis groups) and the fork's patch 0003,
+`lakeui` (one basis per run, caches), `alerts` (windows at a basis, late
+checks, `on_late`), `model/alertEvaluator.qnt`. Design:
+[research/bitemporal.md](research/bitemporal.md) §3; API: query README
+§2.4.
+
+**Context.** Two answers to the same request a second apart differ: rows
+keep arriving, late rows included (D26). So dashboard panels disagree with
+each other, an alert decision cannot be replayed, D26's late rows are
+counted but not acted on, and a cache is correct only by accident (CAST row
+33, Mosaic's stale cubes). Telemetry is a degenerate bitemporal table:
+event time is valid time, `received_at` (custody, D19) is system time, and
+`complete_through` (D29, per cluster and signal) is "the latest completed
+system time".
+
+**Decision.**
+
+1. **A basis** is `{cluster: C}` (or `{"*": C}` for a fleet caller), the
+   signals it was taken for, and the `max_lateness` in force, each C at or
+   below its cluster's `complete_through` for those signals when issued. An
+   answer at it reads only rows with `received_at < C` of their cluster:
+   **strictly below**, because the consumer's promise is for `received_at <
+   wm` (FORMAT.md §3) and a pending object may carry `received_at == wm`
+   (research/bitemporal.md §3 wrote `≤`; the property test fails with it).
+2. **Every answer names one**: at a basis (`at_basis: true`), or the
+   current one of its scope to pin later requests to. A request sends a
+   token or `"latest"`; `POST /v1/basis` mints one for a dashboard.
+3. **Opaque, versioned, integrity-protected**: `b1.` + payload + HMAC-SHA256
+   under a kid-named service key (`QS_BASIS_KEYS`, rotation by kid). An
+   HMAC, not a signature: only the service mints and verifies; clients get
+   a readable `basis_info`. The MAC is not the scope fence (every use is
+   re-checked); it makes a basis in an audit record, an alert state or a
+   URL one the service issued, with the policy it was issued under.
+4. **Checked on every use**: scope (every named cluster the caller's; a
+   fleet basis only for a fleet caller: **refused, never intersected**, so
+   a basis never widens scope), covered clusters and signals, not above
+   the current `complete_through` (`basis_ahead`), not older than retention
+   and the window not starting before it (`basis_expired`: never answered
+   with less data), a watermark to check against (`basis_unverifiable`).
+5. **Applied as a table filter** (D22's `additional_table_filters`): per
+   cluster `(cluster = c AND received_at < C_c)`; a table without a received
+   column, or a cluster expression under a per-cluster basis, is refused
+   (`basis_unservable`). The label is D26's rule with C in place of
+   `complete_through`.
+6. **The lake plan at a basis** lists only objects received before C:
+   HEAD's `oscope-received`; objects written more than two skews after the
+   basis was issued are left out without a HEAD (a row below C was ingested
+   before the watermark that allowed C was written); undated objects are
+   kept on `LastModified + skew < C` (custody precedes the PUT) or planned
+   with `basis_check` for the reader to decide from the footer. GC
+   truncation of a planned lane refuses the basis (410).
+7. **Deltas**: `basis_from` + `basis` read `C_from ≤ received_at < C_to`;
+   a regressed pair is 409, so a delta never re-counts.
+8. **Alert evaluator**: windows evaluated at `"latest"` and kept with their
+   basis (`late_horizon`); a late check per `late_every` (one span delta,
+   then per window only when it finds rows), a late window re-evaluated at
+   the new basis and handled by `on_late`: `reevaluate` (default: a late
+   episode, `alert_late="true"`, fired then resolved, once per run, `for`
+   over the kept windows; a live pending group's run lengthened), `page`
+   ("late data changed window W"), `ignore`. Late data never resolves
+   anything; a window's basis only moves forward.
+9. **Dashboards and caches**: the HyperDX adapter pins one basis per
+   refresh (`X-Otel-Basis-Group`, fork patch 0003); the lake UI one per run;
+   plans and results are cached only at a basis, keyed on it.
+
+**Alternatives.** A signed token (Ed25519): verifiable by third parties,
+which nobody needs, at more cost. An unprotected readable basis: the
+checks keep scope and stability, but an audit record's basis could be the
+caller's invention and the label's `max_lateness` its choice. `≤ C`: unsound
+(above). Re-running whole windows for late data instead of deltas: one
+query per kept window per check, instead of one per rule; and "old verdict
++ delta" merging: wrong for non-additive aggregates and double-counting
+prone. Intersecting a basis with the caller's scope: silently different
+answers for the same URL.
+
+**Evidence.** Unit and rapid properties: same basis ⇒ same answer while
+rows arrive (late ones included) over a fake central that evaluates the
+filters it is given (mutant `≤` caught); a basis never widens scope;
+refusals run nothing and are audited; tampering; the lake plan at a basis
+equals the exact set under any HEAD budget before and after arrivals (two
+mutants caught); the adapter's 12 concurrent statements of one group read
+at one basis with one mint; the late-data simulation (100 runs, 268 late
+rows, 3 mutants caught); `alertEvaluator.qnt` (`noDoubleCount`,
+`lateNeverResolves`, `lateOnlyIfHolds`; mutants `lateDouble`,
+`lateResolves`) [Q]. Real stack [M]: at a basis, 5 rows, the same label and
+`objects_hash` after new data and a late row; at a newer basis 6; the delta
+1 late row; the fleet's basis 403 for `qa` (query integration, 115 s); the
+evaluator finds 3 late rows 16 s after they were sent and pages per policy,
+counting them once (alerts integration, 185 s). Fork patch 0003 applies to
+`885d30c` after 0001/0002; strict type check of its two logic files and its
+tests' assertions pass without the monorepo's dependencies; jest and the
+full type checks were not run (disk).
+
+**Consequences / open.** A basis is as old as its data can be kept:
+retention (default 90 days) and GC make old bases unanswerable, by refusal.
+Late checks cost one query per rule per `late_every` and state writes (the
+integration test's two replicas needed `max_concurrent` above 4). Keys must
+be shared by every replica; without `QS_BASIS_KEYS` each process mints with
+its own and bases die with it (the evaluator drops such windows from its
+checks, counted). A ClickHouse replica behind the one serving is still not
+in the label (C3), so a basis inherits that gap. An unwindowed statement at
+a basis is stable only until retention removes its oldest rows. The lake
+UI's browser e2e does not exercise the basis yet.
 
 ## 6. Upstream bugs found
 

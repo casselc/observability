@@ -16,6 +16,12 @@ share ([`../research/lake-ui.md`](../research/lake-ui.md) §3, "Shared pieces";
   bridges it to event time, and marks what extends past it (STPA R-S1, R-S2,
   CAST row 26); a windowed answer counts its **late rows** (received more than
   `max_lateness` after their event time);
+- every answer names its **basis** (D30, §2.4): per cluster, a custody time
+  C below that cluster's `complete_through`. A request may send a basis back
+  (or ask for `"latest"`): it then reads only rows received before C, and the
+  same request at the same basis answers the same however much data arrives
+  meanwhile; `basis_from` gives the rows received between two bases (late
+  data, for the alert evaluator);
 - **OIDC** bearer tokens (RS256, the issuer's JWKS), claims mapped to
   clusters, namespaces and roles, **deny by default**; every decision is
   **audited** before anything runs (R-S8);
@@ -50,7 +56,13 @@ in `QS_CH_PASSWORD` (or the variable `central.password_env` names),
 identity, instance role, `AWS_*`), `QS_LAKE_ROOT`, `QS_LAKE_CTL`,
 `QS_CATALOG_DB`, `QS_LAKE_ENABLED`, and the completeness policy
 `QS_MAX_LATENESS_S` (`watermark.max_lateness_s`, default 60) and
-`QS_COUNT_LATE` (`watermark.count_late`, default true), §2.1. An audit path and a bucket are
+`QS_COUNT_LATE` (`watermark.count_late`, default true), §2.1, and the basis
+keys `QS_BASIS_KEYS` (`kid:base64,…`, at least 32 bytes each, the same on
+every replica; `basis.keys_env` names another variable) and
+`QS_BASIS_KEY_CURRENT` (`basis.current`), with `basis.retention_s` (default
+90 days) and `basis.skew_s` (300), §2.4. Without keys the service mints with
+a random per-process key and says so in its log: bases then die with the
+process. An audit path and a bucket are
 required: the service does not start without somewhere to record decisions,
 or without `{ctl}/watermark.json` to label results with.
 
@@ -195,6 +207,19 @@ runs.
   | 503 | `audit_unavailable`, `catalog_unavailable` | the decision could not be recorded, so nothing ran; a catalog-scoped table and no catalog answer |
   | 403 | `central_access_denied` | ClickHouse's grants refused what the allow-list passed: the two disagree (alert on it) |
   | 502 | `central_error` | ClickHouse unreachable or another error |
+  | 400 | `basis_invalid`, `basis_scope`, `basis_unservable`, `basis_from_needs_basis` | not a basis this service issued (tampered, another deployment's key, a rotated-out key); the request reads clusters or signals the basis does not cover; a table read has no received column (or no cluster expression under a per-cluster basis); `basis_from` without `basis` (§2.4) |
+  | 403 | `basis_not_in_scope` | the basis names a cluster outside the token (or is a fleet basis and the token is not): **refused, never intersected** |
+  | 409 | `basis_ahead`, `basis_regressed` | a bound above the scope's current `complete_through` (an answer there would not be stable); `basis_from` above `basis` for a cluster |
+  | 410 | `basis_expired` | a bound older than retention, a window starting before it, or (plans) GC deleted slots the answer at the basis held: **never answered with less data** |
+  | 503 | `basis_unverifiable` | no watermark to mint or check a basis with (or `gc.json` unreadable, plans) |
+
+`basis` / `basis_from` (optional, D30): see §2.4. The answer then says
+`"at_basis": true` and names the basis in `basis` and `basis_info`; with
+`basis_from` it also carries `delta` (`status`, `rows`, `tables`: the rows
+the delta admits, counted under the same filters). Without `basis`, the
+answer reads up to now (`"at_basis": false`) and `basis` is the current
+basis of its scope, to pin later requests to (null when the watermark is
+unknown).
 
 ### 2.2 `POST /v1/plan` (role `plan`)
 
@@ -307,9 +332,112 @@ Config `lake.index`: `disabled`, `max_mb_per_plan` (64), `cache_mb` (128).
 Metrics `qs_plan_index_objects_total{outcome}`, `qs_plan_index_errors_total`,
 `qs_plan_index_bytes_total`. Refusals: 400 `bad_trace_id`, `bad_filter`.
 
+**At a basis** (`"basis": "<token>"` or `"latest"`, D30, §2.4) the plan
+lists only objects received before the bound of their cluster, so a
+re-plan at the same basis lists the same objects (fresh URLs, the same
+`objects_hash`) however much data arrives: an object whose HEAD gives
+`oscope-received` at or above the bound is left out (`after_basis`
+counts them); an object written (S3's `LastModified`) more than two
+`skew_s` after the basis was issued is left out without a HEAD (a row below
+the bound was ingested before the watermark that allowed it was written,
+so before the basis existed); an object the plan cannot date (over the HEAD
+budget, a failed HEAD, no `oscope-received`) is planned on its
+`LastModified` when that proves it in (`LastModified + skew_s` below the
+bound: custody precedes the PUT), and otherwise with **`"basis_check":
+true, "received_before_ns": C`**: the reader reads its Parquet footer first
+and drops it unread unless the footer's `oscope-received` is below C (data
+objects repeat it there, FORMAT.md §2; no key is an error, never a keep).
+`basis_unverified` counts those. GC truncation of a planned lane is `410
+basis_expired` (the older rows are in central: `/v1/query` at the same
+basis), `gc.json` unreadable `503 basis_unverifiable`. The last rule of the
+plan's `rules` is replaced by the two basis rules. A plan without a basis
+still names the current one in `basis`.
+
 No Iceberg-REST `loadTable` yet: it needs the sealer's metadata.
 
-### 2.3 `/healthz`, `/metrics`
+### 2.3 `POST /v1/basis` (role `query` or `plan`)
+
+```json
+{"clusters": ["prod-eu-1"], "signals": ["logs"]}
+```
+
+Mints the current basis for a scope without running anything (both fields
+optional: the token's clusters, a fleet basis for a fleet caller; every
+signal, which is valid for any table and is the lowest value). A dashboard
+pins one per refresh and sends it with every panel (the HyperDX adapter's
+basis groups, §8.3). Answer: `request_id`, `basis`, `basis_info`, and the
+watermark block. Audited like the other endpoints.
+
+### 2.4 The basis (D30)
+
+A basis is **a named custody time per cluster**: `{cluster: C}` (or `{"*":
+C}` for a fleet caller), the signals it was taken for, and the
+`max_lateness` in force, as an opaque token plus a readable `basis_info`:
+
+```json
+"basis": "b1.eyJ2IjoxLCJrIjoi….xTIfilKxbSp…",
+"at_basis": true,
+"basis_info": {"version": 1, "issued_at": "…", "issued_ns": …, "signals": ["logs"], "max_lateness_s": 60,
+               "clusters": [{"cluster": "prod-eu-1", "received_before": "2026-09-28T12:59:31.2Z", "received_before_ns": 1790…}],
+               "rule": "An answer at this basis reads, per cluster, only rows with received_at < received_before; …"}
+```
+
+- **Minted** from the watermark of the request's scope (D29's per-cluster,
+  per-signal values, `Reader.For`): each C is at or below its cluster's
+  `complete_through`, so every row with `received_at < C` was in central
+  when the basis was issued, and none can be added later. An answer at the
+  basis therefore **never changes** while new data arrives (until retention
+  removes rows).
+- **Strictly below.** The filter is `received_at < C`, not `≤`: the
+  consumer promises "every request with `received_at < wm` is ingested"
+  (FORMAT.md §3), and a pending object may carry `received_at == wm`. (The
+  rapid property below fails with `≤` on its first run.)
+- **Applied** through the per-table filter the service already injects
+  (`additional_table_filters`, §3): `((cluster = 'a' AND received_at <
+  C_a) OR (cluster = 'b' AND received_at < C_b))`, or `received_at < C` for
+  a fleet basis. Every table read needs its `received_column`, and a
+  per-cluster basis its cluster expression (`cluster_expr`, now also read
+  for `catalog` and `fleet` tables); a table without them is **refused**
+  (`basis_unservable`), never read unbounded. Metadata tables are schema and
+  are not filtered. The late-row count runs under the same filters (and the
+  basis's `max_lateness`), so it is reproducible too.
+- **Checked on every use**: the token's MAC (`basis_invalid`); every
+  cluster it names must be the caller's, a fleet basis needs a fleet caller
+  (`basis_not_in_scope`: a basis never widens scope, and one for other
+  clusters is refused, not intersected); the request's clusters must be
+  covered (`basis_scope`; without `clusters` a request at a per-cluster
+  basis runs over the basis's clusters) and its tables' signals too; each C
+  at or below the scope's current `complete_through` (`basis_ahead`, 409:
+  defence in depth, since a basis the service issued can only fall behind);
+  C and the window's start (minus `skew_s`) not older than retention
+  (`basis_expired`, 410).
+- **The label** at a basis is D26's rule with the basis's lowest C in place
+  of `complete_through` and the basis's own `max_lateness`: `complete` once
+  C ≥ the window's end + `max_lateness`, else `partial` from C −
+  `max_lateness`; never `unknown` (the basis was checked). The `watermark`
+  block still reports the watermark as it is now.
+- **`"basis": "latest"`** mints the basis from the watermark now and
+  answers at it (one round trip); `basis_from` must be a token.
+- **Deltas** (`basis_from` with `basis`): the rows with `C_from ≤
+  received_at < C_to` per cluster, in the window and scope; both tokens are
+  checked like `basis`, must cover the same clusters and signals, and a
+  `basis_from` above `basis` for any cluster is `409 basis_regressed` (a
+  delta never re-counts rows). The answer's `delta.rows` counts them per
+  table; in a window evaluated at `C_from` past its end + `max_lateness`,
+  they are exactly the window's late rows.
+- **The token**: `b1.` + base64url(JSON payload) + `.` + base64url(HMAC-SHA256
+  under the key its payload names). An HMAC, not a signature: only this
+  service mints and verifies bases (every replica holds the keys), and
+  clients get the readable form beside it. The MAC is not what keeps scope
+  (every use is re-checked against the token and the watermark); it makes a
+  basis in an audit record, an alert's state or a dashboard URL one the
+  service issued, with the policy it was issued under. Keys rotate by kid:
+  mint with the new one, keep the old one in `QS_BASIS_KEYS` while its bases
+  matter.
+- **Audit**: decisions at a basis record its bounds (`basis`, and
+  `basis_from` for a delta).
+
+### 2.5 `/healthz`, `/metrics`
 
 `GET /healthz` is liveness: 200 with the watermark's status and age (a stale
 watermark labels results; it does not stop them). `GET /metrics`
@@ -539,6 +667,37 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
   statement's filters, limits and `query_id`-late, reports per table and
   uncounted tables, `no_window`, `disabled` and a failed count (the result
   stands); plans mark late objects.
+- **`internal/basis`**: tokens round-trip; tampered, foreign-key, rotated-
+  out, oversized and malformed tokens are `basis_invalid`; a rapid property
+  that any single-byte change is refused or decodes to the same basis;
+  scope (never intersected, fleet bases), signals, `basis_ahead`,
+  `basis_expired` (bound and window), deltas.
+- **`internal/sqlscope`** (`basis_test.go`): the per-cluster filter, the
+  delta's lower bound, a fleet bound, metadata unfiltered, and
+  `basis_unservable` for a table without a received column or cluster
+  expression.
+- **`internal/server`** (`basis_test.go`, over a fake central that
+  evaluates the `additional_table_filters` it is given on in-memory rows):
+  the **rapid property** "the same basis gives the same answer while data
+  keeps arriving" (rows arrive received at or after their cluster's
+  `complete_through`, late event times included; the watermark moves per
+  cluster; bases are pinned for the fleet, one cluster or two; every re-read
+  equals the pin and every `latest` answer equals the rows received before
+  the bounds); a basis never widens scope (8 cases, and every refusal
+  audited); refusals (invalid, foreign key, ahead, expired, window before
+  retention, a logs basis for traces, a table without a received column,
+  `basis_from` alone or `latest`, no watermark) run nothing; deltas count
+  exactly the rows between two bases and a regressed pair is 409. Mutant:
+  `≤` in place of `<` fails the property. `basis_plan_test.go`: a plan at a
+  basis keeps its `objects_hash` after a new object and a late object
+  arrive, a newer basis has both; undated objects planned by
+  `LastModified` or with `basis_check`; objects written long after the
+  basis left out without a HEAD; scope, signal and GC refusals.
+  `internal/lake` (`basis_test.go`): a rapid property over generated lanes,
+  HEAD budgets and later arrivals: a plan at a basis, read as its rules say,
+  holds exactly the objects received before their cluster's bound that
+  overlap the window, before and after new data (mutants: dropping the
+  custody check, a loose `LastModified` shortcut: both fail).
 - **`integration`** [M] (97 s, 80 of them the late-row story): the Go edge (`otelcol-s3pq`,
   [`../conformance/go-edge.yaml`](../conformance/go-edge.yaml)) publishes
   logs and spans for clusters `qa` and `qb` (two namespaces each) to
@@ -563,7 +722,14 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
   objects, each GET 200 with the planned size and a Parquet header, HEAD
   with the same URL 403; `qa` asking for `qb` is 403, `qa/shop` is 403; the
   fleet plans both clusters; 42 audit lines. Everything is named `qs-…` /
-  `qs_…` and removed. Nightly in CI (`query-integration`).
+  `qs_…` and removed. Nightly in CI (`query-integration`). **The basis**
+(D30, 2026-09-28, 115 s in all): `qa`'s count over a closed window at
+`latest` (5 rows, `complete`) and its plan; a late row into the same window
+and current rows through both real edges, the consumer and the watermark;
+at the same basis: 5 rows, the same label, the same `objects_hash`; at a
+newer basis: 6 (all central holds); the delta between the two: 1 row, and
+it is late; a regressed pair 409; the fleet's two-cluster basis 403 for
+`qa`'s token, 200 for the fleet narrowed to `qb`.
 
 ## 7. What's next
 
@@ -581,9 +747,11 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
    lateness` (D26), page on
    `unknown` for longer than a bound and on a failed evaluation, and never
    read "no data" as OK; paging per X6.
-4. **The sealer's snapshots** replace the LIST (snapshot ids in plans,
-   as-of reads, an Iceberg-REST `loadTable`), and per-file `resource_id`
-   ranges make catalog-scoped lake plans possible.
+4. **The sealer's snapshots** replace the LIST (snapshot ids in plans, an
+   Iceberg-REST `loadTable`), and per-file `resource_id` ranges make
+   catalog-scoped lake plans possible. As-of reads by custody time exist
+   without them since D30 (the basis, §2.4); a snapshot would make a basis
+   plan a lookup instead of a LIST and HEADs.
 5. **R-S5's second half**: count rows whose `resource_id` the catalog lacks
    (`resource_evidence`), per result or as a metric.
 6. ~~**Per-cluster `complete_through`**~~ done (D29): per cluster and per
@@ -694,7 +862,26 @@ On every answer (except schema answers, `X-Otel-Source: metadata`):
 `X-Otel-Dropped-Settings`, and since D29 `X-Otel-Watermark-Scope`
 (`clusters=…; signals=…`: whose `complete_through` this is) and
 `X-Otel-Watermark-Holding` (the scope's lanes holding it, with their lag);
-exposed for CORS. The fork records them per statement and shows the worst
+since D30 `X-Otel-Basis` (the token the answer was computed at, or the
+current one), `X-Otel-At-Basis` (`true`/`false`) and `X-Otel-Basis-Info`
+(`cluster<RFC 3339; …`); exposed for CORS.
+
+**One basis per dashboard refresh** (D30). The fork (patch 0003) sends
+`X-Otel-Basis-Group: <id>` with every statement of a page load or refresh
+(the id changes with the page load and the searched time range). The first
+statement of a group asks the service for a basis (`POST /v1/basis`, the
+caller's scope, every signal) and the adapter keeps it for the group,
+keyed by the caller's token too (`basis_group_ttl_s`, 900; `basis_groups`,
+10,000), so the refresh's concurrent statements all read at one basis; a
+basis the service stops accepting (`basis_invalid` after a restart with a
+per-process key, `basis_expired`) is re-minted once. `X-Otel-Basis:
+<token>` is passed through as is (a shared, pinned view). A malformed
+header is `BAD_ARGUMENTS` (36); a basis refusal from the service is
+`BAD_ARGUMENTS` with its reason in `X-Otel-Refusal`. Tests
+(`internal/hdxadapter/basis_test.go`): 12 concurrent statements of one
+group read at one basis with one mint; another group, another caller, an
+explicit basis, none; a refused group basis re-minted once, an explicit one
+never. The fork records them per statement and shows the worst
 on the page (fork README, patch 0002; the two D29 headers are not shown by
 the patch yet).
 

@@ -72,6 +72,9 @@ rules:
     severity: page
     identity: default
     clusters: [prod-eu-1]       # optional (D29): narrows the identity's scope; rows and complete_through are these clusters'
+    on_late: reevaluate         # D30 (default; or page, ignore): what rows received after a window was evaluated do (§3.1)
+    late_horizon: 1h            # how long after its end a window is re-checked for late rows (at most 360 windows)
+    late_every: 1m              # how often (default: every, at least 1 m)
     labels: {team: sre}
     annotations: {summary: "{{labels.service}}: {{value}} errors"}
     cannot_evaluate_after: 5m   # default evaluation.cannot_evaluate_after_s
@@ -160,6 +163,56 @@ Per rule and tick (`tick_s`), each replica:
    `max_backlog_s` (6 h) are skipped and counted
    (`alr_windows_skipped_total`, which pages from Prometheus), not paged
    one by one.
+
+### 3.1 Late data (D30)
+
+**Each window is evaluated at a basis**: the evaluator asks for `"basis":
+"latest"`, so the answer holds exactly the rows received before the
+basis's bound per cluster (query README §2.4), and records the window with
+that basis and the groups that held (`recent` in the state, kept for
+`late_horizon`). Re-running the rule's statement at that basis gives the
+same answer: the decision can be audited and replayed.
+
+**Late rows** are the window's rows received after that basis (a row later
+than `max_lateness + lateness`, or held at an edge through an outage). Every
+`late_every` the evaluator looks for them as a **delta**: first one query
+over all the kept windows (the span from the first window's start to the
+last one's end, `basis_from` the lowest recorded basis, `basis` the
+latest); a delta of zero rows proves no kept window has late rows, and
+every window moves to the new basis. Otherwise each window (oldest first,
+5 per tick) gets its own delta from its own basis to that same new one; a
+window with rows is **re-evaluated at the new basis** (one query over the
+whole window, never "old verdict + delta", so no row is counted twice) and
+handled by the rule's `on_late`:
+
+| `on_late` | what late rows that change the verdict do |
+|---|---|
+| `reevaluate` (default) | a group that now holds, and did not, fires a **late episode** if its run of holding windows (the kept windows, with the late rows) satisfies `for`: its own dedup key (episode `late-{window end}`), labels `alert_late="true"`, an annotation saying how many rows came late; it is sent firing, then resolved (the windows are past). A live **pending** group whose run the late rows lengthen back to the window moves its start back, and fires as a live episode (marked `fired_by_late_data`) if that satisfies `for`. Once per run: more late rows into the same run do not page again. |
+| `page` | a window whose set of holding groups changed sends one `AlertLateData` notice ("late data changed window W": the groups now holding, those no longer holding, the late row count), fired then resolved. Alert state is unchanged. |
+| `ignore` | windows are not kept or checked. |
+
+**Safety.** Late data **never resolves anything and never touches a firing
+group**: a firing alert resolves only by a later window evaluated in order
+(a late row that makes a window stop meeting the condition updates the
+record, nothing else). A window's basis **only moves forward** (a delta sets
+it to the delta's upper basis; the next starts there; the service refuses a
+`basis_from` above `basis`, `409 basis_regressed`, which the evaluator reads
+as "try later"), so no late row is counted twice. A basis the service stops
+accepting (a restart with a per-process key; retention) drops that window
+from the checks, counted in the state's `late_lost`. The checks are state
+writes like evaluations (compare-and-swap; two replicas compute the same
+result from the same bases).
+
+**Cost.** One query per rule per `late_every` while nothing is late; per
+late window, one delta and one re-evaluation. In the integration test two
+replicas running three rules of one identity with 2 s checks exceeded the
+service's default `max_concurrent` (4): a 429 is a failed evaluation and
+pages, so size `limits` for evaluators with late checks (the test sets 16).
+The state grows by the kept windows: the holding groups of each, up to
+`late_horizon` / `every` windows (360 at most).
+
+Metrics: `alr_late_checks_total{rule,kind,outcome}` (`span` / `window`),
+`alr_late_rows_total{rule}`, `alr_late_windows{rule}`, `alr_late_episodes{rule}`.
 
 ## 4. State, and two replicas (X11)
 
@@ -251,6 +304,8 @@ document. `GET /metrics`:
 | `alr_notices_undelivered{rule}`, `alr_notice_oldest_undelivered_seconds{rule}` | notices whose current phase the pager has not acknowledged |
 | `alr_state_writes_total{outcome}`, `alr_state_errors_total{op}` | `ok`, `ambiguous_landed`, `conflict`, `ambiguous_lost`, `error` |
 | `alr_rules_skipped_total{rule}`, `alr_last_tick_seconds` | |
+| `alr_late_checks_total{rule,kind,outcome}`, `alr_late_rows_total{rule}` | late-data deltas (§3.1) by `span`/`window` and outcome; late rows found in evaluated windows |
+| `alr_late_windows{rule}`, `alr_late_episodes{rule}` | windows kept for late checks; late episodes and late-data notices raised |
 
 **The second channel** is Prometheus, not alertd:
 [`../deploy/alerts/alert-evaluator.rules.yaml`](../deploy/alerts/alert-evaluator.rules.yaml)
@@ -280,10 +335,21 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
   and every episode is delivered once the pager recovers; the rule pages
   exactly when stuck. Mutants caught: partial read as complete, a
   resolution sent first, no answer read as delivered.
+- **`internal/engine`** (`late_test.go`, D30): windows kept with their
+  basis and trimmed by the horizon; a clean check moves bases forward,
+  never back; incomparable bases skip the span check; `reevaluate` raises a
+  late episode once per run (sent firing, then resolved) and never resolves
+  a firing group when late rows make it stop holding; `for` over the run,
+  a live pending group's run lengthened fires live; `page` sends one notice
+  per changed verdict and none for an unchanged one.
 - **`internal/qclient`**: the label gate on every field (a property: an
   answer is `complete` exactly when every condition holds), status codes,
   bad values, lateness; client credentials and one retry after a 401; a
-  token file; a timeout is a failure.
+  token file; a timeout is a failure. D30: an answer at a basis records it
+  (and one not at it does not); no watermark to mint from is `unknown`, not
+  a failure; deltas (`InterpretDelta`: 409 → try later, no counted delta →
+  a failure, never "no late rows"); evaluations send `basis: latest`, deltas
+  `basis_from` + `basis`.
 - **`internal/runner`**: catching up 30 minutes in order at 5 windows per
   tick, each window answered complete once; a stalled lane pages after the
   bound with the lanes and clusters, the reason turns to a stale watermark,
@@ -302,13 +368,39 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
   resolution before its firing's 2xx), and that every cannot-evaluate page
   resolved. 1,000 runs in 10 s [M]. Mutants caught: a store without the
   precondition (the history goes back), no answer read as delivered.
+- **The late-data simulation** (`runner/simlate_test.go`, `rapid`, D30): the
+  same two replicas, faults and interleavings, over a query service whose
+  rows have custody times (on-time rows, and late rows received 2–20 min
+  after their window) and which answers at bases and deltas; rules with
+  `>=` and `<` conditions, `for` 0–2 min, `reevaluate` or `page`. Each run
+  checks the committed history (a firing notice turns resolved only through
+  a window evaluated in order in that very commit; a window's basis never
+  goes back), that every kept window's `late_rows` equals the late rows
+  received between the basis it was evaluated at and the one it was last
+  checked at (no row counted twice or missed), that its verdict is the
+  verdict at that basis, and that a late episode is raised only for a group
+  that holds. 100 runs: 268 late rows found, 177 windows revised, 56 late
+  episodes or notices [M]. Mutants caught: late data resolving a firing
+  group, a window's basis not advanced after a late delta (counted again),
+  a span check that ignores its rows (late rows missed).
 - **`../model/alertEvaluator.qnt`** [Q]: two replicas, compare-and-swap with
   lost answers and lost writes, `complete_through` advancing, a pager that
   takes a send and loses the answer. `evalOnlyComplete`,
   `resolvedAfterFiringAck`, `noLostEpisode`, `nextMonotone` hold over
   20,000 × 40-step traces; the witnesses are reached; mutants
   `evalPastCt` (also loses an episode: LS-7's story), `ackOnNoAnswer`,
-  `blindWrite` are caught (`alert_model.sh`).
+  `blindWrite` are caught (`alert_model.sh`). **Late data** (D30): windows
+  evaluated at a basis `ct + 1`; late rows arriving after `complete_through`
+  that flip a window's verdict either way; a late check per window (delta,
+  re-evaluation, the basis moved forward, a late episode when the window
+  now holds outside the live episode). `noDoubleCount` (each window counted
+  exactly its late rows between its evaluation basis and its current one),
+  `lateNeverResolves` (every resolved live episode was resolved by a window
+  evaluated in order whose verdict at its basis did not hold) and
+  `lateOnlyIfHolds` hold with the rest over 20,000 × 40; witnesses (a late
+  row counted, a late episode acknowledged resolved, a changed verdict)
+  reached; mutants `lateDouble` (the basis not moved) and `lateResolves`
+  (a late check resolves the live episode) caught.
 - **`integration`** [M] (160 s): the Go edge for clusters `aa` and `ab`,
   SeaweedFS, the Rust consumer (`consume run` and `consume watermark`
   pumped every ~2 s), ClickHouse with a read-only user, **queryd built from
@@ -326,7 +418,14 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
   with a third replica: the missed windows are evaluated in order, the
   stall's errors page for the fleet rule 13 s after recovery (evaluation
   delay 90 s), the pages resolve, no window was skipped, no episode appears
-  under two keys. Everything is named `alr-…` / `alr_…` and removed. (The
+  under two keys. **Late data** (D30, between the first phase and the
+  stall): two rules on WARN rows (`on_late: reevaluate` and `page`,
+  `late_every: 2s`); once both evaluated a past window with nothing
+  holding, 3 WARN rows with event times in it are sent through the edge
+  now: 16 s later the reevaluate rule pages a late episode (`alert_late`,
+  episode `late-…`) and resolves it, the page rule sends "late data changed
+  window [19:18:00, 19:18:10)", no live alert fires, and the state counts
+  the 3 late rows once (185 s in all). Everything is named `alr-…` / `alr_…` and removed. (The
   service's `max_age_s` is 30 and `cannot_evaluate_after` 45 s: one pump
   cycle, `consume run` then `consume watermark`, takes 13–16 s on the shared
   test box, which a 12 s `max_age_s` read as a stale watermark.)
@@ -334,12 +433,11 @@ QUINT_BACKEND=typescript ../model/alert_model.sh           # the Quint model
 
 ## 8. What it does not do
 
-1. **Late rows.** `complete_through` bounds `received_at`; windows are event
-   time. A row received more than `max_lateness + lateness` after its event
-   time is not in its window's evaluation. Since 2026-09-28 the query service
-   counts such rows in every windowed answer (`late`, D26), but the
-   evaluator does not yet act on the count (e.g. re-evaluate a window whose
-   late rows appeared, or page on them).
+1. **Late rows** (handled since D30, §3.1): rows received after a window's
+   basis are found by the late check within `late_horizon` and handled by
+   `on_late`. Past the horizon they are not checked; a late episode is not
+   a live alert (it is sent and resolved at once), and `for` is judged over
+   the kept windows only.
 2. **The fleet minimum.** `complete_through` is the minimum over every
    lane, so one cluster's stalled edge stops every rule, a single-cluster
    rule included (the integration test's `aa` rule paged for `ab`'s stall).

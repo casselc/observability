@@ -66,11 +66,35 @@ localhost), **[E]** estimate.
   are kept by key across re-plans (slots are create-only). A refused plan
   (401/403/413) is rendered as a refusal, with the service's reason.
 
+- **One basis per view load** (D30; query README §2.4): the first plan of a
+  run asks for `"basis": "latest"`, and every re-plan and the second
+  (detail) pass ask for the basis that answered, so one run reads one set
+  of objects however much data arrives while it loads (a plan at a basis
+  lists only objects received before its bound; a re-plan lists the same
+  ones with fresh URLs). A plan that is not at the pinned basis is refused
+  (`bad_plan`), never mixed in. An object the plan could not date
+  (`basis_check`) is read footer first and dropped unless its
+  `oscope-received` is below `received_before_ns`; a footer without it
+  fails the query, naming the object. "Hold the basis" reuses the last
+  run's basis for the next run. The stats line says which basis the run
+  read at (per cluster), how many newer objects the plan left out, and
+  whether the answer came from the cache; a service without bases is said
+  to be "not at a basis".
+- **Caches keyed on the basis** (`src/planclient.js`, `src/engine.js`): a
+  plan is cached only when it is at a basis, under that basis (and still
+  reused only before `replan_after`: its URLs expire); a result only at a
+  basis, under the basis and the query (50, oldest out): an answer at a
+  basis never changes. A request for `latest` or without a basis is never
+  answered from a cache, and nothing without a basis is kept (CAST row 33's
+  rule: every cache keys on the data version, and the basis is it).
+
 ## What doesn't (yet)
 
-- **No snapshots / as-of**: the service plans from a LIST (no sealer); a later
-  plan may include objects this one didn't (rule 4). The page says "no
-  snapshot".
+- **No snapshots**: the service plans from a LIST (no sealer), at a basis
+  since D30 (so a re-plan lists the same objects), but each plan is still a
+  LIST and HEADs, not a lookup. The basis is covered by the unit tests
+  and the query service's integration test; the Playwright e2e does not
+  exercise it yet.
 - **Namespace-scoped viewers are refused** by the service
   (`namespace_scope_needs_filtering_reader`): raw objects hold every
   namespace. They need `/v1/query` (not wired into this UI).
@@ -102,12 +126,12 @@ localhost), **[E]** estimate.
 | `index.html`, `app.css`, `src/app.js` | the page (DOM wiring only) |
 | `src/ns.js` | RFC 3339 ↔ BigInt ns; JSON with exact `*_ns` integers (they exceed 2^53) |
 | `src/oidc.js` | discovery, PKCE, code exchange, claims |
-| `src/planclient.js` | `/v1/plan`: request, answer checks (a plan it cannot trust is refused, not read partly), error kinds, the plan cache |
+| `src/planclient.js` | `/v1/plan`: request, answer checks (a plan it cannot trust is refused, not read partly), error kinds, the plan cache (keyed on the basis) |
 | `src/rangereader.js` | hyparquet `AsyncBuffer` over one presigned URL: `Range` GETs, size checks, byte counting, typed errors |
 | `src/parquet.js` | footer, row-group pruning (a truncated string max never prunes a value that extends it), column reads, BigInt timestamps |
 | `src/completeness.js` | segments, row/bucket/result states, banner words |
 | `src/runner.js` | the re-plan state machine |
-| `src/queries.js`, `src/engine.js` | the three views' reads and merges (a plan object's `row_groups` narrows the read); plan → read → merge → label; a query's `filter` goes to the planner |
+| `src/queries.js`, `src/engine.js` | the three views' reads and merges (a plan object's `row_groups` narrows the read); plan → read → merge → label; a query's `filter` goes to the planner; one basis per run, footer checks, the result cache (D30) |
 | `src/charts.js` | SVG histogram, line chart, waterfall |
 | `test/` | `node:test` + fast-check, with three real edge objects as fixtures |
 | `e2e/` | Playwright against the real stack (`../query/integration/lakeuirig`) |
@@ -115,7 +139,7 @@ localhost), **[E]** estimate.
 ## Tests
 
 ```
-npm ci && npm test           # 42 unit and property tests, ~15 s
+npm ci && npm test           # 47 unit and property tests, ~15 s (D30: the basis pinned per run, the caches keyed on it, footer checks)
 npm run vendor:check         # vendor/ == the pinned packages
 QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123, SeaweedFS :18333 (ci/services.sh)
 ```

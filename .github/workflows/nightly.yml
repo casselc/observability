@@ -205,6 +205,30 @@ jobs:
         if: failure()
         run: ci/services.sh logs || true
 
+  # The query service's KMS basis signer against moto server's KMS
+  # (DECISIONS D30 amendment 2026-09-28): startup check, two replicas,
+  # tampering, latency.
+  query-kms-emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - name: moto server
+        run: pipx install 'moto[server]==5.2.3'
+      - name: ci/kms-emulator.sh
+        run: ci/kms-emulator.sh
+
   # The HyperDX adapter (otel-chdb/query/integration/hdxadapter): HyperDX
   # 2.39.1's 799 captured statements through the adapter and the query service
   # onto ClickHouse, each answer compared with ClickHouse's own; the same for

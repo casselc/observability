@@ -12,7 +12,9 @@
 // (FORMAT.md §3); a pending object may carry received_at == wm exactly.
 //
 // The token is opaque to clients, versioned, and integrity-protected with
-// an HMAC-SHA256 under a service key (kid-tagged, so keys rotate). Why an
+// an HMAC-SHA256 under a service key (kid-tagged, so keys rotate): a static
+// shared key (Keyring) or an AWS KMS HMAC key (KMSSigner), both behind
+// Signer and Bases (signer.go, kms.go; D30 amendment 2026-09-28). Why an
 // HMAC and not a signature: only the query service mints and verifies
 // bases (every replica holds the key); nobody else needs to verify one
 // without asking the service, and the readable form (View) travels beside
@@ -27,13 +29,11 @@
 package basis
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -216,24 +216,21 @@ func (k *Keyring) Encode(b Basis) (string, error) {
 	if err := check(&b); err != nil {
 		return "", err
 	}
-	w := wire{V: Version, K: k.current, T: b.IssuedNs, C: b.Clusters, S: b.Signals, L: b.MaxLatenessNs}
-	if w.S == nil {
-		w.S = []string{"*"}
-	}
-	body, err := json.Marshal(w)
+	p, err := payload(k.current, b)
 	if err != nil {
 		return "", err
 	}
-	payload := base64.RawURLEncoding.EncodeToString(body)
-	return prefix + payload + "." + base64.RawURLEncoding.EncodeToString(k.mac(k.current, payload)), nil
+	return prefix + p + "." + base64.RawURLEncoding.EncodeToString(k.mac(k.current, []byte(prefix+p))), nil
 }
 
-func (k *Keyring) mac(kid, payload string) []byte {
+// mac is HMAC-SHA256(key, msg); msg is "b1." + payload.
+func (k *Keyring) mac(kid string, msg []byte) []byte {
 	m := hmac.New(sha256.New, k.keys[kid])
-	m.Write([]byte(prefix))
-	m.Write([]byte(payload))
+	m.Write(msg)
 	return m.Sum(nil)
 }
+
+func hmacEqual(a, b []byte) bool { return hmac.Equal(a, b) }
 
 // ErrInvalid is every reason a token is not a basis this service issued.
 var ErrInvalid = errors.New("basis_invalid")
@@ -244,49 +241,16 @@ func invalid(format string, a ...any) error {
 
 // Decode verifies tok's MAC under the key it names and returns the basis.
 func (k *Keyring) Decode(tok string) (*Basis, error) {
-	if len(tok) > MaxTokenBytes {
-		return nil, invalid("the token is longer than %d bytes", MaxTokenBytes)
+	// the key id is inside the payload: parse, then verify, then trust
+	pl, mac, b, err := parse(tok)
+	if err != nil {
+		return nil, err
 	}
-	if !strings.HasPrefix(tok, prefix) {
-		return nil, invalid("not a version-%d basis token", Version)
+	if !k.Holds(b.Kid) {
+		return nil, invalid("unknown key %q (rotated out, or another deployment's)", b.Kid)
 	}
-	payload, sig, ok := strings.Cut(tok[len(prefix):], ".")
-	if !ok || strings.Contains(sig, ".") {
-		return nil, invalid("malformed token")
-	}
-	body, err1 := base64.RawURLEncoding.DecodeString(payload)
-	mac, err2 := base64.RawURLEncoding.DecodeString(sig)
-	if err1 != nil || err2 != nil {
-		return nil, invalid("malformed token encoding")
-	}
-	// the key id is inside the payload: read it, then verify, then trust
-	var head struct {
-		K string `json:"k"`
-	}
-	if err := json.Unmarshal(body, &head); err != nil {
-		return nil, invalid("malformed payload")
-	}
-	if _, ok := k.keys[head.K]; !ok {
-		return nil, invalid("unknown key %q (rotated out, or another deployment's)", head.K)
-	}
-	if !hmac.Equal(mac, k.mac(head.K, payload)) {
+	if !hmac.Equal(mac, k.mac(b.Kid, []byte(prefix+pl))) {
 		return nil, invalid("integrity check failed")
-	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	var w wire
-	if err := dec.Decode(&w); err != nil {
-		return nil, invalid("payload: %v", err)
-	}
-	if w.V != Version {
-		return nil, invalid("version %d", w.V)
-	}
-	b := &Basis{Version: w.V, Kid: w.K, IssuedNs: w.T, Clusters: w.C, Signals: w.S, MaxLatenessNs: w.L}
-	if len(b.Signals) == 1 && b.Signals[0] == "*" {
-		b.Signals = nil
-	}
-	if err := check(b); err != nil {
-		return nil, invalid("%v", err)
 	}
 	return b, nil
 }
@@ -385,4 +349,8 @@ type Answer struct {
 	// C <= received_at < basis's C).
 	BasisFrom     *string `json:"basis_from,omitempty"`
 	BasisFromInfo *View   `json:"basis_from_info,omitempty"`
+	// BasisUnavailable: why a plain answer names no basis although the
+	// watermark is known (basis_signer_unavailable: the signer, e.g. KMS,
+	// could not mint one). The answer itself is unaffected.
+	BasisUnavailable string `json:"basis_unavailable,omitempty"`
 }

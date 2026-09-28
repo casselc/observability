@@ -31,6 +31,7 @@ against a fake store; README §Local checks).
 | EKS-10 | Exactly once end to end on real S3, and the horizon audit silent | D3, D11; `model/s3Inline.qnt` | §9 |
 | EKS-11 | What the pipeline costs in requests and bytes per lane and per object, billed by S3 (LIST per idle lane per 30 s, renewal per 15 s, measured locally) | §3 calculator prices; D8 | §11 |
 | EKS-12 | The consumer, GC and `complete_through` over a day: GC lag, checkpoint size, watermark lag | AMBIGUITY S4, S7, S11; risk 6 | §8 (E15) |
+| EKS-13 | The query service's basis tokens signed with a KMS HMAC key under IRSA: two processes verify each other's tokens, the role cannot mint with a verify-only key, a non-HMAC key fails startup, KMS latency | DECISIONS D30 amendment 2026-09-28; AMBIGUITY X17; `deploy/iam/query-basis-kms*.json` | §10a |
 
 ## 0. Before you start
 
@@ -328,6 +329,46 @@ for the publishers (IRSA) and E16 for Pod Identity; a refresh failure shows
 as `unresolved` commits and `AccessDenied`/`ExpiredToken` in the publisher
 log.
 
+## 10a. Basis signing with KMS (EKS-13)
+
+Not scripted in `eks/` yet (no query service is deployed by this runbook);
+run by hand, and record everything you create in the ledger for
+`down.sh` (`created kms-key …` is not handled by `down.sh`: schedule the
+keys' deletion yourself, 7 days, at teardown).
+
+```sh
+# two HMAC keys (current, previous) and a symmetric one for the negative check
+for k in cur prev; do
+  aws kms create-key --region "$REGION" --key-spec HMAC_256 --key-usage GENERATE_VERIFY_MAC \
+    --description "otel-chdb validation $RUN basis $k" --tags TagKey=run,TagValue="$RUN" \
+    --query KeyMetadata.Arn --output text
+done   # -> CUR_ARN, PREV_ARN
+# the key policy: deploy/iam/query-basis-kms-key-policy.json with ACCOUNT and
+# QUERY_SERVICE_ROLE filled in (aws kms put-key-policy --policy-name default)
+# the role: an IRSA role (eks/iam.sh irsa_trust for otel-validate:query-basis)
+# with deploy/iam/query-basis-kms.json, REGION/ACCOUNT/BASIS_KEY_CURRENT/
+# BASIS_KEY_PREVIOUS filled in; then ci/iam-lint.sh on the rendered copy
+(cd otel-chdb/query && GOOS=linux go test -c -o "$STATE/app.test" ./internal/app)
+kubectl -n otel-validate create sa query-basis   # annotated with the role ARN
+kubectl -n otel-validate run kms-basis --restart=Never --overrides='{"spec":{"serviceAccountName":"query-basis"}}' \
+  --image=public.ecr.aws/amazonlinux/amazonlinux:2023 -- sleep 3600   # has CA certificates
+kubectl -n otel-validate wait --for=condition=Ready pod/kms-basis --timeout=120s
+kubectl -n otel-validate cp "$STATE/app.test" kms-basis:/tmp/app.test
+kubectl -n otel-validate exec kms-basis -- env QS_TEST_KMS_KEYS="$CUR_ARN,$PREV_ARN" AWS_REGION="$REGION" \
+  /tmp/app.test -test.run TestKMSEmulator -test.v | tee "$STATE/eks-13.txt"
+kubectl -n otel-validate delete pod kms-basis
+```
+
+Pass: `PASS`, the log line with mint / uncached / cached latency (record
+p50 and p95), and under the role: every token minted by one `Bases`
+verifies on the other, tampered tokens are `basis_invalid`, minting with the
+previous key is refused (`AccessDeniedException` → `basis_signer_unavailable`:
+the IAM policy's verify-only grant holds). Then, by hand: start `queryd`
+(or the same test) with `QS_BASIS_KMS_KEYS` naming a symmetric key: startup
+fails with `key spec SYMMETRIC_DEFAULT, want HMAC_256`; with a key the role
+may not `DescribeKey`: startup fails with `AccessDeniedException`; the
+CloudTrail events show only the two configured key ARNs.
+
 ## 11. Cost capture (EKS-11)
 
 ```sh
@@ -371,6 +412,7 @@ eks/down.sh                    # removes the ledger's entries newest first: k8s 
 | EKS-9/10 | every scenario exactly once (E13 as documented) | a new loss or duplicate path: stop, keep the evidence, open a DECISIONS risk |
 | EKS-11 | measured $ per object and per lane within 2× of the calculator's | update the calculator's prices/rates |
 | EKS-12 | watermark lag < 5 min, GC keeps up | AMBIGUITY S4/S7 stay *partly*; risk 6 |
+| EKS-13 | cross-process tokens verify; tampering and a previous-key mint refused; mint and uncached verify p95 < 50 ms | an IRSA path KMS does not accept, or an IAM grant wider than the policy: fix the policy before enabling `basis.signer: kms`; a p95 above 50 ms: raise `mint_reuse_s` |
 
 ## 14. Rows to update with the results
 
@@ -392,3 +434,4 @@ Fill `results/TEMPLATE.md` (section EKS) first; then:
 - [ ] **deploy/README.md §Validation**: an EKS row; "Not exercised: EKS and its webhooks, real PVC expansion, multi-node" → what ran.
 - [ ] **deploy/results/**: copy `$STATE/fleet/checks.txt`, `events.log`, `abac-*.txt`, `load/*.tsv` as `eks-*.txt`.
 - [ ] **acceptance/RUNBOOK.md §9**: an AWS results subsection (the kit's own "not tested at all here" list).
+- [ ] **DECISIONS D30** amendment (KMS signer): "Not run against AWS KMS" → EKS-13's result; **AMBIGUITY X17**: the AWS latency, and the account's symmetric-crypto quota headroom (Service Quotas) → *handled* or a `mint_reuse_s` / quota increase.

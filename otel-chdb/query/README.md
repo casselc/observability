@@ -62,7 +62,13 @@ every replica; `basis.keys_env` names another variable) and
 `QS_BASIS_KEY_CURRENT` (`basis.current`), with `basis.retention_s` (default
 90 days) and `basis.skew_s` (300), §2.4. Without keys the service mints with
 a random per-process key and says so in its log: bases then die with the
-process. An audit path and a bucket are
+process. On AWS the basis key is a KMS HMAC key instead (§2.4, "The
+signer"): `QS_BASIS_SIGNER=kms` (`basis.signer`, default `static`),
+`QS_BASIS_KMS_KEYS` (`basis.kms_keys`), `QS_BASIS_KMS_REGION`,
+`QS_BASIS_KMS_ENDPOINT` (an emulator), `QS_BASIS_START_WITHOUT_SIGNER`
+(`basis.start_without_signer`), with `basis.kms_timeout_s` (2),
+`basis.verify_cache_s` (600) and `basis.mint_reuse_s` (5 with KMS, 0 with
+static keys). An audit path and a bucket are
 required: the service does not start without somewhere to record decisions,
 or without `{ctl}/watermark.json` to label results with.
 
@@ -212,6 +218,7 @@ runs.
   | 409 | `basis_ahead`, `basis_regressed` | a bound above the scope's current `complete_through` (an answer there would not be stable); `basis_from` above `basis` for a cluster |
   | 410 | `basis_expired` | a bound older than retention, a window starting before it, or (plans) GC deleted slots the answer at the basis held: **never answered with less data** |
   | 503 | `basis_unverifiable` | no watermark to mint or check a basis with (or `gc.json` unreadable, plans) |
+  | 503 | `basis_signer_unavailable` | the basis signer (KMS) could not mint the basis the request asked for (`"latest"`, `POST /v1/basis`) or check a token this replica has not verified before: retry; **never answered as if valid**. A request without `basis` is still answered (§2.4) |
 
 `basis` / `basis_from` (optional, D30): see §2.4. The answer then says
 `"at_basis": true` and names the basis in `basis` and `basis_info`; with
@@ -441,6 +448,85 @@ C}` for a fleet caller), the signals it was taken for, and the
   service issued, with the policy it was issued under. Keys rotate by kid:
   mint with the new one, keep the old one in `QS_BASIS_KEYS` while its bases
   matter.
+- **The signer** (D30 amendment 2026-09-28). `basis.signer: static` (the
+  default: on-prem, Nutanix, tests) MACs with the shared keys above.
+  `basis.signer: kms` MACs with an AWS KMS `HMAC_256` key through the
+  service's own AWS chain (IRSA, Pod Identity, the Lambda role; the same
+  chain the presigned URLs use, `store.AWSConfig`), so no replica holds key
+  material and every replica computes the same MAC:
+
+  ```json
+  "basis": {"signer": "kms", "kms_keys": [
+    {"id": "2026b", "key": "arn:aws:kms:eu-west-1:111122223333:key/…", "current": true},
+    {"id": "2026a", "key": "arn:aws:kms:eu-west-1:111122223333:key/…"}]}
+  ```
+
+  or `QS_BASIS_KMS_KEYS=2026b=arn…*,2026a=arn…` (`*` marks the current key;
+  default the first). The token format is unchanged (`b1.`); a KMS token's
+  kid is `k:` + a configured `id` (a static kid never contains `:`), so KMS
+  and static tokens coexist: with `signer: kms`, keys still in
+  `QS_BASIS_KEYS` verify only, which is the migration. **Only configured
+  keys are ever used**: the kid selects among `kms_keys` and is never sent
+  to KMS, so a token cannot make the service call `VerifyMac` on a key of
+  its choosing; an unconfigured kid is `basis_invalid` with no KMS call.
+  KMS MACs `SHA-256("b1." + payload)`, domain-separated, because
+  `GenerateMac`/`VerifyMac` take at most 4,096 bytes and a token may carry
+  16 KiB.
+  - **Startup**: every key is checked with `DescribeKey` (enabled,
+    `GENERATE_VERIFY_MAC`, `HMAC_256`, `HMAC_SHA_256`); a key that cannot be
+    reached or is not one fails startup, unless
+    `basis.start_without_signer` (then requests needing a basis are 503).
+    An alias is resolved to its key ARN at startup; prefer key ARNs, since
+    re-pointing an alias makes restarted replicas refuse the old key's
+    bases under that id. The region is `basis.kms_region`, else the key
+    ARNs' (all keys in one region), else `s3.region`.
+  - **Rotation**: KMS rotates only symmetric encryption keys; HMAC keys
+    rotate manually (AWS KMS Developer Guide, "Rotate AWS KMS keys":
+    "Neither automatic nor on-demand key rotation is supported for …
+    HMAC KMS keys"). Create a new key, add it as `current`, keep the old one
+    verify-only while its bases matter (≤ `retention_s`), then drop it (and
+    its IAM grant: `deploy/iam/query-basis-kms.json` grants `VerifyMac` only
+    on previous keys).
+  - **Caches**: a verified token is not re-verified for `verify_cache_s`
+    (600; tokens are immutable, so a verified MAC stays verified; the TTL
+    bounds how long a dropped key keeps working in a running replica), and
+    a token minted here counts as verified; a MAC mismatch is cached for
+    10 s; a signer error is never cached. Both caches are bounded LRUs
+    (10,000 entries). Every plain answer names its scope's current basis,
+    so minting is per answer, not per basis: an equal basis (same bounds,
+    signals, `max_lateness`) minted less than `mint_reuse_s` ago returns
+    that token and its `issued_ns`. Measured against moto server 5.2.3 on
+    localhost (`ci/kms-emulator.sh`, 30 tokens, a box at load ~60): mint
+    p50 3.0 ms / p95 3.8 ms, uncached verify 3.1 / 3.8 ms, cached verify
+    27 / 56 µs. On AWS a mint or an uncached verify is one KMS round trip
+    (not measured: `deploy/validation/eks-aws.md` EKS-13). The request
+    quota KMS shares across the account is AMBIGUITY X17. moto leaves
+    `DescribeKey`'s `MacAlgorithms` empty, so the startup check refuses
+    only a list that omits `HMAC_SHA_256`.
+  - **Outage**: a request with `"basis": "latest"` or `POST /v1/basis` is
+    `503 basis_signer_unavailable`; a token this replica verified or minted
+    within `verify_cache_s` keeps working; any other token is 503, never
+    valid and never `basis_invalid`. **A request without `basis` is still
+    answered**, with `"basis": null` and `"basis_unavailable":
+    "basis_signer_unavailable: …"` beside it (the answer reads up to now and
+    does not depend on a basis; `basis: null` alone already means "no
+    watermark", so the reason is named). Counted in
+    `qs_basis_unavailable_total{endpoint}`; every signer call in
+    `qs_basis_signer_calls_total{op,result}`.
+  - **IAM**: `deploy/iam/query-basis-kms.json` (the service role:
+    `GenerateMac`+`VerifyMac` on the current key, `VerifyMac` on previous
+    ones, `DescribeKey` on both, by key ARN, `kms:MacAlgorithm` =
+    `HMAC_SHA_256`) and `deploy/iam/query-basis-kms-key-policy.json` (the
+    key: the account administers it but cannot delegate its use; only the
+    service role MACs). `ci/iam-lint.sh` refuses wildcard KMS resources or
+    actions and key policies that let `*` or the account root use the key.
+  - **Tests**: `internal/basis/kms_test.go` (a fake KMS: replicas verify
+    each other's tokens, tampering, unconfigured kids refused with no call,
+    the outage, rotation and migration, reuse, the 4 KiB limit, the startup
+    check), `internal/server/basis_signer_test.go` (the outage through the
+    API), `internal/app/basis_test.go` (config), and
+    `internal/app/kms_emulator_test.go` against moto server
+    (`ci/kms-emulator.sh`, nightly).
 - **Audit**: decisions at a basis record its bounds (`basis`, and
   `basis_from` for a delta).
 

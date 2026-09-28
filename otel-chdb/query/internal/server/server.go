@@ -81,8 +81,9 @@ type Server struct {
 	// NoLateCount turns the late-row count off (watermark.count_late:
 	// false); by default a windowed /v1/query counts them (LateInfo).
 	NoLateCount bool
-	// Bases mints and verifies basis tokens (D30); nil disables them.
-	Bases *basis.Keyring
+	// Bases mints and verifies basis tokens (D30): a *basis.Bases (static
+	// keys or KMS, cached) or a bare *basis.Keyring; nil disables them.
+	Bases BasisCodec
 	// Retention: a basis older than this, or a window starting before it,
 	// is basis_expired (default DefaultRetention). BasisSkew: how early a
 	// row may be received before its event time (default DefaultBasisSkew).
@@ -117,6 +118,8 @@ func (s *Server) Init() {
 	m.Counter("qs_results_total", "Results served, by source and completeness.", "source", "completeness")
 	m.Counter("qs_late_results_total", "Results holding rows received more than max_lateness after their event time (query: late rows; plan: late objects), by source and completeness.", "source", "completeness")
 	m.Counter("qs_late_count_errors_total", "Late-row counts that failed (the result was served with late.status error).")
+	m.Counter("qs_basis_signer_calls_total", "Basis signer calls (KMS or static; cache hits make none), by op (mint, verify) and result (ok, mismatch, error).", "op", "result")
+	m.Counter("qs_basis_unavailable_total", "Answers served without a basis because the signer could not mint one (basis_unavailable in the answer).", "endpoint")
 	m.Gauge("qs_max_lateness_seconds", "The max_lateness policy the labels are made with.", func() []metrics.Sample {
 		return []metrics.Sample{{Value: s.Watermark.MaxLateness().Seconds()}}
 	})
@@ -630,7 +633,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	} else {
 		label = completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
 		if b, ok := mintFrom(wm, ls, maxLate, s.Now()); ok && s.Bases != nil {
-			ans = basis.Answer{Basis: s.encode(b), BasisInfo: b.View()}
+			ans = s.currentAnswer(r.Context(), ep, b)
 		}
 	}
 	late := s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
@@ -863,7 +866,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		tok := rb.token
 		plan.Answer = basis.Answer{Basis: &tok, AtBasis: true, BasisInfo: rb.b.View()}
 	} else if b, ok := mintFrom(plan.State, plan.WmScope, s.Watermark.MaxLateness(), s.Now()); ok && s.Bases != nil {
-		plan.Answer = basis.Answer{Basis: s.encode(b), BasisInfo: b.View()}
+		plan.Answer = s.currentAnswer(r.Context(), ep, b)
 	}
 	allow := base
 	allow.Decision, allow.Objects, allow.Bytes, allow.ObjectsHash, allow.ExpiresAt = "allow", len(plan.Objects), plan.TotalBytes, plan.ObjectsHash, plan.ExpiresAt

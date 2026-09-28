@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Id": "otel-chdb-query-basis-hmac-key",
+  "Statement": [
+    {
+      "Sid": "AccountAdministersTheKeyButCannotDelegateItsUse",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::ACCOUNT:root"},
+      "Action": [
+        "kms:DescribeKey", "kms:GetKeyPolicy", "kms:PutKeyPolicy", "kms:ListResourceTags", "kms:TagResource", "kms:UntagResource",
+        "kms:EnableKey", "kms:DisableKey", "kms:UpdateKeyDescription", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion",
+        "kms:CreateAlias", "kms:DeleteAlias", "kms:UpdateAlias", "kms:ListAliases", "kms:ListGrants", "kms:RevokeGrant"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "QueryServiceMintsAndVerifiesBases",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/QUERY_SERVICE_ROLE"},
+      "Action": ["kms:GenerateMac", "kms:VerifyMac"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"kms:MacAlgorithm": "HMAC_SHA_256"}}
+    },
+    {
+      "Sid": "QueryServiceChecksTheKeyAtStartup",
+      "Effect": "Allow",
+      "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/QUERY_SERVICE_ROLE"},
+      "Action": "kms:DescribeKey",
+      "Resource": "*"
+    }
+  ]
+}

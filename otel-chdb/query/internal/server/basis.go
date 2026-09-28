@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -64,16 +65,51 @@ func mintFrom(st completeness.State, sc completeness.Scope, maxLate time.Duratio
 	return b, true
 }
 
-// encode mints b's token; "" when b is nil or cannot be encoded.
-func (s *Server) encode(b *basis.Basis) *string {
-	if b == nil || s.Bases == nil {
-		return nil
+// BasisCodec mints and verifies basis tokens: *basis.Bases (a static
+// keyring or KMS, with caches) or a bare *basis.Keyring. Mint may set b's
+// IssuedNs (a reused recent token); both return errors wrapping
+// basis.ErrInvalid (the token is not the service's) or basis.ErrUnavailable
+// (the signer could not mint or decide: 503, never valid).
+type BasisCodec interface {
+	Mint(ctx context.Context, b *basis.Basis) (string, error)
+	Open(ctx context.Context, tok string) (*basis.Basis, error)
+}
+
+// ObserveSigner counts a basis signer call (basis.Options.Observe).
+func (s *Server) ObserveSigner(op, result string) {
+	if s.Metrics != nil {
+		s.Metrics.Inc("qs_basis_signer_calls_total", op, result)
 	}
-	tok, err := s.Bases.Encode(*b)
+}
+
+// currentAnswer is a plain answer's basis block: the current basis of its
+// scope, to pin later requests to. When the signer cannot mint (a KMS
+// outage), the answer is still served, with basis null and
+// basis_unavailable saying why: a plain answer reads up to now and does
+// not depend on a basis, so a signer outage must not take queries down;
+// only requests that ask for a basis ("latest", a token) are refused.
+func (s *Server) currentAnswer(ctx context.Context, ep string, b *basis.Basis) basis.Answer {
+	tok, err := s.Bases.Mint(ctx, b)
 	if err != nil {
-		return nil
+		if s.Metrics != nil {
+			s.Metrics.Inc("qs_basis_unavailable_total", ep)
+		}
+		reason := basis.ReasonInvalid
+		if errors.Is(err, basis.ErrUnavailable) {
+			reason = basis.ReasonSignerUnavailable
+		}
+		return basis.Answer{BasisUnavailable: reason + ": " + err.Error()}
 	}
-	return &tok
+	return basis.Answer{Basis: &tok, BasisInfo: b.View()}
+}
+
+// signerRefusal maps a Mint or Open error to its refusal.
+func signerRefusal(err error) *basis.Refusal {
+	if errors.Is(err, basis.ErrUnavailable) {
+		return &basis.Refusal{Status: http.StatusServiceUnavailable, Reason: basis.ReasonSignerUnavailable,
+			Detail: err.Error() + " (the basis could not be minted or checked; retry)"}
+	}
+	return basis.Invalid(err)
 }
 
 // current returns cluster c's complete_through now, for signals (c ==
@@ -133,15 +169,18 @@ func (s *Server) useBasis(ctx context.Context, p *auth.Principal, val string, as
 			return nil, &basis.Refusal{Status: http.StatusServiceUnavailable, Reason: basis.ReasonUnverifiable,
 				Detail: "the watermark is unknown: no basis can be issued"}
 		}
-		tok := s.encode(b)
-		if tok == nil {
-			return nil, &basis.Refusal{Status: http.StatusInternalServerError, Reason: basis.ReasonInvalid, Detail: "the basis could not be encoded"}
-		}
-		rb = resolvedBasis{b: b, token: *tok, clusters: clusters}
-	} else {
-		b, err := s.Bases.Decode(val)
+		tok, err := s.Bases.Mint(ctx, b)
 		if err != nil {
-			return nil, basis.Invalid(err)
+			if errors.Is(err, basis.ErrUnavailable) {
+				return nil, signerRefusal(err)
+			}
+			return nil, &basis.Refusal{Status: http.StatusInternalServerError, Reason: basis.ReasonInvalid, Detail: "the basis could not be encoded: " + err.Error()}
+		}
+		rb = resolvedBasis{b: b, token: tok, clusters: clusters}
+	} else {
+		b, err := s.Bases.Open(ctx, val)
+		if err != nil {
+			return nil, signerRefusal(err)
 		}
 		clusters, rf := basis.Resolve(b, p.MayCluster, p.AllClusters, asked)
 		if rf != nil {

@@ -297,9 +297,9 @@ func TestBasisRefusals(t *testing.T) {
 		t.Fatal(out)
 	}
 	// ahead: a basis (from our own key) above the scope's complete_through
-	ahead, _ := f.srv.Bases.Encode(basis.Basis{IssuedNs: f.now.UnixNano(), Clusters: map[string]uint64{"prod-a": uint64(f.ct["prod-a"] + 1)}})
+	ahead, _ := f.srv.Bases.Mint(context.Background(), &basis.Basis{IssuedNs: f.now.UnixNano(), Clusters: map[string]uint64{"prod-a": uint64(f.ct["prod-a"] + 1)}})
 	// expired: a bound older than retention
-	old, _ := f.srv.Bases.Encode(basis.Basis{IssuedNs: f.now.UnixNano(), Clusters: map[string]uint64{"prod-a": uint64(t0.Add(-100 * 24 * time.Hour).UnixNano())}})
+	old, _ := f.srv.Bases.Mint(context.Background(), &basis.Basis{IssuedNs: f.now.UnixNano(), Clusters: map[string]uint64{"prod-a": uint64(t0.Add(-100 * 24 * time.Hour).UnixNano())}})
 	other := basis.Ephemeral()
 	foreign, _ := other.Encode(basis.Basis{Clusters: map[string]uint64{"prod-a": 1}})
 	cases := []struct {

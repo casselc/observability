@@ -1,0 +1,25 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MintAndVerifyWithTheCurrentBasisKey",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateMac", "kms:VerifyMac"],
+      "Resource": "arn:aws:kms:REGION:ACCOUNT:key/BASIS_KEY_CURRENT",
+      "Condition": {"StringEquals": {"kms:MacAlgorithm": "HMAC_SHA_256"}}
+    },
+    {
+      "Sid": "VerifyOnlyWithPreviousBasisKeys",
+      "Effect": "Allow",
+      "Action": "kms:VerifyMac",
+      "Resource": ["arn:aws:kms:REGION:ACCOUNT:key/BASIS_KEY_PREVIOUS"],
+      "Condition": {"StringEquals": {"kms:MacAlgorithm": "HMAC_SHA_256"}}
+    },
+    {
+      "Sid": "DescribeBasisKeysAtStartup",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": ["arn:aws:kms:REGION:ACCOUNT:key/BASIS_KEY_CURRENT", "arn:aws:kms:REGION:ACCOUNT:key/BASIS_KEY_PREVIOUS"]
+    }
+  ]
+}

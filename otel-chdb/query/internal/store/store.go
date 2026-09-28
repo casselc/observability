@@ -72,6 +72,23 @@ type S3 struct {
 	timeout time.Duration
 }
 
+// AWSConfig is the service's AWS configuration: the SDK's default
+// credential chain (environment, web identity for IRSA, the Pod Identity
+// and container endpoints, the instance or Lambda role) unless static keys
+// are given (local stores only), in region (empty: the SDK's own
+// resolution, AWS_REGION and the shared config). The S3 store and the
+// basis KMS signer both build their clients from it.
+func AWSConfig(ctx context.Context, region, accessKey, secretKey string) (aws.Config, error) {
+	var opts []func(*config.LoadOptions) error
+	if region != "" {
+		opts = append(opts, config.WithRegion(region))
+	}
+	if accessKey != "" {
+		opts = append(opts, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")))
+	}
+	return config.LoadDefaultConfig(ctx, opts...)
+}
+
 // NewS3 builds clients for cfg.
 func NewS3(ctx context.Context, cfg S3Config) (*S3, error) {
 	if cfg.Bucket == "" {
@@ -80,11 +97,7 @@ func NewS3(ctx context.Context, cfg S3Config) (*S3, error) {
 	if cfg.Region == "" {
 		cfg.Region = "us-east-1"
 	}
-	opts := []func(*config.LoadOptions) error{config.WithRegion(cfg.Region)}
-	if cfg.AccessKey != "" {
-		opts = append(opts, config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(cfg.AccessKey, cfg.SecretKey, "")))
-	}
-	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
+	awsCfg, err := AWSConfig(ctx, cfg.Region, cfg.AccessKey, cfg.SecretKey)
 	if err != nil {
 		return nil, err
 	}

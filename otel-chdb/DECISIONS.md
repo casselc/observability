@@ -2780,8 +2780,85 @@ fleet-wide value (X12).
 **Owner decisions, 2026-09-28:** the defaults are accepted (retention 90 days;
 `on_late: reevaluate`, `late_horizon` 1 h, `late_every` max(`every`, 1 min));
 evaluator concurrency is 16, through a limits-only `alert-evaluator` group
-(`alerts/README.md`). Open: how the basis key is held (KMS HMAC on AWS
-proposed; a shared secret elsewhere).
+(`alerts/README.md`). ~~Open: how the basis key is held (KMS HMAC on AWS
+proposed; a shared secret elsewhere).~~ Decided: KMS HMAC on AWS, built
+(amendment below); the shared secret stays for everything else.
+
+**Amendment 2026-09-28: the basis key in AWS KMS (owner decision; built).**
+The service runs as a pod or a Lambda with the AWS chain (IRSA, Pod
+Identity, the Lambda role) it already presigns with; a static
+`QS_BASIS_KEYS` is a secret to distribute and rotate, and the ephemeral
+fallback breaks across replicas and Lambda instances.
+
+1. **A signer interface** (`basis.Signer`: MAC and Verify by kid) with two
+   implementations: the static keyring (on-prem, Nutanix, tests) and
+   `KMSSigner` (`GenerateMac`/`VerifyMac`, `HMAC_256` keys,
+   `HMAC_SHA_256`), behind `basis.Bases` (minting with one signer's current
+   key, verifying with every configured one, caches). Config
+   `basis.signer: static|kms`, `basis.kms_keys: [{id, key, current}]`,
+   `QS_BASIS_*` equivalents; `DescribeKey` at startup, failing startup
+   unless `basis.start_without_signer`.
+2. **The token is unchanged** (`b1.`, the kid in the payload): a KMS kid is
+   `k:` + a configured id, a static kid never contains `:`, so both verify
+   side by side and existing tokens survive the migration (static keys
+   become verify-only under `signer: kms`). KMS MACs a domain-separated
+   SHA-256 of the MAC input: its message limit is 4,096 bytes, a token's
+   16 KiB.
+3. **Configured keys only.** The kid selects among `kms_keys`; the key
+   reference (ARN or alias) comes from configuration, never from the token.
+   Otherwise a caller could make the service call `VerifyMac` on any key its
+   role can reach (a probe of which keys exist and are usable, and a MAC
+   the attacker controls: a key in the attacker's own account with a
+   permissive key policy would verify the attacker's tokens). An
+   unconfigured kid is `basis_invalid` without any KMS call (tested).
+   IAM backs it: the role may MAC only with the named key ARNs
+   (`deploy/iam/query-basis-kms.json`; `VerifyMac` only on previous keys),
+   and the key policy lets only that role use the key (`ci/iam-lint.sh`
+   checks both).
+4. **Why HMAC in KMS and not an asymmetric KMS key** (`Sign`/`Verify`, or
+   verifying locally with the public key): nobody outside the service
+   verifies a basis (§3 above), so a public key buys nothing; asymmetric
+   operations have a 1,000/s shared quota (RSA, ECC) against the symmetric
+   quota's 10,000–100,000/s that HMAC keys share (AWS KMS Developer Guide,
+   "Request quotas"), are slower, and make tokens longer (an ECDSA P-256
+   signature is ~72 bytes DER, RSA 256+, HMAC 32). Local verification with a
+   cached public key would remove verify calls, but the verify cache already
+   does that for every token that is used twice.
+5. **Rotation**: HMAC KMS keys have neither automatic nor on-demand
+   rotation (AWS KMS Developer Guide, "Rotate AWS KMS keys", checked
+   2026-09-28: "Neither automatic nor on-demand key rotation is supported
+   for … HMAC KMS keys"; on-demand covers symmetric encryption keys only).
+   Rotation is manual: a new key becomes `current`, the old one stays
+   verify-only while its bases matter (≤ retention), then goes.
+6. **Latency and cost**: a verified (or self-minted) token is cached for
+   `verify_cache_s` (600 s, bounded LRU; tokens are immutable, so a verified
+   MAC stays verified), a mismatch for 10 s, a signer error never. Every
+   plain answer names its current basis, so without care every answer
+   would call `GenerateMac`: an equal basis minted less than
+   `mint_reuse_s` (5 s) ago is reused with its `issued_ns` (sound: it was
+   issued then, at the same bounds).
+7. **Outage**: a request that needs a new basis (`"latest"`, `POST
+   /v1/basis`) or a token this replica has not verified is `503
+   basis_signer_unavailable`, never valid; cached tokens keep working;
+   **plain queries keep working**, answered with `basis: null` and
+   `basis_unavailable` naming the reason. Not in the label: the label is
+   completeness, which the outage does not change; the basis block is where
+   the missing basis is, and a reason there separates it from "no
+   watermark". The alert evaluator treats the 503 as a failed evaluation
+   (retried), not a refusal; the HyperDX adapter does not re-mint on it.
+
+**Evidence** [Q]: `internal/basis/kms_test.go` over a fake KMS (real HMAC,
+the 4 KiB limit, `KMSInvalidMacException`): tokens minted by one replica
+verify on another (rapid, with tampering), unconfigured kids and garbage
+cost no KMS call, the outage (mint 503, cached ok, uncached 503, nothing
+cached from it), rotation, migration from static keys, reuse, a > 4 KiB
+token, the startup check and alias pinning; `internal/server/
+basis_signer_test.go` the outage through the API; `internal/app/
+basis_test.go` the configuration. [M] against moto server 5.2.3 (the
+startup check refuses a symmetric key; two replicas; tampering; latency,
+`ci/kms-emulator.sh`, nightly): see query README §2.4. Not run against AWS
+KMS: `deploy/validation/eks-aws.md` EKS-13. KMS throttling:
+AMBIGUITY X17.
 
 **Status:** built (2026-09-28). `query/internal/basis` (token, checks),
 `query/internal/server` (`basis` / `basis_from` on `/v1/query`, `basis` on

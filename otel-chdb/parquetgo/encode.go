@@ -209,6 +209,17 @@ func (w *arrowRows) hexID(id []byte) {
 func (w *arrowRows) traceID(id pcommon.TraceID) { w.hexID(id[:]) }
 func (w *arrowRows) spanID(id pcommon.SpanID)   { w.hexID(id[:]) }
 
+func (w *arrowRows) pairs(pairs [][2]string) {
+	mb := w.next().(*array.MapBuilder)
+	mb.Append(true)
+	kb := mb.KeyBuilder().(*array.StringBuilder)
+	ib := mb.ItemBuilder().(*array.StringBuilder)
+	for _, p := range pairs {
+		kb.Append(p[0])
+		ib.Append(p[1])
+	}
+}
+
 func (w *arrowRows) attrs(m pcommon.Map) {
 	mb := w.next().(*array.MapBuilder)
 	mb.Append(true)

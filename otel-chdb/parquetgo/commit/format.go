@@ -54,6 +54,10 @@ const (
 	// with received_at below it was committed before this slot was first
 	// sent (../../FORMAT.md §2, ../../model/completeness.qnt).
 	MetaLow = "oscope-low"
+	// MetaAnnounce (traces, logs): how many resources the object announces
+	// in resource_announce (../../FORMAT.md §2); the consumer inserts
+	// announcements only from objects with a nonzero count.
+	MetaAnnounce = "oscope-announce"
 
 	KindData = "data"
 	KindTomb = "tomb"

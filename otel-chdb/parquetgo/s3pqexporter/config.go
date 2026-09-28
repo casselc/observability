@@ -49,6 +49,17 @@ type Config struct {
 	S3            S3Config                `mapstructure:"s3"`
 	// Heartbeat slots and the births (../../FORMAT.md §2).
 	Heartbeat HeartbeatConfig `mapstructure:"heartbeat"`
+	// Resources: announcements of the resources traces and logs use
+	// (../resource.go, ../../FORMAT.md §2), as the Rust edge's `resources:`.
+	Resources ResourcesConfig `mapstructure:"resources"`
+}
+
+// ResourcesConfig: announce each resource once per window per lane epoch
+// (resource_announce), remembering up to CacheSize per lane.
+type ResourcesConfig struct {
+	Announce  bool          `mapstructure:"announce"`
+	Window    time.Duration `mapstructure:"window"`
+	CacheSize int           `mapstructure:"cache_size"`
 }
 
 // HeartbeatConfig: a birth heartbeat per registered lane at start, then one
@@ -173,5 +184,6 @@ func (c *Config) EdgeConfig() edge.Config {
 		series.Statistics = d.Statistics
 	}
 	return edge.Config{S3: s3, Cluster: c.Cluster, ProducerID: c.ProducerID, Lanes: c.Lanes, MetricsLayout: c.MetricsLayout,
-		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout}
+		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout,
+		Resources: edge.ResourceOptions{Off: !c.Resources.Announce, Window: c.Resources.Window, CacheSize: c.Resources.CacheSize}}
 }

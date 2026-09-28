@@ -29,18 +29,54 @@ type rowWriter interface {
 	u32(v uint32)
 	u64(v uint64)
 	attrs(m pcommon.Map)
+	pairs(p [][2]string)
 	arr(n int)
 	end()
 }
 
 // Envelope is the batch identity appended to every row. The walkers fill in
 // the event-time range as they go, for the manifest.
+//
+// Traces and logs: Announce says which resources this object announces
+// (nil: every one); the walkers list them in Announced, in walk order.
 type Envelope struct {
 	Producer, Epoch string
 	Batch           uint64
 	Received        uint64 // ns
 	Schema          uint16
 	MinTS, MaxTS    uint64
+	Announce        func(id uint64) bool
+	Announced       []uint64
+	res             Resources
+}
+
+// resourceCols writes a row's resource_id and resource_announce: the
+// covered set on the first row of a resource the object announces.
+func resourceCols(w rowWriter, env *Envelope, id uint64) {
+	w.u64(id)
+	if env == nil {
+		w.pairs(nil)
+		return
+	}
+	r := &env.res
+	i, ok := r.index[id]
+	first := ok && r.Entries[i].FirstRow < 0
+	r.row(id)
+	if first && (env.Announce == nil || env.Announce(id)) {
+		env.Announced = append(env.Announced, id)
+		w.pairs(r.Entries[i].Pairs)
+		return
+	}
+	w.pairs(nil)
+}
+
+// resourceOf registers a resource with the object's collector.
+func resourceOf(env *Envelope, res pcommon.Map) uint64 {
+	c := CoveredOf(res)
+	if env == nil {
+		return c.ID
+	}
+	return env.res.resource(c)
 }
 
 func (e *Envelope) write(w rowWriter, row int, ts uint64) {
@@ -89,11 +125,16 @@ func valueString(dst []byte, v pcommon.Value) []byte {
 
 func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 	n := 0
+	if env != nil {
+		env.res.reset()
+		env.Announced = env.Announced[:0]
+	}
 	rss := td.ResourceSpans()
 	for i := 0; i < rss.Len(); i++ {
 		rs := rss.At(i)
 		res := rs.Resource().Attributes()
 		svc := serviceName(res)
+		rid := resourceOf(env, res)
 		sss := rs.ScopeSpans()
 		for j := 0; j < sss.Len(); j++ {
 			ss := sss.At(j)
@@ -156,6 +197,7 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 					w.attrs(ls.At(l).Attributes())
 				}
 				w.end()
+				resourceCols(w, env, rid)
 				if env != nil {
 					env.write(w, n, uint64(s.StartTimestamp()))
 				}
@@ -169,11 +211,16 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 
 func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 	n := 0
+	if env != nil {
+		env.res.reset()
+		env.Announced = env.Announced[:0]
+	}
 	rls := ld.ResourceLogs()
 	for i := 0; i < rls.Len(); i++ {
 		rl := rls.At(i)
 		res := rl.Resource().Attributes()
 		svc := serviceName(res)
+		rid := resourceOf(env, res)
 		resURL := rl.SchemaUrl()
 		sls := rl.ScopeLogs()
 		for j := 0; j < sls.Len(); j++ {
@@ -209,6 +256,7 @@ func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 				w.attrs(scope.Attributes())
 				w.attrs(r.Attributes())
 				w.str(r.EventName())
+				resourceCols(w, env, rid)
 				if env != nil {
 					env.write(w, n, uint64(ts))
 				}

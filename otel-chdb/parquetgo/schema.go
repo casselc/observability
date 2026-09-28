@@ -36,8 +36,20 @@ var envelopeFields = []arrow.Field{
 	col("schema_version", arrow.PrimitiveTypes.Uint16),
 }
 
+// resourceFields sit between the ClickStack columns and the envelope of
+// traces and logs (resource.go): the row's resource_id, and the covered set
+// of a resource the object announces, on its first row (else empty).
+var resourceFields = []arrow.Field{
+	col("resource_id", arrow.PrimitiveTypes.Uint64),
+	col("resource_announce", attrMap()),
+}
+
+func withResource(f []arrow.Field) []arrow.Field {
+	return append(append(f, resourceFields...), envelopeFields...)
+}
+
 // TracesSchema is the published traces schema, envelope included.
-var TracesSchema = arrow.NewSchema(append([]arrow.Field{
+var TracesSchema = arrow.NewSchema(withResource([]arrow.Field{
 	col("Timestamp", tsType),
 	col("TraceId", strType),
 	col("SpanId", strType),
@@ -60,10 +72,10 @@ var TracesSchema = arrow.NewSchema(append([]arrow.Field{
 	col("Links.SpanId", list(strType)),
 	col("Links.TraceState", list(strType)),
 	col("Links.Attributes", list(attrMap())),
-}, envelopeFields...), nil)
+}), nil)
 
 // LogsSchema is the published logs schema, envelope included.
-var LogsSchema = arrow.NewSchema(append([]arrow.Field{
+var LogsSchema = arrow.NewSchema(withResource([]arrow.Field{
 	col("Timestamp", tsType),
 	col("TraceId", strType),
 	col("SpanId", strType),
@@ -80,4 +92,4 @@ var LogsSchema = arrow.NewSchema(append([]arrow.Field{
 	col("ScopeAttributes", attrMap()),
 	col("LogAttributes", attrMap()),
 	col("EventName", strType),
-}, envelopeFields...), nil)
+}), nil)

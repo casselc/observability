@@ -15,6 +15,7 @@
 //! - `commit_metrics`: `s3pq_commit_outcomes_total{outcome}`, the exporter's commit outcomes
 //! - `batch`:   one request → content hash + flattened columns → encoded slot object
 //! - `series`:  metrics layout B: narrow points + series objects, edge series ids
+//! - `resource`: resource_id (the entity catalog's content address) and the announcement cache
 //! - `central`: the ClickHouse side of the consumer
 
 pub mod batch;
@@ -29,6 +30,7 @@ pub mod gosort;
 pub mod metrics;
 pub mod proto;
 pub mod render;
+pub mod resource;
 pub mod runner;
 pub mod schema;
 pub mod series;

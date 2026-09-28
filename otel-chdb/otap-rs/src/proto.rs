@@ -35,6 +35,10 @@ pub const META_CLUSTER: &str = "oscope-cluster";
 /// `received_at` below it was committed before this slot was first sent
 /// (`../FORMAT.md` §2, `../model/completeness.qnt`).
 pub const META_LOW: &str = "oscope-low";
+/// Traces and logs: how many resources the object announces
+/// (`resource_announce`, `../../FORMAT.md` §2); the consumer inserts
+/// announcements only from objects with a nonzero count.
+pub const META_ANNOUNCE: &str = "oscope-announce";
 pub const KIND_DATA: &str = "data";
 pub const KIND_TOMB: &str = "tomb";
 /// A heartbeat: a zero-byte slot carrying only `oscope-low`.

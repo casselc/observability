@@ -6,7 +6,8 @@ use crate::flatten::{Envelope, LogsBuf, Stats, TracesBuf, record_batch};
 use crate::metrics::MetricsBuf;
 use crate::proto;
 use crate::runner::Encoded;
-use crate::schema::{SCHEMA_VERSION, Schemas};
+use crate::resource::Covered;
+use crate::schema::Schemas;
 use crate::series::{MetricsLayout, SeriesBuf, SeriesOptions};
 use crate::Signal;
 use arrow::array::ArrayRef;
@@ -51,6 +52,10 @@ pub struct Flat {
     /// A series object's new series (id, cache window): mark them announced
     /// once this object has committed (`Encoder::series_announced`).
     pub announce: Vec<(u64, i32)>,
+    /// Traces and logs: the object's distinct resources, each with the first
+    /// row that uses it (`resource.rs`); the rows' ids are the last content
+    /// column.
+    pub resources: Vec<(Covered, u32)>,
 }
 
 /// Content hash of an OTLP request: BLAKE3 over "{signal}\0{protobuf}",
@@ -227,7 +232,7 @@ impl Encoder {
             let cols = self.metrics.content_arrays(sig, &self.metrics_sc[i]);
             if stats.rows > 0 {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new() });
             }
         }
         out
@@ -249,10 +254,10 @@ impl Encoder {
             }
             if sig == Signal::MetricsSeries {
                 let content = content_hash_cols(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new(), resources: Vec::new() });
             } else {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new() });
+                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new() });
             }
         }
         out
@@ -261,26 +266,26 @@ impl Encoder {
     /// Walks the input into columns.
     pub fn flatten(&mut self, input: &Input<'_>) -> Result<Flat, EncodeError> {
         let e = |m: &dyn std::fmt::Display| EncodeError(m.to_string());
-        let (signal, stats, cols) = match input {
+        let (signal, stats, cols, resources) = match input {
             Input::Otlp(Signal::Traces, b) => {
                 let v = RawTraceData::try_new(b).map_err(|x| e(&x))?;
                 let st = self.traces.fill(&v);
-                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc))
+                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources())
             }
             Input::Otlp(Signal::Logs, b) => {
                 let v = RawLogsData::try_new(b).map_err(|x| e(&x))?;
                 let st = self.logs.fill(&v);
-                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc))
+                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources())
             }
             Input::Otap(Signal::Traces, r) => {
                 let v = OtapTracesView::try_from(*r).map_err(|x| e(&x))?;
                 let st = self.traces.fill(&v);
-                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc))
+                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources())
             }
             Input::Otap(Signal::Logs, r) => {
                 let v = OtapLogsView::try_from(*r).map_err(|x| e(&x))?;
                 let st = self.logs.fill(&v);
-                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc))
+                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources())
             }
             _ => return Err(EncodeError("metrics input has one object per type: use flatten_all".into())),
         };
@@ -289,18 +294,53 @@ impl Encoder {
             Input::Otap(s, _) => content_hash_cols(*s, &cols),
             _ => unreachable!(),
         };
-        Ok(Flat { signal, content, cols, stats, announce: Vec::new() })
+        Ok(Flat { signal, content, cols, stats, announce: Vec::new(), resources })
     }
 
-    /// The object for one slot: envelope added, encoded, described.
+    /// The object for one slot: envelope added, encoded, described. Every
+    /// resource of a trace or log object is announced (no cache).
     pub fn encode(&self, f: &Flat, env: &Envelope) -> Result<Encoded, EncodeError> {
+        self.encode_announcing(f, env, &|_| true).map(|(o, _)| o)
+    }
+
+    /// The object's rows, unsorted: the content columns, `resource_announce`
+    /// (traces and logs: the resources `wants` names) and the envelope; and
+    /// the ids announced.
+    pub fn rows(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool) -> (arrow::array::RecordBatch, Vec<u64>) {
         let sc = self.schemas(f.signal);
-        let rb = record_batch(sc, f.cols.clone(), f.stats.rows, env);
+        let mut cols = f.cols.clone();
+        let mut announced = Vec::new();
+        if matches!(f.signal, Signal::Traces | Signal::Logs) {
+            let mut at: Vec<u32> = Vec::new();
+            let mut which: Vec<usize> = Vec::new();
+            for (i, (c, row)) in f.resources.iter().enumerate() {
+                if wants(c.id) {
+                    at.push(*row);
+                    which.push(i);
+                    announced.push(c.id);
+                }
+            }
+            cols.push(announce_column(&f.resources, &at, &which, f.stats.rows, &sc.entries));
+        }
+        (record_batch(sc, cols, f.stats.rows, env), announced)
+    }
+
+    /// `encode`, announcing (traces and logs) the resources `wants` names:
+    /// their covered sets go into `resource_announce` on the first row of
+    /// each, and `oscope-announce` counts them. Returns the announced ids,
+    /// to mark once the object has committed (`resource::AnnounceCache`).
+    pub fn encode_announcing(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool) -> Result<(Encoded, Vec<u64>), EncodeError> {
+        let sc = self.schemas(f.signal);
+        let has_resources = matches!(f.signal, Signal::Traces | Signal::Logs);
+        let (rb, announced) = self.rows(f, env, wants);
         let mut meta = BTreeMap::new();
+        if has_resources {
+            let _ = meta.insert(proto::META_ANNOUNCE.to_string(), announced.len().to_string());
+        }
         for (k, v) in [
             (proto::META_PRODUCER, env.producer.clone()),
             (proto::META_SIGNAL, f.signal.name().to_string()),
-            (proto::META_SCHEMA, SCHEMA_VERSION.to_string()),
+            (proto::META_SCHEMA, sc.version.to_string()),
             (proto::META_ROWS, f.stats.rows.to_string()),
             (proto::META_MIN_TIME, f.stats.min_ts.to_string()),
             (proto::META_MAX_TIME, f.stats.max_ts.to_string()),
@@ -342,6 +382,30 @@ impl Encoder {
                 ARROW_CONTENT_TYPE
             }
         };
-        Ok(Encoded { body: Bytes::from(out), content_type, meta })
+        Ok((Encoded { body: Bytes::from(out), content_type, meta }, announced))
     }
+}
+
+/// `resource_announce`: per row, the covered set of the resource announced
+/// on it (`at[j]` is the row of `resources[which[j]]`), else an empty map.
+fn announce_column(resources: &[(Covered, u32)], at: &[u32], which: &[usize], rows: usize, entries: &arrow::datatypes::FieldRef) -> ArrayRef {
+    let mut m = crate::columns::Map::default();
+    m.clear();
+    let mut by_row: Vec<(u32, usize)> = at.iter().copied().zip(which.iter().copied()).collect();
+    by_row.sort_unstable();
+    let mut next = by_row.iter().peekable();
+    for r in 0..rows as u32 {
+        while let Some(&&(row, i)) = next.peek() {
+            if row != r {
+                break;
+            }
+            for (k, v) in &resources[i].0.pairs {
+                m.keys.push(k);
+                m.vals.push(v);
+            }
+            let _ = next.next();
+        }
+        m.commit();
+    }
+    m.take(entries)
 }

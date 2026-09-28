@@ -99,6 +99,9 @@ pub struct Config {
     pub custody: Custody,
     #[serde(default)]
     pub heartbeat: HeartbeatConfig,
+    /// Resource announcements (`resource.rs`, `../FORMAT.md` §2).
+    #[serde(default)]
+    pub resources: crate::resource::ResourceOptions,
 }
 
 /// Where the requests this exporter publishes wait before it has them.
@@ -220,6 +223,8 @@ pub struct S3pqExporter {
 struct LaneState {
     lane: Lane,
     cache: EncodedCache,
+    /// The resources announced in this lane's epoch (traces, logs).
+    ann: crate::resource::AnnounceCache,
 }
 
 /// A request's outcome: one entry per object.
@@ -241,6 +246,7 @@ struct Shared {
     in_hands: RefCell<std::collections::BTreeMap<u64, usize>>,
     /// When each lane last committed anything (heartbeats are for idle lanes).
     last_commit: RefCell<HashMap<Signal, Instant>>,
+    resources: crate::resource::ResourceOptions,
 }
 
 impl Shared {
@@ -397,6 +403,12 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
     let st = &mut *g;
     let prefix = &sh.prefixes[&flat.signal];
     let producer = sh.producer.clone();
+    // Announcements (traces, logs): decided for the slot's epoch, from the
+    // lane's cache, when the object is encoded; marked once it committed.
+    let opts = &sh.resources;
+    let window = opts.window_of(received_ns);
+    let announced: RefCell<Vec<u64>> = RefCell::new(Vec::new());
+    let ann = &st.ann;
     let mut encode = |r: &Ref| {
         let env = Envelope {
             producer: producer.clone(),
@@ -404,7 +416,9 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
             batch: r.seq,
             received_ns,
         };
-        let mut o = sh.encoder.borrow().encode(&flat, &env).map_err(|e| e.0)?;
+        let wants = |id: u64| opts.announce && ann.wants(&r.epoch, id, window);
+        let (mut o, ids) = sh.encoder.borrow().encode_announcing(&flat, &env, &wants).map_err(|e| e.0)?;
+        *announced.borrow_mut() = ids;
         let _ = o.meta.insert(proto::META_FORMAT.to_string(), proto::FORMAT_VERSION.to_string());
         let _ = o.meta.insert(proto::META_CLUSTER.to_string(), sh.cluster.clone());
         // Computed when the object is encoded for its slot, and cached with
@@ -429,6 +443,16 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
     // found committed), in that lane's epoch.
     if let (Ok(r), false) = (&res, flat.announce.is_empty()) {
         sh.encoder.borrow_mut().series_announced(&flat.announce, &r.epoch);
+    }
+    // The same rule for resources: announced once the object that carried
+    // them has committed (entityCatalog.qnt announcedAfterCommit). An object
+    // found committed without being encoded here marks nothing (they are
+    // announced again: harmless).
+    if let Ok(r) = &res {
+        let ids = announced.take();
+        if !ids.is_empty() {
+            st.ann.announced(&r.epoch, &ids, window, opts.cache_size);
+        }
     }
     if sh.verbose {
         match &res {
@@ -493,6 +517,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         // Named at its first write (runner::append).
                         lane: Lane::new(String::new()),
                         cache: EncodedCache::default(),
+                        ann: Default::default(),
                     })),
                 );
             }
@@ -518,6 +543,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
             custody: cfg.custody,
             in_hands: RefCell::new(Default::default()),
             last_commit: RefCell::new(HashMap::new()),
+            resources: cfg.resources.clone(),
         });
         // Heartbeats: the births first (every lane this publisher can write
         // is registered before it takes a request, up to birth_timeout),

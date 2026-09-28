@@ -14,7 +14,16 @@ use parquet::arrow::ArrowSchemaConverter;
 use parquet::schema::types::SchemaDescriptor;
 use std::sync::Arc;
 
+/// The envelope's `schema_version` (and `oscope-schema`) of metrics objects.
 pub const SCHEMA_VERSION: u16 = 1;
+/// Traces and logs since the resource columns (`resource_id`,
+/// `resource_announce`, between the ClickStack columns and the envelope).
+pub const RESOURCE_SCHEMA_VERSION: u16 = 2;
+
+/// The resource columns of traces and logs (`resource.rs`).
+fn resource_cols(s: &DataType) -> Vec<Field> {
+    vec![col("resource_id", DataType::UInt64), col("resource_announce", map_type(s))]
+}
 
 pub fn ts_type() -> DataType {
     DataType::Timestamp(TimeUnit::Nanosecond, Some("UTC".into()))
@@ -75,6 +84,7 @@ pub fn traces(s: &DataType) -> Schema {
         col("Links.TraceState", list(s.clone())),
         col("Links.Attributes", list(map_type(s))),
     ];
+    f.extend(resource_cols(s));
     f.extend(envelope(s));
     Schema::new(f)
 }
@@ -98,6 +108,7 @@ pub fn logs(s: &DataType) -> Schema {
         col("LogAttributes", map_type(s)),
         col("EventName", s.clone()),
     ];
+    f.extend(resource_cols(s));
     f.extend(envelope(s));
     Schema::new(f)
 }
@@ -208,6 +219,8 @@ pub struct Schemas {
     pub byte_stream_split: Vec<Vec<String>>,
     /// Overrides `ParquetOptions::statistics` for this signal's objects.
     pub statistics: Option<String>,
+    /// The envelope's `schema_version` for this signal's objects.
+    pub version: u16,
 }
 
 impl Schemas {
@@ -223,7 +236,11 @@ impl Schemas {
         let parquet = ArrowSchemaConverter::new()
             .convert(&u)
             .expect("published schema converts to Parquet");
-        Self::with(Arc::new(b), parquet, Vec::new())
+        let mut sc = Self::with(Arc::new(b), parquet, Vec::new());
+        if matches!(signal, crate::Signal::Traces | crate::Signal::Logs) {
+            sc.version = RESOURCE_SCHEMA_VERSION;
+        }
+        sc
     }
 
     /// From an Arrow schema (strings as Binary) and the published Parquet schema.
@@ -235,6 +252,7 @@ impl Schemas {
             delta: Vec::new(),
             byte_stream_split: Vec::new(),
             statistics: None,
+            version: SCHEMA_VERSION,
             entries: map_entries(&DataType::Binary),
             ts_elem: Arc::new(Field::new("element", ts_type(), false)),
             str_elem: Arc::new(Field::new("element", DataType::Binary, false)),

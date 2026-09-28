@@ -9,7 +9,8 @@
 
 use crate::columns::{Bin, ListOff, Map, prim, repeat_bin};
 use crate::render;
-use crate::schema::{SCHEMA_VERSION, Schemas, ts_type};
+use crate::resource::{Covered, CoveredBuilder, Resources};
+use crate::schema::{Schemas, ts_type};
 use arrow::array::{ArrayRef, RecordBatch};
 use arrow::datatypes::{
     DataType, TimestampNanosecondType, UInt8Type, UInt16Type, UInt32Type, UInt64Type,
@@ -106,6 +107,20 @@ impl PreMap {
     }
 }
 
+/// A resource's covered set (`resource.rs`): string values only, in the
+/// attributes' order (the first occurrence of a key decides).
+pub(crate) fn covered_of<A: AttributeView>(it: impl Iterator<Item = A>) -> Covered {
+    let mut b = CoveredBuilder::default();
+    for kv in it {
+        let v = kv.value();
+        match &v {
+            Some(val) if val.value_type() == ValueType::String => b.push(kv.key(), Some(val.as_string().unwrap_or_default())),
+            _ => b.push(kv.key(), None),
+        }
+    }
+    b.finish()
+}
+
 /// pcommon `Map.Get("service.name")`: the first such key; a string as is,
 /// anything else as `AsString`.
 pub(crate) fn service_name<A: AttributeView>(dst: &mut Vec<u8>, it: impl Iterator<Item = A>) {
@@ -128,14 +143,14 @@ pub(crate) fn opt(b: Option<&[u8]>) -> &[u8] {
     b.unwrap_or_default()
 }
 
-pub(crate) fn envelope_cols(env: &Envelope, n: usize) -> Vec<ArrayRef> {
+pub(crate) fn envelope_cols(env: &Envelope, n: usize, version: u16) -> Vec<ArrayRef> {
     vec![
         repeat_bin(env.producer.as_bytes(), n),
         repeat_bin(env.epoch.as_bytes(), n),
         prim::<UInt64Type>(vec![env.batch; n], DataType::UInt64),
         prim::<UInt32Type>((0..n as u32).collect(), DataType::UInt32),
         prim::<TimestampNanosecondType>(vec![env.received_ns as i64; n], ts_type()),
-        prim::<UInt16Type>(vec![SCHEMA_VERSION; n], DataType::UInt16),
+        prim::<UInt16Type>(vec![version; n], DataType::UInt16),
     ]
 }
 
@@ -168,10 +183,12 @@ pub struct TracesBuf {
     ln_attrs: Map,
     res_pre: PreMap,
     svc_scratch: Vec<u8>,
+    res: Resources,
 }
 
 impl TracesBuf {
     fn clear(&mut self) {
+        self.res.clear();
         self.ts.clear();
         self.duration.clear();
         self.ev_ts.clear();
@@ -212,16 +229,18 @@ impl TracesBuf {
         let mut st = Stats::default();
         for rs in t.resources() {
             let res = rs.resource();
-            match &res {
+            let rid = match &res {
                 Some(r) => {
                     self.res_pre.fill(r.attributes());
                     service_name(&mut self.svc_scratch, r.attributes());
+                    self.res.resource(covered_of(r.attributes()))
                 }
                 None => {
                     self.res_pre.fill(std::iter::empty::<NoAttr>());
                     self.svc_scratch.clear();
+                    self.res.resource(Covered { id: crate::resource::empty_id(), pairs: Vec::new() })
                 }
-            }
+            };
             for ss in rs.scopes() {
                 let scope = ss.scope();
                 let (sname, sver) = match &scope {
@@ -245,6 +264,7 @@ impl TracesBuf {
                     self.kind.push(render::span_kind(s.kind()));
                     self.svc.push(&self.svc_scratch);
                     self.res_pre.copy_into(&mut self.res_attrs);
+                    self.res.row(rid);
                     self.scope_name.push(&sname);
                     self.scope_version.push(&sver);
                     push_attrs(&mut self.attrs, s.attributes());
@@ -315,7 +335,13 @@ impl TracesBuf {
             lst(&ln_off, &sc.str_elem, self.ln_sid.take()),
             lst(&ln_off, &sc.str_elem, self.ln_state.take()),
             lst(&ln_off, &sc.map_elem, self.ln_attrs.take(&sc.entries)),
+            prim::<UInt64Type>(std::mem::take(&mut self.res.ids), DataType::UInt64),
         ]
+    }
+
+    /// The object's distinct resources (after `content_arrays`), resetting them.
+    pub fn take_resources(&mut self) -> Vec<(Covered, u32)> {
+        self.res.take().1
     }
 }
 
@@ -341,10 +367,12 @@ pub struct LogsBuf {
     res_pre: PreMap,
     scope_pre: PreMap,
     svc_scratch: Vec<u8>,
+    res: Resources,
 }
 
 impl LogsBuf {
     fn clear(&mut self) {
+        self.res.clear();
         self.ts.clear();
         self.flags.clear();
         self.sev_num.clear();
@@ -372,16 +400,18 @@ impl LogsBuf {
         let mut st = Stats::default();
         for rl in l.resources() {
             let res = rl.resource();
-            match &res {
+            let rid = match &res {
                 Some(r) => {
                     self.res_pre.fill(r.attributes());
                     service_name(&mut self.svc_scratch, r.attributes());
+                    self.res.resource(covered_of(r.attributes()))
                 }
                 None => {
                     self.res_pre.fill(std::iter::empty::<NoAttr>());
                     self.svc_scratch.clear();
+                    self.res.resource(Covered { id: crate::resource::empty_id(), pairs: Vec::new() })
                 }
-            }
+            };
             let res_url = opt(rl.schema_url()).to_vec();
             for sl in rl.scopes() {
                 let scope = sl.scope();
@@ -416,6 +446,7 @@ impl LogsBuf {
                     push_value(&mut self.body, body.as_ref());
                     self.res_url.push(&res_url);
                     self.res_pre.copy_into(&mut self.res_attrs);
+                    self.res.row(rid);
                     self.scope_url.push(&scope_url);
                     self.scope_name.push(&sname);
                     self.scope_version.push(&sver);
@@ -446,13 +477,19 @@ impl LogsBuf {
             self.scope_attrs.take(&sc.entries),
             self.attrs.take(&sc.entries),
             self.event_name.take(),
+            prim::<UInt64Type>(std::mem::take(&mut self.res.ids), DataType::UInt64),
         ]
+    }
+
+    /// The object's distinct resources (after `content_arrays`), resetting them.
+    pub fn take_resources(&mut self) -> Vec<(Covered, u32)> {
+        self.res.take().1
     }
 }
 
 /// Builds the record batch: content columns plus the envelope.
 pub fn record_batch(sc: &Schemas, mut cols: Vec<ArrayRef>, rows: usize, env: &Envelope) -> RecordBatch {
-    cols.extend(envelope_cols(env, rows));
+    cols.extend(envelope_cols(env, rows, sc.version));
     RecordBatch::try_new(sc.arrow.clone(), cols).expect("columns match the published schema")
 }
 

@@ -48,6 +48,7 @@ func createDefaultConfig() component.Config {
 		Series:        parquetgo.DefaultSeriesOptions(),
 		S3:            S3Config{Region: "us-east-1", PutTimeout: 10 * time.Second, HeadTimeout: 2 * time.Second},
 		Heartbeat:     HeartbeatConfig{Interval: 30 * time.Second, BirthTimeout: 30 * time.Second},
+		Resources:     ResourcesConfig{Announce: true, Window: time.Hour, CacheSize: 65536},
 	}
 }
 

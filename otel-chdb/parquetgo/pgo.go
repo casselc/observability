@@ -112,21 +112,24 @@ var pgEnvelope = []pgCol{
 	{"received_at", kTS}, {"schema_version", kU16},
 }
 
-var pgTraceCols = append([]pgCol{
+// pgResource: resource_id and resource_announce (resource.go), before the envelope.
+var pgResource = []pgCol{{"resource_id", kU64}, {"resource_announce", kMap}}
+
+var pgTraceCols = slices.Concat([]pgCol{
 	{"Timestamp", kTS}, {"TraceId", kStr}, {"SpanId", kStr}, {"ParentSpanId", kStr}, {"TraceState", kStr},
 	{"SpanName", kStr}, {"SpanKind", kStr}, {"ServiceName", kStr}, {"ResourceAttributes", kMap},
 	{"ScopeName", kStr}, {"ScopeVersion", kStr}, {"SpanAttributes", kMap}, {"Duration", kU64},
 	{"StatusCode", kStr}, {"StatusMessage", kStr},
 	{"Events.Timestamp", kListTS}, {"Events.Name", kListStr}, {"Events.Attributes", kListMap},
 	{"Links.TraceId", kListStr}, {"Links.SpanId", kListStr}, {"Links.TraceState", kListStr}, {"Links.Attributes", kListMap},
-}, pgEnvelope...)
+}, pgResource, pgEnvelope)
 
-var pgLogCols = append([]pgCol{
+var pgLogCols = slices.Concat([]pgCol{
 	{"Timestamp", kTS}, {"TraceId", kStr}, {"SpanId", kStr}, {"TraceFlags", kU8}, {"SeverityText", kStr},
 	{"SeverityNumber", kU8}, {"ServiceName", kStr}, {"Body", kStr}, {"ResourceSchemaUrl", kStr},
 	{"ResourceAttributes", kMap}, {"ScopeSchemaUrl", kStr}, {"ScopeName", kStr}, {"ScopeVersion", kStr},
 	{"ScopeAttributes", kMap}, {"LogAttributes", kMap}, {"EventName", kStr},
-}, pgEnvelope...)
+}, pgResource, pgEnvelope)
 
 func pgCodec(name string, level int) (compress.Codec, error) {
 	switch name {
@@ -560,6 +563,19 @@ func (s *pgSignal) attrs(m pcommon.Map) {
 		s.mapEntry(&mp, k, v)
 		return true
 	})
+}
+
+// pairs writes a map of string pairs (resource_announce).
+func (s *pgSignal) pairs(pairs [][2]string) {
+	mp, ok := s.mapStart(len(pairs))
+	if !ok {
+		return
+	}
+	for _, p := range pairs {
+		s.vals[mp.kl] = append(s.vals[mp.kl], parquet.ByteArrayValue(bytesOf(p[0])).Level(mp.rep, mp.def, mp.kl))
+		s.vals[mp.vl] = append(s.vals[mp.vl], parquet.ByteArrayValue(bytesOf(p[1])).Level(mp.rep, mp.def, mp.vl))
+		mp.rep = mp.def
+	}
 }
 
 // mapPos is where one map value's entries go: a top-level map column or the

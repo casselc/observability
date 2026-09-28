@@ -58,6 +58,11 @@ groups:
               # src/series.rs); clickstack_tables for the benchmarks only.
               metrics_layout: "${env:METRICS_LAYOUT:-series_table}"
               verbose: ${env:VERBOSE:-false}
+              # resource_id on every trace and log row; each resource's covered
+              # set announced in the object, once per window per lane epoch
+              # (../../FORMAT.md §2, src/resource.rs). ANNOUNCE=false: ids only.
+              resources:
+                announce: ${env:ANNOUNCE:-true}
               parquet:
                 sort:
                   by: none              # D16: sorting off

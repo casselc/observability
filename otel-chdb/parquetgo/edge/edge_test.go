@@ -107,7 +107,7 @@ func TestTracesObject(t *testing.T) {
 	b, _ := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
 	want := map[string]string{
 		"oscope-format": "2", "oscope-cluster": "c1", "oscope-kind": "data", "oscope-producer": "p1", "oscope-epoch": "20260926T000000.000Z-00000001", "oscope-seq": "0",
-		"oscope-content": commit.ContentHash("traces", b), "oscope-signal": "traces", "oscope-schema": "1", "oscope-rows": "5",
+		"oscope-content": commit.ContentHash("traces", b), "oscope-signal": "traces", "oscope-schema": "2", "oscope-rows": "5", "oscope-announce": "1",
 		"oscope-min-time": "1700000000000000000", "oscope-max-time": "1700000000000000004", "oscope-received": "1790000000123456789",
 	}
 	for k, v := range want {
@@ -353,4 +353,118 @@ func TestReplayKeepsReceived(t *testing.T) {
 	if o.Meta["oscope-received"] != "1790000000123456789" {
 		t.Fatal(o.Meta)
 	}
+}
+
+// resourceTraces is one span of a pod container's resource (covered keys and
+// an SDK residual).
+func resourceTraces(pod string, seed int) ptrace.Traces {
+	td := ptrace.NewTraces()
+	rs := td.ResourceSpans().AppendEmpty()
+	a := rs.Resource().Attributes()
+	a.PutStr("k8s.pod.name", pod)
+	a.PutStr("k8s.namespace.name", "shop")
+	a.PutStr("k8s.pod.label.team", "payments")
+	a.PutStr("telemetry.sdk.language", "go")
+	s := rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	s.SetName(fmt.Sprintf("op-%d", seed))
+	s.SetStartTimestamp(pcommon.Timestamp(1_700_000_000_000_000_000 + int64(seed)))
+	return td
+}
+
+type resRow struct {
+	ID       uint64            `parquet:"resource_id"`
+	Announce map[string]string `parquet:"resource_announce"`
+}
+
+func resRows(t *testing.T, st *commit.MemStore, key string) ([]resRow, string) {
+	t.Helper()
+	o, ok := st.Get(key)
+	if !ok {
+		t.Fatalf("%s missing", key)
+	}
+	rows, err := parquet.Read[resRow](bytes.NewReader(o.Body), int64(len(o.Body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows, o.Meta[commit.MetaAnnounce]
+}
+
+// Announcements ride in the data object, once per resource per lane epoch,
+// and count only once their object has committed.
+func TestResourceAnnouncements(t *testing.T) {
+	st := commit.NewMemStore()
+	e := newEdge(t, st, "")
+	ctx := context.Background()
+	id := parquetgo.CoveredOf(resourceTraces("cart-1", 0).ResourceSpans().At(0).Resource().Attributes()).ID
+	if err := e.PushTraces(ctx, resourceTraces("cart-1", 1)); err != nil {
+		t.Fatal(err)
+	}
+	keys := st.Keys("root/c1/p1/traces/")
+	rows, n := resRows(t, st, keys[0])
+	if n != "1" || len(rows) != 1 || rows[0].ID != id || len(rows[0].Announce) != 3 || rows[0].Announce["k8s.pod.label.team"] != "payments" {
+		t.Fatalf("first object: %s %+v", n, rows)
+	}
+	if _, ok := rows[0].Announce["telemetry.sdk.language"]; ok {
+		t.Fatal("the residual is announced")
+	}
+	// the same resource again: announced already in this epoch
+	if err := e.PushTraces(ctx, resourceTraces("cart-1", 2)); err != nil {
+		t.Fatal(err)
+	}
+	keys = st.Keys("root/c1/p1/traces/")
+	if rows, n := resRows(t, st, keys[1]); n != "0" || rows[0].ID != id || len(rows[0].Announce) != 0 {
+		t.Fatalf("second object: %s %+v", n, rows)
+	}
+	// A new resource whose object is lost with no answer (unresolved): not
+	// marked, so the next object of that lane announces it again.
+	id2 := parquetgo.CoveredOf(resourceTraces("cart-2", 0).ResourceSpans().At(0).Resource().Attributes()).ID
+	st.Inject(commit.Drop)
+	st.Inject(commit.HeadFail)
+	st.Inject(commit.HeadFail)
+	st.Inject(commit.HeadFail)
+	if err := e.PushTraces(ctx, resourceTraces("cart-2", 3)); err == nil {
+		t.Log("the lost PUT was resolved inside the call")
+	}
+	st.ClearFaults()
+	if err := e.PushTraces(ctx, resourceTraces("cart-2", 4)); err != nil {
+		t.Fatal(err)
+	}
+	keys = st.Keys("root/c1/p1/traces/")
+	last := keys[len(keys)-1]
+	if rows, n := resRows(t, st, last); n != "1" || rows[0].ID != id2 || len(rows[0].Announce) != 3 {
+		t.Fatalf("after a lost object: %s %+v (%v)", n, rows, keys)
+	}
+	// A restart is a new epoch with an empty cache: announced again.
+	e2 := newEdge(t, st, "")
+	e2.cfg.NewEpoch = func() string { return "20260926T000001.000Z-000000ff" }
+	for _, l := range e2.lanes["traces"] {
+		l.NewEpoch = e2.cfg.NewEpoch
+	}
+	if err := e2.PushTraces(ctx, resourceTraces("cart-1", 5)); err != nil {
+		t.Fatal(err)
+	}
+	k2 := st.Keys("root/c1/p1/traces/20260926T000001.000Z-000000ff/")
+	if rows, n := resRows(t, st, k2[0]); n != "1" || rows[0].ID != id {
+		t.Fatalf("new epoch: %s %+v", n, rows)
+	}
+	// Off: nothing announced, resource_id still written.
+	st3 := commit.NewMemStore()
+	e3 := newEdge(t, st3, "")
+	e3.cfg.Resources.Off = true
+	if err := e3.PushLogs(ctx, logsOf(resourceTraces("x", 1))); err != nil {
+		t.Fatal(err)
+	}
+	k3 := st3.Keys("root/c1/p1/logs/")
+	if rows, n := resRows(t, st3, k3[0]); n != "0" || rows[0].ID == 0 || len(rows[0].Announce) != 0 {
+		t.Fatalf("off: %s %+v", n, rows)
+	}
+}
+
+// logsOf is one log record under td's first resource.
+func logsOf(td ptrace.Traces) plog.Logs {
+	ld := plog.NewLogs()
+	rl := ld.ResourceLogs().AppendEmpty()
+	td.ResourceSpans().At(0).Resource().CopyTo(rl.Resource())
+	rl.ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("b")
+	return ld
 }

@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,8 +42,40 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
-// SchemaVersion is the envelope's schema_version.
-const SchemaVersion = 1
+// SchemaVersion is the envelope's schema_version of metrics objects;
+// ResourceSchemaVersion that of traces and logs, which carry resource_id and
+// resource_announce (../resource.go).
+const (
+	SchemaVersion         = 1
+	ResourceSchemaVersion = 2
+)
+
+func schemaVersion(ns string) int {
+	if ns == "traces" || ns == "logs" {
+		return ResourceSchemaVersion
+	}
+	return SchemaVersion
+}
+
+// ResourceOptions are the resource announcements (../resource.go); the zero
+// value is the default: announce, a 1 h window, 65,536 resources per lane.
+type ResourceOptions struct {
+	// Off: no announcements (resource_announce stays empty; resource_id is
+	// always written).
+	Off bool
+	// Window: a resource is announced again once per window of the
+	// request's received_at (default 1 h).
+	Window time.Duration
+	// CacheSize: resources remembered per lane (default 65,536); the least
+	// recently announced beyond it are forgotten and announced again.
+	CacheSize int
+}
+
+// laneAnn is one lane's announcement cache.
+type laneAnn struct {
+	mu sync.Mutex
+	c  parquetgo.AnnounceCache
+}
 
 // Metrics layouts.
 const (
@@ -84,6 +117,8 @@ type Config struct {
 	NewEpoch func() string
 	// Now is the clock for received_at (default time.Now).
 	Now func() time.Time
+	// Resources: announcements (zero value: the defaults).
+	Resources ResourceOptions
 	// Custody is the floor of what waits for the edge before it has it (a
 	// persistent queue: ../s3pqexporter), in ns; nil: nothing does (a sender
 	// waits for the commit). Every object's oscope-low is the lowest of it,
@@ -117,6 +152,7 @@ type Edge struct {
 	stats  *commit.Stats
 	series *parquetgo.SeriesEncoder
 	encs   *parquetgo.FreeList[*parquetgo.PGEncoder]
+	ann    map[*commit.Lane]*laneAnn
 
 	mu         sync.Mutex
 	inHands    map[uint64]int       // received_at of the requests being published (a multiset)
@@ -162,8 +198,14 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.Resources.Window <= 0 {
+		cfg.Resources.Window = time.Hour
+	}
+	if cfg.Resources.CacheSize <= 0 {
+		cfg.Resources.CacheSize = 65536
+	}
 	e := &Edge{cfg: cfg, store: cfg.Store, lanes: map[string][]*commit.Lane{}, stats: &commit.Stats{},
-		inHands: map[uint64]int{}, lastCommit: map[string]time.Time{}}
+		inHands: map[uint64]int{}, lastCommit: map[string]time.Time{}, ann: map[*commit.Lane]*laneAnn{}}
 	if e.store == nil {
 		client, bucket, prefix, err := parquetgo.NewS3Client(cfg.S3)
 		if err != nil {
@@ -181,6 +223,11 @@ func New(cfg Config) (*Edge, error) {
 				Timeouts: commit.Timeouts{Put: cfg.PutTimeout, Head: cfg.HeadTimeout},
 				Stats:    e.stats, Observer: cfg.Observer, Mutation: cfg.Mutation, NewEpoch: cfg.NewEpoch,
 			})
+		}
+	}
+	for _, ns := range []string{"traces", "logs"} {
+		for _, l := range e.lanes[ns] {
+			e.ann[l] = &laneAnn{}
 		}
 	}
 	if cfg.MetricsLayout == SeriesTable {
@@ -319,7 +366,7 @@ func (e *Edge) description(ns string, rows int, minTS, maxTS, received uint64) m
 		commit.MetaCluster:  e.cfg.Cluster,
 		commit.MetaProducer: e.cfg.ProducerID,
 		commit.MetaSignal:   ns,
-		commit.MetaSchema:   strconv.Itoa(SchemaVersion),
+		commit.MetaSchema:   strconv.Itoa(schemaVersion(ns)),
 		commit.MetaRows:     strconv.Itoa(rows),
 		commit.MetaMinTime:  strconv.FormatUint(minTS, 10),
 		commit.MetaMaxTime:  strconv.FormatUint(maxTS, 10),
@@ -349,21 +396,73 @@ func (e *Edge) env(r commit.Ref, received uint64) *parquetgo.Envelope {
 	return &parquetgo.Envelope{Producer: e.cfg.ProducerID, Epoch: r.Epoch, Batch: r.Seq, Received: received, Schema: SchemaVersion}
 }
 
+// announcing is a traces or logs object's announcement state: the lane's
+// cache, the request's window, and what the last encode announced.
+type announcing struct {
+	ann       *laneAnn
+	window    int64
+	off       bool
+	announced []uint64
+}
+
+func (e *Edge) announcing(l *commit.Lane, received uint64) *announcing {
+	return &announcing{ann: e.ann[l], off: e.cfg.Resources.Off, window: int64(received / uint64(e.cfg.Resources.Window.Nanoseconds()))}
+}
+
+// wants is the object's choice for the slot's epoch: a resource not yet
+// announced in this epoch and window.
+func (a *announcing) wants(epoch string) func(uint64) bool {
+	return func(id uint64) bool {
+		if a.off {
+			return false
+		}
+		a.ann.mu.Lock()
+		defer a.ann.mu.Unlock()
+		return a.ann.c.Wants(epoch, id, a.window)
+	}
+}
+
+// committed marks what the committed object announced: only once it has
+// committed (../../model/entityCatalog.qnt announcedAfterCommit). An object
+// found committed without being encoded by this call marks nothing (its
+// resources are announced again: harmless).
+func (e *Edge) committed(a *announcing, r commit.Ref) {
+	if len(a.announced) == 0 {
+		return
+	}
+	a.ann.mu.Lock()
+	a.ann.c.Announced(r.Epoch, a.announced, a.window, e.cfg.Resources.CacheSize)
+	a.ann.mu.Unlock()
+}
+
 // pgObject encodes one object with the PGEncoder: walk (via enc) with the
 // slot's envelope, the description into the footer once the rows are known.
-func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64,
+// ann (traces, logs) decides and records the object's announcements.
+func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *announcing,
 	walk func(*parquetgo.PGEncoder, *bytes.Buffer, *parquetgo.Envelope) (int, error)) (commit.Object, error) {
 	enc := e.encs.Get()
 	defer e.encs.Put(enc)
 	var meta map[string]string
 	enc.Footer = func(rows int, env *parquetgo.Envelope) map[string]string {
 		meta = e.description(ns, rows, env.MinTS, env.MaxTS, received)
+		if ann != nil {
+			meta[commit.MetaAnnounce] = strconv.Itoa(len(env.Announced))
+		}
 		return footerOf(meta, r, content)
 	}
 	buf := new(bytes.Buffer)
 	buf.Grow(256 << 10)
-	if _, err := walk(enc, buf, e.env(r, received)); err != nil {
+	env := e.env(r, received)
+	env.Schema = uint16(schemaVersion(ns))
+	if ann != nil {
+		env.Announce = ann.wants(r.Epoch)
+		ann.announced = nil
+	}
+	if _, err := walk(enc, buf, env); err != nil {
 		return commit.Object{}, err
+	}
+	if ann != nil {
+		ann.announced = slices.Clone(env.Announced)
 	}
 	body := buf.Bytes()
 	if n := e.cfg.Parquet.TruncateStatistics; n > 0 {
@@ -415,13 +514,16 @@ func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 		return &PermanentError{err}
 	}
 	content := commit.ContentHash("traces", b)
-	_, err = e.lane("traces", content).Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
-		return e.pgObject("traces", content, r, received, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+	l := e.lane("traces", content)
+	ann := e.announcing(l, received)
+	r, err := l.Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
+		return e.pgObject("traces", content, r, received, ann, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 			return enc.Traces(buf, td, env)
 		})
 	})
 	if err == nil {
 		e.touch("traces")
+		e.committed(ann, r)
 	}
 	return err
 }
@@ -439,13 +541,16 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 		return &PermanentError{err}
 	}
 	content := commit.ContentHash("logs", b)
-	_, err = e.lane("logs", content).Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
-		return e.pgObject("logs", content, r, received, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+	l := e.lane("logs", content)
+	ann := e.announcing(l, received)
+	r, err := l.Append(ctx, content, func(r commit.Ref) (commit.Object, error) {
+		return e.pgObject("logs", content, r, received, ann, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 			return enc.Logs(buf, ld, env)
 		})
 	})
 	if err == nil {
 		e.touch("logs")
+		e.committed(ann, r)
 	}
 	return err
 }
@@ -517,7 +622,7 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 			ns := parquetgo.MetricSignals[t]
 			content := commit.ContentHash(ns, b)
 			parts = append(parts, part{ns: ns, content: content, encode: func(r commit.Ref) (commit.Object, error) {
-				return e.pgObject(ns, content, r, received, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
+				return e.pgObject(ns, content, r, received, nil, func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 					return enc.MetricsOf(buf, md, t, env)
 				})
 			}})

@@ -107,6 +107,27 @@ jobs:
       - run: npm run vendor:check
       - run: npm test
 
+  # The Mosaic spike beside the lake UI (research/mosaic.md): its columns,
+  # Arrow and completeness-layer tests import lakeui's modules, so both
+  # directories are installed.
+  lakeui-mosaic:
+    name: lake UI Mosaic spike (node unit + property tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            otel-chdb/lakeui/package-lock.json
+            otel-chdb/lakeui/mosaic/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: otel-chdb/lakeui
+      - run: npm ci --ignore-scripts --no-audit --no-fund && npm test
+        working-directory: otel-chdb/lakeui/mosaic
+
   # otap-rs. This job owns the cargo cache (clippy's and the tests' release
   # artifacts); the nightly Rust jobs only restore it.
   rust:

@@ -1,0 +1,4 @@
+# built by `npm run vendor` from the pinned node_modules (40 MB of wasm)
+vendor/
+node_modules/
+test-results/

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lake Crossfilter</title>
+<link rel="stylesheet" href="../app.css">
+<link rel="stylesheet" href="mosaic.css">
+<script type="importmap">
+{"imports": {"hyparquet": "../vendor/hyparquet/src/index.js", "fzstd": "../vendor/fzstd/esm/index.mjs"}}
+</script>
+</head>
+<body>
+<header>
+  <h1>Lake Crossfilter <small>(Mosaic spike)</small></h1>
+  <div id="who" data-testid="who">not signed in</div>
+  <button id="signin" type="button">Sign in</button>
+  <button id="signout" type="button" hidden>Sign out</button>
+</header>
+<main>
+  <form id="controls" class="row" onsubmit="return false">
+    <label>from <input id="from" size="30" placeholder="2026-09-28T12:00:00Z"></label>
+    <label>to <input id="to" size="30" placeholder="2026-09-28T13:00:00Z"></label>
+    <label>cluster <select id="cluster"><option value="">all in scope</option></select></label>
+    <label>load <select id="mode">
+      <option value="range">range reader → Arrow → DuckDB</option>
+      <option value="url">DuckDB reads the URLs</option>
+    </select></label>
+    <label><input id="preagg" type="checkbox" checked> pre-aggregate (data cube)</label>
+    <button id="load" type="button">Load</button>
+  </form>
+  <div id="banner" class="banner" data-state="idle" data-testid="banner">Sign in, pick a window, Load.</div>
+  <div id="stats" class="stats" data-testid="stats"></div>
+  <div id="charts" class="charts">
+    <section><h2>Log volume by severity <span class="hint">(brush a time range)</span></h2><div id="chart-A" data-testid="chart-A"></div></section>
+    <section><h2>Logs by pod <span class="hint">(click a pod)</span></h2><div id="chart-B" data-testid="chart-B"></div></section>
+    <section><h2>Span latency <span class="hint">(brush a range)</span></h2><div id="chart-C" data-testid="chart-C"></div></section>
+    <section><h2>Spans by pod <span class="hint">(time, pod and latency)</span></h2><div id="chart-D" data-testid="chart-D"></div></section>
+  </div>
+  <p class="legend-note">Solid: settled rows. <span class="sw hatch"></span> hatched: rows or buckets past
+  settled-through (they may still grow). <span class="sw unk"></span> grey: completeness unknown.
+  The red band on the time chart starts at the first bucket that is not settled.</p>
+  <details><summary>queries</summary><pre id="qlog" data-testid="qlog"></pre></details>
+</main>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

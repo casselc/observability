@@ -1,0 +1,10 @@
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr)); gap: 12px 20px; }
+.charts section { min-width: 0; overflow-x: auto; }
+.charts h2 { font-size: 14px; margin: 12px 0 4px; }
+.hint { font-weight: 400; color: var(--text-secondary); }
+.stats { color: var(--text-secondary); font-size: 12px; margin: 4px 0; }
+.legend-note { color: var(--text-secondary); font-size: 12px; }
+.sw { display: inline-block; width: 14px; height: 10px; vertical-align: middle; border: 1px solid var(--axis); }
+.sw.hatch { background: repeating-linear-gradient(45deg, #4269d0 0 2px, #dbe4f7 2px 5px); }
+.sw.unk { background: repeating-linear-gradient(-45deg, #8a8a8a 0 2px, #e6e6e6 2px 5px); }
+#qlog { max-height: 300px; overflow: auto; font-size: 11px; white-space: pre-wrap; }

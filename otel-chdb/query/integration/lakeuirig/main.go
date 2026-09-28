@@ -127,6 +127,11 @@ func attrs(r resource) []map[string]any {
 		kv("k8s.namespace.name", r.namespace), kv("k8s.pod.name", r.pod), kv("k8s.pod.uid", r.cluster+"-"+r.pod+"-uid")}
 }
 
+// richSpans (LUI_RICH_SPANS=1, for lakeui/mosaic's latency view): filler
+// spans get log-normal durations instead of 1 ms, and the late batch carries
+// spans too. Unset, the data is exactly as before.
+var richSpans = os.Getenv("LUI_RICH_SPANS") != ""
+
 var severities = []string{"INFO", "INFO", "INFO", "DEBUG", "WARN", "ERROR"}
 
 // Needle is a word that appears in a few log bodies only (the narrow search).
@@ -236,8 +241,12 @@ func sendBatch(e *edge, res []resource, b batchSpec, truth *Truth) {
 		}
 		for i := 0; i < b.spans; i++ {
 			s := b.from.Add(time.Duration(float64(b.span) * float64(i) / float64(max(b.spans, 1))))
+			d := time.Millisecond
+			if richSpans { // log-normal, median e^(3+0.8·ri) ms: a latency histogram with a tail, per pod
+				d = time.Duration(math.Exp(3+0.8*float64(ri)+1.1*rng.NormFloat64()) * float64(time.Millisecond))
+			}
 			spans = append(spans, map[string]any{"traceId": fmt.Sprintf("%016x%016x", rng.Uint64(), rng.Uint64()), "spanId": fmt.Sprintf("%016x", rng.Uint64()),
-				"name": "filler", "kind": 2, "startTimeUnixNano": fmt.Sprint(s.UnixNano()), "endTimeUnixNano": fmt.Sprint(s.Add(time.Millisecond).UnixNano())})
+				"name": "filler", "kind": 2, "startTimeUnixNano": fmt.Sprint(s.UnixNano()), "endTimeUnixNano": fmt.Sprint(s.Add(d).UnixNano())})
 		}
 		if ri == 0 && b.rareTrace != "" {
 			for k := 0; k < 2; k++ {
@@ -638,7 +647,11 @@ func main() {
 	time.Sleep(1500 * time.Millisecond)
 	late := time.Now().Truncate(time.Millisecond)
 	truth.LateFrom, truth.LateCluster, truth.LateLogs = late.UTC().Format(time.RFC3339Nano), "lui-a", 2*300
-	sendBatch(edges["lui-a"], res["lui-a"], batchSpec{from: late, span: 20 * time.Second, logs: 300, seed: 99}, truth)
+	lateSpans := 0
+	if richSpans {
+		lateSpans = 60
+	}
+	sendBatch(edges["lui-a"], res["lui-a"], batchSpec{from: late, span: 20 * time.Second, logs: 300, spans: lateSpans, seed: 99}, truth)
 	truth.LateTo = late.Add(20 * time.Second).UTC().Format(time.RFC3339Nano)
 	time.Sleep(2500 * time.Millisecond)
 	for _, e := range edges {

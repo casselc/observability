@@ -303,6 +303,68 @@ jobs:
         if: failure()
         run: ci/services.sh logs || true
 
+  # The Mosaic spike (otel-chdb/lakeui/mosaic, research/mosaic.md) on the
+  # same rig with LUI_RICH_SPANS: range reads vs DuckDB reading the URLs,
+  # cross-filter exactness, brush latency with and without pre-aggregation,
+  # stale cubes, an unknown watermark; numbers as the artifact.
+  lakeui-mosaic-e2e:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            otel-chdb/lakeui/package-lock.json
+            otel-chdb/lakeui/mosaic/package-lock.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: npm ci (lakeui and the spike), vendor (pinned; the parquet extension by SHA-256), Chromium
+        run: |
+          (cd otel-chdb/lakeui && npm ci --ignore-scripts --no-audit --no-fund)
+          cd otel-chdb/lakeui/mosaic
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run vendor
+          npx playwright install --with-deps chromium
+      - name: Build the rig
+        working-directory: otel-chdb/query
+        run: go build -o "$RUNNER_TEMP/lakeuirig" ./integration/lakeuirig
+      - name: playwright test (otel-chdb/lakeui/mosaic)
+        working-directory: otel-chdb/lakeui/mosaic
+        env:
+          QS_IT_BIN: ${{ runner.temp }}/bin
+          LAKEUI_RIG_BIN: ${{ runner.temp }}/lakeuirig
+        run: npm run e2e
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: lakeui-mosaic-e2e
+          path: otel-chdb/lakeui/mosaic/test-results
+          if-no-files-found: ignore
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
+
   # The alert evaluator against the real pipeline and the query service
   # (built from otel-chdb/query): rules fire and resolve, a stalled lane
   # pages "cannot evaluate", the missed windows are evaluated once the

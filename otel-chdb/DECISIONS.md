@@ -65,6 +65,7 @@ disagreed with each other, and how each was resolved.
 | [D22](#d22-query-service-sql-rebuilt-from-the-tree-scope-as-table-filters-labels-on-every-result) | Query service: OIDC + audit, SQL rebuilt from the tree, scope as `additional_table_filters`, `complete_through` on every result, a presigned lake plan | **first slice built** (2026-09-28, [`query/`](query/README.md)): central queries and lake plans for both UIs; the UIs and the alert evaluator are not wired yet |
 | [D23](#d23-alert-evaluator-gated-on-the-query-services-label-state-by-compare-and-swap-an-outbox-ledger) | Alert evaluator: rules as data through the query service, evaluated only on `complete` windows, "cannot evaluate" pages, compare-and-swap state on S3 (two replicas, no lease), an outbox ledger with stable dedup keys | **built** (2026-09-28, [`alerts/`](alerts/README.md)): R-S3, AMBIGUITY X5/X6/X11 partly; tested against a fake Alertmanager |
 | [D24](#d24-lake-ui-first-slice-plan-range-read-in-the-page-completeness-on-every-view) | Lake UI: a static page on `/v1/plan`, hyparquet range reads (footer, then only the needed column chunks), X8's re-plan rules as a tested state machine, completeness computed for every row, bucket and point | **first slice built** (2026-09-28, [`lakeui/`](lakeui/README.md)): logs, trace by id, a gauge chart; Playwright against the real stack |
+| [D28](#d28-mosaic-vgplot--duckdb-wasm-for-the-lake-uis-analytical-views-fed-by-the-range-reader-proposed) | Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical, cross-filtered views, fed by lakeui's range reader; hyparquet-only stays for search and trace | **proposed** (2026-09-28): spike [`lakeui/mosaic/`](lakeui/mosaic/README.md), [research/mosaic.md](research/mosaic.md); owner to decide |
 
 ---
 
@@ -2563,6 +2564,62 @@ deleting L0s after their L1, a sealer snapshot naming segments
 (research §6.2), `LogAttributes`/`SpanAttributes` items, a high-entropy
 token policy to bound the dictionary on id-heavy bodies (owner decision:
 dropping all-hex or all-digit tokens would make id searches unindexable).
+
+### D28. Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical views, fed by the range reader (proposed)
+
+**Status:** **proposed, not decided** (2026-09-28). Spike built and measured:
+[`lakeui/mosaic/`](lakeui/mosaic/README.md); evaluation in
+[research/mosaic.md](research/mosaic.md). The owner decides.
+
+**Context.** The owner asked to "look at the mosaic project as a possible
+duckdb option". D24 left DuckDB-WASM out of the lake UI because it read
+presigned objects whole and the views needed no SQL. Mosaic (0.31.0,
+BSD-3-Clause) is a coordinator for linked, cross-filtered charts that runs
+its queries on DuckDB (in the page or on a server) and pre-aggregates
+("data cube" tables) so brushing stays interactive on large tables.
+
+**Proposal.**
+
+1. **Adopt Mosaic for analytical views only**, as an opt-in view whose
+   engine (8.6 MB gzip) loads when the view opens: cross-filtered
+   breakdowns over one planned window (volume by severity × service/pod,
+   span latency distributions, error rates), later dashboards over rollups.
+2. **Feed DuckDB only through lakeui's range reader** (plan → range reads →
+   Arrow IPC → `insertArrowFromIPCStream`); never let DuckDB fetch the
+   presigned URLs.
+3. **Keep hyparquet-only for search, trace by id and the existing views.**
+4. **Rules for the view**: completeness decided by `completeness.js` before
+   loading and passed as columns; the cube schema dropped and the
+   coordinator's cache cleared on every load; our own DuckDB instance handed
+   to Mosaic (its default fetches jsDelivr); a row cap per load.
+5. **No Mosaic connector on `/v1/query`.**
+
+**Evidence** [M] (research/mosaic.md §4): same window and tables either way;
+range reader 23 ranged GETs, 180,840 B (19 % of planned) vs DuckDB reading
+the URLs 8 whole GETs, 941,409 B (100 %), unchanged by the HEAD shim; with
+trusted HEADs DuckDB cannot open the files (0 requests). DuckDB reads the
+edges' ns timestamps as µs. First chart 1.6 s on localhost (0.9–1.2 s of it
+DuckDB start) vs 43–76 ms for lakeui's own histogram view. Every chart total
+equals an independent SQL count after brushes and clicks. Brush median
+21–37 ms from 21 k to 12.7 M rows with pre-aggregation, 43 → 342 ms without;
+cube activation up to 1.4 s; 1.6 GB of DuckDB memory at 12.7 M rows,
+out of memory near 3.1 GiB. Mosaic's 58 statements on ClickHouse: 14 ran,
+every cube statement failed, `log()` differs in base.
+
+**Alternatives.** Mosaic with DuckDB reading the URLs (whole objects, µs
+timestamps, X8 not enforceable per object); a Mosaic server connector on
+`/v1/query` (dialect, cube writes, JSON, no label channel); Mosaic's DuckDB
+server in the reader tier (a new stateful, per-viewer-scoped service); no
+Mosaic, and hand-written cross-filtering on hyparquet (re-read per brush:
+82 KB and 68 ms per brushed window here, and every linked chart written by
+hand).
+
+**Consequences / open.** Two chart engines in one UI (the plan, X8 and
+completeness code stays single). Cube staleness is silent if the drop rule
+is broken (the spike's e2e guards it); brush edges are pixel-rounded with
+pre-aggregation. Mosaic is 0.x and pins a DuckDB-WASM dev build: pin and
+re-run the e2e on every upgrade. Not measured: a WAN or throttled link,
+Firefox/Safari, L2-sized files.
 
 ## 6. Upstream bugs found
 

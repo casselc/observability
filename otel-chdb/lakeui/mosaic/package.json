@@ -1,0 +1,24 @@
+{
+  "name": "otel-chdb-lakeui-mosaic",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Spike: Mosaic (vgplot + DuckDB-WASM) cross-filtered views over /v1/plan, fed by lakeui's range reader",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "test": "node --test test/*.test.js",
+    "e2e": "playwright test -c e2e/playwright.config.mjs"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "1.33.1-dev57.0",
+    "@uwdata/flechette": "2.5.0",
+    "@uwdata/mosaic-core": "0.31.0",
+    "@uwdata/mosaic-sql": "0.31.0",
+    "@uwdata/vgplot": "0.31.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "esbuild": "0.28.2",
+    "fast-check": "4.10.2"
+  }
+}

@@ -8,6 +8,15 @@ on:
     - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
+      jobs:
+        description: >-
+          jobs to run: "all", or a comma list of build, conformance, close_e2e,
+          query-integration, query-kms-emulator, hdxadapter-integration,
+          lakeui-e2e, lakeui-mosaic-e2e, alerts-integration, faults-soak,
+          rust-integration, dst, hegel, rust-mbt (or mbt_s3inline,
+          mbt_s3inline_metrics, mbt_s3inline_consumer), model, kani, chdb,
+          upstream-patches. A job that needs the build's binaries brings build.
+        default: all
       soak_seconds:
         description: consumer soak duration (s)
         default: "300"
@@ -36,10 +45,56 @@ env:
   NODE_OPTIONS: --max-old-space-size=5120
 
 jobs:
+  # Which jobs this run runs (ci/README.md, "Running part of the nightly"):
+  # every one on schedule; on workflow_dispatch those `inputs.jobs` names,
+  # plus build when one of them needs its artifact. An unknown name fails
+  # here, not silently as a run that tested nothing.
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      mbt: ${{ steps.plan.outputs.mbt }}
+    steps:
+      - id: plan
+        env:
+          JOBS: ${{ github.event_name == 'workflow_dispatch' && inputs.jobs || 'all' }}
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
+                  "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "alerts-integration",
+                  "faults-soak", "rust-integration", "dst", "hegel", "model", "kani", "chdb",
+                  "upstream-patches"]
+          mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
+          # the jobs that download the build job's `bin` artifact
+          uses_build = ["conformance", "close_e2e", "query-integration", "lakeui-e2e",
+                        "lakeui-mosaic-e2e", "alerts-integration", "faults-soak"]
+          want = {w.strip() for w in os.environ["JOBS"].split(",") if w.strip()}
+          if not want or "all" in want:
+              want = set(jobs) | set(mbt)
+          if "rust-mbt" in want or "mbt" in want:
+              want |= set(mbt)
+              want -= {"rust-mbt", "mbt"}
+          unknown = sorted(want - set(jobs) - set(mbt))
+          if unknown:
+              raise SystemExit(f"::error::unknown nightly job(s) {unknown}; known: all, {', '.join(jobs + ['rust-mbt'] + mbt)}")
+          if want & set(uses_build):
+              want.add("build")
+          run = {j: j in want for j in jobs}
+          sel = [m for m in mbt if m in want]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"run={json.dumps(run)}\n")
+              f.write(f"mbt={json.dumps(sel)}\n")
+          print("running:", ", ".join(sorted(want)))
+          EOF
+
   # Release binaries (otap-s3pq, consume), the Go tools and the Go edge
   # (otelcol-s3pq), shared with the end-to-end jobs as one artifact; plus the
   # otelcol-chdb distribution as a build check.
   build:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).build
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -100,7 +155,8 @@ jobs:
 
   # Cross-edge conformance (both layouts) and the Go edge under faults.
   conformance:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run).conformance || fromJSON(needs.plan.outputs.run).close_e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -121,6 +177,7 @@ jobs:
           python-version: "3.12"
       - run: pip install pyarrow requests
       - name: compare.py unit tests (its queries against the consumer's DDL)
+        if: fromJSON(needs.plan.outputs.run).conformance
         working-directory: otel-chdb/conformance
         run: python3 -m unittest -v compare_test
       - uses: actions/download-artifact@v8
@@ -137,6 +194,7 @@ jobs:
           CONFORMANCE: "1"
         run: ci/gen-data.sh "$RUNNER_TEMP/data" "$RUNNER_TEMP/genbin"
       - name: conformance/run.sh (layout B, series_table)
+        if: fromJSON(needs.plan.outputs.run).conformance
         env:
           B: ${{ runner.temp }}/bin
           D: ${{ runner.temp }}/data
@@ -144,6 +202,7 @@ jobs:
           RUN: ci${{ github.run_id }}b
         run: otel-chdb/conformance/run.sh
       - name: conformance/run.sh (ClickStack metrics tables)
+        if: fromJSON(needs.plan.outputs.run).conformance
         env:
           B: ${{ runner.temp }}/bin
           D: ${{ runner.temp }}/data
@@ -153,6 +212,7 @@ jobs:
           DATASETS: metrics-testgen-3000 metrics-nasty-700 metrics-extra metrics-hostile metrics-mixed-10000
         run: otel-chdb/conformance/run.sh
       - name: conformance/go_faults.sh
+        if: fromJSON(needs.plan.outputs.run).conformance
         env:
           B: ${{ runner.temp }}/bin
           D: ${{ runner.temp }}/data
@@ -166,6 +226,7 @@ jobs:
       # them and the cluster's complete_through passes; a restart on the same
       # Quiver buffer is reborn and nothing is quarantined.
       - name: otap-rs/scripts/close_e2e.sh (rust, rust-durable with a restart, go)
+        if: fromJSON(needs.plan.outputs.run).close_e2e
         env:
           B: ${{ runner.temp }}/bin
           D: ${{ runner.temp }}/data
@@ -188,7 +249,8 @@ jobs:
   # clusters, the Rust consumer ingests them and publishes complete_through,
   # and the service answers scoped queries and plans (otel-chdb/query).
   query-integration:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run)['query-integration']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -225,6 +287,8 @@ jobs:
   # (DECISIONS D30 amendment 2026-09-28): startup check, two replicas,
   # tampering, latency.
   query-kms-emulator:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['query-kms-emulator']
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -254,6 +318,8 @@ jobs:
   # two-cluster catalog, the dictionary leak probe), labelled samples, and the
   # key/value rollup migration.
   hdxadapter-integration:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['hdxadapter-integration']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -293,7 +359,8 @@ jobs:
   # the test issuer; results against ClickHouse counts, refusals, a real
   # expired-URL 403 and re-plan, bytes fetched per object.
   lakeui-e2e:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run)['lakeui-e2e']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -351,7 +418,8 @@ jobs:
   # cross-filter exactness, brush latency with and without pre-aggregation,
   # stale cubes, an unknown watermark; numbers as the artifact.
   lakeui-mosaic-e2e:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run)['lakeui-mosaic-e2e']
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -413,7 +481,8 @@ jobs:
   # pages "cannot evaluate", the missed windows are evaluated once the
   # watermark advances; two replicas share their state on S3 (otel-chdb/alerts).
   alerts-integration:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run)['alerts-integration']
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -448,7 +517,8 @@ jobs:
 
   # The Rust edge under faults, then the consumer fleet under chaos (short).
   faults-soak:
-    needs: build
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run)['faults-soak']
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -511,6 +581,8 @@ jobs:
   # prototype on the fleet batches: the otap-rs integration tests the fast
   # workflow leaves out.
   rust-integration:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['rust-integration']
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -591,6 +663,8 @@ jobs:
   # and 200 over the simulated network, plus the emulators against the
   # services. A failing seed's trace is uploaded; the log has its repro line.
   dst:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).dst
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -651,6 +725,8 @@ jobs:
   # concurrent machine: real thread races on conditional writes against the
   # S3 emulator and SeaweedFS, plus its racy-store mutant.
   hegel:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).hegel
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -727,12 +803,14 @@ jobs:
   # run in ci.yml's rust job.
   rust-mbt:
     name: otap-rs mbt (${{ matrix.test }})
+    needs: plan
+    if: needs.plan.outputs.mbt != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        test: [mbt_s3inline, mbt_s3inline_metrics, mbt_s3inline_consumer]
+        test: ${{ fromJSON(needs.plan.outputs.mbt) }}
     defaults:
       run:
         working-directory: otel-chdb/otap-rs
@@ -779,6 +857,8 @@ jobs:
 
   # The consumer models (quint, Rust evaluator) and parquetgo's model check.
   model:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).model
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -836,6 +916,8 @@ jobs:
   # ~20 min; the largest peaks near 6 GB. The mutant harnesses
   # (expected to fail) are behind a feature and do not run here.
   kani:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).kani
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -868,6 +950,8 @@ jobs:
   # The Go tests that load libchdb (the chdb-go fork, the chdb exporter with
   # its quint-driven property tests, parquetgo/compare's correctness run).
   chdb:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).chdb
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -916,3 +1000,45 @@ jobs:
           name: chdb
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+
+  # Our otel-arrow patches' own upstream unit tests, in the upstream
+  # workspace at the pinned commit (patches/0006: Quiver's custody floor and
+  # the durable buffer that publishes it). Too big for a local disk; the
+  # otap-rs jobs only build these crates, they don't run their tests.
+  upstream-patches:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['upstream-patches']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - name: Toolchain (upstream's rust-toolchain.toml)
+        working-directory: .ci/otel-arrow/rust/otap-dataflow
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            .ci/otel-arrow/rust/otap-dataflow/target
+          key: upstream-cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: upstream-cargo-${{ runner.os }}-
+      - name: otel-arrow-dfe-otap custody tests (patch 0006)
+        working-directory: .ci/otel-arrow/rust/otap-dataflow
+        run: cargo test --release -p otel-arrow-dfe-otap --lib custody
+      - name: otel-arrow-dfe-core-nodes durable_buffer tests (patch 0006)
+        working-directory: .ci/otel-arrow/rust/otap-dataflow
+        run: cargo test --release -p otel-arrow-dfe-core-nodes --features durable-buffer durable_buffer

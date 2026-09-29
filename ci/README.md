@@ -18,11 +18,30 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 | `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
 
 **`nightly.yml`: 03:17 UTC daily and on demand** (`workflow_dispatch`, with
-the soak's length as an input). `build` runs first; the others run beside it
-or after it.
+the soak's length and the jobs to run as inputs). `plan` decides which jobs
+run; `build` runs next; the others run beside it or after it.
+
+### Running part of the nightly
+
+`workflow_dispatch` takes `jobs`: `all` (the default, and what the schedule
+always runs) or a comma list of job names from the table below, on any ref:
+`rust-mbt` means its three matrix entries, which can also be named one by one
+(`mbt_s3inline`, `mbt_s3inline_metrics`, `mbt_s3inline_consumer`), and
+`close_e2e` runs only the orderly-close step of `conformance` (with the
+datasets it needs). A job that downloads the `bin` artifact (`conformance`,
+`close_e2e`, `query-integration`, `lakeui-e2e`, `lakeui-mosaic-e2e`,
+`alerts-integration`, `faults-soak`) brings `build` with it. `plan` fails on
+an unknown name rather than run nothing. From the API:
+
+```sh
+curl -X POST -H "Authorization: Bearer $GH_TOKEN" \
+  https://api.github.com/repos/casselc/observability/actions/workflows/nightly.yml/dispatches \
+  -d '{"ref":"claude/brave-pascal-0fecgh","inputs":{"jobs":"kani,dst,mbt_s3inline"}}'
+```
 
 | job | runs |
 |---|---|
+| `plan` | turns `inputs.jobs` into the per-job flags and the `rust-mbt` matrix the other jobs' `if:` read |
 | `build` | `cargo build --release` (otap-s3pq, consume), the Go tools, both collectors with ocb (`ci/build-collectors.sh`: otelcol-s3pq, otelcol-chdb); one `bin` artifact |
 | `conformance` | `conformance/run.sh` for layout B and for the ClickStack metrics tables (both edges' orderly closes compared), then `conformance/go_faults.sh`, then `otap-rs/scripts/close_e2e.sh` (D35: the Rust edge, the Rust edge with Quiver and a restart on the same buffer, the Go edge; each lane ends with its close, the consumer retires it, nothing quarantined) |
 | `query-integration` | `otel-chdb/query/integration`: the query service against the Go edge (two clusters) → SeaweedFS → the Rust consumer → ClickHouse, including late rows published through the edge after their window closed (CAST row 26: partial until `complete_through` ≥ end + `max_lateness`, rows past it counted), and the basis (D30: an answer at a basis unchanged after new data and a late row into the same window, a newer basis with it, the delta exactly that row, the plan at the basis listing the same objects, a fleet basis refused to a one-cluster token), with `QS_IT_BIN` pointing at the `bin` artifact (the unit and property tests run in `go-test`, where the integration test skips) |
@@ -39,6 +58,7 @@ or after it.
 | `model` | `otap-rs/scripts/consumer_model.sh` through `ci/model-check.sh`; `otel-chdb/model/alert_model.sh` (the alert evaluator's model: design, witnesses, mutants; late data since D30: `noDoubleCount`, `lateNeverResolves`, mutants `lateDouble`, `lateResolves`); `otel-chdb/model/bitemp_model.sh` (the catalog as bitemporal events, D32: design, witnesses, mutants, scripted runs, with a random seed), then `entities/bitemp`'s model test on fresh traces of it; `otel-chdb/model/retirement_model.sh` (dead-lane retirement, FORMAT.md §3.1: design, witnesses, six mutants, the operator's mistake, scripted runs including `closeUnsealed`'s, with a random seed); `parquetgo/modelcheck` |
 | `kani` | Kani 0.68.0 (cached); `cargo kani` in `otap-rs/verify`: the proof harnesses for the consumer's lease window and check range (`otap-rs/VERIFY.md`), ~20 min |
 | `chdb` | libchdb (the release `chdb-go/update_libchdb.sh` pins, cached); `go test` in chdb-go, chdbexporter (with `PBT_QUINT=1`) and parquetgo/compare |
+| `upstream-patches` | our otel-arrow patches' own upstream unit tests in the upstream workspace at the pinned commit, with its toolchain: `cargo test --release -p otel-arrow-dfe-otap --lib custody` and `-p otel-arrow-dfe-core-nodes --features durable-buffer durable_buffer` (patch 0006, Quiver's custody floor); too large for a local disk |
 
 Every job that touches the services uploads their logs on failure; the
 end-to-end jobs always upload their output directories (summaries, edge,

@@ -33,6 +33,10 @@ fn obj(seq: u64, received_ns: u64) -> Obj {
         rows: 0,
         received_ns,
         seen_ms: 0,
+        // Neither enters the check range or the scan: listed explicitly (no
+        // `..`) so a new field of Obj makes this harness be looked at again.
+        announce: 0,
+        late: false,
     }
 }
 

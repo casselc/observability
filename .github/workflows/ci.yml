@@ -219,7 +219,7 @@ jobs:
       - name: clippy (with the allow-list in ci/clippy.sh)
         run: ../../ci/clippy.sh
       - name: Traceability record (clippy -D warnings is CAST row 8's control)
-        run: python3 ../../ci/trace/trace.py record --test ci/clippy.sh --technique G --ids CAST-8,H-1
+        run: python3 ../../ci/trace/trace.py record --test ci/clippy.sh --technique G --ids CAST-8
       - name: Unit tests (lib and bins; the consumer's ClickHouse / S3 tests use the services)
         run: cargo test --release --locked --lib --bins
       - name: Datasets (otlpgen; the Go prototype's layout-B objects)

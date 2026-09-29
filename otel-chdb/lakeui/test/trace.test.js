@@ -6,10 +6,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { outcomeOf, repoPath } from './trace-reporter.js'
 
+// A child `node --test` that inherits NODE_TEST_CONTEXT takes itself for one of this run's workers.
+const childEnv = (over) => {
+  const env = { ...process.env, ...over }
+  delete env.NODE_TEST_CONTEXT
+  return env
+}
+
 test('trace: a child run records each tagged test with the outcome it had', () => {
   const out = join(mkdtempSync(join(tmpdir(), 'oscope-trace-')), 'sub', 't.jsonl')
   const r = spawnSync(process.execPath, ['--test', '--test-reporter=./test/trace-reporter.js', '--test-reporter-destination=stdout', 'test/fixtures/trace.fixture.js'], {
-    env: { ...process.env, OSCOPE_TRACE_OUT: out, GITHUB_SHA: 'abc123', GITHUB_JOB: 'lakeui' },
+    env: childEnv({ OSCOPE_TRACE_OUT: out, GITHUB_SHA: 'abc123', GITHUB_JOB: 'lakeui' }),
     encoding: 'utf8'
   })
   assert.notEqual(r.status, 0, 'the fixture has a planned failure')
@@ -28,7 +35,7 @@ test('trace: a child run records each tagged test with the outcome it had', () =
 
 test('trace: without the reporter a claim is never a record', () => {
   const out = join(mkdtempSync(join(tmpdir(), 'oscope-trace-')), 't.jsonl')
-  spawnSync(process.execPath, ['--test', 'test/fixtures/trace.fixture.js'], { env: { ...process.env, OSCOPE_TRACE_OUT: out }, encoding: 'utf8' })
+  spawnSync(process.execPath, ['--test', 'test/fixtures/trace.fixture.js'], { env: childEnv({ OSCOPE_TRACE_OUT: out }), encoding: 'utf8' })
   assert.equal(existsSync(out), false)
   assert.equal(existsSync(`${out}.node-claims`), true)
 })

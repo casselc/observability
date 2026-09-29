@@ -121,7 +121,10 @@ downloads them and runs `ci/trace/trace.py check`, which **fails** when
 - an ID in a tag or record is not in the catalogue (`trace.py catalog`: every
   L-, H-, SC-, UCA-, LS-, SEC-, TM-, R- ID in STPA.md and the STPA sections of
   research/{langfuse,entra-ingress,grants}.md, and CAST-n from the CAST tables),
-  or a technique is not a §1 code; the catalogue itself fails on an ID defined
+  or a technique is not a §1 code (the catalogue's source sits behind one
+  interface, `CATALOG_SOURCES`: `OSCOPE_STPA_SOURCE=records` reads the structured
+  STPA records under `otel-chdb/stpa/` once they replace the tables; IDs do not change);
+  the catalogue itself fails on an ID defined
   twice with different meanings unless `ci/trace/same-meaning.txt` says why they agree;
 - a record's outcome is `failed`, or its commit is not the run's;
 - a tag in source (listed statically by `trace.py scan`) whose jobs, from

@@ -152,7 +152,8 @@ def parse_tables(path, first, lines):
         yield i, title, cited, lineno, c
 
 
-def build_catalog():
+def markdown_catalog():
+    """The catalogue source today: the tables of STPA.md and the research notes' STPA sections."""
     ids, dups, cites_all = {}, [], defaultdict(set)
     sources = [STPA] + RESEARCH
     for path in sources:
@@ -173,6 +174,44 @@ def build_catalog():
     # Requirements stated in prose in STPA.md (R-E1..R-E9: "Requirements R-E1..R-E9 (full text there)")
     # are catalogued from their own tables in the research notes above.
     return ids, dups, cites_all
+
+
+def records_catalog():
+    """A later source: the structured STPA records (one Markdown + YAML front-matter file per item
+    under otel-chdb/stpa/, our ID as `label`), once they replace the tables. Reads only the flat
+    `label`, `title` and `name` keys; each item's citations from any other ID in its file."""
+    ids, dups, cites_all = {}, [], defaultdict(set)
+    for f in code_files(['otel-chdb/stpa/**/*.md']):
+        text = '\n'.join(lines_of(f))
+        m = re.match(r'^---\n(.*?)\n---\n', text, re.S)
+        if not m:
+            continue
+        meta = dict(re.findall(r'^(\w+):\s*"?(.*?)"?\s*$', m.group(1), re.M))
+        i = meta.get('label', '')
+        if not (ID_FULL.match(i) or CAST_ID.match(i)):
+            continue
+        cited = sorted(set(ID_TOKEN.findall(text)) - {i})
+        entry = {'id': i, 'kind': kind(i), 'title': (meta.get('title') or meta.get('name') or '')[:300], 'source': rel(f), 'cites': cited}
+        if i in ids:
+            dups.append((ids[i], entry))
+        else:
+            ids[i] = entry
+        for t in cited:
+            cites_all[t].add(rel(f))
+    return ids, dups, cites_all
+
+
+# The one interface the rest of this script uses: (ids, duplicates, citations). The source is the
+# Markdown tables until the structured records land; OSCOPE_STPA_SOURCE=records switches, and IDs
+# stay the same either way.
+CATALOG_SOURCES = {'markdown': markdown_catalog, 'records': records_catalog}
+
+
+def build_catalog():
+    src = os.environ.get('OSCOPE_STPA_SOURCE', 'markdown')
+    if src not in CATALOG_SOURCES:
+        raise SystemExit(f'OSCOPE_STPA_SOURCE={src}: one of {", ".join(CATALOG_SOURCES)}')
+    return CATALOG_SOURCES[src]()
 
 
 def load_same_meaning():

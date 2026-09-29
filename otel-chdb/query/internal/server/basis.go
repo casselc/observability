@@ -277,7 +277,7 @@ func (s *Server) handleBasis(w http.ResponseWriter, r *http.Request) {
 	p := rq.p
 	cl, ns := scopeLists(p)
 	base := audit.Record{RequestID: rq.id, Event: "decision", Action: "basis", Subject: p.Subject, Groups: p.Groups, Roles: p.Roles,
-		Clusters: cl, Namespaces: ns, ClientIP: rq.ip}
+		Clusters: cl, Namespaces: ns, Pairs: pairsOf(p), ClientIP: rq.ip}
 	deny := func(code int, reason, detail string) {
 		rec := base
 		rec.Decision, rec.Reason, rec.Detail = "deny", reason, detail
@@ -337,5 +337,10 @@ func (s *Server) authenticateAny(w http.ResponseWriter, r *http.Request, endpoin
 			}
 		}
 	}
-	return s.authenticate(w, r, endpoint, action, role)
+	rq := s.authenticate(w, r, endpoint, action, role)
+	if rq != nil {
+		// a basis is watermark bounds for clusters: either role's grants
+		rq.p = rq.all.For(auth.RoleQuery, auth.RolePlan)
+	}
+	return rq
 }

@@ -326,7 +326,7 @@ func (p *Policy) parentOf(c *dictCall) (*dictCall, error) {
 // outside s reads as an absent key. A no-op for a caller with every
 // cluster and namespace.
 func (pr *Prepared) guardDictionaries(s Scope) error {
-	if s.AllClusters && s.AllNamespaces || len(pr.policy.Dictionaries) == 0 {
+	if s.Unrestricted() || len(pr.policy.Dictionaries) == 0 {
 		return nil
 	}
 	var calls []*dictCall
@@ -398,28 +398,19 @@ func (pr *Prepared) guard(c *dictCall, s Scope) (chp.Expr, error) {
 		}
 		c = parent
 	}
-	var parts []chp.Expr
-	if !s.AllClusters {
-		vals, err := strs(s.Clusters, ClusterRE, "cluster")
-		if err != nil {
-			return nil, err
-		}
-		e, err := c.d.template(c.d.Cluster, c.key)
-		if err != nil {
-			return nil, reject("roundtrip", "dictionary %s: %v", c.d.Name, err)
-		}
-		parts = append(parts, in(e, vals))
+	// the root dictionary's cluster and namespace templates over the key,
+	// and the caller's pairs over them (D38: never the product)
+	var ce, ne chp.Expr
+	var err error
+	if ce, err = c.d.template(c.d.Cluster, c.key); err != nil {
+		return nil, reject("roundtrip", "dictionary %s: %v", c.d.Name, err)
 	}
-	if !s.AllNamespaces {
-		vals, err := strs(s.Namespaces, NamespaceRE, "namespace")
-		if err != nil {
-			return nil, err
-		}
-		e, err := c.d.template(c.d.Namespace, c.key)
-		if err != nil {
-			return nil, reject("roundtrip", "dictionary %s: %v", c.d.Name, err)
-		}
-		parts = append(parts, in(e, vals))
+	if ne, err = c.d.template(c.d.Namespace, c.key); err != nil {
+		return nil, reject("roundtrip", "dictionary %s: %v", c.d.Name, err)
+	}
+	parts, err := scopeTerms("dictionary "+c.d.Name, ce, ne, s)
+	if err != nil {
+		return nil, err
 	}
 	out := parts[0]
 	for _, p := range parts[1:] {

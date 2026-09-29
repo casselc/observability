@@ -424,7 +424,14 @@ func (pr *Prepared) table(ti *chp.TableIdentifier, visible map[string]bool) erro
 }
 
 // Scope is what the caller may see, resolved from the token's attributes.
+//
+// Pairs, when set (PairScope), is the scope: the union of explicit
+// (cluster, namespace) grants (D38), and Clusters / Namespaces / All* are
+// its projections, used for labels, bases and audit, never to cut rows.
+// Without Pairs the scope is ONE grant, the product of Clusters and
+// Namespaces (tests and single-grant callers).
 type Scope struct {
+	Pairs         []Pair
 	AllClusters   bool
 	Clusters      []string
 	AllNamespaces bool
@@ -524,7 +531,7 @@ func (pr *Prepared) Finish(s Scope) (*Result, error) {
 	if err := pr.guardDictionaries(s); err != nil {
 		return nil, err
 	}
-	restricted := !s.AllClusters || !s.AllNamespaces
+	restricted := !s.Unrestricted()
 	pr.projectMetadata(restricted)
 	res.SQL = chp.Format(pr.root)
 	again, err := pr.policy.Prepare(res.SQL)
@@ -575,7 +582,7 @@ func fixedPoint(sql string) error {
 
 func predicate(t *Table, s Scope) (chp.Expr, error) {
 	var parts []chp.Expr
-	restricted := !s.AllClusters || !s.AllNamespaces
+	restricted := !s.Unrestricted()
 	switch t.Scope {
 	case "metadata":
 		return nil, nil
@@ -584,26 +591,11 @@ func predicate(t *Table, s Scope) (chp.Expr, error) {
 			return nil, reject("scope_unenforceable", "table %s holds every cluster's rows and has no per-row scope; it needs every cluster and namespace", t.FQN())
 		}
 	case "columns":
-		if !s.AllClusters {
-			if t.cluster == nil {
-				return nil, reject("scope_unenforceable", "table %s has no cluster column", t.FQN())
-			}
-			vals, err := strs(s.Clusters, ClusterRE, "cluster")
-			if err != nil {
-				return nil, err
-			}
-			parts = append(parts, in(t.cluster, vals))
+		terms, err := scopeTerms("table "+t.FQN(), t.cluster, t.namespace, s)
+		if err != nil {
+			return nil, err
 		}
-		if !s.AllNamespaces {
-			if t.namespace == nil {
-				return nil, reject("scope_unenforceable", "table %s has no namespace column", t.FQN())
-			}
-			vals, err := strs(s.Namespaces, NamespaceRE, "namespace")
-			if err != nil {
-				return nil, err
-			}
-			parts = append(parts, in(t.namespace, vals))
-		}
+		parts = append(parts, terms...)
 	case "catalog":
 		if restricted {
 			if s.ResourceIDs == nil {

@@ -117,7 +117,7 @@ func internalSettings(filters string) url.Values {
 // ResourceIDs are the ids of every resource in the caller's scope that the
 // catalog knows (any lifetime).
 func (c *Catalog) ResourceIDs(ctx context.Context, s sqlscope.Scope) ([]uint64, error) {
-	key := fmt.Sprintf("%v|%v|%v|%v", s.AllClusters, s.Clusters, s.AllNamespaces, s.Namespaces)
+	key := s.Key() // the pairs (D38): equal projections do not make equal scopes
 	c.mu.Lock()
 	if e, ok := c.ids[key]; ok && c.now().Sub(e.at) < time.Duration(c.cfg.RefreshS)*time.Second {
 		c.mu.Unlock()

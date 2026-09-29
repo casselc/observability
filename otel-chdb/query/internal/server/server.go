@@ -241,7 +241,8 @@ func (s *Server) fail(w http.ResponseWriter, endpoint, reqID string, code int, r
 type req struct {
 	id       string
 	endpoint string
-	p        *auth.Principal
+	p        *auth.Principal // the view for the endpoint's role (D38)
+	all      *auth.Principal // every grant, for an endpoint either role may call
 	ip       string
 }
 
@@ -280,7 +281,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request, endpoint, 
 	if !p.Has(role) {
 		return deny(http.StatusForbidden, "role_missing", "the token does not grant role "+role, p)
 	}
-	rq.p = p
+	rq.p, rq.all = p.For(role), p
 	return rq
 }
 
@@ -298,8 +299,17 @@ func (s *Server) write(r audit.Record) bool {
 	return true
 }
 
-func scopeOf(p *auth.Principal) sqlscope.Scope {
-	return sqlscope.Scope{AllClusters: p.AllClusters, Clusters: p.Clusters, AllNamespaces: p.AllNamespaces, Namespaces: p.Namespaces}
+// scopeOf is the view's explicit (cluster, namespace) grants (D38): rows
+// are cut by their union, never by the product of the projections.
+func scopeOf(p *auth.Principal) sqlscope.Scope { return p.Scope() }
+
+// pairsOf is the view's grants for the audit record.
+func pairsOf(p *auth.Principal) []string {
+	var out []string
+	for _, pr := range p.Pairs() {
+		out = append(out, pr.Cluster+"/"+pr.Namespace)
+	}
+	return out
 }
 
 // labelScope is what a statement's label depends on (D29): the scope's
@@ -502,7 +512,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	p := rq.p
 	cl, ns := scopeLists(p)
 	base := audit.Record{RequestID: rq.id, Event: "decision", Action: "query", Subject: p.Subject, Groups: p.Groups, Roles: p.Roles,
-		Clusters: cl, Namespaces: ns, ClientIP: rq.ip}
+		Clusters: cl, Namespaces: ns, Pairs: pairsOf(p), ClientIP: rq.ip}
 	deny := func(code int, reason, detail string, rec audit.Record) {
 		rec.Decision, rec.Reason, rec.Detail = "deny", reason, detail
 		s.write(rec)
@@ -531,7 +541,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 				cs = append(cs, c)
 			}
 		}
-		scope.AllClusters, scope.Clusters = false, cs
+		scope = scope.NarrowClusters(cs)
 		base.Clusters = cs
 	}
 	var window *completeness.Window
@@ -613,7 +623,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if rb.clusters != nil {
-			scope.AllClusters, scope.Clusters = false, rb.clusters
+			scope = scope.NarrowClusters(rb.clusters)
 			base.Clusters = rb.clusters
 		}
 		scope.Received = &sqlscope.Received{Before: bounds(rb.b, rb.clusters)}
@@ -623,7 +633,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			base.BasisFrom = scope.Received.From
 		}
 	}
-	restricted := !scope.AllClusters || !scope.AllNamespaces
+	restricted := !scope.Unrestricted()
 	for _, t := range pr.Tables() {
 		if t.Scope == "catalog" && restricted {
 			if s.Catalog == nil {
@@ -944,7 +954,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	p := rq.p
 	cl, ns := scopeLists(p)
 	base := audit.Record{RequestID: rq.id, Event: "decision", Action: "plan", Subject: p.Subject, Groups: p.Groups, Roles: p.Roles,
-		Clusters: cl, Namespaces: ns, ClientIP: rq.ip}
+		Clusters: cl, Namespaces: ns, Pairs: pairsOf(p), ClientIP: rq.ip}
 	deny := func(code int, reason, detail string) {
 		rec := base
 		rec.Decision, rec.Reason, rec.Detail = "deny", reason, detail

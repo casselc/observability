@@ -30,7 +30,10 @@ type Record struct {
 	Roles      []string `json:"roles,omitempty"`
 	Clusters   []string `json:"clusters,omitempty"` // the scope applied; ["*"] for all
 	Namespaces []string `json:"namespaces,omitempty"`
-	ClientIP   string   `json:"client_ip,omitempty"`
+	// Pairs: the (cluster/namespace) grants the rows were cut by (D38);
+	// Clusters and Namespaces are their projections.
+	Pairs    []string `json:"pairs,omitempty"`
+	ClientIP string   `json:"client_ip,omitempty"`
 
 	// query
 	QueryHash string   `json:"query_hash,omitempty"` // sha256 of the rebuilt SQL and its filters

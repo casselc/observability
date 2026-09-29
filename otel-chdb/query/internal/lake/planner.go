@@ -366,10 +366,21 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	if err := p.checkFilter(&req); err != nil {
 		return nil, err
 	}
-	if !pr.AllNamespaces {
-		return nil, &Denied{"namespace_scope_needs_filtering_reader",
-			"raw lane objects hold every namespace of their cluster; a namespace-restricted caller reads through /v1/query"}
+	// raw lane objects hold every namespace of their cluster: only grants
+	// of whole clusters (namespace "*") reach them (D38; never a cluster of
+	// one grant with the whole-namespace flag of another)
+	nsDenied := &Denied{"namespace_scope_needs_filtering_reader",
+		"raw lane objects hold every namespace of their cluster; a namespace-restricted caller reads through /v1/query"}
+	whole := pr.WholeClusters()
+	if len(whole.Grants) == 0 && len(pr.Pairs()) > 0 {
+		return nil, nsDenied
 	}
+	for _, c := range req.Clusters {
+		if pr.MayCluster(c) && !whole.MayCluster(c) {
+			return nil, nsDenied
+		}
+	}
+	pr = whole
 	clusters, err := p.clusters(ctx, pr, req.Clusters)
 	if err != nil {
 		return nil, err

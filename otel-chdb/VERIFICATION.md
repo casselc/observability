@@ -30,11 +30,11 @@ cells below and is linked, not repeated. Likewise, [otap-rs/DST.md](otap-rs/DST.
 [otap-rs/HEGEL.md](otap-rs/HEGEL.md), [PBT.md](PBT.md), [model/README.md](model/README.md)
 and [AMBIGUITY.md](AMBIGUITY.md) hold the details that the cells cite.
 
-**Go tooling.** Another study, [research/go-verification.md](research/go-verification.md),
-is researching Go equivalents of madsim, turmoil and Kani (it is in progress
-and was not yet on the branch when this plan was written). Every cell below
-that needs a Go DST, Go simulation or Go bounded-proof tool says
-"→ go-verification" and does not pick a tool.
+**Go tooling.** [research/go-verification.md](research/go-verification.md)
+chose the Go tools (synctest, porcupine via `casreg`, goleak, rapid with
+hand-rolled swarm, native fuzzing); §8 there lists what was built on
+2026-09-29 and the cells below cite it. A Go bounded-proof tool is still
+open (no Kani counterpart).
 
 ## 1. Techniques
 
@@ -57,7 +57,7 @@ CAST row where that blindness let a bug through.
 | **DST** | Deterministic simulation: paused tokio (level 1), turmoil with real clients over emulators (level 2), seeded faults including **lost and delayed answers**, pauses, kills, skew | `dst_consumer`, `dst_net`, `dst/retire.rs`; `alerts/internal/runner` `TestSimTwoReplicas` / `TestSimLateData` (rapid-drawn schedules) | real code with time: slow rounds, late answers, backlogs (#13, #14, #23, #42) | components it does not host (the Go edge, the query service, replicas, the horizon audit) |
 | **FI** | Fault injection at the answer boundary against **real** services: a proxy that applies and then errors, holds answers, drops connections; Keeper faults | `faultproxy2` (`faults.sh`, `ambig_s3.rs`), `central-replicated` soaks, `deploy/validation/central/keeper_faults.sh` | the real store's and client library's behaviour under ambiguity (#2, #5, #15) | rare interleavings (not deterministic) |
 | **K** | Kani bounded model checking of the source | `otap-rs/verify` (VERIFY.md) | arithmetic over all inputs: overflow, window lemmas, range cover | I/O, ordering, anything past the bounds |
-| **FZ** | Coverage-guided fuzzing (`cargo fuzz`, Go native `testing.F`) | **none** | parser and decoder paths that property generators do not target | semantic properties (it needs an oracle or a crash) |
+| **FZ** | Coverage-guided fuzzing (`cargo fuzz`, Go native `testing.F`) | Go: `sqlscope`, `hdxadapter`, `basis`, `rwproxy`, the aggregator, the ingress (`ci/fuzz.sh`; seeds per push, 60 s per target in the nightly `fuzz`); Rust: none | parser and decoder paths that property generators do not target | semantic properties (it needs an oracle or a crash) |
 | **D** | Differential / conformance: two implementations or an emulator and the real thing on the same input | `conformance/` (Go = Rust rows, D1), `dst_net` fidelity checks, `hdxadapter` replay against ClickHouse, `parquetgo/compare`, OTAP vs OTLP property | divergence neither side's own tests assert (#40, #45) | cases outside the shared corpus; a comparison that skips rejected input (#17–19) |
 | **MU** | Mutation analysis: planted mutants (`coord::Mutation`, model mutants, `--features mutants`) or a tool (cargo-mutants, a Go mutator) | planted only; **no tool** | whether the tests can fail at all | mutants nobody planted |
 | **IT** | Integration / end-to-end on real services | `query-integration`, `alerts-integration`, `conformance`, `lakeui-e2e`, `close_e2e`, `hdxadapter-integration`, `rust-integration` | composition and real wire behaviour (#29, #31) | rare timings; the target platform when the test store is more permissive (#30) |
@@ -104,7 +104,7 @@ retirement / quarantine / admit (`consumer/retire.rs`).
 | MBT | Rust lane, consumer, GC | ✅ | `mbt_s3inline` (mutants `retry_new_key`, `no_halt`, `no_check_central`), `mbt_s3inline_consumer` (`gc::doomed` = model's slots); N `rust-mbt` |
 | MBT | Go lane | ✅ | `parquetgo/modelcheck` `TestLaneConformsToS3Inline`, `TestLaneMutantsCaught`; N `model` |
 | DST | consumer + GC | ✅ | `neverSkipsCommitted` at every checkpoint; `early_compaction_would_skip_a_late_batch` (`EarlyCompact`); `admit_recovers_quarantined_objects_once_and_gc_keeps_them` (#48); PR + N `dst` |
-| DST | Go edge | ❌ | no simulation of `parquetgo/commit` with time; #39 was found by an integration run and a goroutine dump → go-verification |
+| DST | Go edge | ✅ | `parquetgo/dst` `TestDSTEdgeCommit`: the real edge and aws-sdk-go-v2 against `parquetgo/internal/s3emu` in fake time (synctest); swarm fault menus incl. lost and late answers, hung PUTs, tombstones; exactly once, closed logs stay closed, calls bounded with no deadline (#39 as liveness), linearizable history; 4 mutants caught (`TestDSTCatchesMutants`); PR 24 seeds + N 20,000 new seeds (`edge-dst`); 3,000 seeds clean locally. Found the lane mutex held across S3 requests (queued callers ignored their deadlines) |
 | FI | edge commit on real S3 | partial | `faults.sh` (N `faults-soak`: lost answers, crash + restart); `ambig_s3.rs` (apply-then-error, #15's shape) is **in no workflow** |
 | FI (crash consistency) | durable buffer ack (UCA-1) | ❌ | only process SIGKILL (`faults.sh` scenario 4) and upstream unit tests (N `upstream-patches`); no fsync-loss or power-loss injection on the buffer volume |
 | ML | edge resend bound (#39) | ✅ | `a_store_that_fails_every_put_is_not_resent_forever`, `TestAppendResendLimit`; PR |
@@ -150,8 +150,8 @@ rewrite proxy (`entities/rwproxy`).
 | M | announcement lane, grace window (LS-5) | partial | `entityCatalog.qnt` in `open_models.sh`: **no workflow runs it**; not connected |
 | DST | announcements (#23, #42) | ✅ | `dst_consumer` (`sameLane`), `a_server_fenced_announcement_is_not_taken_for_landed`; PR |
 | P2C | controller restart dating (#37) | partial | `restart_test.go` (example); `TestMonotoneHistory`, `TestResolveMatchesBrute` (rapid) cover the resolver, not the controller's dating under restarts and skew |
-| PH + FZ | aggregator keys and bodies (#24, SEC-1) | partial | `TestHostileKeysAreData` (IT), `TestClusterFilterRejectsForeignRecords`; **no fuzz** of the NDJSON / key parser |
-| DST / FI | controller → lane PUT (X2), relists (X1) | partial | `TestPutTimeoutRetries`, `TestRelistsAndUnknownDeletionsAreCounted`; no simulation of informer gaps with lost PUT answers → go-verification |
+| PH + FZ | aggregator keys and bodies (#24, SEC-1) | ✅ | `TestHostileKeysAreData` (IT), `TestClusterFilterRejectsForeignRecords`; `FuzzClusterFilter` (kept lines are whole input lines of the bound cluster key), `FuzzGapTime`; PR seeds + N `fuzz` |
+| DST / FI | controller → lane PUT (X2), relists (X1) | partial | `TestPutTimeoutRetries`, `TestRelistsAndUnknownDeletionsAreCounted`; `TestTwoWritersOneLaneLinearizable` (lost answers, 500 after applying, requests landing 30 s late, fake time; each batch once, history linearizable); `TestAwaitRelistInFakeTime`, `TestResyncTickerInFakeTime` (synctest, production timings). Informer gaps together with lost PUT answers are still not simulated |
 
 ### H-4 An alert condition holds but no page reaches on-call, or a false page (L-1)
 
@@ -197,7 +197,7 @@ scope, metadata projection); `hdxadapter` binding; `rwproxy`; basis tokens
 | Req | Component | Status | Evidence / gap |
 |---|---|---|---|
 | PH | SQL rewrite and scope | ✅ | `TestRewriteProperties`, `TestScopeValueProperty`, `TestMetadataProjectedProperty` (#32), `TestDictionaryGuardProperty`, `TestBindProperty`, `TestHostileStringValues`; PR |
-| FZ | `sqlscope` parser, `hdxadapter` decoder, `rwproxy`, basis token decode | ❌ | **no fuzz targets anywhere**. These are the parsers facing less-trusted text |
+| FZ | `sqlscope` parser, `hdxadapter` decoder, `rwproxy`, basis token decode | ✅ | `FuzzPrepare`, `FuzzRewriteProperties` (rapid.MakeFuzz), `FuzzDecodeString`, `FuzzBind`, `FuzzDecode` (one canonical spelling), `FuzzRewrite`, `FuzzParseMultipart`; PR seeds + N 60 s each. The basis keyring machine found tokens with four accepted spellings (fixed) |
 | D | adapter decoder vs ClickHouse | ✅ | the live differential caught two decoder differences before commit (STPA after #29) |
 | P | basis tokens | ✅ | `TestTamperProperty`, `TestKMSCrossReplicaAndTamper`; N `query-kms-emulator` |
 | P (policy composition) | grant vs limits groups (#36) | ❌ | no test that a limits-only group never changes scope |
@@ -237,7 +237,7 @@ Class letters from §2. The status repeats the strongest cell of §3.
 | UCA-5 repair while original can land | H-2 | A | MN, DST, FI | ✅ | `errorSettles`/`releaseInFlight` in model, DST, Hegel, Kani; `an_error_answer_whose_commit_is_still_resolving_is_waited_out` |
 | UCA-6 GC deletes too early | H-1 | A, B, K | M, MBT, DST | ✅ | `gcReopens`, `mbt_s3inline_consumer` `gc`/`gcRetire`, `EarlyCompact`, #48's admit test |
 | UCA-7 no entity record | H-3 | D | M + ML, DST | partial | `entityCatalog.qnt` in no workflow; announcement DST ✅ |
-| UCA-8 wrong identity | H-3 | E, I | PH, FZ, IT | partial | `TestClusterFilterRejectsForeignRecords`, `TestHostileKeysAreData`; no fuzz |
+| UCA-8 wrong identity | H-3 | E, I | PH, FZ, IT | partial | `TestClusterFilterRejectsForeignRecords`, `TestHostileKeysAreData`; `FuzzClusterFilter`; not on the target platform |
 | UCA-9 route to uncovering source silently | H-2, H-5 | G | M, P, IT | partial | `completeness.qnt` mutant (no workflow); `TestMissingStaleAndErrorAreNeverComplete` |
 | UCA-10 result without / wrong complete-through | H-2, H-5 | F | P2C | ✅ | §3 H-2 P2C row |
 | UCA-11 evaluate incomplete window | H-4 | F | P2C, M | ✅ | `evalPastCt`, `TestPropOnlyCompleteWindowsDecide` |
@@ -266,13 +266,13 @@ Class letters from §2. The status repeats the strongest cell of §3.
 
 | Item | Required | Status | Evidence / gap |
 |---|---|---|---|
-| SEC-1 forged identity | PH, FZ, IT on target | partial | `clusterFilter` + hostile keys; no fuzz; ABAC [D] |
+| SEC-1 forged identity | PH, FZ, IT on target | partial | `clusterFilter` + hostile keys; `FuzzClusterFilter`, ingress `FuzzVerify`/`FuzzBearer`; ABAC [D] |
 | SEC-2 stolen edge key deletes | G (iam-lint), IT on target | partial | policy lint ✅; AWS run [D] |
 | SEC-3 forged lease / checkpoint | IT on target, M (forged writer) | ❌ | no model has a hostile writer of control objects; ABAC [D] |
 | SEC-4 data wider than role | P, IT | ✅ | sqlscope properties; `TestBasisNeverWidensScope`; hdxadapter scoped-token replay |
 | SEC-5 query exhausts central | P, IT (load) | partial | limits exist; no adversarial load test |
 | SEC-6 insider silences | — | ❌ | R-S4 not built |
-| SEC-7 injection runs SQL | PH + FZ | partial | properties ✅; **fuzz ❌** |
+| SEC-7 injection runs SQL | PH + FZ | ✅ | properties ✅; `FuzzPrepare`, `FuzzRewriteProperties` (PR seeds, N 60 s) |
 | SEC-8 tampered edge time | P2C (skewed producer clock), DST | partial | skew within the D9 bound in DST; no generator with a *hostile* edge clock (beyond the bound) checked against the horizon audit, which is itself not simulated |
 
 ### STPA-Teaming
@@ -320,9 +320,9 @@ named.
 | R-S4 silences / pins owner + expiry | — | ❌ | not built |
 | R-S5 catalog lag + unmatched rows | IT, M | partial | lag ✅; unmatched ❌; `entityCatalog.qnt` unrun |
 | R-S6 retention ≥ custody age | M, G (config refusal), P (validator) | ❌ | measure only; model unrun |
-| R-S7 write scope by prefix; aggregator rejects mismatches | G (lint), IT on target, PH, FZ | partial | lint ✅, filter ✅; AWS [D]; no fuzz |
+| R-S7 write scope by prefix; aggregator rejects mismatches | G (lint), IT on target, PH, FZ | partial | lint ✅, filter ✅, `FuzzClusterFilter` ✅; AWS [D] |
 | R-S8 reads role-scoped; audit log | P, IT, D | ✅ / partial | sqlscope, basis scope; #36 composition ❌ |
-| R-S9 SQL from a parsed tree; per-user limits | PH, FZ, D | partial | properties + replay ✅; fuzz ❌ |
+| R-S9 SQL from a parsed tree; per-user limits | PH, FZ, D | ✅ | properties + replay ✅; `FuzzPrepare` ✅ |
 | R-S10 group pages | — | ❌ | not built |
 | R-L1..R-L12 | §4 LLM table | ❌ | not built; R-L7 and R-L11 reuse `sqlscope` and the bitemporal pattern; R-L12's "run every consumer" is the G of #45/#46 |
 
@@ -348,7 +348,7 @@ model covers the class.
 | 11 | H, I | none | **no**: no lint of shipped configs for credentials |
 | 12 | H | G: separate target dirs per checkout; CI records build provenance | yes as a mechanism |
 | 13 | A, B | `a_slow_discovery_round_does_not_backdate_lease_observations`; Hegel `backdate_observations`; model `observeAtRequest` | yes: `slow_list`/`slow_s3` rules and the non-atomic model generalise |
-| 14 | D | `a_backlog_longer_than_the_lease_window_is_still_ingested`; `renew_only_at_insert`; DST liveness rule | yes for the consumer; **no for the Go edge** (#39 recurred there) |
+| 14 | D | `a_backlog_longer_than_the_lease_window_is_still_ingested`; `renew_only_at_insert`; DST liveness rule | yes for the consumer; yes for the Go edge since 2026-09-29 (`TestDSTEdgeCommit`: every call bounded with no deadline, the "hour on a hung PUT" mutant caught) |
 | 15 | A | `a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane`; Hegel `own_412_is_takeover`; `ambig_s3.rs` | yes via Hegel's `put_own_412` rule (random DST did not find it in 500 seeds); `ambig_s3.rs` is in no workflow |
 | 16 | A, G | two `sql.rs` tests; DST `ch_break_profile` | yes for the consumer; the query service pins overflow modes too (`server_test.go`); HyperDX by patch 0001 |
 | 17 | E, G | `regression_otap_duration_with_a_zero_time`; `prop_otap_rows_match_otlp…` | yes: the whole value space |
@@ -358,7 +358,7 @@ model covers the class.
 | 21 | C | `complete_through_mutants_break_soundness` (`WmIgnoresPending`) with 2 writer lanes | **partly**: the Rust mirror yes; `completeness.qnt` itself runs in no workflow and is not trace-connected |
 | 22 | H | G: scripts purge only their own run prefix | **partly**: convention, no check that a script never deletes a bucket |
 | 23 | A | `dst_consumer` (`statement lands after its lease epoch changed hands`) | yes: the invariant is per statement |
-| 24 | E, I | `TestHostileKeysAreData`, `TestGapTimesAreParsed` | **partly**: no fuzz; PH exists only where someone wrote it |
+| 24 | E, I | `TestHostileKeysAreData`, `TestGapTimesAreParsed`, `FuzzClusterFilter`, `FuzzGapTime` | yes for the aggregator's parsers; PH elsewhere only where someone wrote it |
 | 25 | J, D | `TestReplanMarginBelowTTL` (`internal/lake/config_test.go`) | **partly**: no property that the validator accepts exactly the combinations whose derived deadline is safe |
 | 26 | F | `TestCompleteMeansAllRowsWithinLateness`, `TestLateRowNotComplete`; query-integration late row | yes for the label; new consumers of `complete_through` need P2C (§4 LLM) |
 | 27 | H | G: worktrees + `git diff FETCH_HEAD --stat` rule | yes as a mechanism |
@@ -389,7 +389,7 @@ Summary: 44 of the 49 rows have a test or mechanism that would catch the
 original bug. The five that do not are #6, #11, #35, #36 and #49. For the
 next instance of the class, 31 rows answer "yes" (some with a stated limit,
 such as #2 on one node only), 12 "partly" and 6 "no". The holes recur: models that no workflow runs
-(#21, LS-5..10), no fuzzing (#7, #24, #31), no Go simulation (#14 → #39),
+(#21, LS-5..10), no fuzzing of the Rust decoders (#7, #31; the Go parsers are fuzzed since 2026-09-29), no simulation of Go components other than the edge (the edge's DST exists: #14 → #39),
 no replicated central (#2, #5, #6), and no run on the target platform (#30).
 
 ## 7. Gaps and priorities
@@ -406,8 +406,8 @@ under the heavy-job lock, which should be avoided where GH can run it.
 |---|---|---|---|---|---|
 | **1** | Seven models are checked in no workflow: `completeness`, `entityCatalog`, `retention`, `sealer` (`open_models.sh`, 82 rows), `s3Native`, `fastPath`, `partLifetime` | H-1, H-2, H-4, H-3; #21, LS-5..8, LS-10 | a `model-open` job running `open_models.sh` (the same fail and warn rules as `ci/model-check.sh`), `fastpath/run_model.sh`, and the s3Native / partLifetime runs from model/README | S | GH nightly (`model-open`) |
 | **2** | No automated mutation analysis; boundary mutants are planted only after a bug | H-2, H-4; #26, #34 class | cargo-mutants over `consumer/{coord,plan,watermark,retire}.rs` with the unit + Hegel `ci` profile; a Go mutator over `query/internal/{completeness,basis,lake}`, `alerts/internal/engine` (tool → go-verification); a surviving mutant becomes a property or an accepted-equivalent note | M | GH nightly (`mutants`, weekly, sharded) |
-| **3** | No fuzzing of any parser facing less-trusted text | H-6, H-3, H-2; #7, #24, SEC-7, R-S9 | Go native `Fuzz*` for `sqlscope` (parse → rebuild → re-parse is a fixed point, scope never widens), `hdxadapter` param decoder (differential against ClickHouse when `HEGEL_CH`-like env set), `rwproxy`, the aggregator's key and NDJSON parsing, `basis` token decode; `cargo fuzz` for OTAP/CBOR decode and `Slot::from_meta`; seed each from the hostile generators | M | GH nightly (`fuzz`, 10 min per target, corpus in the Actions cache like `hegel-db`) |
-| **4** | The Go edge has no deterministic simulation (#39 was found by a goroutine dump); `lanes: N` in parallel, heartbeats vs the lane mutex, slow S3 | H-1, H-2, H-7; #14/#39 class | a DST of `parquetgo/commit` + `edge` with lost and late answers and a liveness rule; tool → go-verification (`testing/synctest` is the obvious candidate to evaluate) | M | PR (fixed seeds) + GH nightly (new seeds) |
+| **3** | No fuzzing of any parser facing less-trusted text. **Go part done 2026-09-29** (targets for sqlscope, hdxadapter, rwproxy, the aggregator, basis, the ingress; nightly `fuzz`); `cargo fuzz` still open | H-6, H-3, H-2; #7, #24, SEC-7, R-S9 | Go native `Fuzz*` for `sqlscope` (parse → rebuild → re-parse is a fixed point, scope never widens), `hdxadapter` param decoder (differential against ClickHouse when `HEGEL_CH`-like env set), `rwproxy`, the aggregator's key and NDJSON parsing, `basis` token decode; `cargo fuzz` for OTAP/CBOR decode and `Slot::from_meta`; seed each from the hostile generators | M | GH nightly (`fuzz`, 10 min per target, corpus in the Actions cache like `hegel-db`) |
+| **4** | The Go edge has no deterministic simulation (#39 was found by a goroutine dump); `lanes: N` in parallel, heartbeats vs the lane mutex, slow S3. **Done 2026-09-29**: `parquetgo/dst` with synctest (PR 24 seeds, nightly `edge-dst`); heartbeats are not driven by it yet | H-1, H-2, H-7; #14/#39 class | a DST of `parquetgo/commit` + `edge` with lost and late answers and a liveness rule; tool → go-verification (`testing/synctest` is the obvious candidate to evaluate) | M | PR (fixed seeds) + GH nightly (new seeds) |
 | **5** | Replicated central untested in CI; DST has no replicas and does not run the horizon audit | H-2; #2, #5, #6; C3, C5, C6 | (a) replicas, `SYNC REPLICA` and the audit's queries in `chemu.rs` + fidelity checks; (b) a weekly job with a 2-replica + Keeper cluster running `keeper_faults.sh` | M (a), L (b) | (a) PR; (b) GH nightly weekly (a 16 GB runner is enough per `central-replicated/` measurements, **not verified**) |
 | **6** | `completeness.qnt` and `alertEvaluator.qnt` are not connected to their implementations | H-2, H-4; #21 | quint-connect MBT of `watermark.rs` (reuse `mbt_s3inline_consumer`'s harness); quintgo replay of the evaluator's recorded runs (the `chdbexporter` step recorder pattern) | M each | GH nightly (`rust-mbt` matrix entry; `model`) |
 | **7** | Answer-boundary FI tests not in CI: `ambig_s3.rs` (#15's real-store shape) | H-2; #15 | add to `faults-soak` (it already builds `faultproxy2`) | S | GH nightly |
@@ -510,10 +510,16 @@ simulation restating the model's properties; *cites* = a comment only.
 | `quintgo` (+ `examples/edgepublish`) | 16 + 4 | — | the Go bridge itself | — |
 | `otap`, `awss3`, `chdb-go`, `testgate`, `metrics-layout`, `acceptance/s3accept`, `deploy/edgeprobe`, `conformance` (py) | 8, 12, 204, 3, 2, 5, 2, py | — | — | conformance N |
 
-Across all Go modules: **no `testing/synctest`, no `testing.F` fuzz
-targets, no mutation tool.** `go test -race` runs in PR (`RACE=1`).
-Recommendations for Go DST, a Go bounded-proof tool and a Go mutator:
-→ [research/go-verification.md](research/go-verification.md).
+Go modules (2026-09-29, Go 1.27.1): `testing/synctest` for the timer code
+(alerts `Run`, controller relist and resync, watermark `Reader`, ingress
+`Drain`; each 50× under `-race`); goleak in the goroutine-heavy packages;
+porcupine histories via `casreg` (alerts sim, edge lanes, controller lanes,
+s3accept, the edge DST); the edge DST (`parquetgo/dst`, nightly
+`edge-dst`); native fuzz targets (nightly `fuzz`); rapid machines with
+hand-rolled swarm for the alerts engine and the basis keyring. **No mutation
+tool.** `go test -race` runs in PR (`RACE=1`; `parquetgo/dst` is exempt,
+see research/go-verification.md §8). Details and the gosim probe:
+→ [research/go-verification.md](research/go-verification.md) §8.
 
 ### JavaScript
 

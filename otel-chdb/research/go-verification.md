@@ -11,6 +11,10 @@ Labels as elsewhere: **[D]** from a cited source, read 2026-09-29, with
 versions and dates; **[M]** a probe run here today (§7 has the commands);
 **[E]** estimate or judgement.
 
+**Status (2026-09-29, evening).** The owner approved the ranked items and a
+half-day gosim probe (D37). Items 1 to 5 of the ranking are built and run
+per push; §8 has what exists, the numbers, and the gosim probe's finding.
+
 ## 0. Summary
 
 **Answer in one paragraph.** Go has no madsim. Nothing yet gives
@@ -438,6 +442,70 @@ All three pass in 0.003 s.
 
 The go1.27.1 toolchain, the gosim build caches and the Go build cache were
 deleted afterwards for disk.
+
+## 8. Status: what was built (2026-09-29)
+
+All Go modules and CI moved to **Go 1.27.1** (`go 1.27.0`, `toolchain
+go1.27.1`; CI `GO_VERSION` 1.27.x). What the new toolchain changed:
+
+- `go vet`'s printf check flagged two non-constant format strings in the
+  chdb-go fork (one real: a corrupt head's detail was re-interpreted as a
+  format).
+- **Go 1.27 turns the jsonv2 experiment on by default**, and encoding/json
+  v1 now runs on the v2 engine. An invalid UTF-8 byte in a string is
+  written as a raw U+FFFD instead of the six-byte escape. pdata's
+  `AsString` renders map and slice attributes with encoding/json, so the
+  Go edge's `AttributesValues` and layout-B `series_id` changed for such
+  attributes and no longer matched the Rust edge (CI run 36532538131,
+  `tests/series.rs`). The edge now renders them with its own port of Go
+  1.26's encoder (`parquetgo/attrjson.go`). A contrib clickhouseexporter
+  built with Go ≥ 1.27 differs from the edge only in those bytes;
+  `parquetgo/compare` normalises exactly that difference.
+
+| Item (§5 rank) | Where | Per push | Nightly | Found |
+|---|---|---|---|---|
+| goleak (5) | `TestMain` in parquetgo (+commit, edge), controller (ctrl, lane, aggregator), alerts (runner, notify, qclient), query (app, server, lakeidx, completeness, hdxadapter, central), ingress | yes | — | the controller's work-queue goroutine outlived a failed `Run` (fixed: shut down on every exit) |
+| porcupine (1) | `casreg` (model, recorder, `http.RoundTripper`); alerts `TestSimTwoReplicas`; `parquetgo/dst` lane histories (200 seeds); controller lane writer (two writers, lost/late answers, 20 seeds); s3accept check `linearizable`; the edge DST | yes | edge-dst | nothing in our code; the mutants "store ignores If-Match / If-None-Match" are caught |
+| synctest (2) | alerts `Run` (ticker, min_gap, stalled-lane page, stop); controller `awaitRelist` and resync; watermark `Reader` TTL and max-age; ingress `Drain` deadline | yes; each 50× under `-race` without a failure | — | a first min_gap test was scheduler-dependent: replicas whose tickers fire together both evaluate (waste, one loses the CAS). The test now offsets them |
+| Go DST (3) | `parquetgo/internal/s3emu` (port of s3emu.rs, MD5 ETags) + `parquetgo/dst` `TestDSTEdgeCommit`: the real edge and aws-sdk-go-v2 over `httptest.NewTestServer` in a bubble; swarm fault menus; exactly once, closed logs stay closed, calls bounded with no deadline (CAST 39), progress after heal, linearizable; mutants RetryNewKey, NoHalt, a store ignoring If-None-Match, a lane waiting an hour on a hung PUT | 24 seeds | 20,000 new seeds (`edge-dst`) | the lane held a `sync.Mutex` across its S3 requests: queued callers ignored their deadlines, and the bubble's clock froze behind them. The lane's lock is now a channel (context-aware) |
+| rapid machines + swarm, fuzz (4) | alerts engine machine; basis keyring machine; fuzz targets for sqlscope, hdxadapter, basis tokens, rwproxy, the aggregator's NDJSON filter and gap times, the ingress (bearer, token, body) | seeds and corpus; 100 cases per machine | 60 s per target (`fuzz`, `ci/fuzz.sh`) | basis tokens had four accepted spellings (lenient base64 of the MAC's last character; now strict); `ingress.Bearer` accepted an empty token |
+
+Not done: hegel-go machines (rapid with hand-rolled swarm instead), the
+`goroutineleak` profile (goleak covers the packages above), staticcheck,
+Gobra, Antithesis (no contact made).
+
+`-race` and synctest: the DST module (`parquetgo/dst`) runs without
+`-race` in CI (`NORACE`). Under `-race` it reports races between the
+bubble's goroutines and requests still unwinding in the test server, at
+addresses no code shares (in one report the two accesses are at
+different addresses). The other synctest tests (controller, alerts,
+watermark, ingress) run under `-race`.
+
+**gosim fork probe** (`glycerine/gosim` v0.0.2, half a day, not adopted) [M]:
+
+- On go1.27.1 the translator gets through the standard library as far as
+  `internal/runtime/atomic` ("missing function body ... Xadd"): the fork
+  follows go1.26's runtime. With go1.26.8 (a `go 1.26` copy of the
+  modules) it translates.
+- Assembly without a pure-Go fallback stops it: `zeebo/blake3` (our
+  content hash) has AVX2 kernels that `-tags=purego` does not remove
+  ("missing function body ... hash_avx2 HashF"). The probe swapped in a
+  pure-Go hash.
+- **net/http is not translated**: every package that imports it, which
+  includes aws-sdk-go-v2 and smithy-go and so `parquetgo/commit`'s
+  `S3Store`, `parquetgo` and `edge`, fails to build with type mismatches
+  between translated and untranslated `context`, `time`, `bufio` and
+  `http.Header`. The edge with the real SDK cannot run under gosim.
+- With `S3Store` removed from the package, all of `parquetgo/commit`'s
+  tests pass under gosim. A crash-and-restart probe (a lane on a
+  simulated machine crashed mid-append and restarted in a new epoch,
+  against a store outside the machine that loses answers and holds
+  requests) passes for seeds 1-5, with identical output per seed. Cold
+  cost: 118 s, 885 MB of build cache.
+- Conclusion: gosim could simulate crashes of the lane's protocol logic
+  if the S3 client lived in its own package. The SDK path, which the
+  synctest DST covers, is out of its reach. Not adopted. The gosim
+  toolchain and caches were deleted.
 
 ## Sources (read 2026-09-29)
 

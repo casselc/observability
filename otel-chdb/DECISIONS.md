@@ -3133,6 +3133,11 @@ the lane staying at the slot.
 
 ### D32. The entity catalog as bitemporal events, resolved at query time (proposed)
 
+**Owner decision, 2026-09-29:** add **`person`** as a D32 entity type (Entra object id → names and team
+membership over time), sourced from Microsoft Graph delta queries as its controller, with the ingress's
+stamped object id (D37) as an announcement; names resolved only for entitled readers (O-E5); erasure as
+tombstone facts (R-L10). Design with the grants work (D38).
+
 **Status:** **proposed, not decided** (2026-09-28). First step built: the
 resolution rule as a Quint model (`model/bitemporalCatalog.qnt`,
 `model/bitemp_model.sh`, nightly), a pure Go reference resolver checked

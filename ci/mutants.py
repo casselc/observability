@@ -70,13 +70,15 @@ def go(report, moddir):
     pairs = []
     for f in d.get('files', []):
         fn = f.get('file_name', '')
-        if os.path.isabs(fn):  # keys must not carry the runner's paths
-            fn = os.path.relpath(fn, os.path.abspath(moddir))
+        # gremlins names files relative to the package it mutated (moddir, e.g. ./commit);
+        # the key carries that path from where it ran, never the runner's absolute one
+        path = fn if os.path.isabs(fn) else os.path.join(moddir, fn)
+        fn = os.path.normpath(os.path.relpath(path) if os.path.isabs(path) else path)
         for m in f.get('mutations', []):
             if m.get('status') not in ('LIVED', 'NOT COVERED'):
                 continue
             ln = int(m.get('line', 0))
-            func = enclosing(os.path.join(moddir, fn), ln)
+            func = enclosing(fn, ln)
             pairs.append((f'go {fn} {func} {m.get("type")}', (fn, ln, int(m.get('column', 0)))))
     return keyed(pairs)
 

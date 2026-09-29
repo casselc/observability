@@ -1618,18 +1618,26 @@ jobs:
 
   # Mutation testing (owner decision 2026-09-29; VERIFICATION.md §7): cargo-mutants
   # over the consumer's lease, plan and collection code and the slot protocol, and
-  # the Rust edge's commit; gremlins over the Go edge's commit and lane code. The
-  # surviving mutants are the `mutants` artifact and the job summary; the job
-  # fails only on a survivor ci/mutants-baseline.txt does not accept (ci/mutants.py).
-  mutants:
+  # the Rust edge's commit, in four shards each (`mutants-rust`); then gremlins over
+  # the Go edge's commit and lane code and the check (`mutants`). The surviving
+  # mutants are the `mutants` artifact and the job summary; the job fails only on a
+  # survivor ci/mutants-baseline.txt does not accept (ci/mutants.py), or on a run
+  # that tested nothing (cargo-mutants' unmutated baseline failing).
+  mutants-rust:
     needs: plan
     if: fromJSON(needs.plan.outputs.run).mutants
     runs-on: ubuntu-24.04
-    timeout-minutes: 350
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [consumer, commit]
+        shard: [0, 1, 2, 3]
     env:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
       CARGO_MUTANTS_VERSION: "27.1.0"
-      GREMLINS_VERSION: "v0.5.1"
+      # each mutant rebuilds only this crate: incremental, unlike the other jobs
+      CARGO_INCREMENTAL: "1"
     steps:
       - name: Free disk
         working-directory: /
@@ -1638,8 +1646,6 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
           df -h / | tail -1
       - uses: actions/checkout@v7
-      - name: ci/mutants.py's own tests
-        run: python3 -m unittest -v ci/mutants_test.py
       - name: Toolchain (rust-toolchain.toml)
         working-directory: otel-chdb/otap-rs
         run: rustup show active-toolchain
@@ -1662,6 +1668,53 @@ jobs:
             otel-chdb/otap-rs/target
           key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
           restore-keys: cargo-${{ runner.os }}-
+      - run: cargo install cargo-mutants --locked --version "$CARGO_MUTANTS_VERSION"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      # --in-place: the crate reads files beside it (include_str! of ../../parquetgo/testdata,
+      # the .upstream link), which a copy in a temp dir does not have. Exit 0: all caught,
+      # 2: some missed, 3: some timed out; anything else (4: the unmutated tree failed) tested nothing.
+      - name: cargo mutants (${{ matrix.set }}, shard ${{ matrix.shard }}/4)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ matrix.set }}" = consumer ]; then
+            files=(--file src/consumer/coord.rs --file src/consumer/plan.rs --file src/consumer/gc.rs --file src/proto.rs); args=(--release --bin consume)
+          else
+            files=(--file src/store.rs); args=(--release --lib)
+          fi
+          out="$RUNNER_TEMP/mutants/${{ matrix.set }}-${{ matrix.shard }}"
+          mkdir -p "$out"
+          set +e
+          cargo mutants --in-place --no-shuffle --shard "${{ matrix.shard }}/4" --timeout 600 --build-timeout 1200 \
+            --output "$out" "${files[@]}" -- "${args[@]}"
+          rc=$?
+          set -e
+          echo "cargo mutants exit $rc"
+          case $rc in 0|2|3) ;; *) echo "::error::cargo mutants exit $rc: no mutant was judged"; exit 1 ;; esac
+          python3 "$GITHUB_WORKSPACE/ci/mutants.py" rust "$out/mutants.out" > "$RUNNER_TEMP/mutants/survivors-rust-${{ matrix.set }}-${{ matrix.shard }}.txt"
+          wc -l < "$RUNNER_TEMP/mutants/survivors-rust-${{ matrix.set }}-${{ matrix.shard }}.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutants-rust-${{ matrix.set }}-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/mutants/*.txt
+            ${{ runner.temp }}/mutants/*/mutants.out/*.txt
+            ${{ runner.temp }}/mutants/*/mutants.out/outcomes.json
+          if-no-files-found: warn
+
+  mutants:
+    needs: [plan, mutants-rust]
+    if: ${{ !cancelled() && fromJSON(needs.plan.outputs.run).mutants }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GREMLINS_VERSION: "v0.5.1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: ci/mutants.py's own tests
+        run: python3 -m unittest -v ci/mutants_test.py
       - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -1673,10 +1726,7 @@ jobs:
             ~/.cache/go-build
           key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
           restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
-      - name: cargo-mutants and gremlins
-        run: |
-          cargo install cargo-mutants --locked --version "$CARGO_MUTANTS_VERSION"
-          go install "github.com/go-gremlins/gremlins/cmd/gremlins@$GREMLINS_VERSION"
+      - run: go install "github.com/go-gremlins/gremlins/cmd/gremlins@$GREMLINS_VERSION"
       - name: Start SeaweedFS and ClickHouse
         run: ci/services.sh start
       - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
@@ -1684,24 +1734,19 @@ jobs:
         working-directory: otel-chdb/parquetgo
         run: |
           mkdir -p "$RUNNER_TEMP/mutants"
-          gremlins unleash --timeout-coefficient 10 --output "$RUNNER_TEMP/mutants/gremlins-commit.json" ./commit | tail -30
-          python3 "$GITHUB_WORKSPACE/ci/mutants.py" go "$RUNNER_TEMP/mutants/gremlins-commit.json" . > "$RUNNER_TEMP/mutants/survivors-go.txt"
+          gremlins unleash --timeout-coefficient 10 --output "$RUNNER_TEMP/mutants/gremlins-commit.json" ./commit | tail -8
+          python3 "$GITHUB_WORKSPACE/ci/mutants.py" go "$RUNNER_TEMP/mutants/gremlins-commit.json" ./commit > "$RUNNER_TEMP/mutants/survivors-go.txt"
           wc -l < "$RUNNER_TEMP/mutants/survivors-go.txt"
-      - name: consumer lease, plan, collection and slot protocol (cargo-mutants, cargo test --bin consume)
-        working-directory: otel-chdb/otap-rs
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mutants-rust-*
+          path: ${{ runner.temp }}/mutants
+          merge-multiple: true
+      - name: every shard reported (a missing one is an untested set, not a green one)
         run: |
-          cargo mutants --no-shuffle --jobs 2 --timeout 600 --build-timeout 1200 --output "$RUNNER_TEMP/mutants/consumer" \
-            --file src/consumer/coord.rs --file src/consumer/plan.rs --file src/consumer/gc.rs --file src/proto.rs \
-            -- --release --bin consume || true
-          python3 "$GITHUB_WORKSPACE/ci/mutants.py" rust "$RUNNER_TEMP/mutants/consumer/mutants.out" > "$RUNNER_TEMP/mutants/survivors-rust-consumer.txt"
-          wc -l < "$RUNNER_TEMP/mutants/survivors-rust-consumer.txt"
-      - name: the Rust edge's commit (cargo-mutants, src/store.rs, cargo test --lib)
-        working-directory: otel-chdb/otap-rs
-        run: |
-          cargo mutants --no-shuffle --jobs 2 --timeout 600 --build-timeout 1200 --output "$RUNNER_TEMP/mutants/commit" \
-            --file src/store.rs -- --release --lib || true
-          python3 "$GITHUB_WORKSPACE/ci/mutants.py" rust "$RUNNER_TEMP/mutants/commit/mutants.out" > "$RUNNER_TEMP/mutants/survivors-rust-commit.txt"
-          wc -l < "$RUNNER_TEMP/mutants/survivors-rust-commit.txt"
+          n=$(ls "$RUNNER_TEMP"/mutants/survivors-rust-*.txt 2>/dev/null | wc -l)
+          echo "$n of 8 cargo-mutants shards reported"
+          [ "$n" -eq 8 ] || { echo "::error::only $n of 8 cargo-mutants shards reported survivors"; exit 1; }
       - name: survivors against ci/mutants-baseline.txt
         run: python3 ci/mutants.py check ci/mutants-baseline.txt "$RUNNER_TEMP"/mutants/survivors-*.txt --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
@@ -1711,8 +1756,6 @@ jobs:
           path: |
             ${{ runner.temp }}/mutants/*.txt
             ${{ runner.temp }}/mutants/*.json
-            ${{ runner.temp }}/mutants/*/mutants.out/*.txt
-            ${{ runner.temp }}/mutants/*/mutants.out/outcomes.json
           if-no-files-found: warn
 
   # Requirements-to-test traceability for this run's selected jobs (ci/README.md,

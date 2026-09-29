@@ -23,14 +23,21 @@ class Keys(unittest.TestCase):
             os.makedirs(os.path.join(d, 'commit'))
             open(os.path.join(d, 'commit', 'lane.go'), 'w').write(
                 'package commit\n\nfunc (l *Lane) Append() {\n\tif a < b {\n\t}\n}\n\nfunc next[T any](x T) {\n\tif x {\n\t}\n}\n')
-            rep = {'files': [{'file_name': 'commit/lane.go', 'mutations': [
+            rep = {'files': [{'file_name': 'lane.go', 'mutations': [
                 {'line': 4, 'column': 7, 'type': 'CONDITIONALS_BOUNDARY', 'status': 'LIVED'},
                 {'line': 4, 'column': 7, 'type': 'CONDITIONALS_NEGATION', 'status': 'KILLED'},
                 {'line': 9, 'column': 5, 'type': 'CONDITIONALS_NEGATION', 'status': 'NOT COVERED'}]}]}
             p = os.path.join(d, 'r.json')
             json.dump(rep, open(p, 'w'))
-            self.assertEqual(mutants.go(p, d), ['go commit/lane.go (*Lane).Append CONDITIONALS_BOUNDARY #1',
-                                                'go commit/lane.go next CONDITIONALS_NEGATION #1'])
+            # gremlins names files relative to the package it ran on (./commit, from the module root)
+            cwd = os.getcwd()
+            os.chdir(d)
+            try:
+                got = mutants.go(p, './commit')
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(got, ['go commit/lane.go (*Lane).Append CONDITIONALS_BOUNDARY #1',
+                                   'go commit/lane.go next CONDITIONALS_NEGATION #1'])
 
 
 class Check(unittest.TestCase):

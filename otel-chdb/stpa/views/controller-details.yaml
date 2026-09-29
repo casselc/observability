@@ -1,0 +1,6 @@
+# One detail diagram per controller (generated/controller-<node>.svg and .mmd): the controller
+# as the STPA Handbook draws it, a control-algorithm compartment and a process-model
+# compartment, with control leaving the rule that issues it and feedback ending at each
+# variable it updates. Everything comes from the controller records and structure.yaml.
+id: view-3c1d7e
+type: controller-details

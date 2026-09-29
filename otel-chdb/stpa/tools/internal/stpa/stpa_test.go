@@ -129,11 +129,24 @@ func TestCheckRejects(t *testing.T) {
 		{"dangling reference", "hazard-00aa02", "id: hazard-00aa02\nlabel: H-8\ntitle: x\nlosses: [loss-ffffff]\nstate: accepted", "reference"},
 		{"reference of the wrong kind", "hazard-00aa03", "id: hazard-00aa03\nlabel: H-9\ntitle: x\nlosses: [hazard-000a02]\nstate: accepted", "reference"},
 		{"duplicate citation label", "hazard-00aa04", "id: hazard-00aa04\nlabel: H-1\ntitle: x\nstate: accepted", "label"},
+		{"a former label is unique too", "hazard-00aa0a", "id: hazard-00aa0a\nlabel: UCA-2\ntitle: x\nstate: accepted", "label"},
 		{"hex reused across kinds", "loss-000a02", "id: loss-000a02\nlabel: L-2\ntitle: x\nstate: accepted", "id"},
-		{"missing required field", "uca-00aa05", "id: uca-00aa05\nlabel: UCA-2\naction: action-000c03\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "schema"},
-		{"a UCA may not restate its controller", "uca-00aa06", "id: uca-00aa06\nlabel: UCA-3\naction: action-000c03\ncontroller: component-000b04\ncategory: provided\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "schema"},
-		{"feedback to a non-controller", "feedback-00aa07", "id: feedback-00aa07\nlabel: x\nfrom: component-000b02\nto: component-000b03\nstate: accepted", "feedback-to-controller"},
-		{"self edge", "action-00aa08", "id: action-00aa08\nlabel: x\nfrom: component-000b02\nto: component-000b02\nstate: accepted", "self-edge"},
+		{"hex of a moved action record", "loss-000c03", "id: loss-000c03\nlabel: L-3\ntitle: x\nstate: accepted", "id"},
+		{"missing required field", "uca-00aa05", "id: uca-00aa05\nlabel: UCA-2\naction: janitor->store/control/delete\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "schema"},
+		{"a UCA may not restate its controller", "uca-00aa06", "id: uca-00aa06\nlabel: UCA-3\naction: janitor->store/control/delete\ncontroller: controller-000b04\ncategory: provided\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "schema"},
+		{"a UCA's action is a control entry", "uca-00aa07", "id: uca-00aa07\nlabel: UCA-4\naction: writer->store/feedback/status\ncategory: provided\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "reference"},
+		{"a UCA's action exists", "uca-00aa08", "id: uca-00aa08\nlabel: UCA-5\naction: writer->store/control/nothing\ncategory: provided\ncontext: y\nhazards: [hazard-000a02]\nstate: accepted", "reference"},
+		{"a UCA's variable is its controller's", "uca-00aa09", "id: uca-00aa09\nlabel: UCA-6\naction: janitor->store/control/delete\ncategory: provided\ncontext: y\nhazards: [hazard-000a02]\nvariables: [committed]\nstate: accepted", "reference"},
+		{"an unresolved label in prose", "incident-00aa0b", "id: incident-00aa0b\nlabel: CAST-2\nbatch: first\ntitle: x\nfound_by: x\nhazard: H-9, which does not exist\ncontroller: x\nwhy: x\nfix: x\nlesson: x\nstate: accepted", "mention"},
+		{"a qualified variable that does not exist", "incident-00aa0c", "id: incident-00aa0c\nlabel: CAST-3\nbatch: first\ntitle: x\nfound_by: x\nhazard: H-1\ncontroller: x\nwhy: x\nfix: x\nlesson: x\nvariables: [writer/nothing]\nstate: accepted", "reference"},
+		{"a scenario with findings stores no hazards", "scenario-00aa0d", "id: scenario-00aa0d\nlabel: LS-2\ntitle: x\nfindings: [uca-000e01]\nfactor: process-model\nhazards: [hazard-000a02]\nvariables: [janitor/positions]\nstate: accepted", "scenario"},
+		{"a feedback factor needs feedback", "scenario-00aa0e", "id: scenario-00aa0e\nlabel: LS-3\ntitle: x\nfindings: [uca-000e01]\nfactor: feedback-missing\nstate: accepted", "scenario"},
+		{"a requirement cites a record by id, not label", "requirement-00aa0f", "id: requirement-00aa0f\nlabel: R-2\ntitle: x\npriority: P0\nfrom: [LS-1]\nstate: accepted", "reference"},
+		{"a requirement cites nothing unknown", "requirement-00aa10", "id: requirement-00aa10\nlabel: R-3\ntitle: x\npriority: P0\nfrom: [D9]\nstate: accepted", "reference"},
+		{"a controller cites only its own links", "controller-00aa11", "id: controller-00aa11\ntitle: x\ncomponent_type: software\nprocess_model: [{name: v, meaning: m, updated_by: [writer->store/feedback/status]}]\nstate: accepted", "controller-internals"},
+		{"a process-model variable needs a source", "controller-00aa12", "id: controller-00aa12\ntitle: x\ncomponent_type: software\nprocess_model: [{name: v, meaning: m}]\nstate: accepted", "controller-internals"},
+		{"a rule uses process-model variables", "controller-00aa13", "id: controller-00aa13\ntitle: x\ncomponent_type: software\ncontrol_algorithm: [{when: always, uses: [nothing], issues: [janitor->store/control/delete]}]\nstate: accepted", "controller-internals"},
+		{"a controller record is a node", "controller-00aa14", "id: controller-00aa14\ntitle: x\ncomponent_type: software\nstate: accepted", "structure"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -150,30 +163,150 @@ func TestCheckRejects(t *testing.T) {
 	}
 }
 
-func TestMentionOfAMissingLabelWarns(t *testing.T) {
-	p, _ := Load("testdata/mini")
-	found := false
-	for _, f := range p.Check() {
-		if f.Rule == "mention" && strings.Contains(f.Msg, "H-9") {
-			found = f.Warn
-		}
+// The control structure's forbidden forms. The first group cannot be written: the parser
+// refuses the document. The second group parses and fails the check.
+const miniStructure = `nodes:
+  ops: controller-000b01
+  writer: controller-000b02
+  store: controlled_process-000b03
+  janitor: controller-000b04
+links:
+  ops -> writer:
+    control:
+      config: {label: config, was: action-000c01}
+  ops -> janitor:
+    feedback:
+      health: {label: "health, cost", was: feedback-000d02}
+  writer -> store:
+    control:
+      commit: {label: commit, title: Commit a batch, was: action-000c02}
+    feedback:
+      status: {label: commit status, was: feedback-000d01}
+  janitor -> store:
+    control:
+      delete: {label: delete, title: Delete a slot, was: action-000c03}
+`
+
+func TestStructureRefusesUnrepresentableForms(t *testing.T) {
+	cases := []struct{ name, old, new, want string }{
+		{"duplicate pair", "  janitor -> store:\n", "  writer -> store:\n    control: {x: x}\n  janitor -> store:\n", `duplicate key "writer -> store"`},
+		{"duplicate action on a pair", "      commit: {label: commit, title: Commit a batch, was: action-000c02}\n",
+			"      commit: {label: commit, title: Commit a batch, was: action-000c02}\n      commit: again\n", `duplicate key "commit"`},
+		{"duplicate feedback on a pair", "      status: {label: commit status, was: feedback-000d01}\n",
+			"      status: {label: commit status, was: feedback-000d01}\n      status: again\n", `duplicate key "status"`},
+		{"duplicate node", "  janitor: controller-000b04\n", "  janitor: controller-000b04\n  janitor: controller-000b02\n", `duplicate key "janitor"`},
+		{"a pair spelled another way", "  janitor -> store:", "  janitor->store:", "must be spelled"},
+		{"a controlled process at the upper end", "  janitor -> store:", "  store -> janitor:", "the upper end store is a controlled process"},
+		{"an unknown node", "  janitor -> store:", "  janitor -> disk:", `"disk" is not a node`},
+		{"a node that is not a controller or process record", "  janitor: controller-000b04", "  janitor: hazard-000a02", "must be the id of a controller or controlled_process record"},
+		{"an unknown key in a link", "    control:\n      delete:", "    controls:\n      delete:", `unknown key "controls"`},
+		{"an entry without a label", "      delete: {label: delete, title: Delete a slot, was: action-000c03}", "      delete: {title: Delete a slot}", "label is required"},
+		{"an empty link", "  janitor -> store:\n    control:\n      delete: {label: delete, title: Delete a slot, was: action-000c03}\n", "  janitor -> store: {}\n", "has no control and no feedback entry"},
 	}
-	if !found {
-		t.Fatal("H-9 in a CAST hazard cell should be reported as an unresolved mention")
+	if _, err := ParseStructure("structure.yaml", []byte(miniStructure), nil); err != nil {
+		t.Fatalf("the base structure must parse: %v", err)
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := strings.Replace(miniStructure, c.old, c.new, 1)
+			if src == miniStructure {
+				t.Fatal("fixture text not found")
+			}
+			_, err := ParseStructure("structure.yaml", []byte(src), nil)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want an error containing %q, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+func TestStructureCheckedForms(t *testing.T) {
+	cases := []struct{ name, old, new, want string }{
+		{"a pair keyed in both orders", "  janitor -> store:\n", "  writer -> ops:\n    control: {x: x}\n  janitor -> store:\n", "also keyed the other way round"},
+		{"a self link", "  janitor -> store:\n", "  janitor -> janitor:\n    control: {x: x}\n  janitor -> store:\n", "does not control itself"},
+		{"a cycle of control", "  janitor -> store:\n", "  writer -> janitor:\n    control: {x: x}\n  janitor -> ops:\n    control: {y: y}\n  janitor -> store:\n", "control runs in a cycle"},
+		{"a node naming no record", "  janitor: controller-000b04\n", "  janitor: controller-000b04\n  ghost: controlled_process-00ffff\n", "is not a record"},
+		{"two nodes for one record", "  janitor: controller-000b04\n", "  janitor: controller-000b04\n  janitor2: controller-000b04\n", "name the same record"},
+		{"a feedback no process-model variable cites", "      status: {label: commit status, was: feedback-000d01}\n",
+			"      status: {label: commit status, was: feedback-000d01}\n      latency: {label: latency}\n", "updates no process-model variable"},
+		{"a control action no rule issues", "      delete: {label: delete, title: Delete a slot, was: action-000c03}\n",
+			"      delete: {label: delete, title: Delete a slot, was: action-000c03}\n      compact: {label: compact}\n", "is issued by no rule"},
+		{"a controller that controls nothing", "  ops -> writer:\n    control:\n      config: {label: config, was: action-000c01}\n",
+			"  ops -> writer:\n    feedback:\n      config: {label: config}\n", "issues no control action"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := strings.Replace(miniStructure, c.old, c.new, 1)
+			if src == miniStructure {
+				t.Fatal("fixture text not found")
+			}
+			dir := copyTree(t, "testdata/mini")
+			if err := os.WriteFile(filepath.Join(dir, "structure.yaml"), []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			p, err := Load(dir)
+			if err != nil {
+				t.Fatalf("must parse (it is a checked form, not a refused one): %v", err)
+			}
+			found := false
+			var all []string
+			for _, f := range p.Check() {
+				all = append(all, f.String())
+				found = found || (!f.Warn && strings.Contains(f.Msg, c.want))
+			}
+			if !found {
+				t.Fatalf("want an error containing %q, got:\n%s", c.want, strings.Join(all, "\n"))
+			}
+		})
+	}
+}
+
+// A hand edit inside a generated section of a document is detected, and render restores it.
+func TestSplicedSectionEditIsDetected(t *testing.T) {
+	dir := copyTree(t, "testdata/mini")
+	f := filepath.Join(dir, "doc.md")
+	b, _ := os.ReadFile(f)
+	edited := strings.Replace(string(b), "| UCA-1 | Janitor |", "| UCA-1 | Writer |", 1)
+	if edited == string(b) {
+		t.Fatal("fixture text not found")
+	}
+	os.WriteFile(f, []byte(edited), 0o644)
+	p, _ := Load(dir)
+	stale := p.Stale()
+	if len(stale) != 1 || !strings.Contains(stale[0], "doc.md: section ucas differs") {
+		t.Fatalf("want doc.md's ucas section stale, got %v", stale)
+	}
+	if _, err := p.Write(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(f); string(got) != string(b) {
+		t.Fatal("render did not restore the section")
+	}
+	if !strings.Contains(string(b), "Prose between sections is the document's own.") {
+		t.Fatal("prose outside the sections must be kept")
 	}
 }
 
 func TestDerivedValues(t *testing.T) {
 	p, _ := Load("testdata/mini")
 	u := p.Records["uca-000e01"]
-	if c := p.UCAController(u); c == nil || c.ID != "component-000b04" {
-		t.Fatalf("UCA controller must be its action's issuer, got %v", c)
+	if c := p.UCAController(u); c == nil || c.ID != "controller-000b04" {
+		t.Fatalf("UCA controller must be the upper end of its action's link, got %v", c)
 	}
-	if p.IsController(p.Records["component-000b03"]) {
-		t.Fatal("the store issues no action, so it is a controlled process")
+	if p.IsController(p.Records["controlled_process-000b03"]) {
+		t.Fatal("the store is a controlled process")
 	}
 	if ms := p.Mechanisms(p.Records["constraint-000f01"]); len(ms) != 1 {
 		t.Fatalf("constraint mechanisms: %v", ms)
+	}
+	if st := p.ScenarioStatus(p.Records["scenario-000e02"]); st != "Met by R-1" {
+		t.Fatalf("scenario status is derived from the requirements that cite it: %q", st)
+	}
+	if p.ByLabel["UCA-2"] == nil || p.ByLabel["UCA-2"].ID != "scenario-000e02" {
+		t.Fatal("a former label resolves to the record that holds it now")
+	}
+	if e := p.Structure.Was["action-000c03"]; e == nil || e.Path() != "janitor->store/control/delete" {
+		t.Fatal("a moved action record's id resolves to its structure entry")
 	}
 }
 
@@ -198,7 +331,9 @@ func TestNaturalCompare(t *testing.T) {
 }
 
 // The v0 export carries the copies v0 stores redundantly, computed: the UCA's controller is
-// its action's issuer, and a component that both acts and is acted on becomes two records.
+// the upper end of its action's link, a controller that is also controlled becomes two
+// records, and the structure's entries become v0 action and feedback records under their old
+// ids.
 func TestExportV0(t *testing.T) {
 	p, _ := Load("testdata/mini")
 	dir := t.TempDir()
@@ -221,15 +356,19 @@ func TestExportV0(t *testing.T) {
 		}
 		return m
 	}
-	if u := read("uca-000e01"); u["controller"] != "controller-000b04" || u["kind"] != "uca" {
+	if u := read("uca-000e01"); u["controller"] != "controller-000b04" || u["action"] != "action-000c03" {
 		t.Fatalf("uca export: %v", u)
 	}
 	read("controller-000b02")
 	read("process-000b02")
+	read("responsibility-000b02")
 	if _, err := os.Stat(filepath.Join(dir, "records", "controller-000b03.md")); err == nil {
 		t.Fatal("the store issues no action and must not become a controller")
 	}
 	if f := read("feedback-000d01"); f["from"] != "process-000b03" || f["to"] != "controller-000b02" {
 		t.Fatalf("feedback export: %v", f)
+	}
+	if c := read("controller-000b02"); c["process_model"] == nil {
+		t.Fatalf("the process model is exported: %v", c)
 	}
 }

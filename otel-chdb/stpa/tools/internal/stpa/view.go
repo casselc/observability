@@ -20,13 +20,23 @@ type View struct {
 	Type    string      `yaml:"type"` // control-structure | tables
 	Title   string      `yaml:"title"`
 	Columns int         `yaml:"columns"`
+	Width   int         `yaml:"width"` // canvas width; default 760, the PRD's
 	Rows    [][]Cell    `yaml:"rows"`
 	Tables  []TableSpec `yaml:"tables"`
+	// Splice names the documents (relative to otel-chdb/) whose marked sections are copies of
+	// this view's tables: `stpa render` rewrites them, `stpa check` fails when one differs.
+	Splice []string `yaml:"splice"`
+	// Controllers (controller-details views): the controller nodes to draw; default all.
+	Controllers []string `yaml:"controllers"`
+	// Internals (control-structure views): how controller boxes show their process model and
+	// control algorithm: "" (not at all), "headers" (a compartment strip with counts; the
+	// detail diagrams hold the rest) or "full" (the variables and actions in the box).
+	Internals string `yaml:"internals"`
 }
 
-// Cell places one component in a diagram row.
+// Cell places one node of the control structure in a diagram row.
 type Cell struct {
-	Ref    string `yaml:"ref"`
+	Ref    string `yaml:"ref"`  // a node name of structure.yaml
 	Col    int    `yaml:"col"`  // 0-based column; default: after the previous cell
 	Span   int    `yaml:"span"` // columns covered; default 1
 	Detail *bool  `yaml:"detail"`
@@ -50,12 +60,15 @@ func (c *Cell) UnmarshalYAML(n *yaml.Node) error {
 
 // TableSpec is one generated Markdown table.
 type TableSpec struct {
-	Name    string      `yaml:"name"`
-	Kind    string      `yaml:"kind"`
-	Labels  string      `yaml:"labels"` // regexp on the label; empty = all of the kind
-	Batch   string      `yaml:"batch"`  // incidents only
-	Columns []ColumnDef `yaml:"columns"`
-	Doc     string      `yaml:"doc"` // the document whose hand-kept copy is compared (relative to otel-chdb/)
+	Name   string `yaml:"name"`
+	Kind   string `yaml:"kind"`
+	Labels string `yaml:"labels"` // regexp on the label; empty = all of the kind
+	Batch  string `yaml:"batch"`  // incidents only
+	// Formerly: one row per former label of the kind's records (a label that moved, kept
+	// resolvable), with the "former" value as its first column.
+	Formerly bool        `yaml:"formerly"`
+	Columns  []ColumnDef `yaml:"columns"`
+	Doc      string      `yaml:"doc"` // the document whose hand-kept copy is compared (relative to otel-chdb/)
 }
 
 // ColumnDef names a column and the field (or derived value) it shows.
@@ -70,7 +83,7 @@ func loadView(path string) (*View, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := &View{Path: path, Name: strings.TrimSuffix(filepath.Base(path), ".yaml")}
+	v := &View{Path: filepath.Join("views", filepath.Base(path)), Name: strings.TrimSuffix(filepath.Base(path), ".yaml")}
 	dec := yaml.NewDecoder(strings.NewReader(string(b)))
 	dec.KnownFields(true)
 	if err := dec.Decode(v); err != nil {
@@ -102,9 +115,8 @@ func (v *View) check(p *Project) []string {
 		for ri, row := range v.Rows {
 			used := make([]bool, v.Columns)
 			for _, c := range row {
-				r := p.Records[c.Ref]
-				if r == nil || r.Kind != "component" {
-					errs = append(errs, fmt.Sprintf("row %d: %s is not a component", ri, c.Ref))
+				if n := p.Structure.Nodes[c.Ref]; n == nil || n.Rec == nil {
+					errs = append(errs, fmt.Sprintf("row %d: %s is not a node of the control structure", ri, c.Ref))
 				}
 				if seen[c.Ref] {
 					errs = append(errs, fmt.Sprintf("row %d: %s placed twice", ri, c.Ref))
@@ -120,6 +132,12 @@ func (v *View) check(p *Project) []string {
 					}
 					used[k] = true
 				}
+			}
+		}
+	case "controller-details":
+		for _, c := range v.Controllers {
+			if n := p.Structure.Nodes[c]; n == nil || !n.Controller {
+				errs = append(errs, fmt.Sprintf("%s is not a controller node of the structure", c))
 			}
 		}
 	case "tables":

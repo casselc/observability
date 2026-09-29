@@ -1,8 +1,13 @@
 id: view-000002
 type: tables
+splice: [doc.md]
 tables:
   - {name: ucas, kind: uca, columns: [{header: ID, value: label}, {header: Controller, value: controller},
      {header: Control action, value: action-name}, {header: Type, value: type}, {header: Unsafe when, value: context}, {header: Hazards, value: hazards}]}
   - {name: constraints, kind: constraint, columns: [{header: ID, value: label}, {header: Constraint, value: title},
      {header: Enforced today by, value: mechanisms, empty: Nothing yet (new)}]}
+  - {name: scenarios, kind: scenario, columns: [{header: ID, value: label}, {header: UCA or feedback, value: findings-or-feedback},
+     {header: Scenario, value: title}, {header: Status, value: status}]}
+  - {name: former, kind: scenario, formerly: true, columns: [{header: ID, value: former}, {header: Now, value: label}]}
+  - {name: controllers, kind: controller, columns: [{header: Controller, value: title}, {header: Process model, value: pm}, {header: Control algorithm, value: algorithm}]}
   - {name: cast-first, kind: incident, batch: first, columns: [{header: '#', value: number}, {header: Issue, value: title}, {header: Hazard, value: hazard}]}

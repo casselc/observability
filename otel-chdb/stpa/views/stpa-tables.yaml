@@ -1,38 +1,72 @@
-# The tables of STPA.md (and the research notes' STPA sections) as generated sections. `doc`
-# names the hand-kept copy that `stpa compare` checks the generated rows against.
+# The tables of STPA.md and of the research notes' STPA sections, as generated sections. Every
+# document in `splice` holds them between <!-- stpa:begin NAME --> / <!-- stpa:end NAME -->
+# markers; `stpa render` rewrites those sections and `stpa check` fails when one differs. `doc`
+# names the document whose hand-kept copy `stpa compare` checked the rows against before the
+# migration.
 id: view-b28070
 type: tables
+splice: [STPA.md, research/langfuse.md, research/entra-ingress.md, research/grants.md]
 tables:
-  - {name: losses, kind: loss, labels: '^L-\d+$', doc: STPA.md,
+  - {name: losses, kind: loss, doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Loss, value: title}]}
   - {name: hazards, kind: hazard, labels: '^H-\d+$', doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: Losses, value: losses}]}
   - {name: constraints, kind: constraint, labels: '^SC-\d+$', doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Constraint, value: title}, {header: Hazard, value: hazards},
                {header: Enforced today by, value: mechanisms, empty: Nothing yet (new)}]}
+  - {name: controllers, kind: controller,
+     columns: [{header: Controller, value: title}, {header: Process model (variables ← the feedback that updates them), value: pm},
+               {header: Control algorithm (action when rule), value: algorithm}]}
   - {name: ucas, kind: uca, labels: '^UCA-\d+$', doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Controller, value: controller}, {header: Control action, value: action-name},
                {header: Type, value: type}, {header: Unsafe when, value: context}, {header: Hazards, value: hazards}]}
+  - {name: former-labels, kind: scenario, formerly: true,
+     columns: [{header: ID, value: former}, {header: Now, value: label}, {header: Scenario, value: title}]}
   - {name: loss-scenarios, kind: scenario, labels: '^LS-\d+$', doc: STPA.md,
-     columns: [{header: ID, value: label}, {header: UCA, value: findings}, {header: Scenario (why it could happen), value: title},
-               {header: Status, value: resolution}]}
+     columns: [{header: ID, value: label}, {header: UCA or feedback, value: findings-or-feedback}, {header: Scenario (why it could happen), value: title},
+               {header: Status, value: status}]}
   - {name: stpa-sec, kind: sec, labels: '^SEC-\d+$', doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Adversary action, value: title},
                {header: Unsafe control action or feedback, value: unsafe-with-findings}, {header: Hazards, value: hazards},
-               {header: Mitigation, value: mitigation}]}
+               {header: Mitigation, value: answered-by}]}
   - {name: stpa-teaming, kind: teaming, labels: '^TM-\d+$', doc: STPA.md,
      columns: [{header: ID, value: label}, {header: Teaming issue, value: title}, {header: What goes wrong, value: text},
-               {header: Hazards, value: hazards}, {header: Requirement, value: requirement}]}
-  - {name: requirements, kind: requirement, labels: '^R-S\d+$', doc: STPA.md,
-     columns: [{header: ID, value: label}, {header: Requirement, value: title-with-priority}, {header: From, value: from}]}
-  - {name: hazards-entra-summary, kind: hazard, labels: '^H-E\d+$', doc: STPA.md,
-     columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: ⊂, value: refines, empty: –}]}
-  - {name: hazards-entra, kind: hazard, labels: '^H-E\d+$', doc: research/entra-ingress.md,
-     columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: Losses, value: losses},
-               {header: ⊂ system hazard, value: refines, empty: –}]}
+               {header: Hazards, value: hazards}, {header: Requirement, value: answered-by}]}
+  - {name: requirements, kind: requirement, labels: '^R-S\d+$', doc: STPA.md, columns: &req
+       [{header: ID, value: label}, {header: Requirement, value: title-with-priority}, {header: From, value: from},
+        {header: Enforced today by, value: mechanisms, empty: Nothing recorded}]}
+  - {name: losses-llm, kind: loss, labels: '^L-7$', columns: &loss [{header: ID, value: label}, {header: Loss, value: title}]}
+  - {name: losses-entra, kind: loss, labels: '^L-E\d+$', columns: *loss}
+  - {name: losses-grants, kind: loss, labels: '^L-G\d+$', columns: *loss}
+  - {name: hazards-llm, kind: hazard, labels: '^H-L\d+$', doc: research/langfuse.md, columns: &exthaz
+       [{header: ID, value: label}, {header: Hazard, value: title}, {header: Losses, value: losses},
+        {header: ⊂ system hazard, value: refines, empty: –}]}
+  - {name: requirements-llm, kind: requirement, labels: '^R-L\d+$', doc: research/langfuse.md, columns: *req}
+  - {name: hazards-entra, kind: hazard, labels: '^H-E\d+$', doc: research/entra-ingress.md, columns: *exthaz}
+  - {name: requirements-entra, kind: requirement, labels: '^R-E\d+$', doc: research/entra-ingress.md, columns: *req}
+  - {name: hazards-grants, kind: hazard, labels: '^H-G\d+$', doc: research/grants.md, columns: *exthaz}
+  - {name: requirements-grants, kind: requirement, labels: '^R-G\d+$', doc: research/grants.md, columns: *req}
   - {name: cast-initial, kind: incident, batch: initial, doc: STPA.md, columns: &cast
        [{header: '#', value: number}, {header: Issue, value: title}, {header: Found by, value: found_by},
         {header: Hazard, value: hazard}, {header: Controller and flawed process model, value: controller},
         {header: Why it made sense at the time, value: why}, {header: Fix, value: fix}, {header: Lesson, value: lesson}]}
-  - {name: cast-hyperdx-adapter, kind: incident, batch: hyperdx-adapter-2026-09-28, doc: STPA.md, columns: *cast}
-  - {name: cast-ci-sweep-after-d35, kind: incident, batch: ci-sweep-after-d35-2026-09-29, doc: STPA.md, columns: *cast}
+  - {name: cast-deterministic-simulation-2026-09-27, kind: incident, batch: deterministic-simulation-2026-09-27, doc: STPA.md, columns: *cast}
+  - {name: cast-ambiguity-audit-2026-09-27, kind: incident, batch: ambiguity-audit-2026-09-27, doc: STPA.md, columns: *cast}
+  - {name: cast-hegel-and-the-model-extension-2026-09-27, kind: incident, batch: hegel-and-the-model-extension-2026-09-27, doc: STPA.md, columns: *cast}
+  - {name: cast-format-v2-2026-09-28, kind: incident, batch: format-v2-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-entity-announcement-lane-2026-09-28, kind: incident, batch: entity-announcement-lane-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-query-service-2026-09-28, kind: incident, batch: query-service-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-query-service-2026-09-28-2, kind: incident, batch: query-service-2026-09-28-2, doc: STPA.md, columns: *cast}
+  - {name: cast-alert-evaluator-2026-09-28, kind: incident, batch: alert-evaluator-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-hyperdx-adapter-2026-09-28, kind: incident, batch: hyperdx-adapter-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-closing-the-validation-gaps-2026-09-28, kind: incident, batch: closing-the-validation-gaps-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-mosaic-spike-2026-09-28, kind: incident, batch: mosaic-spike-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-basis-2026-09-28, kind: incident, batch: basis-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-bitemporal-catalog-replay-2026-09-28, kind: incident, batch: bitemporal-catalog-replay-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-late-row-splitting-2026-09-28, kind: incident, batch: late-row-splitting-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-query-service-and-hyperdx-decisions-2026-09-28, kind: incident, batch: query-service-and-hyperdx-decisions-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-partition-key-and-dead-lane-retirement-2026-09-28, kind: incident, batch: partition-key-and-dead-lane-retirement-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-service-gate-sweep-2026-09-29, kind: incident, batch: service-gate-sweep-2026-09-29, doc: STPA.md, columns: *cast}
+  - {name: cast-building-lane-retirement-2026-09-29, kind: incident, batch: building-lane-retirement-2026-09-29, doc: STPA.md, columns: *cast}
+  - {name: cast-ci-sweep-after-d35-2026-09-29, kind: incident, batch: ci-sweep-after-d35-2026-09-29, doc: STPA.md, columns: *cast}
+  - {name: cast-langfuse-design-2026-09-29, kind: incident, batch: langfuse-design-2026-09-29, doc: STPA.md, columns: *cast}

@@ -1,6 +1,8 @@
 package stpa
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,10 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ExportV0 writes the records as a stpa-workbench artifact-v0 project, plus the overlay kinds
-// and fields proposed in workbench-v0-overlay/. It is a derived view: every value in it is
-// computed from the records, including the copies v0 stores redundantly (a UCA's controller,
-// a scenario's hazards, the controller/process split of one component, the H1 heading).
+// ExportV0 writes the records and the control structure as a stpa-workbench artifact-v0
+// project, plus the overlay kinds and fields proposed in workbench-v0-overlay/. It is a derived
+// view: every value in it is computed, including the copies v0 stores redundantly (a UCA's
+// controller, a scenario's hazards, the controller and process records of one controller that
+// is itself controlled, the H1 heading), and the action and feedback records v0 keeps
+// separately, which here are entries of structure.yaml.
 func (p *Project) ExportV0(dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "records"), 0o755); err != nil {
 		return err
@@ -34,24 +38,46 @@ func (p *Project) ExportV0(dir string) error {
 	if err := writeYAML(filepath.Join(dir, "project.yaml"), manifest); err != nil {
 		return err
 	}
-	hex := func(id string) string { return id[strings.LastIndex(id, "-")+1:] }
-	// v0 splits one component into a controller record and a process record (A02); here the
-	// split is computed: a component that issues an action gets a controller record, and one
-	// that receives an action or sends feedback (or issues nothing) gets a process record.
-	ctlID := func(c string) string { return "controller-" + hex(c) }
-	procID := func(c string) string { return "process-" + hex(c) }
-	// sec and teaming records are v0 scenarios; their exported id keeps the hex, which is
-	// unique across kinds (checked), so the rename cannot collide.
+	s := p.Structure
+	ctlID := func(n *Node) string { return "controller-" + Hex(n.ID) }
+	procID := func(n *Node) string { return "process-" + Hex(n.ID) }
+	// An entry's v0 id: the pilot record it replaced, else a hash of its path. A hash that hits
+	// a hex already in use is an error, not a silent collision.
+	used := map[string]string{}
+	for id := range p.Records {
+		used[Hex(id)] = id
+	}
+	entryID := map[*Entry]string{}
+	for _, e := range s.List {
+		kind := map[string]string{"control": "action", "feedback": "feedback"}[e.Kind]
+		if e.Was != "" {
+			entryID[e] = e.Was
+			continue
+		}
+		h := sha1.Sum([]byte(e.Path()))
+		hx := hex.EncodeToString(h[:])[:6]
+		if prev, dup := used[hx]; dup {
+			return fmt.Errorf("export-v0: the hashed id of %s collides with %s; give the entry a `was` id", e.Path(), prev)
+		}
+		used[hx] = e.Path()
+		entryID[e] = kind + "-" + hx
+	}
+	lowerEnd := map[string]bool{}
+	for _, l := range s.Links {
+		lowerEnd[l.Lower.Name] = true
+	}
 	v0id := func(id string) string {
 		if r := p.Records[id]; r != nil && (r.Kind == "sec" || r.Kind == "teaming") {
-			return "scenario-" + hex(id)
+			return "scenario-" + Hex(id)
 		}
 		return id
 	}
 	v0ids := func(ids []string) []string {
 		out := []string{}
 		for _, id := range ids {
-			out = append(out, v0id(id))
+			if p.Records[id] != nil {
+				out = append(out, v0id(id))
+			}
 		}
 		return out
 	}
@@ -66,6 +92,98 @@ func (p *Project) ExportV0(dir string) error {
 			m["label"] = l
 		}
 		return m
+	}
+	// Nodes: a controller record is a v0 controller, plus a v0 process when it is itself the
+	// lower end of a link (A02: v0 keeps the two roles apart; here they are one record).
+	for _, n := range s.NodeOrder {
+		r := n.Rec
+		if r == nil {
+			continue
+		}
+		desc := nz(r.S("description"), r.S("title"))
+		if n.Controller {
+			m := base(ctlID(n), "controller", r.S("title"), r)
+			m["component_type"] = r.S("component_type")
+			var pm []map[string]any
+			var unsourced, algo []any
+			for _, v := range pmOf(r) {
+				ub := strList(v["updated_by"])
+				for _, path := range ub {
+					if e := s.Entries[path]; e != nil {
+						pm = append(pm, map[string]any{"variable": v["name"], "source_feedback": entryID[e]})
+					}
+				}
+				if len(ub) == 0 {
+					unsourced = append(unsourced, map[string]any{"variable": v["name"], "meaning": v["meaning"], "source": v["source"]})
+				}
+			}
+			for _, rule := range algoOf(r) {
+				var acts []string
+				for _, path := range strList(rule["issues"]) {
+					if e := s.Entries[path]; e != nil {
+						acts = append(acts, entryID[e])
+					}
+				}
+				algo = append(algo, map[string]any{"when": rule["when"], "uses": rule["uses"], "issues": acts})
+			}
+			if len(pm) > 0 {
+				m["process_model"] = pm
+			}
+			ext := map[string]any{}
+			if len(algo) > 0 {
+				ext["otel-chdb:control-algorithm"] = algo
+			}
+			if len(unsourced) > 0 {
+				ext["otel-chdb:process-model-without-feedback"] = unsourced
+			}
+			if len(ext) > 0 {
+				m["ext"] = ext
+			}
+			recs = append(recs, out{m, desc})
+			// v0's responsibility: what the controller is for, over what it controls.
+			var scope []string
+			for _, l := range s.Links {
+				if l.Upper == n && len(l.Control) > 0 {
+					scope = append(scope, procID(l.Lower))
+				}
+			}
+			rm := base("responsibility-"+Hex(n.ID), "responsibility", r.S("title")+": "+desc, r)
+			delete(rm, "label")
+			rm["controller"] = ctlID(n)
+			rm["authority"] = desc
+			rm["scope"] = scope
+			recs = append(recs, out{rm, ""})
+		}
+		if !n.Controller || lowerEnd[n.Name] {
+			m := base(procID(n), "process", r.S("title"), r)
+			m["description"] = desc
+			recs = append(recs, out{m, ""})
+		}
+	}
+	for _, e := range s.List {
+		r := e.Link.Upper.Rec
+		if r == nil {
+			continue
+		}
+		if e.Kind == "control" {
+			m := base(entryID[e], "action", e.Name(), r)
+			delete(m, "label")
+			m["label"] = e.Label
+			m["from"] = ctlID(e.Link.Upper)
+			m["to"] = procID(e.Link.Lower)
+			m["semantics"] = e.Name()
+			m["ext"] = map[string]any{"otel-chdb:path": e.Path()}
+			recs = append(recs, out{m, ""})
+		} else {
+			m := base(entryID[e], "feedback", e.Name(), r)
+			delete(m, "label")
+			m["label"] = e.Label
+			m["from"] = procID(e.Link.Lower)
+			m["to"] = ctlID(e.Link.Upper)
+			m["content"] = e.Name()
+			m["ext"] = map[string]any{"otel-chdb:path": e.Path()}
+			recs = append(recs, out{m, ""})
+		}
 	}
 	for _, id := range p.SortedIDs() {
 		r := p.Records[id]
@@ -89,70 +207,77 @@ func (p *Project) ExportV0(dir string) error {
 			m := base(id, "mechanism", r.S("title"), r)
 			m["implements"] = r.L("implements")
 			m["description"] = r.S("title")
-			recs = append(recs, out{m, ""})
-		case "component":
-			if p.IsController(r) {
-				m := base(ctlID(id), "controller", r.S("title"), r)
-				m["component_type"] = r.S("component_type")
-				recs = append(recs, out{m, "Generated: the controller role of " + id + "."})
+			if eff := r.S("effect"); eff != "" {
+				m["ext"] = map[string]any{"otel-chdb:effect": eff}
 			}
-			if !p.IsController(r) || p.hasProcessRole(id) {
-				m := base(procID(id), "process", r.S("title"), r)
-				d := r.S("description")
-				if d == "" {
-					d = r.S("title")
-				}
-				m["description"] = d
-				recs = append(recs, out{m, "Generated: the controlled-process role of " + id + "."})
-			}
-		case "action":
-			m := base(id, "action", nz(r.S("title"), r.S("label")), r)
-			m["from"] = ctlID(r.S("from"))
-			m["to"] = procID(r.S("to"))
-			m["semantics"] = nz(r.S("title"), r.S("label"))
-			recs = append(recs, out{m, ""})
-		case "feedback":
-			m := base(id, "feedback", nz(r.S("title"), r.S("label")), r)
-			m["from"] = procID(r.S("from"))
-			m["to"] = ctlID(r.S("to"))
-			m["content"] = nz(r.S("title"), r.S("label"))
 			recs = append(recs, out{m, ""})
 		case "uca":
-			a := p.Records[r.S("action")]
-			m := base(id, "uca", nz(a.S("title"), a.S("label"))+": "+r.S("context"), r)
-			m["controller"] = ctlID(a.S("from"))
-			m["action"] = a.ID
+			e := s.Entries[r.S("action")]
+			m := base(id, "uca", e.Name()+": "+r.S("context"), r)
+			m["controller"] = ctlID(e.Link.Upper)
+			m["action"] = entryID[e]
 			m["category"] = r.S("category")
 			m["context"] = r.S("context")
 			m["hazards"] = r.L("hazards")
+			if v := r.L("variables"); len(v) > 0 {
+				m["ext"] = map[string]any{"otel-chdb:process-model-variables": v}
+			}
 			recs = append(recs, out{m, ""})
 		case "scenario":
 			m := base(id, "scenario", r.S("title"), r)
 			m["hazards"] = p.ScenarioHazards(r)
-			m["findings"] = r.L("findings")
-			if s := r.S("resolution"); s != "" {
-				m["ext"] = map[string]any{"otel-chdb:resolution": s}
+			m["findings"] = orEmpty(r.L("findings"))
+			ext := map[string]any{"otel-chdb:factor": r.S("factor")}
+			if st := p.ScenarioStatus(r); st != "" {
+				ext["otel-chdb:status"] = st
 			}
+			var fbs []string
+			for _, path := range r.L("feedback") {
+				if e := s.Entries[path]; e != nil {
+					fbs = append(fbs, entryID[e])
+				}
+			}
+			if len(fbs) > 0 {
+				ext["otel-chdb:feedback"] = fbs
+			}
+			if f := r.L("formerly"); len(f) > 0 {
+				ext["otel-chdb:formerly"] = f
+			}
+			if v := r.L("variables"); len(v) > 0 {
+				ext["otel-chdb:process-model-variables"] = v
+			}
+			m["ext"] = ext
 			recs = append(recs, out{m, r.S("title")})
 		case "sec":
 			m := base(v0id(id), "scenario", r.S("title"), r)
 			m["hazards"] = r.L("hazards")
 			m["findings"] = orEmpty(r.L("findings"))
 			m["factors"] = map[string]any{"control": r.S("unsafe"), "environmental": "Adversary: " + r.S("title")}
-			m["ext"] = map[string]any{"stpa-sec:mitigation": r.S("mitigation")}
+			mit, _ := p.columnValue(r, "answered-by")
+			m["ext"] = map[string]any{"stpa-sec:mitigation": mit}
 			recs = append(recs, out{m, ""})
 		case "teaming":
 			m := base(v0id(id), "scenario", r.S("title"), r)
 			m["hazards"] = r.L("hazards")
 			m["findings"] = []string{}
 			m["factors"] = map[string]any{"human": r.S("text")}
-			m["ext"] = map[string]any{"stpa-teaming:requirement": r.S("requirement")}
+			req, _ := p.columnValue(r, "answered-by")
+			m["ext"] = map[string]any{"stpa-teaming:requirement": req}
 			recs = append(recs, out{m, ""})
 		case "requirement":
 			m := base(id, "requirement", r.S("title"), r)
 			m["statement"] = r.S("title")
 			m["priority"] = r.S("priority")
 			m["derived_from"] = v0ids(r.L("from"))
+			var hand []string
+			for _, f := range r.L("from") {
+				if p.Records[f] == nil {
+					hand = append(hand, f)
+				}
+			}
+			if len(hand) > 0 {
+				m["ext"] = map[string]any{"otel-chdb:derived-from-hand-kept": hand}
+			}
 			recs = append(recs, out{m, r.S("title")})
 		case "incident":
 			m := base(id, "incident", r.S("title"), r)
@@ -168,6 +293,9 @@ func (p *Project) ExportV0(dir string) error {
 				}
 			}
 			m["hazards"] = orEmpty(hz)
+			if v := r.L("variables"); len(v) > 0 {
+				m["ext"] = map[string]any{"otel-chdb:process-model-variables": v}
+			}
 			recs = append(recs, out{m, r.S("title")})
 		}
 	}
@@ -188,27 +316,12 @@ func (p *Project) ExportV0(dir string) error {
 	return p.exportV0Diagram(dir)
 }
 
-func (p *Project) hasProcessRole(c string) bool {
-	for _, a := range p.Of("action") {
-		if a.S("to") == c {
-			return true
-		}
-	}
-	for _, f := range p.Of("feedback") {
-		if f.S("from") == c {
-			return true
-		}
-	}
-	return false
-}
-
 // exportV0Diagram writes the v0 generated Mermaid (spec §8): a node map and one edge per
 // relationship record, labelled with its title, so stpawb's generated-view check can run.
 func (p *Project) exportV0Diagram(dir string) error {
 	var b strings.Builder
 	b.WriteString("%% Generated by otel-chdb/stpa/tools export-v0 from the records; structure is owned by the records.\nflowchart TB\n")
 	entries, _ := os.ReadDir(filepath.Join(dir, "records"))
-	nodes := map[string]string{}
 	var edges []map[string]any
 	for _, e := range entries {
 		raw, _ := os.ReadFile(filepath.Join(dir, "records", e.Name()))
@@ -221,7 +334,6 @@ func (p *Project) exportV0Diagram(dir string) error {
 		switch fm["kind"] {
 		case "controller", "process":
 			key := "n" + strings.ReplaceAll(fm["id"].(string), "-", "_")
-			nodes[key] = fm["id"].(string)
 			fmt.Fprintf(&b, "%%%% node %s = %s\n  %s[\"%s\"]\n", key, fm["id"], key, strings.ReplaceAll(fm["title"].(string), `"`, "'"))
 		case "action", "feedback":
 			edges = append(edges, fm)

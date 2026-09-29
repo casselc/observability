@@ -1,0 +1,134 @@
+# The control structure of otel-chdb: the only place links exist (DECISIONS.md D39).
+#
+# `nodes` names each controller and controlled-process record once; the id's kind types the
+# node. `links` has one entry per ordered pair, keyed "<upper> -> <lower>": `control` runs
+# down the arrow, `feedback` back up. The upper end must be a controller node (a controlled
+# process there does not parse). An entry is a drawn label, or {label, title, was}: `title` is
+# the full name the tables show, `was` the pilot's action or feedback record id it replaces.
+# Records cite an entry by its path, <upper>-><lower>/<control|feedback>/<key>; controllers
+# cite their own links from their process model and control algorithm (records/controller-*).
+# Diagrams A and B are views of this one structure (views/control-structure-*.yaml).
+nodes:
+  ops: controller-71fede              # Platform operators
+  oncall: controller-c6c2a0           # On-call engineers
+  edge: controller-fe59f7             # Edge collectors
+  ec: controller-fc8476               # Entity controllers
+  consumer: controller-8020ed         # Consumer workers
+  agg: controller-72ab73              # Central aggregator
+  gc: controller-ac2fd1               # GC, audit, sealer
+  ui: controller-0e2f45               # Telemetry UI
+  alerting: controller-ec2f3e         # Alerting engine
+  qs: controller-2f943e               # Query service
+  producers: controlled_process-df7b55  # Telemetry producers
+  s3: controlled_process-21e324       # S3 lanes and control objects
+  clickhouse: controlled_process-ed00c7 # Central ClickHouse
+  catalog: controlled_process-ce1c77  # Entity catalog
+  lake: controlled_process-b29392     # Lake snapshots
+
+links:
+  ops -> edge:
+    control:
+      config: {label: "config, deploy", was: action-7c4af1}
+  ops -> ec:
+    control:
+      config: {label: "config, deploy", was: action-6f1a52}
+  ops -> gc:
+    feedback:
+      health: {label: "health, audit, cost", was: feedback-024a80}
+  ops -> clickhouse:
+    control:
+      retention: {label: retention, title: Change retention}
+  ops -> qs:
+    control:
+      routing: {label: routing, was: action-ac3c47}
+      access: {label: access, title: Grant access}
+
+  oncall -> ui:
+    control:
+      queries: {label: queries, was: action-8b44ee}
+      snapshot: {label: snapshot, title: Pick a snapshot or source}
+    feedback:
+      results: {label: "results, freshness", was: feedback-33f2f6}
+  oncall -> alerting:
+    control:
+      rules: {label: rules, was: action-71d7fb}
+      acks: {label: acks, was: action-d5f913}
+      silence: {label: silence, title: Silence an alert, was: action-74de58}
+    feedback:
+      pages: {label: pages, was: feedback-6ec80d}
+
+  edge -> producers:
+    control:
+      ack: {label: ack, title: Acknowledge a request}
+      push-back: {label: "503", title: Push back on senders (503)}
+  edge -> s3:
+    control:
+      put: {label: create-only PUT, was: action-200ece}
+      resend: {label: resend, title: Resend a batch}
+    feedback:
+      outcome: {label: PUT outcome}
+
+  ec -> s3:
+    control:
+      write: {label: entity records, title: Write an entity record, was: action-2ffe24}
+
+  consumer -> s3:
+    control:
+      lease: {label: CAS leases, was: action-410c87}
+      checkpoint: {label: checkpoints}
+    feedback:
+      list: {label: "list, get", was: feedback-217b3d}
+  consumer -> clickhouse:
+    control:
+      insert: {label: insert, title: Insert a statement, was: action-a2cc85}
+      repair: {label: repair, title: Repair missing rows, was: action-50af26}
+    feedback:
+      answers: {label: answers}
+      counts: {label: counts, was: feedback-80b0e6}
+
+  agg -> s3:
+    feedback:
+      records: {label: read records, was: feedback-d0d11e}
+  agg -> catalog:
+    control:
+      upsert: {label: upsert, was: action-7e22c2}
+
+  gc -> s3:
+    control:
+      delete: {label: delete, title: Delete a slot, was: action-e7ecbf}
+      seal: {label: seal, was: action-253193}
+    feedback:
+      marks: {label: "checkpoints, marks"}
+  gc -> lake:
+    control:
+      commit: {label: commit, was: action-d29976}
+    feedback:
+      snapshots: {label: snapshots}
+
+  ui -> qs:
+    control:
+      requests: {label: requests, was: action-b1ea95}
+    feedback:
+      complete-through: {label: complete-through, was: feedback-708ba2}
+
+  alerting -> qs:
+    control:
+      evaluate: {label: evaluate, title: Evaluate a rule, was: action-b4299a}
+    feedback:
+      values: {label: values, was: feedback-306941}
+
+  qs -> clickhouse:
+    control:
+      sql: {label: SQL, was: action-5f41ad}
+    feedback:
+      rows: {label: "rows, status", was: feedback-aa9931}
+  qs -> lake:
+    control:
+      reads: {label: "plans, reads", title: Route a query to a source, was: action-bdd08f}
+    feedback:
+      rows: {label: rows, was: feedback-0b435f}
+  qs -> catalog:
+    control:
+      lookups: {label: lookups, was: action-4b77d4}
+    feedback:
+      entities: {label: entities}

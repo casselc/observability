@@ -127,6 +127,12 @@ func (e *el) writeJSX(b *strings.Builder) {
 	}
 }
 
+// pathID is an entry's path as a text id: stable while the structure keeps the link's node
+// names and the entry's key.
+func pathID(e *Entry) string {
+	return strings.NewReplacer("->", "--", "/", "-").Replace(e.Path())
+}
+
 func itoa(i int) string { return fmt.Sprint(i) }
 
 func pathD(pts [][2]int) string {
@@ -157,7 +163,7 @@ func tid(r *Record, suffix string) string {
 // diagram builds the element tree of a placed view. markerID must be unique in the PRD page.
 func (L *Layout) diagram(markerID string) *el {
 	v := L.View
-	svg := mk("svg", "viewBox", fmt.Sprintf("0 0 %d %d", canvasW, L.Height), "role", "img", "aria-label", v.Title, "font-size", "13")
+	svg := mk("svg", "viewBox", fmt.Sprintf("0 0 %d %d", L.W, L.Height), "role", "img", "aria-label", v.Title, "font-size", "13")
 	defs := mk("defs").add(mk("marker", "id", markerID, "viewBox", "0 0 10 10", "refX", "9", "refY", "5",
 		"markerWidth", "6", "markerHeight", "6", "orient", "auto-start-reverse").add(mk("path", "d", "M0 0L10 5L0 10z", "fill", "@edge")))
 	svg.add(defs)
@@ -176,7 +182,7 @@ func (L *Layout) diagram(markerID string) *el {
 		} else {
 			fb.add(pe)
 		}
-		if e.Label == "" {
+		if e.Text == "" {
 			continue
 		}
 		t := mk("text", "x", itoa(e.LabelX), "y", itoa(e.LabelY))
@@ -184,7 +190,7 @@ func (L *Layout) diagram(markerID string) *el {
 			t.attrs = append(t.attrs, attr{"text-anchor", e.Anchor})
 		}
 		t.attrs = append(t.attrs, attr{"font-size", "11.5"}, attr{"fill", "@quiet"})
-		t.text, t.textID = e.Label, "lbl-"+e.Records[0].ID
+		t.text, t.textID = e.Text, "lbl-"+pathID(e.Entries[0])
 		labels = append(labels, t)
 	}
 	svg.add(ctl, fb)
@@ -221,35 +227,125 @@ func (L *Layout) diagram(markerID string) *el {
 			t.text, t.textID = line, tid(b.Rec, fmt.Sprintf("l%d", i+1))
 			g.add(t)
 		}
+		if b.Node != nil && b.Node.Controller && L.View.Internals != "" {
+			g.add(L.compartments(b)...)
+		}
 		svg.add(g)
 	}
 	key := mk("g")
 	key.anchor = "key"
 	x, ky := 24, L.KeyY
-	item := func(sym *el, symW int, label, id string) {
-		key.add(sym)
+	lines := 1
+	item := func(sym func(x, y int) *el, symW int, label, id string) {
+		if w := symW + 8 + textW(label); x > 24 && x+w > L.W-24 {
+			x, ky = 24, ky+22
+			lines++
+		}
+		key.add(sym(x, ky))
 		t := mk("text", "x", itoa(x+symW+8), "y", itoa(ky+4), "font-size", "11.5", "fill", "@quiet")
 		t.text, t.textID = label, id
 		key.add(t)
 		x = x + symW + 8 + textW(label) + 36
 	}
 	if L.HasHuman {
-		item(mk("rect", "x", itoa(x), "y", itoa(ky-8), "width", "24", "height", "16", "rx", "4", "fill", "@accent", "fill-opacity", "0.12", "stroke", "@accent", "stroke-width", "2"), 24, "people", "key-human")
+		item(func(x, ky int) *el {
+			return mk("rect", "x", itoa(x), "y", itoa(ky-8), "width", "24", "height", "16", "rx", "4", "fill", "@accent", "fill-opacity", "0.12", "stroke", "@accent", "stroke-width", "2")
+		}, 24, "people", "key-human")
 	}
-	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25"), 32, "control action", "key-control")
-	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25", "stroke-dasharray", "5 4"), 32, "feedback", "key-feedback")
+	item(func(x, ky int) *el {
+		return mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25")
+	}, 32, "control action", "key-control")
+	item(func(x, ky int) *el {
+		return mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25", "stroke-dasharray", "5 4")
+	}, 32, "feedback", "key-feedback")
 	if L.HasProcess {
-		item(mk("rect", "x", itoa(x), "y", itoa(ky-8), "width", "24", "height", "16", "rx", "4", "fill", "@tint", "stroke", "@edge", "stroke-width", "1.25"), 24, "controlled process (store)", "key-process")
+		item(func(x, ky int) *el {
+			return mk("rect", "x", itoa(x), "y", itoa(ky-8), "width", "24", "height", "16", "rx", "4", "fill", "@tint", "stroke", "@edge", "stroke-width", "1.25")
+		}, 24, "controlled process (store)", "key-process")
+	}
+	if L.View.Internals != "" {
+		item(func(x, ky int) *el {
+			return mk("g").add(mk("rect", "x", itoa(x), "y", itoa(ky-8), "width", "11", "height", "16", "rx", "3", "fill", "@tint"),
+				mk("rect", "x", itoa(x+13), "y", itoa(ky-8), "width", "11", "height", "16", "rx", "3", "fill", "@tint"))
+		}, 24, "control algorithm | process model (a detail diagram per controller)", "key-internals")
+	}
+	if lines > 1 {
+		L.Height += 22 * (lines - 1)
+		svg.attrs[0].v = fmt.Sprintf("0 0 %d %d", L.W, L.Height)
 	}
 	svg.add(key)
 	return svg
+}
+
+// compartments draws a controller box's two compartments at its bottom: the control algorithm
+// (left, where control leaves) and the process model (right, where feedback arrives). With
+// Internals "headers" they carry only their name and size (the detail diagram has the rest);
+// with "full", the actions each rule issues and the variables' names.
+func (L *Layout) compartments(b *Box) []*el {
+	c := b.Rec
+	rules, vars := algoOf(c), pmOf(c)
+	var sh int
+	if L.View.Internals == "headers" {
+		sh = 38
+	} else {
+		sh = 26 + 13*maxi(len(rules), len(vars))
+	}
+	top := b.y2() - sh
+	mid := b.X + b.W/2
+	var out []*el
+	text := func(x, y int, s, id string, attrs ...string) *el {
+		t := mk("text", append([]string{"x", itoa(x), "y", itoa(y)}, attrs...)...)
+		t.text, t.textID = s, tid(c, id)
+		return t
+	}
+	for _, half := range []struct{ x1, x2 int }{{b.X + 5, mid - 2}, {mid + 2, b.x2() - 5}} {
+		out = append(out, mk("rect", "x", itoa(half.x1), "y", itoa(top), "width", itoa(half.x2-half.x1), "height", itoa(sh-5), "rx", "5", "fill", "@tint"))
+	}
+	if L.View.Internals == "headers" {
+		out = append(out, text(b.X+11, top+13, "ALGORITHM", "ca", "font-size", "9", "font-weight", "600", "fill", "@quiet"))
+		out = append(out, text(mid+8, top+13, "PROCESS MODEL", "pm", "font-size", "9", "font-weight", "600", "fill", "@quiet"))
+		out = append(out, text(b.X+11, top+27, plural(len(rules), "rule"), "ca-n", "font-size", "10.5", "fill", "@ink"))
+		out = append(out, text(mid+8, top+27, plural(len(vars), "variable"), "pm-n", "font-size", "10.5", "fill", "@ink"))
+		return out
+	}
+	out = append(out, text(b.X+11, top+13, "ALGORITHM", "ca", "font-size", "9.5", "font-weight", "600", "fill", "@quiet"))
+	out = append(out, text(mid+8, top+13, "PROCESS MODEL", "pm", "font-size", "9.5", "font-weight", "600", "fill", "@quiet"))
+	room := int(float64(mid-b.X-16) / 5.7)
+	for i, r := range rules {
+		var acts []string
+		for _, path := range strList(r["issues"]) {
+			if e := L.p.Structure.Entries[path]; e != nil && !contains(acts, e.Label) {
+				acts = append(acts, e.Label)
+			}
+		}
+		out = append(out, text(b.X+11, top+27+13*i, clipTo("▸ "+strings.Join(acts, ", "), room), fmt.Sprintf("ca%d", i+1), "font-size", "10.5", "fill", "@ink"))
+	}
+	for i, v := range vars {
+		out = append(out, text(mid+8, top+27+13*i, clipTo(fmt.Sprint(v["name"]), room), fmt.Sprintf("pm%d", i+1), "font-size", "10.5", "fill", "@ink"))
+	}
+	return out
+}
+
+func plural(n int, w string) string {
+	if n == 1 {
+		return "1 " + w
+	}
+	return fmt.Sprintf("%d %ss", n, w)
+}
+
+func clipTo(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // SVG renders the view as a standalone SVG file: GitHub shows it as an image, light or dark
 // from the reader's colour scheme; its own background keeps it legible on either page theme.
 func (L *Layout) SVG() string {
 	root := L.diagram("arrow")
-	root.attrs = append([]attr{{"xmlns", "http://www.w3.org/2000/svg"}, {"width", itoa(canvasW)}, {"height", itoa(L.Height)}}, root.attrs...)
+	root.attrs = append([]attr{{"xmlns", "http://www.w3.org/2000/svg"}, {"width", itoa(L.W)}, {"height", itoa(L.Height)}}, root.attrs...)
 	root.attrs = append(root.attrs, attr{"font-family", "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"})
 	style := &el{tag: "style", text: "\n" + repoStyle + "\n"}
 	bg := mk("rect", "width", "100%", "height", "100%", "rx", "12", "class", "bg")

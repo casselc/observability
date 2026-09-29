@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:mechanism",
+  "title": "STPA Workbench record: mechanism (otel-chdb overlay: implements a constraint, a requirement, or a loss scenario it settles)",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "id": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-mechanism"
+    },
+    "kind": {
+      "const": "mechanism"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "implements": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^(constraint|requirement|scenario)-[0-9a-f]{6}$"
+      },
+      "description": "Constraints and requirements this mechanism implements, and loss scenarios it settles (overlay: v0 takes constraints only)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "How the constraint is proposed to be achieved."
+    },
+    "open_challenges": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Adequacy, feasibility, observability, or sustainability questions a reviewer has raised or the author has not answered."
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state",
+    "implements",
+    "description"
+  ],
+  "additionalProperties": false
+}

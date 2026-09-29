@@ -59,6 +59,19 @@ class Catalogue(unittest.TestCase):
         self.assertEqual(ids['CAST-52']['kind'], 'CAST row')
         self.assertIn('H-6', ids['CAST-52']['cites'])
 
+    def test_both_sources_give_the_same_ids(self):
+        """The records (otel-chdb/stpa) and the tables generated from them name the same IDs,
+        including the labels that moved (UCA-10 and UCA-12 are loss scenarios now, D39) and
+        those still defined only in the research notes' hand-kept tables."""
+        md, _, _ = tr.markdown_catalog()
+        rec, rdups, _ = tr.records_catalog()
+        self.assertEqual(sorted(md), sorted(rec))
+        self.assertEqual(rdups, [])
+        for moved, now in (('UCA-10', 'LS-6'), ('UCA-12', 'LS-8')):
+            self.assertIn(moved, rec)
+            self.assertIn(now, rec[moved]['cites'])
+        self.assertIn('UCA-E11', rec)
+
     def test_a_restated_id_with_another_meaning_fails(self):
         a = {'id': 'H-1', 'title': 'Acknowledged telemetry is in no store', 'source': 'otel-chdb/STPA.md:1'}
         b = {'id': 'H-1', 'title': 'Something else entirely', 'source': 'otel-chdb/research/grants.md:9'}

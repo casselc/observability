@@ -1,0 +1,21 @@
+# The mini fixture's control structure.
+nodes:
+  ops: controller-000b01
+  writer: controller-000b02
+  store: controlled_process-000b03
+  janitor: controller-000b04
+links:
+  ops -> writer:
+    control:
+      config: {label: config, was: action-000c01}
+  ops -> janitor:
+    feedback:
+      health: {label: "health, cost", was: feedback-000d02}
+  writer -> store:
+    control:
+      commit: {label: commit, title: Commit a batch, was: action-000c02}
+    feedback:
+      status: {label: commit status, was: feedback-000d01}
+  janitor -> store:
+    control:
+      delete: {label: delete, title: Delete a slot, was: action-000c03}

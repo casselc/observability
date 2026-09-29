@@ -5,8 +5,5 @@ title: A compromised pod or node forges telemetry or entity records for other wo
 unsafe: Entity controller or edge writes wrong identity
 findings: [uca-6ae536]
 hazards: [hazard-998611, hazard-d14498]
-mitigation: >-
-  Per-cluster write prefixes and keys; the aggregator rejects records whose cluster does not match the
-  writer
 state: accepted
 ---

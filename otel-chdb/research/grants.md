@@ -53,12 +53,18 @@ Evidence labels as elsewhere: [M] measured here, [D] read in documentation or so
 
 Those of STPA.md, chiefly **L-4** (disclosure: one team's data to another), **L-1** (an incident
 prolonged: here, because a responder could not read what they needed), **L-5** (tampering, via a
-write grant). New: **L-G1**: the organisation cannot say who could read what, when (an auditor's or
-a data subject's question goes unanswered or is answered wrongly).
+write grant). New:
+
+<!-- stpa:begin losses-grants (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Loss |
+| --- | --- |
+| L-G1 | The organisation cannot say who could read what, when (an auditor's or a data subject's question goes unanswered or is answered wrongly) |
+<!-- stpa:end losses-grants -->
 
 ### 1.2 Hazards
 
-| ID | Hazard | Losses | ⊂ |
+<!-- stpa:begin hazards-grants (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Hazard | Losses | ⊂ system hazard |
 | --- | --- | --- | --- |
 | H-G1 | **Over-grant**: a principal can read or write beyond what any one grant intended (a product of grants, a role borrowed from another grant, an environment crossed) | L-4, L-5 | H-6 |
 | H-G2 | **Under-grant during response**: a responder cannot read the cluster, environment or plan they need, or learns it only mid-incident | L-1 | H-5 |
@@ -68,6 +74,7 @@ a data subject's question goes unanswered or is answered wrongly).
 | H-G6 | **Break-glass**: emergency access is unavailable when needed, or outlives the emergency, or is used without a record | L-1, L-4, L-G1 | H-5, H-6 |
 | H-G7 | **Environment crossover**: a dev (or stg) principal, workload or credential reads or writes prd, or prd data lands in a dev store | L-4, L-5 | H-6 |
 | H-G8 | **Person data disclosed**: an object id resolved to a name, or a person's team history, for a reader not entitled to it; or kept after erasure | L-4, L-G1 | H-6, H-E3 |
+<!-- stpa:end hazards-grants -->
 
 ### 1.3 Control structure
 
@@ -158,17 +165,19 @@ environments" (true only if registration also gates writes, which the compiled e
 
 ### 1.8 Derived requirements (proposed)
 
-| ID | Requirement | From |
-| --- | --- | --- |
-| R-G1 | A principal's scope for a role is the union of the `(role, cluster, namespace)` tuples of its grants; never a product across grants or roles. Rows, dictionary guards, catalog ids and plans are cut by it | H-G1, CAST 52, 36 |
-| R-G2 | A plan (presigned raw objects) is given only for clusters granted whole for `plan` | H-G5, LS-G3 |
-| R-G3 | Grants are authored in one language (Cedar) and compiled; a policy outside the enforceable fragment is refused at authoring time with a reason, never compiled in part | H-G3, H-G4 |
-| R-G4 | The compiled output equals Cedar's authorizer on every request of the registry's universe, checked in CI | H-G3 |
-| R-G5 | Policy changes by code review (two approvals, CODEOWNERS), with the compiled effect in the diff; principals are groups, never persons by name | H-G4, TM-G2 |
-| R-G6 | Environments are separated at the storage layer (a bucket, better an account, per environment); a cluster belongs to one environment, by a registry that also gates its writes | H-G7 |
-| R-G7 | The query service's presign credentials read one cluster per session (defence in depth) | H-G5 |
-| R-G8 | Break-glass is time-bound group membership (PIM), approved and recorded; grants themselves never expire silently or stay silently | H-G6 |
-| R-G9 | A person's name resolves only for readers holding `resolve_person` on the row's namespace; erasure is a fact applied at every basis | H-G8 |
+<!-- stpa:begin requirements-grants (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Requirement | From | Enforced today by |
+| --- | --- | --- | --- |
+| R-G1 | A principal's scope for a role is the union of the `(role, cluster, namespace)` tuples of its grants; never a product across grants or roles. Rows, dictionary guards, catalog ids and plans are cut by it | H-G1, CAST-52, CAST-36 | Grants as (role, cluster, namespace) tuples combined as a union (a4c5470, D38) |
+| R-G2 | A plan (presigned raw objects) is given only for clusters granted whole for `plan` | H-G5, LS-G3 | Plans only for clusters granted whole for `plan` (D38) |
+| R-G3 | Grants are authored in one language (Cedar) and compiled; a policy outside the enforceable fragment is refused at authoring time with a reason, never compiled in part | H-G3, H-G4 | Cedar compiled to tuples and IAM, refused with reasons outside the fragment, checked against Cedar's authorizer (prototype, D38) |
+| R-G4 | The compiled output equals Cedar's authorizer on every request of the registry's universe, checked in CI | H-G3 | Cedar compiled to tuples and IAM, refused with reasons outside the fragment, checked against Cedar's authorizer (prototype, D38) |
+| R-G5 | Policy changes by code review (two approvals, CODEOWNERS), with the compiled effect in the diff; principals are groups, never persons by name | H-G4, TM-G2 | Nothing recorded |
+| R-G6 | Environments are separated at the storage layer (a bucket, better an account, per environment); a cluster belongs to one environment, by a registry that also gates its writes | H-G7 | Nothing recorded |
+| R-G7 | The query service's presign credentials read one cluster per session (defence in depth) | H-G5 | Nothing recorded |
+| R-G8 | Break-glass is time-bound group membership (PIM), approved and recorded; grants themselves never expire silently or stay silently | H-G6 | Nothing recorded |
+| R-G9 | A person's name resolves only for readers holding `resolve_person` on the row's namespace; erasure is a fact applied at every basis | H-G8 | Nothing recorded |
+<!-- stpa:end requirements-grants -->
 
 ## 2. How the CAST themes are avoided
 

@@ -7,3 +7,12 @@ method_profiles:
   - {name: stpa-sec, version: 0}
   - {name: stpa-teaming, version: 0}
   - {name: cast, version: 0}
+# Labels still defined only in hand-kept documents: the extension analyses' UCA, LS, SEC and TM
+# tables (no record duplicates them) and the decision headings. Records may cite them (a
+# requirement's `from`, prose) until they are records themselves; any other unresolved label is
+# an error.
+hand_kept:
+  - {doc: research/langfuse.md, labels: '^(UCA|LS|SEC|TM)-L\d+$'}
+  - {doc: research/entra-ingress.md, labels: '^(UCA|LS|SEC|TM)-E\d+$'}
+  - {doc: research/grants.md, labels: '^(UCA|LS|SEC|TM)-G\d+$'}
+  - {doc: DECISIONS.md, labels: '^D\d+$'}

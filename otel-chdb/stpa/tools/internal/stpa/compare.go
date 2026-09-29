@@ -89,9 +89,9 @@ func (p *Project) Compare(docRoot string) ([]Discrepancy, []string) {
 			}
 			header, rows := p.TableCells(t)
 			var best *mdTable
-			bestHits := -1
+			bestHits := 0
 			for _, dt := range parseTables(string(b)) {
-				if norm(strings.Join(dt.header, "|")) != norm(strings.Join(header, "|")) {
+				if norm(dt.header[0]) != norm(header[0]) {
 					continue
 				}
 				hits := 0
@@ -106,8 +106,24 @@ func (p *Project) Compare(docRoot string) ([]Discrepancy, []string) {
 				}
 			}
 			if best == nil {
-				ds = append(ds, Discrepancy{Doc: t.Doc, Table: t.Name, Generated: "no table with header " + strings.Join(header, " | ")})
+				ds = append(ds, Discrepancy{Doc: t.Doc, Table: t.Name, Generated: "no table in the document holds these rows"})
 				continue
+			}
+			// Columns by header; a header that is a prefix of the other ("UCA" / "UCA or feedback")
+			// is the same column renamed.
+			col := make([]int, len(header))
+			for c := range header {
+				col[c] = -1
+				for d, h := range best.header {
+					g, hh := norm(header[c]), norm(h)
+					if g == hh || strings.HasPrefix(g, hh) || strings.HasPrefix(hh, g) {
+						col[c] = d
+						break
+					}
+				}
+				if col[c] < 0 {
+					ds = append(ds, Discrepancy{Doc: t.Doc, Table: t.Name, Key: "(header)", Generated: fmt.Sprintf("column %q is new (not in the document)", header[c])})
+				}
 			}
 			same := 0
 			for _, r := range rows {
@@ -118,9 +134,12 @@ func (p *Project) Compare(docRoot string) ([]Discrepancy, []string) {
 				}
 				ok := true
 				for c := range r {
+					if col[c] < 0 {
+						continue
+					}
 					hv := ""
-					if c < len(h) {
-						hv = h[c]
+					if col[c] < len(h) {
+						hv = h[col[c]]
 					}
 					if norm(r[c]) != norm(hv) {
 						ok = false

@@ -48,17 +48,23 @@ date the page was last updated, or the date it was read), [Q] model, [E] estimat
 The system losses L-1..L-6 (STPA.md) and L-7 (research/langfuse.md §1.1) apply unchanged; one is
 added for the people whose laptops run the forwarder.
 
+<!-- stpa:begin losses-entra (generated from otel-chdb/stpa; edit the records, not this section) -->
 | ID | Loss |
-|---|---|
-| L-4 | Sensitive data is disclosed: here, a developer's prompts and code to another team, to whoever holds a lost laptop, or to a non-member of the organisation |
-| L-5 | Telemetry is tampered with or forged: here, activity attributed to a person who did not do it, or written into another team's scope |
-| L-2 | Acknowledged telemetry is lost: here, acked by the forwarder to the tool and never committed |
-| **L-E1** (new) | **The telemetry harms the developer's own work**: the tool blocks, slows, or prompts for sign-in repeatedly, and people disable it (which in turn is L-1 for the teams relying on it) |
+| --- | --- |
+| L-E1 | The telemetry harms the developer's own work: the tool blocks, slows, or prompts for sign-in repeatedly, and people disable it (which in turn is L-1 for the teams relying on it) |
+<!-- stpa:end losses-entra -->
+
+The system losses as they appear here:
+
+- L-4: a developer's prompts and code to another team, to whoever holds a lost laptop, or to a non-member of the organisation.
+- L-5: activity attributed to a person who did not do it, or written into another team's scope.
+- L-2: acked by the forwarder to the tool and never committed.
 
 ### 1.2 Hazards
 
+<!-- stpa:begin hazards-entra (generated from otel-chdb/stpa; edit the records, not this section) -->
 | ID | Hazard | Losses | ⊂ system hazard |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | H-E1 | Telemetry is committed under a tenant its sender is not entitled to write, or attributed to a person who did not send it | L-5, L-3 | H-3, H-6 |
 | H-E2 | A party that is not an authenticated member of the organisation, on the organisation's terms (device compliance, the right client), can write telemetry | L-5, L-6 | H-6 |
 | H-E3 | Device telemetry is readable beyond its owner's scope: in the device buffer (stolen or shared laptop), in transit, or at query time through a grant that over-reaches | L-4 | H-6 |
@@ -68,6 +74,7 @@ added for the people whose laptops run the forwarder.
 | H-E7 | The ingress uses its own authority (its S3 credential, its lanes) for something the caller could not do itself (confused deputy) | L-5, L-4 | H-6 |
 | H-E8 | People read ingress attribution as more than it proves (authorship of content, or a device), or trust a view with devtools data missing without knowing | L-3, L-1 | H-5 |
 | H-E9 | Sign-in friction makes the tool unusable (prompts, blocking calls on the tool's path) | L-E1 | – |
+<!-- stpa:end hazards-entra -->
 
 ### 1.3 Control structure
 
@@ -183,17 +190,19 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 
 ### 1.8 Derived requirements
 
-| ID | Requirement | From |
-|---|---|---|
-| R-E1 | The tenant and the person are asserted by the ingress from a verified Entra token and operator policy only; every producer claim is removed from the tenant keys and kept, if at all, as a label | SEC-E2, UCA-E2, R-L1 |
-| R-E2 | Tokens: v2.0, RS256, allowed tenant GUIDs, `iss` = `{authority}/{tid}/v2.0`, tenant-bound keys honoured, audience = the ingress API, `azp` in an allow-list, delegated scope for users, app role for workloads | SEC-E4, SEC-E7, SEC-E8 |
-| R-E3 | Identity and admission before the body; compressed, decoded and item caps; per-principal budgets | SEC-E9 |
-| R-E4 | Stamping is a pure function of (request bytes, attribution): no time, token id or replica in the bytes | UCA-E3, D11 |
-| R-E5 | 200 only after the edge's commit verdict; 503 with `Retry-After` when unresolved; the D35 close only with no handler running | UCA-E4, UCA-E5 |
-| R-E6 | The forwarder resends each request's bytes unchanged, only under the token of the person who produced it, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 |
-| R-E7 | The forwarder's buffer is per user, encrypted at rest with an OS-held key, bounded in bytes and age, deleted on sign-out, switch and uninstall; every drop is counted and reported | UCA-E7, SEC-E6, H-E4 |
-| R-E8 | Query grants are explicit `(cluster, namespace)` pairs; a devtools namespace never equals a Kubernetes namespace until then | UCA-E10, CAST 36 |
-| R-E9 | Conditional Access for the ingress API requires a compliant device and allows only the forwarder and workload clients | UCA-E11, SEC-E1 |
+<!-- stpa:begin requirements-entra (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Requirement | From | Enforced today by |
+| --- | --- | --- | --- |
+| R-E1 | The tenant and the person are asserted by the ingress from a verified Entra token and operator policy only; every producer claim is removed from the tenant keys and kept, if at all, as a label | SEC-E2, UCA-E2, R-L1 | Nothing recorded |
+| R-E2 | Tokens: v2.0, RS256, allowed tenant GUIDs, `iss` = `{authority}/{tid}/v2.0`, tenant-bound keys honoured, audience = the ingress API, `azp` in an allow-list, delegated scope for users, app role for workloads | SEC-E4, SEC-E7, SEC-E8 | Nothing recorded |
+| R-E3 | Identity and admission before the body; compressed, decoded and item caps; per-principal budgets | SEC-E9 | Nothing recorded |
+| R-E4 | Stamping is a pure function of (request bytes, attribution): no time, token id or replica in the bytes | UCA-E3, D11 | Nothing recorded |
+| R-E5 | 200 only after the edge's commit verdict; 503 with `Retry-After` when unresolved; the D35 close only with no handler running | UCA-E4, UCA-E5 | Nothing recorded |
+| R-E6 | The forwarder resends each request's bytes unchanged, only under the token of the person who produced it, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 | Nothing recorded |
+| R-E7 | The forwarder keeps no disk buffer: a small bounded in-memory queue only, nothing persisted on the device; every drop (queue full, a long outage, a crash, no token) is counted on the device and never blocks the tool (owner revision, D37) | UCA-E7, SEC-E6, H-E4 | Nothing recorded |
+| R-E8 | Query grants are explicit `(cluster, namespace)` pairs; a devtools namespace never equals a Kubernetes namespace until then | UCA-E10, CAST-36 | Grants as (role, cluster, namespace) tuples combined as a union (a4c5470, D38) |
+| R-E9 | Conditional Access for the ingress API requires a compliant device and allows only the forwarder and workload clients | UCA-E11, SEC-E1 | Nothing recorded |
+<!-- stpa:end requirements-entra -->
 
 ### 1.9 How the CAST themes of STPA.md rows 1–49 are avoided
 

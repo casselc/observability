@@ -103,30 +103,37 @@ STPA.md; the text below is proposed for it.
 
 One new loss; the others are the pipeline's, with LLM-specific instances.
 
-| ID | Loss | LLM instance |
-|---|---|---|
-| L-1 | An incident is missed or prolonged | an agent loop, a tool failing, a model outage not seen |
-| L-3 | Telemetry shown is wrong | token counts, latencies or traces duplicated, missing or on the wrong tenant |
-| L-4 | Sensitive data is disclosed | **prompts and completions carry user PII, secrets and business data**, verbatim, at MB scale |
-| L-5 | Telemetry is tampered with | scores or annotations forged to pass an evaluation |
-| L-6 | The pipeline harms production or budget | payloads fill edge buffers; content multiplies storage |
-| **L-7** (new) | **A model, prompt or release decision is made on wrong evaluation or cost figures** | a prompt version promoted on scores that later changed; a budget set from costs computed with a stale price |
+<!-- stpa:begin losses-llm (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Loss |
+| --- | --- |
+| L-7 | A model, prompt or release decision is made on wrong evaluation or cost figures |
+<!-- stpa:end losses-llm -->
+
+The pipeline's losses (STPA.md's losses table), in their LLM instances:
+
+- L-1: an agent loop, a tool failing, a model outage not seen.
+- L-3: token counts, latencies or traces duplicated, missing or on the wrong tenant.
+- L-4: **prompts and completions carry user PII, secrets and business data**, verbatim, at MB scale.
+- L-5: scores or annotations forged to pass an evaluation.
+- L-6: payloads fill edge buffers; content multiplies storage.
+- L-7: a prompt version promoted on scores that later changed; a budget set from costs computed with a stale price.
 
 ### 1.2 Hazards
 
-| ID | Hazard | Losses |
-|---|---|---|
-| H-L1 | Prompt or completion content is readable outside its tenant's scope, by a role that needs only metadata, or by an existence probe (a content hash) | L-4 |
-| H-L2 | A cost figure is presented as correct while computed from a price table that was stale, wrong or changed since, or while tokens were double counted | L-3, L-7 |
-| H-L3 | An evaluated result (a score aggregate, an experiment comparison, a dashboard) changes after it was acted on, and nothing shows that it changed or that more scores could still arrive | L-7, L-3 |
-| H-L4 | An LLM trace or session is shown as complete while spans, content or scores are still missing (long agent runs, streaming, edge outages) | L-3, L-7, L-1 |
-| H-L5 | Payload volume exhausts an edge buffer, an object, a lane or central (MB prompts, hostile values) | L-6, L-2 |
-| H-L6 | Content from a less-trusted writer is interpreted as code or instructions: attribute names or references spliced into SQL, markup rendered, **prompt injection** into an LLM-as-judge or a UI assistant that reads traces | L-4, L-5, L-7 |
-| H-L7 | An erasure or retention obligation is not met, or is met by rewriting history under an answer that promised not to change | L-4, L-3 |
-| H-L8 | Two versions of one observation or score are both counted, or a partial update overwrites a field with an older or empty value | L-3, L-7 |
+<!-- stpa:begin hazards-llm (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Hazard | Losses | ⊂ system hazard |
+| --- | --- | --- | --- |
+| H-L1 | Prompt or completion content is readable outside its tenant's scope, by a role that needs only metadata, or by an existence probe (a content hash) | L-4 | H-6 |
+| H-L2 | A cost figure is presented as correct while computed from a price table that was stale, wrong or changed since, or while tokens were double counted | L-3, L-7 | – |
+| H-L3 | An evaluated result (a score aggregate, an experiment comparison, a dashboard) changes after it was acted on, and nothing shows that it changed or that more scores could still arrive | L-7, L-3 | – |
+| H-L4 | An LLM trace or session is shown as complete while spans, content or scores are still missing (long agent runs, streaming, edge outages) | L-3, L-7, L-1 | H-2 |
+| H-L5 | Payload volume exhausts an edge buffer, an object, a lane or central (MB prompts, hostile values) | L-6, L-2 | H-7 |
+| H-L6 | Content from a less-trusted writer is interpreted as code or instructions: attribute names or references spliced into SQL, markup rendered, **prompt injection** into an LLM-as-judge or a UI assistant that reads traces | L-4, L-5, L-7 | – |
+| H-L7 | An erasure or retention obligation is not met, or is met by rewriting history under an answer that promised not to change | L-4, L-3 | – |
+| H-L8 | Two versions of one observation or score are both counted, or a partial update overwrites a field with an older or empty value | L-3, L-7 | H-2 |
+<!-- stpa:end hazards-llm -->
 
-Mapping to the pipeline's hazards: H-L1 ⊂ H-6; H-L4 ⊂ H-2; H-L5 ⊂ H-7; H-L8 ⊂ H-2; H-L2, H-L3,
-H-L6 and H-L7 are new in kind.
+H-L2, H-L3, H-L6 and H-L7 are new in kind (no pipeline hazard in the ⊂ column).
 
 ### 1.3 Control structure
 
@@ -247,20 +254,22 @@ Who acts on what, and what their process model is:
 
 ### 1.8 Derived requirements
 
-| ID | Requirement | From |
-|---|---|---|
-| R-L1 | The tenant of every LLM span, payload and score is the (cluster, namespace) the edge derived from its own resource detection; SDK-claimed projects and keys are labels at most | SEC-L1, SEC-L6 |
-| R-L2 | Content (prompts, completions, tool arguments and results, system instructions) is readable only through the query service, under the same scope as its rows **and** an `llm_content` right; every content read is audited with the references read; content hashes are keyed per tenant | H-L1, UCA-L1, UCA-L11, SEC-L5, SEC-L8 |
-| R-L3 | Cost is computed at query time from price facts with valid time and system time; every cost result names the price facts' as-of and counts spans with no price; SDK-provided costs are shown as such, never mixed silently | H-L2, UCA-L5, UCA-L6, LS-L1, TM-L4, TM-L6 |
-| R-L4 | The edge offloads any value above a threshold by reference, caps value, request and nesting size, marks every truncation and redaction with the original size, and counts each; caps and thresholds are validated together at start (CAST 25) | H-L5, UCA-L2, UCA-L3, SEC-L7, LS-L4, TM-L5 |
-| R-L5 | Evaluated results carry their basis and a settle status (scores received through; the policy's settle window); evaluators read through the query service at a basis and score only settled traces | H-L3, H-L4, UCA-L7, UCA-L8, LS-L2, LS-L3, TM-L2, TM-L3 |
-| R-L6 | Scores, corrections, deletions and annotations are append-only facts with a custody time, a stable id, the fact they supersede, a source and an author set by the writer's identity; resolution at the basis is the unsuperseded fact (latest by custody, flagged, if two); retractions hide, never erase | H-L3, H-L8, UCA-L10, UCA-L12, SEC-L6, TM-L1, LS-L7, LS-L8 |
-| R-L7 | No name, key, reference or content from a producer is spliced into SQL or a path; references are validated (32 hex) and resolved in the query tree | H-L6, SEC-L2 |
-| R-L8 | Content is never passed to a model or a renderer as instructions or markup: delimited as data for evaluators and assistants, rendered as text or sanitised markdown in the UI | H-L6, UCA-L9, UCA-L14, SEC-L3, SEC-L4, TM-L7 |
-| R-L9 | A row is committed only with, or after, the payloads it references (same object, payload part first); a dangling reference is counted and shown, never silently empty | H-L4, UCA-L4 |
-| R-L10 | Erasure is a fact (a tombstone that hides at query time, effective at once) plus, where the owner requires, a physical purge that is recorded as an epoch; a basis older than a purge says so instead of answering differently | H-L7, UCA-L13 |
-| R-L11 | No storage engine merge decides which version of a fact wins (no `ReplacingMergeTree`/`FINAL` or `min`/`anyLast` aggregation for correctness); duplicates of an identical fact are harmless by construction | H-L8, LS-L8, CAST 37 |
-| R-L12 | The GenAI semantic-convention mapping is policy (a versioned table), each row records the convention and producer scope it was mapped from, and a mapping change runs every consumer of the mapped columns | H-L4, CAST 45/46 |
+<!-- stpa:begin requirements-llm (generated from otel-chdb/stpa; edit the records, not this section) -->
+| ID | Requirement | From | Enforced today by |
+| --- | --- | --- | --- |
+| R-L1 | The tenant of every LLM span, payload and score is the (cluster, namespace) the edge derived from its own resource detection; SDK-claimed projects and keys are labels at most | SEC-L1, SEC-L6 | Nothing recorded |
+| R-L2 | Content (prompts, completions, tool arguments and results, system instructions) is readable only through the query service, under the same scope as its rows **and** an `llm_content` right; every content read is audited with the references read; content hashes are keyed per tenant | H-L1, UCA-L1, UCA-L11, SEC-L5, SEC-L8 | Nothing recorded |
+| R-L3 | Cost is computed at query time from price facts with valid time and system time; every cost result names the price facts' as-of and counts spans with no price; SDK-provided costs are shown as such, never mixed silently | H-L2, UCA-L5, UCA-L6, LS-L1, TM-L4, TM-L6 | Nothing recorded |
+| R-L4 | The edge offloads any value above a threshold by reference, caps value, request and nesting size, marks every truncation and redaction with the original size, and counts each; caps and thresholds are validated together at start (CAST 25) | H-L5, UCA-L2, UCA-L3, SEC-L7, LS-L4, TM-L5 | Nothing recorded |
+| R-L5 | Evaluated results carry their basis and a settle status (scores received through; the policy's settle window); evaluators read through the query service at a basis and score only settled traces | H-L3, H-L4, UCA-L7, UCA-L8, LS-L2, LS-L3, TM-L2, TM-L3 | Nothing recorded |
+| R-L6 | Scores, corrections, deletions and annotations are append-only facts with a custody time, a stable id, the fact they supersede, a source and an author set by the writer's identity; resolution at the basis is the unsuperseded fact (latest by custody, flagged, if two); retractions hide, never erase | H-L3, H-L8, UCA-L10, UCA-L12, SEC-L6, TM-L1, LS-L7, LS-L8 | Nothing recorded |
+| R-L7 | No name, key, reference or content from a producer is spliced into SQL or a path; references are validated (32 hex) and resolved in the query tree | H-L6, SEC-L2 | Nothing recorded |
+| R-L8 | Content is never passed to a model or a renderer as instructions or markup: delimited as data for evaluators and assistants, rendered as text or sanitised markdown in the UI | H-L6, UCA-L9, UCA-L14, SEC-L3, SEC-L4, TM-L7 | Nothing recorded |
+| R-L9 | A row is committed only with, or after, the payloads it references (same object, payload part first); a dangling reference is counted and shown, never silently empty | H-L4, UCA-L4 | Nothing recorded |
+| R-L10 | Erasure is a fact (a tombstone that hides at query time, effective at once) plus, where the owner requires, a physical purge that is recorded as an epoch; a basis older than a purge says so instead of answering differently | H-L7, UCA-L13 | Nothing recorded |
+| R-L11 | No storage engine merge decides which version of a fact wins (no `ReplacingMergeTree`/`FINAL` or `min`/`anyLast` aggregation for correctness); duplicates of an identical fact are harmless by construction | H-L8, LS-L8, CAST-37 | Nothing recorded |
+| R-L12 | The GenAI semantic-convention mapping is policy (a versioned table), each row records the convention and producer scope it was mapped from, and a mapping change runs every consumer of the mapped columns | H-L4, CAST-45, CAST-46 | Nothing recorded |
+<!-- stpa:end requirements-llm -->
 
 ### 1.9 What our CAST record says about this design
 

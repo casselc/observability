@@ -2,3 +2,6 @@ schema: otel-chdb/stpa-records-v0
 id: project-000001
 title: Mini fixture for the renderer's golden tests
 method_profiles: [{name: stpa-core, version: 0}]
+docs_root: .
+hand_kept:
+  - {doc: doc.md, labels: '^D\d+$'}

@@ -4,6 +4,5 @@ label: SEC-3
 title: An attacker writes a lease or checkpoint to stall or skip lanes
 unsafe: Forged feedback to consumer workers
 hazards: [hazard-6fa4d1, hazard-3c8035]
-mitigation: Control prefixes writable only by consumer roles; audit on unexpected writers
 state: accepted
 ---

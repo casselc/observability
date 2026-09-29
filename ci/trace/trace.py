@@ -179,8 +179,18 @@ def markdown_catalog():
 def records_catalog():
     """A later source: the structured STPA records (one Markdown + YAML front-matter file per item
     under otel-chdb/stpa/, our ID as `label`), once they replace the tables. Reads only the flat
-    `label`, `title` and `name` keys; each item's citations from any other ID in its file."""
+    `label`, `title`, `name` and `formerly` keys; each item's citations from any other ID in its
+    file. A `formerly` label (UCA-10 and UCA-12 became loss scenarios, D39) stays an ID. Labels
+    the records' project still leaves to hand-kept tables (otel-chdb/stpa/project.yaml
+    `hand_kept`: the extension analyses' UCA, LS, SEC and TM rows) are read from those tables."""
     ids, dups, cites_all = {}, [], defaultdict(set)
+
+    def add(i, entry):
+        if i in ids:
+            dups.append((ids[i], entry))
+        else:
+            ids[i] = entry
+
     for f in code_files(['otel-chdb/stpa/records/*.md']):
         text = '\n'.join(lines_of(f))
         m = re.match(r'^---\n(.*?)\n---\n', text, re.S)
@@ -190,14 +200,22 @@ def records_catalog():
         i = meta.get('label', '')
         if not (ID_FULL.match(i) or CAST_ID.match(i)):
             continue
-        cited = sorted(set(ID_TOKEN.findall(text)) - {i})
-        entry = {'id': i, 'kind': kind(i), 'title': (meta.get('title') or meta.get('name') or '')[:300], 'source': rel(f), 'cites': cited}
-        if i in ids:
-            dups.append((ids[i], entry))
-        else:
-            ids[i] = entry
+        formerly = ID_TOKEN.findall(meta.get('formerly', ''))
+        cited = sorted(set(ID_TOKEN.findall(text)) - {i} - set(formerly))
+        title = (meta.get('title') or meta.get('name') or '')[:300]
+        add(i, {'id': i, 'kind': kind(i), 'title': title, 'source': rel(f), 'cites': cited})
+        for old in formerly:
+            add(old, {'id': old, 'kind': kind(old), 'title': f'now {i}: {title}'[:300], 'source': rel(f), 'cites': [i]})
         for t in cited:
             cites_all[t].add(rel(f))
+    project = os.path.join(ROOT, 'otel-chdb', 'stpa', 'project.yaml')
+    hand = re.findall(r"^\s*-\s*\{doc:\s*([^,}]+),\s*labels:\s*'([^']+)'\}", read(rel(project)), re.M) if os.path.exists(project) else []
+    for doc, pat in hand:
+        path, want = 'otel-chdb/' + doc.strip(), re.compile(pat)
+        for first, lines in stpa_sections(path, read(path)):
+            for i, title, cited, lineno, _ in parse_tables(path, first, lines):
+                if want.match(i):
+                    add(i, {'id': i, 'kind': kind(i), 'title': title[:300], 'source': f'{path}:{lineno}', 'cites': cited})
     return ids, dups, cites_all
 
 

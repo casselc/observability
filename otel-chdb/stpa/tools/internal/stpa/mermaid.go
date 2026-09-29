@@ -19,6 +19,9 @@ func (L *Layout) Mermaid() string {
 		if len(x.Lines) > 0 {
 			label += "<br/>" + x.Rec.S("description")
 		}
+		if x.Node != nil && x.Node.Controller && L.View.Internals != "" {
+			label += fmt.Sprintf("<br/><i>algorithm: %s · process model: %s</i>", plural(len(algoOf(x.Rec)), "rule"), plural(len(pmOf(x.Rec)), "variable"))
+		}
 		label = strings.ReplaceAll(label, `"`, "#quot;")
 		if x.Process {
 			fmt.Fprintf(&b, "  %s[(\"%s\")]\n", key(x), label)

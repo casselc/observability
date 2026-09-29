@@ -18,6 +18,7 @@ for d in (wb_schemas, here):
             shutil.copyfile(os.path.join(d, f), os.path.join(merged, f))
 v.ANY_KIND |= {"requirement", "incident"}
 v.REFS["refines"] = {"hazard"}
+v.REFS["implements"] = {"constraint", "requirement", "scenario"}
 v.REFS["derived_from"] = {"constraint", "scenario", "uca", "ucca", "hazard", "incident", "requirement"}
 try:
     rc = cli.main(["--schemas", merged, "validate", export])

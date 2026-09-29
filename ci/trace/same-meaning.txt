@@ -3,9 +3,7 @@
 #   ID-glob | file | file | why the two texts mean the same thing
 # Checked by reading both texts side by side (2026-09-29). A new duplicate, or one that drifts in
 # meaning, must be read again: narrow a glob rather than widen it.
-L-[1-6] | otel-chdb/STPA.md | otel-chdb/research/langfuse.md | langfuse.md §1.1 lists the pipeline's losses in short form, each with its LLM instance in a third column
-L-[245] | otel-chdb/STPA.md | otel-chdb/research/entra-ingress.md | entra-ingress.md §1.1 restates L-2, L-4, L-5 as "<the loss>: here, <the device instance>"
-H-L* | otel-chdb/STPA.md | otel-chdb/research/langfuse.md | STPA.md adopts langfuse.md §1.2's hazards in condensed wording ("the losses, hazards and requirements are adopted here")
-R-L* | otel-chdb/STPA.md | otel-chdb/research/langfuse.md | STPA.md's R-L table is a summary; its header says "full text in research/langfuse.md §1.8"
-H-E* | otel-chdb/STPA.md | otel-chdb/research/entra-ingress.md | STPA.md's D37 extension condenses entra-ingress.md §1.2's hazards (its own ⊂ column)
-H-G* | otel-chdb/STPA.md | otel-chdb/research/grants.md | STPA.md's D38 extension condenses grants.md §1.2's hazards
+#
+# (2026-09-29, D39) The lines that were here covered the extension losses, hazards and
+# requirements restated in STPA.md and the research notes. Both copies are now generated from
+# one record each (otel-chdb/stpa), so they no longer differ and no line is needed.

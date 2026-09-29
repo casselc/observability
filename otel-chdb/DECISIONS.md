@@ -71,6 +71,7 @@ disagreed with each other, and how each was resolved.
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
 | [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
+| [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis-proposed) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **proposed** (2026-09-29): [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md); owner to decide |
 
 ---
 
@@ -3653,6 +3654,64 @@ comparing the two edges' closes; the runbook (drain, then scale down; PVC
 deletion only after a request lifetime). Owner decisions: whether the
 operator's retirement is allowed at all before per-node publishers, and
 what `consume admit` may do.
+
+---
+
+### D36. Langfuse-shaped LLM traces: one store, content by reference, facts resolved at a basis (proposed)
+
+**Status:** **proposed, not decided** (2026-09-29). Research, STPA and a spike:
+[research/langfuse.md](research/langfuse.md), [`langfuse/spike/`](langfuse/spike/README.md).
+No pipeline code changed.
+
+**Context.** The owner asked for collectors for Langfuse-shaped trace data, done as ClickStack
+was (D2 option 2, D25, D33): from the real OSS schema, adapted for our design, with the UI adapted
+or replaced, and with STPA first. Langfuse v4.46.0 (`536c2d6`, 2026-09-28) keeps observations and
+scores as `ReplacingMergeTree(event_ts, is_deleted)` (`events_full`, a 200-character
+`events_core` copy, `scores`), deduplicated at every read, partitioned by event month, costed at
+ingest from Postgres price tables; everything else is in Postgres, S3 and Redis. Its OTel path
+already writes one row per span without merging; the mutation is in trace-level fields, scores,
+UI state and prices. The OTel GenAI conventions (Development, `semantic-conventions-genai`
+`e57c543`) carry content as opt-in JSON attributes, evaluations as `gen_ai.evaluation.result` log
+events, and allow content in external storage by reference.
+
+**Proposal.**
+
+1. **OTLP only, the same lanes and signals**: LLM spans are traces, scores are logs. The Langfuse
+   ingestion API is not accepted at the edge (a converter to OTLP is a later option). Tenant =
+   (cluster, namespace) from the edge's resource detection; SDK project keys are ignored.
+2. **The edge offloads large values by reference (generic)**: any value over a threshold or under a
+   policy key is replaced by `h:<hash>` references (per JSON array element for the GenAI message
+   attributes), hashed with a key per tenant and day, and carried in a payload part of the **same
+   object** (as announcements are, D21); caps with truncation markers, counters, and threshold ×
+   caps × buffer validated together.
+3. **Central: one store, typed views.** `otel_traces`/`otel_logs` unchanged; `llm_payloads`
+   (content-addressed, partitioned by custody day, inserted before the rows); `llm_spans` and
+   `llm_scores` as plain MergeTree tables filled by materialized views in the consumer's insert;
+   Langfuse's `events_core` column set minus `event_ts`, `is_deleted`, stored cost, UI state, plus
+   scope and custody columns; `(toDate(received_at), late_part)` partitions; the scope as the
+   primary-key prefix. No `FINAL` for correctness anywhere.
+4. **Mutability as facts at a basis** (D30, D32's pattern): scores, corrections, deletions and
+   annotations are facts with a custody time and a `supersedes` link, resolved at the basis;
+   prices are facts with valid and system time, applied at query time; evaluated results carry a
+   settle status next to the D26 label.
+5. **Content is its own right** (`llm_content`) on the query service, audited per read.
+6. **UI: LLM views in the HyperDX fork on the query service**; Langfuse web is the functional
+   specification, not the viewer.
+
+**Evidence.** [filled from §9]
+
+**Alternatives.** Langfuse's own tables on central (rows mutable, dedup at read, answers not
+reproducible, stored costs; option A of the spike); LLM content inline in `otel_traces`
+(option B: one store without references); a new `llm` signal (new lanes and `complete_through`
+for data that is already traces); forking Langfuse web onto our store (an adapter as large as
+D25's, compatibility tables because `FINAL` does not apply to views, its writes, Postgres, Redis,
+its worker, and an auth mapping, on a code base moving 46 minor versions in v4 so far).
+
+**Consequences / open.** The owner decides (research/langfuse.md §11): offload threshold and caps;
+split at the edge or the consumer; the `llm_content` role; the score settle policy; erasure by
+tombstone only or also a physical purge (an epoch older bases report); the UI option; the
+Langfuse ingestion API; the payload dedup scope. STPA additions (L-7, H-L1..H-L8, R-L1..R-L12)
+proposed for the coordinator. AMBIGUITY X22–X25 (designed).
 
 ## 6. Upstream bugs found
 

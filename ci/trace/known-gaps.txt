@@ -41,3 +41,4 @@ CAST-60 | coordinator | process mechanism (G), not a test: AGENT-RULES requires 
 CAST-63 | coordinator | process mechanism (G): ci.yml's paths filter re-includes checked Markdown; stpa check before commit
 CAST-68 | coordinator | process mechanism (G), not a test: CI jobs free runner disk first; caches keyed by Go version
 CAST-69 | coordinator | process mechanism (G), not a test: AGENT-RULES names the shared caches and forbids clearing them
+CAST-73 | coordinator | harness fixes, exercised by the nightly rust-mbt mbt_s3inline_consumer replay; no dedicated tagged test

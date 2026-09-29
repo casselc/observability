@@ -30,7 +30,7 @@ nightly:model-open | model_open | retentionDesign safety | ^sim +retention\.qnt 
 nightly:model-open | model_open | retention mutants (scripted) | ^runs +retention\.qnt +(retentionShort|cutDuringOutage|capSized)  | MS | H-1 LS-10
 nightly:model-open | model_open | sealerDesign safety | ^sim +sealer\.qnt +sealerDesign +safety  | M | H-2
 nightly:model-open | model_open | sealer mutants (scripted) | ^runs +sealer\.qnt +(blindCommit|noRebase|wmFromList|noDedup)  | MS | H-2
-nightly:model-open | model_open | s3NativeDesign safety | ^sim +s3Native\.qnt +s3NativeDesign +safety  | M | H-1 H-2
+nightly:model-open | model_open | s3NativeDesign safety | ^sim +s3Native\.qnt +s3NativeDesign +safety  | M | H-1 H-2 CAST-72
 nightly:model-open | model_open | s3Native scenarios | ^runs +s3Native_test\.qnt  | MS | H-1 H-2
 nightly:model-open | model_open | partLifetime designs | ^sim +partLifetime\.qnt +(lifetimeSafe|proposedLifecycle)  | M | H-2
 nightly:model-open | model_open | partLifetime scenarios | ^runs +partLifetime_test\.qnt  | MS | H-2

@@ -479,6 +479,23 @@ accepted at the edge in phases 1–2; if needed (older SDKs, custom producers), 
 event into an OTLP span (creates) or a fact log record (updates, scores), and an update to a span
 becomes a fact about that span, resolved like a score (§7). Owner decision.
 
+**Addendum, 2026-09-29: the developer-tool integrations** (Langfuse's opencode, Codex and Claude Code
+integrations, checked in their sources [D]). None uses the ingestion API, so none needs a converter:
+
+| Integration | How it sends | Other Langfuse endpoints |
+| --- | --- | --- |
+| opencode (`@langfuse/opencode-observability-plugin` 0.5.1) | `LangfuseSpanProcessor` from `@langfuse/otel` 5.x: OTLP/HTTP to `{base}/api/public/otel/v1/traces`, Basic auth with the project keys, headers `x-langfuse-sdk-name/-version/-public-key` | the media API when a span holds a base64 `data:` URI (on by default; `LANGFUSE_MEDIA_UPLOAD_ENABLED=false` turns it off) |
+| Codex (`langfuse/codex-observability-plugin`, `@langfuse/otel` + `@langfuse/tracing` 5.11) | the same span processor, from a Codex hook reading the session rollout file | the same media API (it traces `image_url` content) |
+| Claude Code (a Stop hook, `langfuse>=4,<5` Python) | the Python SDK v4's OTel tracer (it backdates observations through SDK internals), so the same OTLP path | the SDK's media handling, if images are present |
+
+What they do need: (1) the `/api/public/otel/v1/traces` route alias (item 1 of the owner's LOE list);
+(2) either the media API (`POST /api/public/media`, presigned PUT, `PATCH` status: part of item 2) or
+media upload switched off so base64 content reaches the edge offloader (§6.2), which the design already
+handles by reference (proposed first: no extra work); and (3) above all, **authentication outside
+Kubernetes**: these tools run on developers' laptops, so there is no pod to derive the tenant from, and
+the project keys must map to a tenant at an authenticated ingress (item 5, R-L1, SEC-L1). Item 5 is
+therefore required for these integrations, not optional.
+
 ### 6.2 The edge: content by reference (generic)
 
 What the edge does, for **every** span attribute, span event attribute and log body or attribute,

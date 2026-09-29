@@ -3669,6 +3669,13 @@ human annotations; erasure by tombstone facts, a physical purge only as a record
 in the **HyperDX fork**; the Langfuse ingestion API **not accepted in phases 1–2** (a converter is a
 later option); payload dedup **per tenant and day**.
 
+**Owner decisions, 2026-09-29 (Langfuse SDK/API):** item 1 (the `/api/public/otel` route alias)
+after D36 phase 1; item 2 (scores, auth check, trace reads, media) in phase 2; item 3 (the ingestion
+API converter) only if a real producer needs it; the opencode, Codex and Claude Code integrations do not
+(research/langfuse.md §6.1 addendum); item 4 (prompts, datasets) deferred; item 5 (tenant from keys at an
+authenticated ingress) with the serverless/CI ingestion work, and **required before the developer-tool
+integrations**, which run outside Kubernetes.
+
 **Context.** The owner asked for collectors for Langfuse-shaped trace data, done as ClickStack
 was (D2 option 2, D25, D33): from the real OSS schema, adapted for our design, with the UI adapted
 or replaced, and with STPA first. Langfuse v4.46.0 (`536c2d6`, 2026-09-28) keeps observations and

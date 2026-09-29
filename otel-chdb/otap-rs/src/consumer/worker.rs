@@ -235,6 +235,9 @@ pub struct Stats {
     pub lanes_lost_cas: u64,
     pub renewals: u64,
     pub ckpt_writes: u64,
+    /// Checkpoint writes of ours that landed after reading back unchanged,
+    /// taken back by `refresh_own_ckpt`.
+    pub ckpt_late_taken: u64,
     /// Epochs dropped from checkpoints by compaction (retired by GC).
     pub epochs_compacted: u64,
     /// Full listings of a lane (from its floor).
@@ -322,6 +325,12 @@ struct LaneState {
     full_listed: Option<BTreeMap<String, u64>>,
     /// A later epoch than the retired one, seen by a listing (a rebirth).
     pending_reborn: Option<String>,
+    /// A checkpoint write of ours got no answer and read back unchanged
+    /// (`NotWritten::Unchanged`): it may still land. Until a later write of
+    /// ours succeeds (after which it can only meet a 412) the stored
+    /// checkpoint may be ahead of `ckpt`, and GC deletes by the stored one;
+    /// `scan` reads it back first (`refresh_own_ckpt`).
+    ckpt_unsure: bool,
 }
 
 impl LaneState {
@@ -346,6 +355,7 @@ impl LaneState {
             pending_wm: None,
             full_listed: None,
             pending_reborn: None,
+            ckpt_unsure: false,
         }
     }
 }
@@ -1008,12 +1018,51 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let b = self.bucket.clone();
         let cfg = self.cfg.clone();
         let now = self.clock.mono();
+        if self.held.get(id).is_some_and(|ls| ls.ckpt_unsure) {
+            self.refresh_own_ckpt(id).await;
+        }
         let lists_before = b.counts().list.get();
         let res = self.scan_inner(id, objs, work, &b, &cfg, now).await;
         let n = b.counts().list.get() - lists_before;
         self.stats.lane_lists += n;
         *self.stats.lists_by_lane.entry(id.to_string()).or_default() += n;
         res
+    }
+
+    /// Reads the lane's checkpoint back after a write of ours that may have
+    /// landed late, and takes it if it is ours: written under our lease
+    /// epoch (a takeover writes a higher one) and a later version than the
+    /// one we hold. Without this the scan restarted from the older version
+    /// while GC, reading the stored one, deleted the slots in between: the
+    /// lane waited at a "gap" forever (dst_consumer seed 504836, nightly
+    /// 2026-09-29; `a_checkpoint_write_landing_late_is_taken_back`).
+    async fn refresh_own_ckpt(&mut self, id: &str) {
+        let Some(ls) = self.held.get(id) else { return };
+        let key = ls.lane.ckpt_key(&self.cfg.ctl);
+        let got = self.bucket.get(&key).await;
+        let Some(ls) = self.held.get_mut(id) else { return };
+        match got {
+            Ok(Some((_, e))) if e == ls.ckpt_etag => {} // not landed (yet)
+            Ok(Some((body, e))) => match serde_json::from_slice::<CkptDoc>(&body) {
+                Ok(doc) if doc.lease_epoch == ls.held.doc.epoch && doc.version > ls.ckpt.version => {
+                    log(&self.cfg, &format!("checkpoint {id}: our write landed late (version {}); taking it", doc.version));
+                    self.stats.ckpt_late_taken += 1;
+                    let floor = doc.floor.clone();
+                    ls.known.retain(|ep| coord::above_floor(ep, &floor));
+                    ls.last_seen.retain(|ep, _| coord::above_floor(ep, &floor));
+                    for ep in doc.epochs.keys() {
+                        let _ = ls.known.insert(ep.clone());
+                    }
+                    ls.heads.retain(|(ep, s), _| ls.known.contains(ep) && !doc.closed(ep) && *s >= doc.next(ep));
+                    ls.ckpt = doc;
+                    ls.ckpt_etag = e;
+                    ls.ckpt_unsure = false;
+                }
+                // Not ours: the lane changed hands; the next write's CAS drops it.
+                _ => ls.ckpt_unsure = false,
+            },
+            _ => {} // unreadable or gone: try again next step
+        }
     }
 
     async fn scan_inner(
@@ -1877,12 +1926,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 ls.heads.retain(|(ep, s), _| ls.known.contains(ep) && !new.closed(ep) && *s >= new.next(ep));
                 ls.ckpt = new;
                 ls.ckpt_etag = e;
+                ls.ckpt_unsure = false;
                 true
             }
-            // Our request never applied: the checkpoint is the version we
+            // Our request has not applied: the checkpoint is the version we
             // hold, and our lease still fences it. The next step advances.
+            // It may still land (a request the store applies after the
+            // client gave up): `scan` reads the checkpoint back until then.
             Err(NotWritten::Unchanged) => {
                 log(&self.cfg, &format!("checkpoint {id}: write not applied, still ours; retrying"));
+                if let Some(ls) = self.held.get_mut(id) {
+                    ls.ckpt_unsure = true;
+                }
                 false
             }
             Err(NotWritten::Other) => {

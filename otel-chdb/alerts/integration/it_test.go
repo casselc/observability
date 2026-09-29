@@ -17,7 +17,9 @@
 // The story: errors in both clusters fire (the fleet rule sees both, the
 // rule running as cluster aa's identity sees only aa), are resolved, and
 // the first send to the pager goes unanswered and is re-sent with the same
-// key. Then cluster ab's edge stops: the fleet's complete_through stalls,
+// key. Then cluster ab's edge dies (SIGKILL: a crash, not a stop, which
+// since D35 closes its lanes and so never stalls): the fleet's
+// complete_through stalls,
 // the fleet rule's windows stay partial, errors sent to aa meanwhile are NOT
 // evaluated by it, and past the bound it pages "cannot evaluate" naming ab's
 // lanes; the rules scoped to cluster aa (by their identity's token, or by
@@ -157,9 +159,19 @@ func (r *rig) startEdge(cluster string) *edge {
 	return e
 }
 
-func (e *edge) stop() {
+// stop stops the edge in order: since D35 it commits a close as the last
+// slot of every lane, the consumer retires them, and complete_through goes
+// on without the edge (FORMAT.md §3.1).
+func (e *edge) stop() { e.signal(syscall.SIGINT) }
+
+// kill is a crash: no close, so the edge's lanes stall complete_through
+// until it comes back. The stall in step 5 needs this; with stop() the
+// cluster's lanes were retired and nothing stalled (nightly 2026-09-29).
+func (e *edge) kill() { e.signal(syscall.SIGKILL) }
+
+func (e *edge) signal(sig syscall.Signal) {
 	if e.cmd.Process != nil {
-		_ = e.cmd.Process.Signal(syscall.SIGINT)
+		_ = e.cmd.Process.Signal(sig)
 		_ = e.cmd.Wait()
 		e.cmd.Process = nil
 	}
@@ -581,8 +593,8 @@ rules:
 		t.Fatalf("aa_late_reeval counted %d late rows, want 3 (once each)", st.LateRows)
 	}
 
-	// 5. cluster ab's edge stops: complete_through stalls
-	ab.stop()
+	// 5. cluster ab's edge dies: complete_through stalls
+	ab.kill()
 	tStall := time.Now()
 	time.Sleep(2 * time.Second)
 	t2 := time.Now()

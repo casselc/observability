@@ -379,6 +379,54 @@ async fn partial_statements_and_lost_answers_are_repaired_by_the_verify() {
     assert_eq!(ws[0].checkpoint("c1/p1/traces").unwrap().next("E0001"), 20);
 }
 
+/// Regression (dst_consumer seed 504836, nightly 2026-09-29): a checkpoint
+/// write that got no answer, and read back unchanged, landed later. The
+/// worker went on from the version it held; GC, which reads the stored
+/// checkpoint, deleted the slots between the two; the scan then waited at a
+/// "gap" at the old head forever, and nothing after it was ingested. While
+/// such a write may still land, the worker reads its checkpoint back and
+/// takes it when it is its own (same lease epoch, a later version).
+#[tokio::test(flavor = "current_thread")]
+async fn a_checkpoint_write_landing_late_is_taken_back() {
+    let (b, c, clk) = setup();
+    let lane = "c1/p1/traces";
+    let key = format!("{CTL}/ckpt/{lane}.json");
+    let mut e = Edge::new("c1/p1", "traces");
+    for i in 0..2 {
+        e.commit(&b, &format!("h{i}"), 3).await;
+    }
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    run(&mut ws, &clk, 3, 100).await;
+    assert_eq!(ws[0].checkpoint(lane).unwrap().next("E0001"), 2);
+    // Checkpoint writes get no answer and do not apply (yet).
+    *b.faults.borrow_mut() = MemFaults { matching: "/ckpt/".into(), drop_every: 1, ..Default::default() };
+    for i in 2..4 {
+        e.commit(&b, &format!("h{i}"), 3).await;
+    }
+    run(&mut ws, &clk, 1, 100).await;
+    assert_eq!((c.count("otel_traces", "h2"), c.count("otel_traces", "h3")), (3, 3));
+    let held = ws[0].checkpoint(lane).unwrap().clone();
+    assert_eq!(held.next("E0001"), 2, "the write did not apply");
+    let (_, held_etag) = b.get(&key).await.unwrap().unwrap();
+    // It lands late: the version the worker wrote (h2, h3 passed) is stored.
+    *b.faults.borrow_mut() = MemFaults::default();
+    let mut late = held.bumped(held.lease_epoch);
+    late.advance("E0001", 4);
+    let put = b.put(&key, Bytes::from(serde_json::to_vec(&late).unwrap()), Cond::IfMatch(&held_etag), &BTreeMap::new()).await;
+    assert!(matches!(put, Put::Ok(_)), "{put:?}");
+    // GC, reading the stored checkpoint, deletes the slots it passed.
+    let gone: Vec<String> = (0..4).map(|s| proto::slot_key(&e.prefix(), "E0001", s)).collect();
+    let _ = b.delete(&gone).await;
+    e.commit(&b, "h4", 3).await;
+    run(&mut ws, &clk, 4, 100).await;
+    assert_eq!(c.count("otel_traces", "h4"), 3, "the lane went on past the slots GC deleted");
+    assert_eq!(ws[0].checkpoint(lane).unwrap().next("E0001"), 5);
+    assert_eq!(ws[0].stats.ckpt_late_taken, 1);
+    for i in 0..4 {
+        assert_eq!(c.count("otel_traces", &format!("h{i}")), 3, "h{i} once");
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn series_lane_needs_no_check() {
     let (b, c, clk) = setup();

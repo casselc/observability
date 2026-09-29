@@ -21,8 +21,10 @@ on:
         description: consumer soak duration (s)
         default: "300"
 
+# The group includes the job selection: GitHub keeps only the newest *pending* run of a group, so with
+# one group per ref a dispatch of one job set silently cancelled another's queued run (CAST 55).
 concurrency:
-  group: nightly-${{ github.ref }}
+  group: nightly-${{ github.ref }}-${{ inputs.jobs || 'all' }}
   cancel-in-progress: false
 
 permissions:

@@ -27,6 +27,10 @@ share ([`../research/lake-ui.md`](../research/lake-ui.md) §3, "Shared pieces";
   **audited** before anything runs (R-S8);
 - `/metrics` and `/healthz`.
 
+What these look like from a user's seat (the label as a banner, a refusal,
+an expired URL, the basis and its tail), step by step with screenshots from
+tests: [`../docs/journeys/`](../docs/journeys/README.md).
+
 Labels as elsewhere: **[M]** measured here (the shared 4-vCPU box, SeaweedFS
 4.47 and ClickHouse 26.10.1 on localhost), **[D]** read in a source, **[E]**
 estimate.

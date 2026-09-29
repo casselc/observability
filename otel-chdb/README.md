@@ -6,6 +6,10 @@ but its "ClickHouse" is chDB running inside the collector process. It writes
 the same `otel_traces` / `otel_logs` schema, so anything that reads that
 exporter's tables reads these.
 
+**New here?** [`docs/journeys/`](docs/journeys/README.md) walks through the
+lake UI in five short stories with screenshots taken by tests: is this data
+complete, find a trace, not your cluster, links expire, late data.
+
 | Directory | What it is |
 | --- | --- |
 | [`chdb-go/`](chdb-go/) | [chdb-go](https://github.com/chdb-io/chdb-go) at upstream `9f8e35a`, plus one patch: a binary-safe streaming insert. The patch is also in [`patches/`](patches/) for sending upstream. |

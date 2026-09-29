@@ -9,6 +9,11 @@ answer with its completeness. It replaces nothing: the spike in
 [`../lake-ui/`](../lake-ui/) stays as it was. Decision: D24 in
 [`../DECISIONS.md`](../DECISIONS.md).
 
+**See it first:** [`../docs/journeys/`](../docs/journeys/README.md) tells
+five user journeys through this page with a screenshot per step and a GIF
+per journey, each a Playwright test (`e2e/journeys/`, nightly `journeys`)
+that asserts before it shoots.
+
 Labels as elsewhere: **[M]** measured here (shared 4-vCPU box, SeaweedFS 4.47,
 ClickHouse 26.10, Chromium 141 headless from Playwright 1.56.1, all on
 localhost), **[E]** estimate.
@@ -151,6 +156,7 @@ localhost), **[E]** estimate.
 | `src/charts.js` | SVG histogram, line chart, waterfall |
 | `test/` | `node:test` + fast-check, with three real edge objects as fixtures |
 | `e2e/` | Playwright against the real stack (`../query/integration/lakeuirig`) |
+| `e2e/journeys/` | the user journeys ([`../docs/journeys/`](../docs/journeys/README.md)): one test per story on one rig, a picture per step; `render.sh` refreshes the committed pictures |
 
 ## Tests
 
@@ -158,6 +164,8 @@ localhost), **[E]** estimate.
 npm ci && npm test           # 56 unit and property tests, ~30 s (D30: the basis pinned per run, the caches keyed on it, footer checks; the tail)
 npm run vendor:check         # vendor/ == the pinned packages
 QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123, SeaweedFS :18333 (ci/services.sh)
+QS_IT_BIN=… npm run journeys       # the user journeys as tests (pictures under test-results/journeys)
+QS_IT_BIN=… e2e/journeys/render.sh # the same, and refresh ../docs/journeys/img (needs ffmpeg)
 ```
 
 **Unit and property tests** (`npm test`, per push in CI as `lakeui`):

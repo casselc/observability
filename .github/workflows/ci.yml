@@ -2,7 +2,10 @@
 name: ci
 
 on:
+  # A push that changes only Markdown (STPA/CAST rows, decisions, research notes) does not start
+  # a run, so it cannot cancel the run verifying the code before it (CAST 51).
   push:
+    paths-ignore: ['**/*.md']
   pull_request:
   workflow_dispatch:
 

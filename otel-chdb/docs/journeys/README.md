@@ -17,7 +17,7 @@ nightly `journeys` job fails, and the pictures are not refreshed.
 | [3. Not your cluster](scope.md) | What happens when I ask for data I may not see? | a refusal with its reason (never an empty result), a namespace-scoped user refused, the fleet user answered | STPA R-S8, H-6, H-2; D22, D38 |
 | [4. Links expire](expiry.md) | What if my page sits open past its URLs' lifetime? | real 403s from the store, a re-plan, the same answer; persistent failures shown as "not read", never as data | AMBIGUITY X8, D24, D30, R-S2, H-2 |
 | [5. Late data](late.md) | A row stamped long ago arrives now: where does it go? | a held basis whose part stays fixed while the tail grows; an old, settled bucket turning incomplete; the late rows labelled | D26, D30 (the tail), D31, R-S1, R-S2, H-5, CAST row 26 |
-| [6. Cross-filter (**spike**)](mosaic.md) | Could the analytical views cross-filter and keep the marks? | the Mosaic spike's four charts with the tail hatched, a time brush, a pod click, every total exact | D28 (**proposed, not adopted**), R-S1, R-S2, CAST row 33 |
+| [6. Cross-filter (**spike**)](mosaic.md) | Could the analytical views cross-filter and keep the marks? | the Mosaic spike's four charts with the tail hatched, a time brush, a pod click, every total exact | D28 (**proposed, not adopted**), R-S1, R-S2, H-2 (the check CAST row 33 added) |
 
 ## How each journey is built
 

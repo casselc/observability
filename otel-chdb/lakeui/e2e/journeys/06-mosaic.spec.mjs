@@ -14,10 +14,10 @@ import { ch, info, journey, nsOf, signedIn } from './journey.mjs'
 const chCount = async (table, fromNs, toNs) => Number(await ch(`SELECT count() FROM ${info.db}.${table} WHERE ResourceAttributes['k8s.cluster.name'] = 'lui-a' AND Timestamp >= fromUnixTimestamp64Nano(toInt64(${fromNs})) AND Timestamp < fromUnixTimestamp64Nano(toInt64(${toNs}))`))
 
 test('Cross-filter, with the completeness marks (Mosaic spike)', {
-  tag: ['@D28', '@spike', '@R-S1', '@R-S2', '@AMBIGUITY-10b', '@CAST-33'],
+  tag: ['@D28', '@spike', '@R-S1', '@R-S2', '@H-2', '@AMBIGUITY-10b'],
   annotation: [
     { type: 'demonstrates', description: 'D28 (proposed): Mosaic charts fed by the range reader keep lakeui\'s completeness states on every mark' },
-    { type: 'demonstrates', description: 'CAST row 33: after every interaction each chart\'s total equals an independent count (no stale cube)' },
+    { type: 'demonstrates', description: 'after every interaction each chart\'s total equals an independent count (the check CAST row 33 introduced; its stale-cube regression is lakeui-mosaic-e2e)' },
   ],
 }, async ({ browser }) => {
   test.skip(process.env.JOURNEYS_MOSAIC === '0', 'JOURNEYS_MOSAIC=0')

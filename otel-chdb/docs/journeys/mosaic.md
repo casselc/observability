@@ -1,8 +1,9 @@
 # 6. Cross-filter, with the completeness marks (a spike)
 
 [All journeys](README.md) · test: [`lakeui/e2e/journeys/06-mosaic.spec.mjs`](../../lakeui/e2e/journeys/06-mosaic.spec.mjs)
-· demonstrates D28 (**proposed, not adopted**), R-S1, R-S2, AMBIGUITY #10 (b),
-CAST row 33
+· demonstrates D28 (**proposed, not adopted**), R-S1, R-S2, H-2, AMBIGUITY
+#10 (b); uses the exactness check CAST row 33 added (the stale-cube
+regression itself is the spike's own nightly e2e)
 
 > **This is a spike, not the product.** The page is
 > [`lakeui/mosaic/`](../../lakeui/mosaic/README.md), built to answer one

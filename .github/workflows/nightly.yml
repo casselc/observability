@@ -574,6 +574,16 @@ jobs:
           QS_IT_BIN: ${{ runner.temp }}/bin
           LAKEUI_RIG_BIN: ${{ runner.temp }}/lakeuirig
         run: e2e/journeys/render.sh "$RUNNER_TEMP/journeys-img"
+      # render.sh fails unless every journey's every step passed, so each
+      # record below stands for a whole journey (ci/README.md, "Traceability")
+      - name: Traceability records (one per journey)
+        run: |
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/01-complete.spec.mjs --technique IT --ids R-S1,R-S2,H-2,H-5
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/02-trace.spec.mjs --technique IT --ids H-2,R-S1
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/03-scope.spec.mjs --technique IT --ids R-S8,H-6,H-2
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/04-expiry.spec.mjs --technique IT --ids H-2,R-S2
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/05-late.spec.mjs --technique IT --ids R-S1,R-S2,H-5,CAST-26
+          python3 ci/trace/trace.py record --test otel-chdb/lakeui/e2e/journeys/06-mosaic.spec.mjs --technique IT --ids R-S1,R-S2,H-2
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -585,6 +595,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-journeys
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The alert evaluator against the real pipeline and the query service
   # (built from otel-chdb/query): rules fire and resolve, a stalled lane
@@ -1225,7 +1241,7 @@ jobs:
   traceability:
     name: traceability (tagged tests ran and passed at this commit)
     needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, lakeui-e2e,
-            lakeui-mosaic-e2e, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, kani,
+            lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, kani,
             chdb, upstream-patches]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04

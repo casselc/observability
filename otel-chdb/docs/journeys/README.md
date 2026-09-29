@@ -17,21 +17,20 @@ nightly `journeys` job fails, and the pictures are not refreshed.
 | [3. Not your cluster](scope.md) | What happens when I ask for data I may not see? | a refusal with its reason (never an empty result), a namespace-scoped user refused, the fleet user answered | STPA R-S8, H-6, H-2; D22, D38 |
 | [4. Links expire](expiry.md) | What if my page sits open past its URLs' lifetime? | real 403s from the store, a re-plan, the same answer; persistent failures shown as "not read", never as data | AMBIGUITY X8, D24, D30, R-S2, H-2 |
 | [5. Late data](late.md) | A row stamped long ago arrives now: where does it go? | a held basis whose part stays fixed while the tail grows; an old, settled bucket turning incomplete; the late rows labelled | D26, D30 (the tail), D31, R-S1, R-S2, H-5, CAST row 26 |
-
-The Mosaic cross-filter spike (D28, **proposed, not adopted**) is not a
-journey here: see "Not shown" below.
+| [6. Cross-filter (**spike**)](mosaic.md) | Could the analytical views cross-filter and keep the marks? | the Mosaic spike's four charts with the tail hatched, a time brush, a pod click, every total exact | D28 (**proposed, not adopted**), R-S1, R-S2, CAST row 33 |
 
 ## How each journey is built
 
-- **One rig for all five**, started once by the suite's global setup exactly
+- **One rig for all six**, started once by the suite's global setup exactly
   as the lake UI's own e2e starts it: its own bucket and database (prefix
   `jny`), two clusters (`lui-a`: 2 pods, `lui-b`), three batches of logs,
   spans and gauge points ingested by the consumer and covered by the
   watermark, then a **late batch** for `lui-a` received after it (so it is
-  the tail of every basis), URL lifetime 60 s. Users: `alice` (cluster
+  the tail of every basis; with `LUI_RICH_SPANS`, spans in it too, for the
+  spike's latency chart), URL lifetime 60 s. Users: `alice` (cluster
   `lui-a`), `shop` (`lui-a`, namespace `shop`), `sre` (fleet, via group).
-  The journeys run in order in one browser; journey 5 adds data and runs
-  last.
+  The journeys run in order, one Playwright test each; journey 5 adds data,
+  so only the spike (6) runs after it.
 - **Every step asserts, then shoots.** The assertions compare with
   ClickHouse (`central`) where central has the rows, with the rig's truth
   (the late batch's size, the trace ids) otherwise, and with the counting
@@ -141,6 +140,22 @@ back and delivers rows stamped 18 minutes ago.
    the basis (complete) interleaved with the late rows (tagged incomplete) ·
    the late rows are exactly the tail rows; all the others complete.
 
+### 6. Cross-filter, with the completeness marks: a spike ([page](mosaic.md), `06-mosaic.spec.mjs`)
+
+Labelled as a spike everywhere it appears: D28 is proposed, not adopted.
+The Mosaic page loads the same plan (basis and tail) through the lake UI's
+range reader into DuckDB-WASM and draws four cross-filtered charts.
+
+1. **Loaded** — log volume by severity with the hatched band and the
+   "settled through" rule; logs by pod, span latency and spans by pod with
+   hatched (tail) parts · the basis part = central's count; incomplete rows
+   = the tail's rows; the band, the rule, hatched bars drawn; every chart's
+   total = an independent SQL count.
+2. **Brush a time range** — the other charts follow · chart B filtered;
+   every total exact (pre-aggregation off).
+3. **Click a pod** — the span charts filtered by time and pod · the spans
+   chart's filter names the pod; every total exact.
+
 ## Not shown, and why
 
 - **HyperDX with the completeness banner** (D25, D33): the fork cannot be
@@ -148,13 +163,11 @@ back and delivers rows stamped 18 minutes ago.
   faked. The banner component has no standalone render (no Storybook in the
   fork; rendering it in jsdom needs the monorepo's dependencies, the same
   install that does not fit). Left out.
-- **The Mosaic cross-filter dashboard** (D28, a **spike**, proposed, not
-  adopted): its e2e still runs nightly (`lakeui-mosaic-e2e`), but it needs
-  DuckDB-WASM, its bundle and the parquet extension (~40 MB vendored, more
-  in `node_modules`), which do not fit the disk alongside the rig here, and
-  it is not the product a newcomer should learn first. Its own numbers and
-  screenshots are in its nightly artifact and
-  [`../../research/mosaic.md`](../../research/mosaic.md).
+- **Mosaic's URL mode, pre-aggregation and scale** (DuckDB reading the
+  presigned URLs itself; brush latency up to 11 M rows): measured by the
+  spike's own nightly e2e (`lakeui-mosaic-e2e`) and reported in
+  [`../../research/mosaic.md`](../../research/mosaic.md); journey 6 shows
+  only the range-reader path, exact.
 - **Metric charts**: the gauge view works and is tested by the lake UI's
   e2e, but it tells no story the log view does not already tell.
 
@@ -167,7 +180,9 @@ cd otel-chdb/lakeui && npm ci
 QS_IT_BIN=<dir with otelcol-s3pq and consume> e2e/journeys/render.sh
 ```
 
-`render.sh` runs the five journeys against a fresh rig (ClickHouse
+Journey 6 also needs the spike's `vendor/` (`cd lakeui/mosaic && npm ci &&
+npm run vendor`, ~40 MB, not committed); `JOURNEYS_MOSAIC=0` skips it.
+`render.sh` runs the journeys against a fresh rig (ClickHouse
 `:18123`, SeaweedFS `:18333`, as `ci/services.sh` starts them), writes each
 step's PNG under `img/<journey>/`, re-encodes them as palette PNGs and builds
 `img/<journey>.gif` (ffmpeg). A journey whose assertions fail writes no

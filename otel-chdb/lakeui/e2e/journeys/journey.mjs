@@ -52,8 +52,8 @@ const FONTS = `body, input, select, textarea, button { font-family: "DejaVu Sans
 pre, code, .ts, .body { font-family: "DejaVu Sans Mono", monospace !important; }
 *, *::before, *::after { transition: none !important; animation: none !important; caret-color: transparent !important; }`
 
-/** A new browser context signed in as user through the IdP's page. */
-export async function signedIn(browser, user) {
+/** A new browser context signed in as user through the IdP's page (path: another page of the rig's). */
+export async function signedIn(browser, user, path = '') {
   const ctx = await browser.newContext()
   await ctx.addInitScript(css => {
     document.addEventListener('DOMContentLoaded', () => {
@@ -64,7 +64,7 @@ export async function signedIn(browser, user) {
   }, FONTS)
   const page = await ctx.newPage()
   page.on('pageerror', e => console.log('pageerror', e.message))
-  await page.goto(info.page)
+  await page.goto(info.page + path)
   await page.waitForSelector('body[data-ready="1"]')
   await page.click('#signin')
   await page.click(`text=Sign in as ${user}`)

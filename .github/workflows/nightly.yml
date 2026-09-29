@@ -521,7 +521,7 @@ jobs:
           if-no-files-found: warn
 
   # The user journeys (otel-chdb/docs/journeys): five stories through the
-  # lake UI on the same rig, asserted at every step, a picture per step and
+  # lake UI and one through the Mosaic spike, on one rig, asserted at every step, a picture per step and
   # a GIF per journey (e2e/journeys/render.sh). Fails when an assertion
   # does; the pictures are the artifact (the committed ones are refreshed
   # by running render.sh, never by hand).
@@ -547,7 +547,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
-          cache-dependency-path: otel-chdb/lakeui/package-lock.json
+          cache-dependency-path: |
+            otel-chdb/lakeui/package-lock.json
+            otel-chdb/lakeui/mosaic/package-lock.json
       - uses: actions/download-artifact@v8
         with:
           name: bin
@@ -556,9 +558,10 @@ jobs:
       - name: Start SeaweedFS and ClickHouse
         run: ci/services.sh start
       - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
-      - name: npm ci, Chromium, ffmpeg (the GIFs), DejaVu fonts (the pictures)
-        working-directory: otel-chdb/lakeui
+      - name: npm ci (lakeui; the Mosaic spike and its vendor/ for journey 6), Chromium, ffmpeg (the GIFs), DejaVu fonts
         run: |
+          (cd otel-chdb/lakeui/mosaic && npm ci --ignore-scripts --no-audit --no-fund && npm run vendor)
+          cd otel-chdb/lakeui
           npm ci --ignore-scripts --no-audit --no-fund
           npx playwright install --with-deps chromium
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core

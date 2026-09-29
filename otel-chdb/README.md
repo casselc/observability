@@ -8,7 +8,8 @@ exporter's tables reads these.
 
 **New here?** [`docs/journeys/`](docs/journeys/README.md) walks through the
 lake UI in five short stories with screenshots taken by tests: is this data
-complete, find a trace, not your cluster, links expire, late data.
+complete, find a trace, not your cluster, links expire, late data (and a
+sixth through the Mosaic spike).
 
 | Directory | What it is |
 | --- | --- |

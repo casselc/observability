@@ -10,8 +10,8 @@ answer with its completeness. It replaces nothing: the spike in
 [`../DECISIONS.md`](../DECISIONS.md).
 
 **See it first:** [`../docs/journeys/`](../docs/journeys/README.md) tells
-five user journeys through this page with a screenshot per step and a GIF
-per journey, each a Playwright test (`e2e/journeys/`, nightly `journeys`)
+five user journeys through this page (and one through the Mosaic spike)
+with a screenshot per step and a GIF per journey, each a Playwright test (`e2e/journeys/`, nightly `journeys`)
 that asserts before it shoots.
 
 Labels as elsewhere: **[M]** measured here (shared 4-vCPU box, SeaweedFS 4.47,

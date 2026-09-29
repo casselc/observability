@@ -102,6 +102,8 @@ func freePort() int {
 type rig struct {
 	ch, s3url, bucket, run, db, bin, work string
 	s3                                    *s3.Client
+	mu                                    sync.Mutex
+	edges                                 []*edge // every edge started, killed on cleanup if still running
 }
 
 func (r *rig) sql(q string) string {
@@ -166,7 +168,11 @@ func (r *rig) startEdge(cluster string) *edge {
 	must(err)
 	cmd.Stdout, cmd.Stderr = lf, lf
 	must(cmd.Start())
-	return &edge{cmd: cmd, port: port, cluster: cluster}
+	e := &edge{cmd: cmd, port: port, cluster: cluster}
+	r.mu.Lock()
+	r.edges = append(r.edges, e)
+	r.mu.Unlock()
+	return e
 }
 
 func (e *edge) stop() {
@@ -807,6 +813,13 @@ func noStore(h http.Handler) http.Handler {
 }
 
 func (r *rig) cleanup(ctx context.Context) {
+	// an edge still running (a signal during setup, e.g. a POST that never
+	// returned) would outlive the rig: stop it first
+	r.mu.Lock()
+	for _, e := range r.edges {
+		_ = e.cmd.Process.Kill() // an error for one already stopped
+	}
+	r.mu.Unlock()
 	req, _ := http.NewRequest(http.MethodPost, r.ch, strings.NewReader("DROP DATABASE IF EXISTS "+r.db+" SYNC"))
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()

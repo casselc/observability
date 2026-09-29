@@ -13,13 +13,18 @@ const queryDir = join(here, '..', '..', '..', 'query')
 
 export default async function rigSetup() {
   const cmd = process.env.LAKEUI_RIG_BIN ? [process.env.LAKEUI_RIG_BIN, []] : ['go', ['run', './integration/lakeuirig']]
-  const env = { ...process.env, LUI_PREFIX: process.env.LUI_PREFIX || 'jny' }
+  // LUI_RICH_SPANS: span durations with a tail and spans in the late batch,
+  // for the Mosaic spike's latency chart (journey 6); the same rig for all
+  const env = { ...process.env, LUI_PREFIX: process.env.LUI_PREFIX || 'jny', LUI_RICH_SPANS: '1' }
   const rig = spawn(cmd[0], cmd[1], { cwd: queryDir, stdio: ['ignore', 'pipe', 'pipe'], env })
   const lines = []
   rig.stderr.on('data', d => lines.push(String(d)))
   const info = await new Promise((resolve, reject) => {
     let buf = ''
-    const timer = setTimeout(() => reject(new Error('the rig did not get ready:\n' + lines.join(''))), 300_000)
+    const timer = setTimeout(() => {
+      rig.kill('SIGTERM') // not left running (and holding its bucket) when setup gives up
+      reject(new Error('the rig did not get ready in 300 s (a read-only SeaweedFS, e.g. disk below its minFreeSpace, hangs the edges):\n' + lines.join('')))
+    }, 300_000)
     rig.stdout.on('data', d => {
       buf += d
       const m = /LAKEUI_RIG_READY (.*)\n/.exec(buf)

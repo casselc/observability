@@ -761,9 +761,23 @@ later `UNION` branch is refused as an unknown table.
 - **Claims → attributes** (`claims`): a subject claim (required), and
   clusters, namespaces and roles read from claims of those names (a list, or
   one string separated by commas or spaces) and from **groups**
-  (`group_grants`: a group name → clusters, namespaces, roles). `"*"` means
-  all. Only the roles `query` and `plan` exist; anything else in a roles
-  claim is dropped.
+  (`group_grants`: a group name → clusters, namespaces, roles, and
+  optionally explicit `pairs` `[{cluster, namespace}]` and `tuples`
+  `[{role, cluster, namespace}]`, which the Cedar compiler emits,
+  [`../grants/`](../grants/README.md)). `"*"` means all. Only the roles
+  `query` and `plan` exist; anything else in a roles claim is dropped.
+- **Grants are tuples, combined as a union** (D38, CAST 52): each grant
+  (a group's, or the token's own claims) is its roles × its clusters × its
+  namespaces (plus its pairs and tuples); a principal holds the **union** of
+  its grants' `(role, cluster, namespace)` tuples, never the product of their
+  combined lists. A handler works on the view of its role (`Principal.For`):
+  a plan grant never widens the query scope, or the reverse. Rows are cut by
+  the view's pairs (`sqlscope.PairScope`: one `IN` pair of terms for one
+  grant shape, an `OR` grouped by namespace set for several), as are the
+  D33 dictionary guards and the catalog's resource ids (cached by the pairs);
+  a plan reaches only clusters granted whole (`namespace "*"`). The audit
+  record's `pairs` lists them; `clusters` and `namespaces` are their
+  projections.
 - **Deny by default**: a token that grants no role can do nothing; no
   cluster is `empty_scope`; no namespace grants no namespace (so every
   scoped read is refused) unless a claim or group grants `"*"`.

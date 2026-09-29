@@ -73,6 +73,7 @@ disagreed with each other, and how each was resolved.
 | [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
 | [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29), not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
 | [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
+| [D38](#d38-grants-as-explicit-role-cluster-namespace-tuples-environments-as-buckets-cedar-as-the-source-compiled-to-tuples-and-prefixtag-iam-partly-built) | Grants: explicit `(role, cluster, namespace)` tuples combined as a union, never a product (CAST 52; built); environments as a bucket (or account) each with a cluster registry that gates writes; Cedar policies as the source, compiled to per-environment query-service tuples and prefix/principal-tag IAM, other policies refused with a reason and the output checked against Cedar; person facts scoped by a `resolve_person` tuple | **partly built** (2026-09-29): tuples in the query service; `grants/` compiler prototype; the rest proposed: [research/grants.md](research/grants.md) (STPA first) |
 
 ---
 
@@ -3809,6 +3810,83 @@ a custom API); Langfuse keys per team (shared secrets, no person).
 (L-E1, H-E1..H-E9, UCA-E1..E11, SEC-E1..E10, TM-E1..E6, R-E1..R-E9) proposed for the coordinator.
 AMBIGUITY E7–E9. A stolen access token is a bearer token for its 60–90 minutes (bounded by per-user
 caps and CA, not prevented). Devtools completeness is the ingress's custody time, not the devices'.
+
+### D38. Grants as explicit (role, cluster, namespace) tuples; environments as buckets; Cedar as the source, compiled to tuples and prefix/tag IAM (partly built)
+
+**Status:** **partly built** (2026-09-29). **Built and tested:** the query service's grants as tuples
+(`query/internal/auth`, `sqlscope/pairs.go`, the server, the planner, the catalog cache, the audit;
+CAST 52 closed in code); the Cedar compiler prototype `grants/` (`grantc`, examples, compiled IAM
+linted in CI). **Proposed:** the environment tier in storage (a bucket per environment), the presign
+session per cluster, break-glass through PIM, the person catalog's scoping. Research and STPA:
+[research/grants.md](research/grants.md).
+
+**Context.** CAST 52 (D37 finding, O-E6): a principal's grants were pooled into one cluster list, one
+namespace list and one role list, so two grants gave their product, and a plan grant on one cluster
+became a plan right on another granted only for query. The owner widened the fix: an environment tier
+(dev/stg/prd), and Cedar to express grants, limited to what our S3 prefixes and ABAC (D18) can enforce.
+
+**Decision (built).**
+
+1. **A grant is its roles × clusters × namespaces (plus explicit `pairs` / `tuples`) within itself; a
+   principal holds the union of its grants' `(role, cluster, namespace)` tuples.** Handlers work on the
+   view of their role (`Principal.For`); `/v1/basis` on the union of query and plan.
+2. **Rows are cut by the view's pairs**: the table filter and the D33 dictionary guard are one
+   `IN`/`AND` for one grant shape (unchanged text) and an `OR` grouped by namespace set for several;
+   `Unrestricted()` (only `(*, *)`) gates fleet tables, unprojected metadata and unguarded
+   dictionaries; request and basis narrowing keep pairs (`NarrowClusters`); the catalog's resource-id
+   cache is keyed by the pairs.
+3. **A plan reaches only clusters granted whole for `plan`** (`WholeClusters`), a namespace plan grant
+   is refused (`namespace_scope_needs_filtering_reader`).
+4. **The audit's decision records carry the pairs.**
+
+Evidence [M]: rapid properties (the filter and the dictionary guard, evaluated, admit exactly the
+union; the effective scope per role equals an oracle over grants); the old product is a caught mutant in
+`sqlscope`, `auth` (365 of 1,000 generated scenarios separate it) and end to end in the server
+(2 rows against the product's 4; a plan no longer covers a query-only cluster); a role-crossing view
+is caught too.
+
+**Proposal.**
+
+5. **Environments: a bucket (better, an account) per environment**, FORMAT v2 inside each (no v3), the
+   consumer, central, query service, indexer and alerting per environment; the environment an attribute
+   of a **cluster registry** (environment → bucket, root, clusters), a cluster in exactly one
+   environment, enforced at write time (the compiled edge policy denies a cluster tag not registered in
+   that environment). Alternatives: a `{root}/{env}/…` key tier (FORMAT v3; the fallback), an attribute
+   only (rejected: storage stays environment-blind).
+6. **Cedar is the source of truth, compiled at build time, not evaluated per request**, against a
+   schema (Env ⊃ Cluster ⊃ Namespace; Group, User, Workload; query, plan, llm_content, write, admin).
+   `grantc` accepts only permits whose principal is a group, whose actions are named and whose resource
+   is one environment, cluster or namespace (plus the tag-bound write `when { resource in
+   principal.cluster }`); it compiles them to per-environment query-service tuples and IAM (a presign
+   role read-scoped by the session's cluster tag with a trust policy for the plan-granted clusters; the
+   D18 edge policy per environment bucket with an environment Deny; literal cluster writes), refuses
+   everything else with a reason (`plan_namespace`: namespace is not a prefix tier, so a namespace
+   grant may give query, never plan; `condition_not_expressible`; `forbid_not_compiled`;
+   `principal_person`; `resource_unconstrained`; …), and **checks the output against cedar-go's
+   authorizer** over the registry's whole universe before writing anything. Built as a prototype [M]:
+   7 example policies compiled, 12 refused with the expected reasons, 7 of 7 output mutants refused by
+   the check, a generated-policy property (which found and fixed a compiler bug: `is Workload` on a
+   read) and a model of IAM evaluation over the committed documents; `ci/iam-lint.sh` passes on them.
+7. **Changes by code review**: CODEOWNERS, two approvals, the compiled tuples and IAM committed with the
+   policy so the review shows the effect; group membership stays in Entra.
+8. **Presign per cluster session** (defence in depth, R-G7): the query service assumes the
+   environment's presign role with tags `env`, `cluster` per plan cluster.
+9. **Break-glass** is PIM-for-groups membership of a pre-granted group, time-bound, approved, marked in
+   the audit and the UI; no expiring policies.
+10. **Person facts** (D32 `person`, owner decision): names resolve through a dictionary keyed
+    `(namespace, oid)` under the pair guard, for readers holding a `resolve_person` tuple on that
+    namespace (query-service only); self always; erasure a tombstone fact applied at every basis.
+
+**Alternatives.** Cedar evaluated at request time (richer policies that IAM cannot follow: drift,
+H-G3); OPA/Rego (no schema validation or analyzability of the same kind; a second language for IAM
+anyway); tuples in YAML (no validator, no independent oracle); namespace as a key tier (the edge cannot
+split a cluster's lanes by namespace without a writer per namespace; D1/D19).
+
+**Consequences / open.** Owner decisions O-G1..O-G9 (research/grants.md §10). STPA additions (L-G1,
+H-G1..H-G8, UCA-G1..G7, LS-G1..G8, SEC-G1..G8, TM-G1..G5, R-G1..R-G9) proposed for the coordinator;
+AMBIGUITY G1–G5. Nothing run on AWS; the presign session path, break-glass marking, `resolve_person`
+and the environment registry in the consumer are not built. The query service still presigns with its
+own credentials, cut by the tuples.
 
 ## 6. Upstream bugs found
 

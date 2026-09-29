@@ -1,0 +1,43 @@
+OTLP/HTTP receiver: serve Langfuse's OTLP path as an alias.
+
+Langfuse's SDKs and its opencode, Codex and Claude Code integrations post
+OTLP/HTTP to `{LANGFUSE_BASE_URL}/api/public/otel/v1/traces` (otel-chdb
+DECISIONS.md D36, owner item 1). `map_path_to_signal` now strips the
+prefix `/api/public/otel` when what follows is `/v1/...`, so the alias
+reaches exactly the three signal paths and nothing else; the request is
+otherwise unchanged (its Basic-auth project keys are not read). The Go
+edge's `routealias` extension applies the same rule.
+
+diff --git a/rust/otap-dataflow/crates/otap/src/otlp_http.rs b/rust/otap-dataflow/crates/otap/src/otlp_http.rs
+index d2e22c6..15f9168 100644
+--- a/rust/otap-dataflow/crates/otap/src/otlp_http.rs
++++ b/rust/otap-dataflow/crates/otap/src/otlp_http.rs
+@@ -395,7 +395,13 @@ pub const METRICS_PATH: &str = "/v1/metrics";
+ /// OTLP HTTP path for traces endpoint
+ pub const TRACES_PATH: &str = "/v1/traces";
+ 
++/// Langfuse's OTLP path prefix: its SDKs, and its opencode, Codex and Claude
++/// Code integrations, post to `{base}/api/public/otel/v1/traces`. Served as
++/// an alias of the root (exactly the prefix followed by a signal path).
++pub const LANGFUSE_OTEL_PREFIX: &str = "/api/public/otel";
++
+ fn map_path_to_signal(path: &str) -> Option<SignalType> {
++    let path = path.strip_prefix(LANGFUSE_OTEL_PREFIX).filter(|p| p.starts_with("/v1/")).unwrap_or(path);
+     match path {
+         LOGS_PATH => Some(SignalType::Logs),
+         METRICS_PATH => Some(SignalType::Metrics),
+@@ -1347,6 +1353,14 @@ mod tests {
+         assert_eq!(map_path_to_signal("/v1/metrics"), Some(SignalType::Metrics));
+         assert_eq!(map_path_to_signal("/v1/traces"), Some(SignalType::Traces));
+         assert_eq!(map_path_to_signal("/nope"), None);
++        assert_eq!(map_path_to_signal("/api/public/otel/v1/traces"), Some(SignalType::Traces));
++        assert_eq!(map_path_to_signal("/api/public/otel/v1/logs"), Some(SignalType::Logs));
++        assert_eq!(map_path_to_signal("/api/public/otel/v1/metrics"), Some(SignalType::Metrics));
++        assert_eq!(map_path_to_signal("/api/public/otel"), None);
++        assert_eq!(map_path_to_signal("/api/public/otel/v1/other"), None);
++        assert_eq!(map_path_to_signal("/api/public/otelx/v1/traces"), None);
++        assert_eq!(map_path_to_signal("/api/public/otel//v1/traces"), None);
++        assert_eq!(map_path_to_signal("/api/public/ingestion"), None);
+     }
+ 
+     /// Scenario: A request carrying an invalid bearer token also carries a body

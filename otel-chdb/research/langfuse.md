@@ -781,9 +781,9 @@ payload part, the consumer's payloads-first and dangling check, `llm_payloads`, 
 `llm_scores`, the mapping as versioned policy, conformance's GenAI corpus
 (`conformance/gen/genai.go`: GenAI semconv, OpenInference, the Langfuse SDKs as the opencode, Codex
 and Claude Code integrations send them, hostile shapes, evaluation facts), the Go edge's route
-alias. Still open for the phase's exit: the differential against Langfuse's own mapper (its
-`OtelIngestionProcessor` needs the monorepo installed; not run), the fault menus with payloads, and
-the Rust edge's route alias (upstream patch 0007).
+alias and the Rust edge's (upstream patch 0007). Still open for the phase's exit: the
+differential against Langfuse's own mapper (its `OtelIngestionProcessor` needs the monorepo
+installed; not run).
 
 **Phase 2: LLM views and facts.** Query service: payload resolution in the tree, `llm_content`
 right and audit, cost from price facts at the basis, score resolution, settle labels. HyperDX fork:

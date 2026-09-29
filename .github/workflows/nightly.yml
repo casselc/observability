@@ -1225,6 +1225,9 @@ jobs:
       - name: otel-arrow-dfe-otap custody tests (patch 0006)
         working-directory: .ci/otel-arrow/rust/otap-dataflow
         run: cargo test --release -p otel-arrow-dfe-otap --lib custody
+      - name: otel-arrow-dfe-otap OTLP/HTTP paths, Langfuse's alias included (patch 0007)
+        working-directory: .ci/otel-arrow/rust/otap-dataflow
+        run: cargo test --release -p otel-arrow-dfe-otap --lib otlp_http::tests::maps_paths
       - name: otel-arrow-dfe-core-nodes durable_buffer tests (patch 0006)
         working-directory: .ci/otel-arrow/rust/otap-dataflow
         run: cargo test --release -p otel-arrow-dfe-core-nodes --features durable-buffer durable_buffer

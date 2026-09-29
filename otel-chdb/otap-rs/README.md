@@ -181,6 +181,8 @@ encbench: the in-process edge benchmark (pubbench's accounting)
     (`payloads_first`, AMBIGUITY X22), counts dangling references after them
     (X23), and fills `llm_spans` / `llm_scores` by views in the rows' own
     statement (`sql/llm_*.sql`; the mapping is versioned policy, `llm_mapping`).
+    The OTLP/HTTP receiver also serves Langfuse's `/api/public/otel/v1/*`
+    as `/v1/*` (upstream patch `0007`), as the Go edge's `routealias` does.
   - Since 2026-09-28 (D31, `src/late.rs`, `../FORMAT.md` §2.2) a traces or
     logs request with rows more than `late_split_after` (default `15m`,
     `0s` off) older than its newest row is two objects in its lane, bulk
@@ -254,6 +256,7 @@ dependencies resolve to what upstream tests.
 | `0004-grpc-receivers-max-connection-age.patch` | **Gap:** the OTLP/OTAP gRPC receivers have no `max_connection_age`, so agents never see a scaled-up publisher (../deploy/results/k8s-sim.md §8), and tonic 0.14's own is unusable (U23). The patch adds `max_connection_age` / `max_connection_age_grace` and passes them to tonic's builder (needs `tonic-0001`). Off by default; set in `configs/edge-publisher.yaml`. [Connection age](#connection-age-patches0004-m). Not proposed upstream. |
 | `0005-pdata-otap-zero-values-and-half-floats.patch` | **Bugs** (U24), found by the Hegel property tests (HEGEL.md): on Rust-encoded OTAP (`otlp_path: via_otap`, or a Rust OTAP producer) a span with a zero time loses its duration, a log body of int 0 / double 0 reads as Empty, a half-precision float inside an array or map reads as null, and an attribute's -0.0 becomes 0.0. The patch fixes the encoder and the views; `scripts/otap_values_e2e.sh` shows each value through ClickHouse before and after. Not proposed upstream. |
 | `0006-quiver-publish-custody-floor.patch` | **Feature** (format v2, `../FORMAT.md` §2): the durable buffer publishes the oldest ingestion time over its un-acked bundles (pending segments and the open one) on the pipeline thread (`otel_arrow_dfe_otap::custody`), which the exporter's `custody: durable_buffer` turns into each object's `oscope-low`; and (D35, 2026-09-29) whether its shutdown drain handed every bundle downstream (`custody::drained`) and how many NACKs it handled (`custody::nacks_handled`), which the exporter's orderly close requires (`../FORMAT.md` §3.1). Upstreamable as a hook. |
+| `0007-otlp-http-langfuse-route-alias.patch` | **Feature** (DECISIONS.md D36, owner item 1): the OTLP/HTTP receiver serves `/api/public/otel/v1/{traces,logs,metrics}` (Langfuse's SDKs and its opencode, Codex and Claude Code integrations) as `/v1/...`; nothing else under the prefix. The Go edge's `routealias` extension is the same rule. Upstreamable only as a configurable alias list; local. |
 | `tonic-0001-server-max-connection-age-goaway-grace-jitter.patch` (tonic 0.14.6) | **Bugs** (U23): with a grace, `Server::max_connection_age` sends no GOAWAY and just drops the connection at age + grace; without one it re-polls a finished future and panics the connection task; no jitter. The patch sends the graceful GOAWAY at the age, starts the grace then, and jitters the age +/-10% (gRFC A9). Upstream has #2780 (panic, unreleased) and open PR #2877 (GOAWAY); the jitter is drafted in `patches/tonic-UPSTREAM-DRAFT.md`, not proposed. |
 
 Found upstream, not patched here:

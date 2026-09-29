@@ -15,6 +15,7 @@
 //! - `commit_metrics`: `s3pq_commit_outcomes_total{outcome}`, the exporter's commit outcomes
 //! - `batch`:   one request → content hash + flattened columns → encoded slot object
 //! - `series`:  metrics layout B: narrow points + series objects, edge series ids
+//! - `offload`: content by reference: the payload offloader, its hash and cache (D36)
 //! - `resource`: resource_id (the entity catalog's content address) and the announcement cache
 //! - `central`: the ClickHouse side of the consumer
 //! - `testgate`: service-gated tests skip, or fail where `OSCOPE_REQUIRE_SERVICES` names the service
@@ -31,6 +32,7 @@ pub mod flatten;
 pub mod late;
 pub mod gosort;
 pub mod metrics;
+pub mod offload;
 pub mod oscope_trace;
 pub mod proto;
 pub mod render;

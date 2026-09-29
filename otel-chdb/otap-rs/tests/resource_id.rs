@@ -251,7 +251,8 @@ fn prop_rows_carry_resource_id_on_both_paths(tc: TestCase) {
     };
     let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet);
     let direct = enc.flatten(&Input::Otlp(sig, &bytes)).expect("flatten");
-    let ids = direct.cols.last().unwrap().as_any().downcast_ref::<UInt64Array>().expect("resource_id is the last content column");
+    let rid_col = enc.schemas(sig).arrow.index_of("resource_id").unwrap();
+    let ids = direct.cols[rid_col].as_any().downcast_ref::<UInt64Array>().expect("resource_id is a content column");
     assert_eq!(ids.values().to_vec(), expect);
     // one announcement per distinct non-empty resource, at its first row
     let mut distinct: Vec<u64> = Vec::new();
@@ -306,6 +307,6 @@ fn prop_rows_carry_resource_id_on_both_paths(tc: TestCase) {
         }
     };
     let via = enc.flatten(&Input::Otap(sig, &recs)).expect("flatten otap");
-    assert_eq!(via.cols.last().unwrap().to_data(), direct.cols.last().unwrap().to_data(), "resource_id differs between the OTLP and OTAP paths");
+    assert_eq!(via.cols[rid_col].to_data(), direct.cols[rid_col].to_data(), "resource_id differs between the OTLP and OTAP paths");
     assert_eq!(via.resources, direct.resources);
 }

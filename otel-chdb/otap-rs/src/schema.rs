@@ -16,13 +16,22 @@ use std::sync::Arc;
 
 /// The envelope's `schema_version` (and `oscope-schema`) of metrics objects.
 pub const SCHEMA_VERSION: u16 = 1;
-/// Traces and logs since the resource columns (`resource_id`,
-/// `resource_announce`, between the ClickStack columns and the envelope).
-pub const RESOURCE_SCHEMA_VERSION: u16 = 2;
+/// Traces and logs: 2 added the resource columns (`resource_id`,
+/// `resource_announce`), 3 the payload columns (`payload_refs`, `payloads`,
+/// DECISIONS.md D36), between the ClickStack columns and the envelope.
+pub const RESOURCE_SCHEMA_VERSION: u16 = 3;
 
-/// The resource columns of traces and logs (`resource.rs`).
+/// The resource and payload columns of traces and logs (`resource.rs`,
+/// `offload.rs`, `../../FORMAT.md` §2.1, §2.3): `resource_id` and
+/// `payload_refs` are content columns (the walk writes them);
+/// `resource_announce` and `payloads` are decided per slot.
 fn resource_cols(s: &DataType) -> Vec<Field> {
-    vec![col("resource_id", DataType::UInt64), col("resource_announce", map_type(s))]
+    vec![
+        col("resource_id", DataType::UInt64),
+        col("payload_refs", list(s.clone())),
+        col("resource_announce", map_type(s)),
+        col("payloads", map_type(s)),
+    ]
 }
 
 pub fn ts_type() -> DataType {

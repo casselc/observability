@@ -59,6 +59,19 @@ pub struct Flat {
     /// Set on the two objects of a request split by event time (`late.rs`,
     /// DECISIONS.md D31): which part, and the bound in ns.
     pub split: Option<(crate::late::Part, u64)>,
+    /// Traces and logs: the request's payloads (`offload.rs`), each with the
+    /// first row (walk order) that references it; the rows' references are
+    /// the `payload_refs` content column.
+    pub payloads: Vec<crate::offload::Payload>,
+    /// What the offloader did to this object's values.
+    pub offload: crate::offload::OffloadStats,
+}
+
+impl Flat {
+    /// A flat without resources or payloads (metrics).
+    pub fn plain(signal: Signal, content: String, cols: Vec<ArrayRef>, stats: Stats, announce: Vec<(u64, i32)>) -> Self {
+        Flat { signal, content, cols, stats, announce, resources: Vec::new(), split: None, payloads: Vec::new(), offload: Default::default() }
+    }
 }
 
 /// Content hash of an OTLP request: BLAKE3 over "{signal}\0{protobuf}",
@@ -148,6 +161,18 @@ pub struct Encoder {
     pub layout: MetricsLayout,
     pub opts: ParquetOptions,
     pub format: Format,
+    /// The payload offloader's policy and the edge's cluster (`offload.rs`);
+    /// None: values stay inline.
+    pub offload: Option<(std::sync::Arc<crate::offload::Policy>, String)>,
+    /// The current request's `received_at` (the payload hash's day).
+    received_ns: u64,
+}
+
+/// What an object carries for its slot, decided when it is encoded:
+/// the resources it announces and the payloads it carries.
+pub struct Carried {
+    pub announced: Vec<u64>,
+    pub payloads: Vec<[u8; 16]>,
 }
 
 #[derive(Debug)]
@@ -172,7 +197,27 @@ impl Encoder {
             layout: MetricsLayout::ClickstackTables,
             opts,
             format,
+            offload: None,
+            received_ns: 0,
         }
+    }
+
+    /// Offloads large values by reference (`offload.rs`) under `opts`,
+    /// hashed for tenants of `cluster`; `opts.enabled` false: no offloading.
+    pub fn with_offload(mut self, opts: crate::offload::OffloadOptions, cluster: &str) -> Self {
+        self.offload = opts.enabled.then(|| (std::sync::Arc::new(crate::offload::Policy::new(opts)), cluster.to_string()));
+        self
+    }
+
+    /// `flatten_all` for a request received (entered custody) at
+    /// `received_ns`: the day of the payload hashes.
+    pub fn flatten_all_at(&mut self, input: &Input<'_>, received_ns: u64) -> Result<Vec<Flat>, EncodeError> {
+        self.received_ns = received_ns;
+        self.flatten_all(input)
+    }
+
+    fn offloader(&self) -> Option<crate::offload::Offloader> {
+        self.offload.as_ref().map(|(p, c)| crate::offload::Offloader::new(p.clone(), c, self.received_ns))
     }
 
     /// Metrics as layout B (`series_table`) with these options, or as the
@@ -246,7 +291,7 @@ impl Encoder {
             let cols = self.metrics.content_arrays(sig, &self.metrics_sc[i]);
             if stats.rows > 0 {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new(), split: None });
+                out.push(Flat::plain(sig, content, cols, stats, Vec::new()));
             }
         }
         out
@@ -268,10 +313,10 @@ impl Encoder {
             }
             if sig == Signal::MetricsSeries {
                 let content = content_hash_cols(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: self.series.take_new(), resources: Vec::new(), split: None });
+                out.push(Flat::plain(sig, content, cols, stats, self.series.take_new()));
             } else {
                 let content = key(sig, &cols);
-                out.push(Flat { signal: sig, content, cols, stats, announce: Vec::new(), resources: Vec::new(), split: None });
+                out.push(Flat::plain(sig, content, cols, stats, Vec::new()));
             }
         }
         out
@@ -280,50 +325,57 @@ impl Encoder {
     /// Walks the input into columns.
     pub fn flatten(&mut self, input: &Input<'_>) -> Result<Flat, EncodeError> {
         let e = |m: &dyn std::fmt::Display| EncodeError(m.to_string());
-        let (signal, stats, cols, resources) = match input {
+        self.traces.off = self.offloader();
+        self.logs.off = self.offloader();
+        let (signal, stats, cols, resources, off) = match input {
             Input::Otlp(Signal::Traces, b) => {
                 let v = RawTraceData::try_new(b).map_err(|x| e(&x))?;
                 let st = self.traces.fill(&v);
-                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources())
+                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources(), self.traces.off.take())
             }
             Input::Otlp(Signal::Logs, b) => {
                 let v = RawLogsData::try_new(b).map_err(|x| e(&x))?;
                 let st = self.logs.fill(&v);
-                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources())
+                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources(), self.logs.off.take())
             }
             Input::Otap(Signal::Traces, r) => {
                 let v = OtapTracesView::try_from(*r).map_err(|x| e(&x))?;
                 let st = self.traces.fill(&v);
-                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources())
+                (Signal::Traces, st, self.traces.content_arrays(&self.traces_sc), self.traces.take_resources(), self.traces.off.take())
             }
             Input::Otap(Signal::Logs, r) => {
                 let v = OtapLogsView::try_from(*r).map_err(|x| e(&x))?;
                 let st = self.logs.fill(&v);
-                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources())
+                (Signal::Logs, st, self.logs.content_arrays(&self.logs_sc), self.logs.take_resources(), self.logs.off.take())
             }
             _ => return Err(EncodeError("metrics input has one object per type: use flatten_all".into())),
+        };
+        let (payloads, offload) = match off {
+            Some(mut o) => (o.take_payloads(), o.stats),
+            None => (Vec::new(), Default::default()),
         };
         let content = match input {
             Input::Otlp(s, b) => content_hash_otlp(*s, b),
             Input::Otap(s, _) => content_hash_cols(*s, &cols),
             _ => unreachable!(),
         };
-        Ok(Flat { signal, content, cols, stats, announce: Vec::new(), resources, split: None })
+        Ok(Flat { signal, content, cols, stats, announce: Vec::new(), resources, split: None, payloads, offload })
     }
 
     /// The object for one slot: envelope added, encoded, described. Every
     /// resource of a trace or log object is announced (no cache).
     pub fn encode(&self, f: &Flat, env: &Envelope) -> Result<Encoded, EncodeError> {
-        self.encode_announcing(f, env, &|_| true).map(|(o, _)| o)
+        self.encode_carrying(f, env, &|_| true, &|_| true).map(|(o, _)| o)
     }
 
     /// The object's rows, unsorted: the content columns, `resource_announce`
-    /// (traces and logs: the resources `wants` names) and the envelope; and
-    /// the ids announced.
-    pub fn rows(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool) -> (arrow::array::RecordBatch, Vec<u64>) {
+    /// (traces and logs: the resources `wants` names), `payloads` (the
+    /// payloads `wants_payload` names, `offload.rs`) and the envelope; and
+    /// what the object carries.
+    pub fn rows(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool, wants_payload: &dyn Fn(&[u8; 16]) -> bool) -> (arrow::array::RecordBatch, Carried) {
         let sc = self.schemas(f.signal);
         let mut cols = f.cols.clone();
-        let mut announced = Vec::new();
+        let mut carried = Carried { announced: Vec::new(), payloads: Vec::new() };
         if matches!(f.signal, Signal::Traces | Signal::Logs) {
             let mut at: Vec<u32> = Vec::new();
             let mut which: Vec<usize> = Vec::new();
@@ -331,12 +383,26 @@ impl Encoder {
                 if wants(c.id) {
                     at.push(*row);
                     which.push(i);
-                    announced.push(c.id);
+                    carried.announced.push(c.id);
                 }
             }
             cols.push(announce_column(&f.resources, &at, &which, f.stats.rows, &sc.entries));
+            let mut m = crate::columns::Map::default();
+            m.clear();
+            let mut next = f.payloads.iter().filter(|p| wants_payload(&p.hash)).peekable();
+            for r in 0..f.stats.rows as u32 {
+                while let Some(p) = next.next_if(|p| p.first_row == r) {
+                    let mut hx = [0u8; 32];
+                    hex::encode_to_slice(p.hash, &mut hx).expect("32 hex digits");
+                    m.keys.push(&hx);
+                    m.vals.push(&p.content);
+                    carried.payloads.push(p.hash);
+                }
+                m.commit();
+            }
+            cols.push(m.take(&sc.entries));
         }
-        (record_batch(sc, cols, f.stats.rows, env), announced)
+        (record_batch(sc, cols, f.stats.rows, env), carried)
     }
 
     /// `encode`, announcing (traces and logs) the resources `wants` names:
@@ -344,12 +410,24 @@ impl Encoder {
     /// each, and `oscope-announce` counts them. Returns the announced ids,
     /// to mark once the object has committed (`resource::AnnounceCache`).
     pub fn encode_announcing(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool) -> Result<(Encoded, Vec<u64>), EncodeError> {
+        self.encode_carrying(f, env, wants, &|_| true).map(|(o, c)| (o, c.announced))
+    }
+
+    /// `encode_announcing`, also carrying (traces and logs) the payloads
+    /// `wants_payload` names in `payloads`, on the first row that references
+    /// each (walk order), counted in `oscope-payloads`; `oscope-payload-refs`
+    /// counts the distinct references of the object's rows. Returns what
+    /// the object carries, to mark once it has committed
+    /// (`offload::PayloadCache`).
+    pub fn encode_carrying(&self, f: &Flat, env: &Envelope, wants: &dyn Fn(u64) -> bool, wants_payload: &dyn Fn(&[u8; 16]) -> bool) -> Result<(Encoded, Carried), EncodeError> {
         let sc = self.schemas(f.signal);
         let has_resources = matches!(f.signal, Signal::Traces | Signal::Logs);
-        let (rb, announced) = self.rows(f, env, wants);
+        let (rb, carried) = self.rows(f, env, wants, wants_payload);
         let mut meta = BTreeMap::new();
         if has_resources {
-            let _ = meta.insert(proto::META_ANNOUNCE.to_string(), announced.len().to_string());
+            let _ = meta.insert(proto::META_ANNOUNCE.to_string(), carried.announced.len().to_string());
+            let _ = meta.insert(proto::META_PAYLOADS.to_string(), carried.payloads.len().to_string());
+            let _ = meta.insert(proto::META_PAYLOAD_REFS.to_string(), f.payloads.len().to_string());
         }
         for (k, v) in [
             (proto::META_PRODUCER, env.producer.clone()),
@@ -400,7 +478,7 @@ impl Encoder {
                 ARROW_CONTENT_TYPE
             }
         };
-        Ok((Encoded { body: Bytes::from(out), content_type, meta }, announced))
+        Ok((Encoded { body: Bytes::from(out), content_type, meta }, carried))
     }
 }
 

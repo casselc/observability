@@ -17,8 +17,8 @@ use crate::Signal;
 use crate::batch::{EncodeError, Encoder, Flat};
 use crate::flatten::Stats;
 use crate::proto;
-use arrow::array::{Array, ArrayRef, BooleanArray, TimestampNanosecondArray, UInt64Array};
-use std::collections::HashMap;
+use arrow::array::{Array, ArrayRef, BinaryArray, BooleanArray, ListArray, TimestampNanosecondArray, UInt64Array};
+use std::collections::{HashMap, HashSet};
 
 /// Which rows of a split request an object holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,8 +100,44 @@ impl Encoder {
             let mut resources: Vec<_> =
                 f.resources.iter().filter_map(|(c, _)| first.get(&c.id).map(|&r| (c.clone(), r))).collect();
             resources.sort_by_key(|r| r.1);
+            // The part's payloads: those its rows reference, each on the
+            // part's first row that references it (walk order).
+            let mut payloads = Vec::new();
+            if !f.payloads.is_empty() {
+                let refs = f.cols[col("payload_refs")?]
+                    .as_any()
+                    .downcast_ref::<ListArray>()
+                    .ok_or_else(|| EncodeError("late split: payload_refs is not a list".into()))?;
+                let index: HashMap<&[u8; 16], usize> = f.payloads.iter().enumerate().map(|(i, p)| (&p.hash, i)).collect();
+                let mut seen: HashSet<usize> = HashSet::new();
+                let mut row = 0u32;
+                for i in (0..ts.len()).filter(|i| keep[*i]) {
+                    let l = refs.value(i);
+                    let l = l.as_any().downcast_ref::<BinaryArray>().ok_or_else(|| EncodeError("late split: payload_refs elements".into()))?;
+                    for r in l.iter().flatten() {
+                        let mut h = [0u8; 16];
+                        if hex::decode_to_slice(r, &mut h).is_ok()
+                            && let Some(&j) = index.get(&h)
+                            && seen.insert(j)
+                        {
+                            payloads.push(crate::offload::Payload { hash: h, content: f.payloads[j].content.clone(), first_row: row });
+                        }
+                    }
+                    row += 1;
+                }
+            }
             let content = key(&part_namespace(f.signal, part, after_ns), &cols);
-            out.push(Flat { signal: f.signal, content, cols, stats, announce: Vec::new(), resources, split: Some((part, after_ns)) });
+            out.push(Flat {
+                signal: f.signal,
+                content,
+                cols,
+                stats,
+                announce: Vec::new(),
+                resources,
+                split: Some((part, after_ns)),
+                payloads,
+                offload: if part == Part::Bulk { f.offload } else { Default::default() },
+            });
         }
         Ok(out)
     }

@@ -109,6 +109,11 @@ pub struct Config {
     /// above the fleet's clock skew. The Go edge's `late_split_after`.
     #[serde(default = "default_late_split_after", with = "humantime_serde")]
     pub late_split_after: std::time::Duration,
+    /// Content by reference (`offload.rs`, DECISIONS.md D36): large values
+    /// and the GenAI content keys go to the object's payload part. On by
+    /// default with the owner's policy (2 KiB, 8 MiB, split at the edge).
+    #[serde(default)]
+    pub offload: crate::offload::OffloadOptions,
 }
 
 fn default_late_split_after() -> std::time::Duration {
@@ -194,6 +199,7 @@ pub fn validate_config(v: &serde_json::Value) -> Result<(), otel_arrow_dfe_confi
             error: "s3.url, cluster and producer_id are required".into(),
         });
     }
+    c.offload.validate().map_err(|error| otel_arrow_dfe_config::error::Error::InvalidUserConfig { error })?;
     for (what, v) in [("cluster", &c.cluster), ("producer_id", &c.producer_id)] {
         if !proto::valid_name(v) {
             return Err(otel_arrow_dfe_config::error::Error::InvalidUserConfig {
@@ -217,8 +223,10 @@ pub static S3PQ_EXPORTER: ExporterFactory<OtapPdata> = ExporterFactory {
             let config: Config = serde_json::from_value(node_config.config.clone()).map_err(|e| {
                 otel_arrow_dfe_config::error::Error::InvalidUserConfig { error: e.to_string() }
             })?;
+            config.offload.validate().map_err(|error| otel_arrow_dfe_config::error::Error::InvalidUserConfig { error })?;
             let outcomes = crate::commit_metrics::CommitOutcomes::register(&pipeline);
-            Ok(ExporterWrapper::local(S3pqExporter { config, outcomes }, node, node_config, exporter_config))
+            let offload = crate::commit_metrics::OffloadOutcomes::register(&pipeline);
+            Ok(ExporterWrapper::local(S3pqExporter { config, outcomes, offload }, node, node_config, exporter_config))
         },
     validate_config,
     context_declarations: None,
@@ -229,6 +237,8 @@ pub struct S3pqExporter {
     config: Config,
     /// `s3pq_commit_outcomes_total{outcome}` (`commit_metrics.rs`).
     outcomes: crate::commit_metrics::CommitOutcomes,
+    /// `s3pq_offload_total{outcome}`.
+    offload: crate::commit_metrics::OffloadOutcomes,
 }
 
 struct LaneState {
@@ -236,6 +246,8 @@ struct LaneState {
     cache: EncodedCache,
     /// The resources announced in this lane's epoch (traces, logs).
     ann: crate::resource::AnnounceCache,
+    /// The payloads carried in this lane's epoch (`offload.rs`).
+    payloads: crate::offload::PayloadCache,
 }
 
 /// A request's outcome: one entry per object.
@@ -262,6 +274,8 @@ struct Shared {
     late_split_ns: u64,
     /// NACKs sent upstream (a durable buffer takes them back into custody).
     nacks_sent: std::cell::Cell<u64>,
+    offload: crate::offload::OffloadOptions,
+    offload_stats: RefCell<crate::offload::OffloadStats>,
 }
 
 impl Shared {
@@ -421,8 +435,8 @@ fn received_ns(ingestion_time: Option<SystemTime>, now: impl FnOnce() -> u64) ->
 
 /// Content hash + flattened columns for each of a request's objects; a
 /// traces or logs request with late rows is two objects (`late.rs`).
-fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
-    let flats = prepare_whole(sh, pdata, path)?;
+fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath, received_ns: u64) -> Result<Vec<Flat>, String> {
+    let flats = prepare_whole(sh, pdata, path, received_ns)?;
     if sh.late_split_ns == 0 || signal_of(pdata.signal_type()).is_metrics() {
         return Ok(flats);
     }
@@ -447,7 +461,7 @@ fn prepare(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, 
     Ok(out)
 }
 
-fn prepare_whole(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<Flat>, String> {
+fn prepare_whole(sh: &Shared, pdata: &OtapPdata, path: OtlpPath, received_ns: u64) -> Result<Vec<Flat>, String> {
     let signal = signal_of(pdata.signal_type());
     let mut enc = sh.encoder.borrow_mut();
     match pdata.payload_ref().data() {
@@ -459,11 +473,11 @@ fn prepare_whole(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<F
                 OtlpProtoBytes::ExportMetricsRequest(x) => (x, Input::OtlpMetrics(x)),
             };
             match path {
-                OtlpPath::Direct => enc.flatten_all(&input).map_err(|e| e.0),
+                OtlpPath::Direct => enc.flatten_all_at(&input, received_ns).map_err(|e| e.0),
                 OtlpPath::ViaOtap => {
                     let recs: OtapArrowRecords = b.clone().try_into_with_default().map_err(|e| format!("{e}"))?;
                     let input = if signal.is_metrics() { Input::OtapMetrics(&recs) } else { Input::Otap(signal, &recs) };
-                    let mut fs = enc.flatten_all(&input).map_err(|e| e.0)?;
+                    let mut fs = enc.flatten_all_at(&input, received_ns).map_err(|e| e.0)?;
                     // Keep the request's content keys, so both paths dedup alike
                     // (a series object is keyed by its own content on both).
                     for f in fs.iter_mut().filter(|f| f.signal != Signal::MetricsSeries) {
@@ -483,8 +497,22 @@ fn prepare_whole(sh: &Shared, pdata: &OtapPdata, path: OtlpPath) -> Result<Vec<F
             let mut r = r.clone();
             r.decode_transport_optimized_ids().map_err(|e| format!("decode OTAP ids: {e}"))?;
             let input = if signal.is_metrics() { Input::OtapMetrics(&r) } else { Input::Otap(signal, &r) };
-            enc.flatten_all(&input).map_err(|e| e.0)
+            enc.flatten_all_at(&input, received_ns).map_err(|e| e.0)
         }
+    }
+}
+
+/// The request's size when it is an OTLP request over the offloader's
+/// request cap (offloading on).
+fn over_request_cap(pdata: &OtapPdata, o: &crate::offload::OffloadOptions) -> Option<usize> {
+    if !o.enabled {
+        return None;
+    }
+    match pdata.payload_ref().data() {
+        PayloadData::OtlpBytes(
+            OtlpProtoBytes::ExportTracesRequest(x) | OtlpProtoBytes::ExportLogsRequest(x) | OtlpProtoBytes::ExportMetricsRequest(x),
+        ) => (x.len() > o.max_request_bytes).then_some(x.len()),
+        PayloadData::OtapArrowRecords(_) => None,
     }
 }
 
@@ -507,7 +535,9 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
     let opts = &sh.resources;
     let window = opts.window_of(received_ns);
     let announced: RefCell<Vec<u64>> = RefCell::new(Vec::new());
+    let carried: RefCell<Vec<[u8; 16]>> = RefCell::new(Vec::new());
     let ann = &st.ann;
+    let pc = &st.payloads;
     let mut encode = |r: &Ref| {
         let env = Envelope {
             producer: producer.clone(),
@@ -516,8 +546,12 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
             received_ns,
         };
         let wants = |id: u64| opts.announce && ann.wants(&r.epoch, id, window);
-        let (mut o, ids) = sh.encoder.borrow().encode_announcing(&flat, &env, &wants).map_err(|e| e.0)?;
-        *announced.borrow_mut() = ids;
+        // Payloads: carried unless an object of this lane's epoch that
+        // carried them has committed (`offload::PayloadCache`).
+        let wants_payload = |h: &[u8; 16]| pc.wants(&r.epoch, h);
+        let (mut o, c) = sh.encoder.borrow().encode_carrying(&flat, &env, &wants, &wants_payload).map_err(|e| e.0)?;
+        *announced.borrow_mut() = c.announced;
+        *carried.borrow_mut() = c.payloads;
         let _ = o.meta.insert(proto::META_FORMAT.to_string(), proto::FORMAT_VERSION.to_string());
         let _ = o.meta.insert(proto::META_CLUSTER.to_string(), sh.cluster.clone());
         // Computed when the object is encoded for its slot, and cached with
@@ -551,6 +585,15 @@ async fn commit_one(sh: Rc<Shared>, flat: Flat, received_ns: u64) -> (Signal, Pa
         let ids = announced.take();
         if !ids.is_empty() {
             st.ann.announced(&r.epoch, &ids, window, opts.cache_size);
+        }
+        // Payloads likewise: sent once the object carrying them committed.
+        let hs = carried.take();
+        let mut os = sh.offload_stats.borrow_mut();
+        os.add(&flat.offload);
+        os.carried += hs.len() as u64;
+        os.dedup += (flat.payloads.len() - hs.len().min(flat.payloads.len())) as u64;
+        if !hs.is_empty() {
+            st.payloads.sent(&r.epoch, &hs, sh.offload.cache_size);
         }
     }
     if sh.verbose {
@@ -609,6 +652,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
     ) -> Result<TerminalState, Error> {
         let cfg = self.config;
         let mut outcomes = self.outcomes;
+        let mut offload_outcomes = self.offload;
         let store = cfg.s3.build().map_err(|e| Error::ExporterError {
             exporter: effect_handler.exporter_id(),
             kind: ExporterErrorKind::Configuration,
@@ -627,6 +671,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         lane: Lane::new(String::new()),
                         cache: EncodedCache::default(),
                         ann: Default::default(),
+                        payloads: Default::default(),
                     })),
                 );
             }
@@ -640,7 +685,9 @@ impl Exporter<OtapPdata> for S3pqExporter {
             timeouts: Timeouts { put: cfg.s3.put_timeout, head: cfg.s3.head_timeout },
             store,
             encoder: RefCell::new(
-                Encoder::new(cfg.parquet.clone(), cfg.format).with_metrics_layout(cfg.metrics_layout, cfg.series.clone()),
+                Encoder::new(cfg.parquet.clone(), cfg.format)
+                    .with_metrics_layout(cfg.metrics_layout, cfg.series.clone())
+                    .with_offload(cfg.offload.clone(), &cfg.cluster),
             ),
             stats: Stats::default(),
             producer: cfg.producer_id.clone(),
@@ -655,6 +702,8 @@ impl Exporter<OtapPdata> for S3pqExporter {
             resources: cfg.resources.clone(),
             late_split_ns: cfg.late_split_after.as_nanos().min(u64::MAX as u128) as u64,
             nacks_sent: std::cell::Cell::new(0),
+            offload: cfg.offload.clone(),
+            offload_stats: RefCell::new(Default::default()),
         });
         // Heartbeats: the births first (every lane this publisher can write
         // is registered before it takes a request, up to birth_timeout),
@@ -810,6 +859,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
                 }
                 Message::Control(NodeControlMsg::CollectTelemetry { mut metrics_reporter }) => {
                     let _ = outcomes.report(&sh.stats, &mut metrics_reporter);
+                    let _ = offload_outcomes.report(&sh.offload_stats.borrow(), &mut metrics_reporter);
                 }
                 Message::Control(_) => {}
                 Message::PData(pdata) => {
@@ -818,8 +868,18 @@ impl Exporter<OtapPdata> for S3pqExporter {
                         continue;
                     }
                     let received_ns = received_ns(pdata.ingestion_time(), now_ns);
+                    // The request cap (offload.max_request_bytes, R-L4): an
+                    // OTLP request over it is refused as a client error, not
+                    // accepted and dropped.
+                    if let Some(n) = over_request_cap(&pdata, &cfg.offload) {
+                        sh.offload_stats.borrow_mut().refused += 1;
+                        let e = format!("request of {n} bytes exceeds offload.max_request_bytes {}", cfg.offload.max_request_bytes);
+                        crate::log(&format!("rejecting request: {e}"));
+                        effect_handler.notify_nack(NackMsg::new_permanent_with_cause(e, pdata, NackCause::Refused)).await?;
+                        continue;
+                    }
                     let t_prep = Instant::now();
-                    let prepared = prepare(&sh, &pdata, cfg.otlp_path);
+                    let prepared = prepare(&sh, &pdata, cfg.otlp_path, received_ns);
                     if sh.verbose {
                         crate::log(&format!(
                             "prepare ({}): {:?}",

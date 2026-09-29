@@ -39,6 +39,14 @@ pub const META_LOW: &str = "oscope-low";
 /// (`resource_announce`, `../../FORMAT.md` §2); the consumer inserts
 /// announcements only from objects with a nonzero count.
 pub const META_ANNOUNCE: &str = "oscope-announce";
+/// Traces and logs: how many payloads the object carries (`payloads`,
+/// `../../FORMAT.md` §2.3, DECISIONS.md D36); the consumer inserts payloads
+/// only from objects with a nonzero count, before their rows.
+pub const META_PAYLOADS: &str = "oscope-payloads";
+/// Traces and logs: how many distinct payload references the object's rows
+/// hold (`payload_refs`): the consumer's dangling check reads only objects
+/// with a nonzero count.
+pub const META_PAYLOAD_REFS: &str = "oscope-payload-refs";
 /// Traces and logs split by event time (DECISIONS.md D31, `late.rs`): which
 /// part of its request an object holds (`PART_BULK`, `PART_LATE`), and the
 /// bound (ns). Absent on an object that holds its whole request.

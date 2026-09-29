@@ -107,6 +107,70 @@ impl CommitOutcomes {
     }
 }
 
+/// What the payload offloader did (`offload.rs`, DECISIONS.md D36), as
+/// `s3pq_offload_total{outcome}`; the Go edge's `telemetry.go` has the same
+/// names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AttributeEnum)]
+pub enum OffloadOutcome {
+    Offloaded,
+    OffloadedBytes,
+    Split,
+    Truncated,
+    Redacted,
+    Refused,
+    Carried,
+    Dedup,
+}
+
+pub const OFFLOAD_OUTCOMES: [OffloadOutcome; 8] = [
+    OffloadOutcome::Offloaded,
+    OffloadOutcome::OffloadedBytes,
+    OffloadOutcome::Split,
+    OffloadOutcome::Truncated,
+    OffloadOutcome::Redacted,
+    OffloadOutcome::Refused,
+    OffloadOutcome::Carried,
+    OffloadOutcome::Dedup,
+];
+
+#[attribute_set(item, measurement)]
+#[derive(Debug, Clone, Copy)]
+pub struct OffloadOutcomeAttributes {
+    pub outcome: OffloadOutcome,
+}
+
+/// Payload offloader events, by outcome.
+#[metric_set(name = "exporter.s3pq.offload", measurement_attributes = OffloadOutcomeAttributes)]
+#[derive(Debug, Default, Clone)]
+pub struct OffloadMetrics {
+    /// Values offloaded, split, truncated or redacted, requests refused,
+    /// payloads carried or deduplicated, and offloaded bytes, by outcome.
+    #[metric(unit = "{event}")]
+    pub s3pq_offload: Counter<u64>,
+}
+
+/// The offloader's metric set plus what it has been given so far.
+pub struct OffloadOutcomes {
+    set: MeasurementMetricSet<OffloadMetrics>,
+    last: [u64; 8],
+}
+
+impl OffloadOutcomes {
+    pub fn register(ctx: &PipelineContext) -> Self {
+        OffloadOutcomes { set: OffloadMetrics::register(ctx), last: [0; 8] }
+    }
+
+    pub fn report(&mut self, stats: &crate::offload::OffloadStats, reporter: &mut MetricsReporter) -> Result<(), Error> {
+        let now = stats.totals();
+        for (i, o) in OFFLOAD_OUTCOMES.iter().enumerate() {
+            let d = now[i].saturating_sub(self.last[i]);
+            self.set.with(OffloadOutcomeAttributes { outcome: *o }).s3pq_offload.add(d);
+        }
+        self.last = now;
+        reporter.report_measurement(&mut self.set)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,6 +182,14 @@ mod tests {
         assert_eq!(
             CommitOutcome::VARIANTS,
             &["committed", "resolved_own", "known", "learned_other", "resent", "tombstoned", "unresolved", "inconsistent"]
+        );
+    }
+
+    #[test]
+    fn offload_label_values_match_the_go_edge() {
+        assert_eq!(
+            OffloadOutcome::VARIANTS,
+            &["offloaded", "offloaded_bytes", "split", "truncated", "redacted", "refused", "carried", "dedup"]
         );
     }
 

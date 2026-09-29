@@ -1063,7 +1063,7 @@ fn prop_parquet_round_trip(tc: TestCase) {
     let f = enc.flatten(&Input::Otlp(sig, &b)).expect("flatten");
     let obj = enc.encode(&f, &e).expect("encode");
     let sc = enc.schemas(sig);
-    let want = enc.rows(&f, &e, &|_| true).0;
+    let want = enc.rows(&f, &e, &|_| true, &|_| true).0;
     let mut got = decode(sc, &obj.body);
     assert_eq!(got.num_rows(), want.num_rows());
     if o.sort.enabled() {

@@ -8,6 +8,7 @@
 //! the contrib clickhouse exporter's row shape.
 
 use crate::columns::{Bin, ListOff, Map, prim, repeat_bin};
+use crate::offload::{Offloader, Outcome};
 use crate::render;
 use crate::resource::{Covered, CoveredBuilder, Resources};
 use crate::schema::{Schemas, ts_type};
@@ -76,6 +77,49 @@ fn push_attrs<A: AttributeView>(m: &mut Map, it: impl Iterator<Item = A>) {
         push_value(&mut m.vals, v.as_ref());
     }
     m.commit();
+}
+
+/// Offloads the value just pushed to `vals` (under `key`) when it is a
+/// candidate (`offload.rs`): the reference document replaces it in place.
+#[inline]
+fn offload_last(vals: &mut Bin, key: &[u8], off: &mut Offloader, row: u32, out: &mut Vec<u8>) {
+    let n = vals.len();
+    let start = vals.off[n - 1] as usize;
+    if !off.candidate(key, vals.data.len() - start) {
+        return;
+    }
+    if off.value(key, &vals.data[start..], row, out) == Outcome::Replaced {
+        vals.data.truncate(start);
+        vals.data.extend_from_slice(out);
+        vals.off[n] = vals.data.len() as i32;
+    }
+}
+
+/// `push_attrs` through the offloader (span, span event and log attributes):
+/// each value may become a reference document; the markers of this map (and
+/// any pending before it: a log body's) are appended after its entries.
+fn push_attrs_off<A: AttributeView>(m: &mut Map, it: impl Iterator<Item = A>, off: &mut Option<Offloader>, row: u32, out: &mut Vec<u8>) {
+    let Some(o) = off.as_mut() else {
+        push_attrs(m, it);
+        return;
+    };
+    for kv in it {
+        m.keys.push(kv.key());
+        let v = kv.value();
+        push_value(&mut m.vals, v.as_ref());
+        offload_last(&mut m.vals, kv.key(), o, row, out);
+    }
+    for (k, v) in o.markers.drain(..) {
+        m.keys.push(&k);
+        m.vals.push(&v);
+    }
+    m.commit();
+}
+
+/// The tenant of a resource for the payload hash: its covered
+/// `k8s.namespace.name` (the edge's resource detection, R-L1).
+fn covered_namespace(c: &Covered) -> &[u8] {
+    c.pairs.iter().find(|(k, _)| k.as_slice() == b"k8s.namespace.name").map(|(_, v)| v.as_slice()).unwrap_or_default()
 }
 
 /// A map rendered once and copied into every row that shares it (resource
@@ -184,6 +228,11 @@ pub struct TracesBuf {
     res_pre: PreMap,
     svc_scratch: Vec<u8>,
     res: Resources,
+    /// The request's offloader (`offload.rs`), when offloading is on.
+    pub off: Option<Offloader>,
+    refs_off: ListOff,
+    refs: Bin,
+    off_scratch: Vec<u8>,
 }
 
 impl TracesBuf {
@@ -208,6 +257,7 @@ impl TracesBuf {
             &mut self.ln_tid,
             &mut self.ln_sid,
             &mut self.ln_state,
+            &mut self.refs,
         ] {
             b.clear();
         }
@@ -221,6 +271,7 @@ impl TracesBuf {
         }
         self.ev_off.clear();
         self.ln_off.clear();
+        self.refs_off.clear();
     }
 
     /// Walks the traces into the buffers; returns the row stats.
@@ -233,11 +284,18 @@ impl TracesBuf {
                 Some(r) => {
                     self.res_pre.fill(r.attributes());
                     service_name(&mut self.svc_scratch, r.attributes());
-                    self.res.resource(covered_of(r.attributes()))
+                    let c = covered_of(r.attributes());
+                    if let Some(o) = self.off.as_mut() {
+                        o.tenant(covered_namespace(&c));
+                    }
+                    self.res.resource(c)
                 }
                 None => {
                     self.res_pre.fill(std::iter::empty::<NoAttr>());
                     self.svc_scratch.clear();
+                    if let Some(o) = self.off.as_mut() {
+                        o.tenant(b"");
+                    }
                     self.res.resource(Covered { id: crate::resource::empty_id(), pairs: Vec::new() })
                 }
             };
@@ -267,7 +325,8 @@ impl TracesBuf {
                     self.res.row(rid);
                     self.scope_name.push(&sname);
                     self.scope_version.push(&sver);
-                    push_attrs(&mut self.attrs, s.attributes());
+                    let row = st.rows as u32 - 1;
+                    push_attrs_off(&mut self.attrs, s.attributes(), &mut self.off, row, &mut self.off_scratch);
                     self.duration.push(end.wrapping_sub(start));
                     match s.status() {
                         Some(stt) => {
@@ -282,7 +341,7 @@ impl TracesBuf {
                     for ev in s.events() {
                         self.ev_ts.push(ev.time_unix_nano().unwrap_or(0) as i64);
                         self.ev_name.push(opt(ev.name()));
-                        push_attrs(&mut self.ev_attrs, ev.attributes());
+                        push_attrs_off(&mut self.ev_attrs, ev.attributes(), &mut self.off, row, &mut self.off_scratch);
                     }
                     self.ev_off.commit(self.ev_ts.len());
                     for l in s.links() {
@@ -294,6 +353,10 @@ impl TracesBuf {
                         push_attrs(&mut self.ln_attrs, l.attributes());
                     }
                     self.ln_off.commit(self.ln_tid.len());
+                    if let Some(o) = self.off.as_mut() {
+                        let _ = o.end_row(&mut self.refs);
+                    }
+                    self.refs_off.commit(self.refs.len());
                 }
             }
         }
@@ -336,6 +399,7 @@ impl TracesBuf {
             lst(&ln_off, &sc.str_elem, self.ln_state.take()),
             lst(&ln_off, &sc.map_elem, self.ln_attrs.take(&sc.entries)),
             prim::<UInt64Type>(std::mem::take(&mut self.res.ids), DataType::UInt64),
+            self.refs_off.take(&sc.str_elem, self.refs.take()),
         ]
     }
 
@@ -368,6 +432,11 @@ pub struct LogsBuf {
     scope_pre: PreMap,
     svc_scratch: Vec<u8>,
     res: Resources,
+    /// The request's offloader (`offload.rs`), when offloading is on.
+    pub off: Option<Offloader>,
+    refs_off: ListOff,
+    refs: Bin,
+    off_scratch: Vec<u8>,
 }
 
 impl LogsBuf {
@@ -387,12 +456,14 @@ impl LogsBuf {
             &mut self.scope_name,
             &mut self.scope_version,
             &mut self.event_name,
+            &mut self.refs,
         ] {
             b.clear();
         }
         for m in [&mut self.res_attrs, &mut self.scope_attrs, &mut self.attrs] {
             m.clear();
         }
+        self.refs_off.clear();
     }
 
     pub fn fill<L: LogsDataView>(&mut self, l: &L) -> Stats {
@@ -404,11 +475,18 @@ impl LogsBuf {
                 Some(r) => {
                     self.res_pre.fill(r.attributes());
                     service_name(&mut self.svc_scratch, r.attributes());
-                    self.res.resource(covered_of(r.attributes()))
+                    let c = covered_of(r.attributes());
+                    if let Some(o) = self.off.as_mut() {
+                        o.tenant(covered_namespace(&c));
+                    }
+                    self.res.resource(c)
                 }
                 None => {
                     self.res_pre.fill(std::iter::empty::<NoAttr>());
                     self.svc_scratch.clear();
+                    if let Some(o) = self.off.as_mut() {
+                        o.tenant(b"");
+                    }
                     self.res.resource(Covered { id: crate::resource::empty_id(), pairs: Vec::new() })
                 }
             };
@@ -442,8 +520,12 @@ impl LogsBuf {
                     self.sev_text.push(opt(r.severity_text()));
                     self.sev_num.push(r.severity_number().unwrap_or(0) as u8);
                     self.svc.push(&self.svc_scratch);
+                    let row = st.rows as u32 - 1;
                     let body = r.body();
                     push_value(&mut self.body, body.as_ref());
+                    if let Some(o) = self.off.as_mut() {
+                        offload_last(&mut self.body, crate::offload::BODY_KEY, o, row, &mut self.off_scratch);
+                    }
                     self.res_url.push(&res_url);
                     self.res_pre.copy_into(&mut self.res_attrs);
                     self.res.row(rid);
@@ -451,8 +533,12 @@ impl LogsBuf {
                     self.scope_name.push(&sname);
                     self.scope_version.push(&sver);
                     self.scope_pre.copy_into(&mut self.scope_attrs);
-                    push_attrs(&mut self.attrs, r.attributes());
+                    push_attrs_off(&mut self.attrs, r.attributes(), &mut self.off, row, &mut self.off_scratch);
                     self.event_name.push(opt(r.event_name()));
+                    if let Some(o) = self.off.as_mut() {
+                        let _ = o.end_row(&mut self.refs);
+                    }
+                    self.refs_off.commit(self.refs.len());
                 }
             }
         }
@@ -478,6 +564,7 @@ impl LogsBuf {
             self.attrs.take(&sc.entries),
             self.event_name.take(),
             prim::<UInt64Type>(std::mem::take(&mut self.res.ids), DataType::UInt64),
+            self.refs_off.take(&sc.str_elem, self.refs.take()),
         ]
     }
 

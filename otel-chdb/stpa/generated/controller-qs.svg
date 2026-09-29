@@ -19,8 +19,8 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <path d="M366 94V142" marker-end="url(#arrow)"/>
     <path d="M612 94V142" marker-end="url(#arrow)"/>
     <path d="M72 244H36V564H119V634" marker-end="url(#arrow)"/>
-    <path d="M72 312H48V552H333V634" marker-end="url(#arrow)"/>
-    <path d="M72 380H60V540H547V634" marker-end="url(#arrow)"/>
+    <path d="M72 327H48V552H333V634" marker-end="url(#arrow)"/>
+    <path d="M72 410H60V540H547V634" marker-end="url(#arrow)"/>
   </g>
   <g stroke-width="1.25" stroke-dasharray="5 4" class="f-none s-edge">
     <path d="M394 142V94" marker-end="url(#arrow)"/>
@@ -48,16 +48,19 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="84" y="226" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="382" y="210" width="300" height="306" rx="6" stroke="none" class="f-tint"/>
     <text x="388" y="226" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="84" y="248" font-weight="600" font-size="12" class="f-ink">SQL</text>
-    <text x="84" y="263" font-size="11.5" class="f-quiet">when a request or an evaluation arrives within</text>
-    <text x="84" y="278" font-size="11.5" class="f-quiet">the caller's grants and central covers its</text>
-    <text x="84" y="293" font-size="11.5" class="f-quiet">range</text>
-    <text x="84" y="316" font-weight="600" font-size="12" class="f-ink">plans, reads</text>
-    <text x="84" y="331" font-size="11.5" class="f-quiet">when the range is older than central keeps, or</text>
-    <text x="84" y="346" font-size="11.5" class="f-quiet">central is degraded: route to the lake and say</text>
-    <text x="84" y="361" font-size="11.5" class="f-quiet">so</text>
-    <text x="84" y="384" font-weight="600" font-size="12" class="f-ink">lookups</text>
-    <text x="84" y="399" font-size="11.5" class="f-quiet">when a query names entities</text>
+    <text x="84" y="248" font-weight="600" font-size="12" class="f-ink">answer from central</text>
+    <text x="84" y="263" font-size="11.5" class="f-ink">▸ SQL</text>
+    <text x="84" y="278" font-size="11.5" class="f-quiet">when a request or an evaluation arrives within</text>
+    <text x="84" y="293" font-size="11.5" class="f-quiet">the caller's grants and central covers its</text>
+    <text x="84" y="308" font-size="11.5" class="f-quiet">range</text>
+    <text x="84" y="331" font-weight="600" font-size="12" class="f-ink">route to the lake</text>
+    <text x="84" y="346" font-size="11.5" class="f-ink">▸ plans, reads</text>
+    <text x="84" y="361" font-size="11.5" class="f-quiet">when the range is older than central keeps, or</text>
+    <text x="84" y="376" font-size="11.5" class="f-quiet">central is degraded: route to the lake and say</text>
+    <text x="84" y="391" font-size="11.5" class="f-quiet">so</text>
+    <text x="84" y="414" font-weight="600" font-size="12" class="f-ink">resolve entities</text>
+    <text x="84" y="429" font-size="11.5" class="f-ink">▸ lookups</text>
+    <text x="84" y="444" font-size="11.5" class="f-quiet">when a query names entities</text>
     <text x="388" y="445" font-weight="600" font-size="12" class="f-ink">grants</text>
     <text x="388" y="460" font-size="11.5" class="f-quiet">The caller's grants: (role, cluster,</text>
     <text x="388" y="475" font-size="11.5" class="f-quiet">namespace) tuples (D38)</text>

@@ -2,8 +2,11 @@ package stpa
 
 import (
 	"flag"
+	"fmt"
+	"html"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -160,6 +163,112 @@ func TestCheckRejects(t *testing.T) {
 				t.Fatalf("want rule %q, got %v", c.rule, got)
 			}
 		})
+	}
+}
+
+// Rule names head the rules in the detail diagrams, so two rules of one controller may not
+// share a name (compared without case and extra spaces), while two controllers may.
+func TestRuleNamesUniqueWithinAController(t *testing.T) {
+	load := func(t *testing.T, janitor string) []Finding {
+		dir := copyTree(t, "testdata/mini")
+		f := filepath.Join(dir, "records", "controller-000b04.md")
+		b, _ := os.ReadFile(f)
+		old := "  - {name: delete an old slot, when: a slot is below every reader's position, uses: [positions], issues: [janitor->store/control/delete]}\n"
+		if !strings.Contains(string(b), old) {
+			t.Fatal("fixture text not found")
+		}
+		os.WriteFile(f, []byte(strings.Replace(string(b), old, janitor, 1)), 0o644)
+		p, err := Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Check()
+	}
+	dup := "  - {name: delete an old slot, when: a slot is below every reader's position, uses: [positions], issues: [janitor->store/control/delete]}\n" +
+		"  - {name: 'Delete  an old slot', when: a slot is quarantined, uses: [positions], issues: [janitor->store/control/delete]}\n"
+	found := false
+	for _, f := range load(t, dup) {
+		found = found || (!f.Warn && f.Rule == "controller-internals" && strings.Contains(f.Msg, "rule names are unique within a controller"))
+	}
+	if !found {
+		t.Fatal("two rules of one controller named alike were not rejected")
+	}
+	// A rule without a name is rejected too.
+	found = false
+	for _, f := range load(t, "  - {when: a slot is below every reader's position, uses: [positions], issues: [janitor->store/control/delete]}\n") {
+		found = found || (!f.Warn && f.Rule == "controller-internals" && strings.Contains(f.Msg, "name is required"))
+	}
+	if !found {
+		t.Fatal("a rule without a name was not rejected")
+	}
+	// The same name on another controller's rule is fine.
+	same := "  - {name: commit a batch, when: a slot is below every reader's position, uses: [positions], issues: [janitor->store/control/delete]}\n"
+	for _, f := range load(t, same) {
+		if !f.Warn {
+			t.Fatalf("a name shared across controllers must pass: %s", f)
+		}
+	}
+}
+
+// The detail diagram heads each rule with its name and puts the actions it issues on the line
+// below; every text of the PRD variant carries a text id, each once.
+func TestDetailRuleHeadingAndTextIDs(t *testing.T) {
+	p, err := Load("testdata/mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := p.Structure.Nodes["janitor"]
+	svg := p.DetailSVG(n)
+	head := strings.Index(svg, ">delete an old slot</text>")
+	sub := strings.Index(svg, ">▸ delete</text>")
+	if head < 0 || sub < head {
+		t.Fatalf("want the rule name as heading and the issued action below it:\n%s", svg)
+	}
+	jsx := p.DetailPRD(n)
+	texts := strings.Count(jsx, "<text")
+	ids := regexp.MustCompile(`data-claude-text-id='([^']+)'`).FindAllStringSubmatch(jsx, -1)
+	if texts == 0 || len(ids) != texts {
+		t.Fatalf("%d texts, %d text ids", texts, len(ids))
+	}
+	seen := map[string]bool{}
+	for _, m := range ids {
+		if seen[m[1]] {
+			t.Fatalf("text id %s used twice", m[1])
+		}
+		seen[m[1]] = true
+	}
+	if !seen["controller-000b04-r1"] || !seen["controller-000b04-r1-s"] {
+		t.Fatalf("rule text ids missing: %v", seen)
+	}
+}
+
+// Every node name in the repository's detail diagrams fits its box: a name wider than the box
+// (five nodes under the platform operators) is wrapped, not drawn across the border.
+func TestDetailNodeNamesFitTheirBoxes(t *testing.T) {
+	p, err := Load(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := regexp.MustCompile(`(?s)<g>\s*<rect x="\d+" y="\d+" width="(\d+)" height="(?:44|36)"[^>]*/>(.*?)</g>`)
+	name := regexp.MustCompile(`<text[^>]*>([^<]*)</text>`)
+	for _, n := range p.Structure.NodeOrder {
+		if !n.Controller || n.Rec == nil {
+			continue
+		}
+		svg := p.DetailSVG(n)
+		boxes := group.FindAllStringSubmatch(svg, -1)
+		if len(boxes) == 0 {
+			t.Fatalf("%s: no node boxes found", n.Name)
+		}
+		for _, b := range boxes {
+			var w int
+			fmt.Sscan(b[1], &w)
+			for _, m := range name.FindAllStringSubmatch(b[2], -1) {
+				if got := float64(len([]rune(html.UnescapeString(m[1])))) * nameCharW; got > float64(w-24) {
+					t.Errorf("%s: %q (~%.0f px) overflows its %d px box", n.Name, m[1], got, w)
+				}
+			}
+		}
 	}
 }
 

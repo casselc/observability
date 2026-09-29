@@ -18,7 +18,8 @@ process_model:
   meaning: The rules, acks and silences in force
   source: the on-call engineers' rules, acks and silences
 control_algorithm:
-- when: a rule's window has ended and the query service labels it complete
+- name: evaluate a complete window
+  when: a rule's window has ended and the query service labels it complete
   uses: [completeness, rules, firing]
   issues: [alerting->qs/control/evaluate]
 state: accepted

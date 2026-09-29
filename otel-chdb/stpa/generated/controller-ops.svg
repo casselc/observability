@@ -16,13 +16,13 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <text x="24" y="34" font-size="15" font-weight="600" class="f-ink">Platform operators: control algorithm and process model</text>
   <g stroke-width="1.25" class="f-none s-edge">
     <path d="M96 145H48V552H249V610" marker-end="url(#arrow)"/>
-    <path d="M96 145H36V564H121V610" marker-end="url(#arrow)"/>
-    <path d="M96 198H60V540H377V610" marker-end="url(#arrow)"/>
-    <path d="M96 266H72V528H497V610" marker-end="url(#arrow)"/>
-    <path d="M96 319H84V516H514V610" marker-end="url(#arrow)"/>
+    <path d="M96 145H36V564H123V610" marker-end="url(#arrow)"/>
+    <path d="M96 213H60V540H375V610" marker-end="url(#arrow)"/>
+    <path d="M96 296H72V528H492V610" marker-end="url(#arrow)"/>
+    <path d="M96 364H84V516H510V610" marker-end="url(#arrow)"/>
   </g>
   <g stroke-width="1.25" stroke-dasharray="5 4" class="f-none s-edge">
-    <path d="M684 610V576H724V145"/>
+    <path d="M682 610V576H724V145"/>
     <path d="M724 145H712" marker-end="url(#arrow)"/>
     <path d="M724 198H712" marker-end="url(#arrow)"/>
     <path d="M724 251H712" marker-end="url(#arrow)"/>
@@ -35,18 +35,22 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="108" y="127" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="406" y="111" width="300" height="381" rx="6" stroke="none" class="f-tint"/>
     <text x="412" y="127" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="108" y="149" font-weight="600" font-size="12" class="f-ink">config, deploy; config, deploy</text>
-    <text x="108" y="164" font-size="11.5" class="f-quiet">when a component is over its budget, failing</text>
-    <text x="108" y="179" font-size="11.5" class="f-quiet">or lagging</text>
-    <text x="108" y="202" font-weight="600" font-size="12" class="f-ink">retention</text>
-    <text x="108" y="217" font-size="11.5" class="f-quiet">when retention is changed for cost: never</text>
-    <text x="108" y="232" font-size="11.5" class="f-quiet">shorter than the longest outage the buffer</text>
-    <text x="108" y="247" font-size="11.5" class="f-quiet">rides out</text>
-    <text x="108" y="270" font-weight="600" font-size="12" class="f-ink">access</text>
-    <text x="108" y="285" font-size="11.5" class="f-quiet">when a role needs access: grant exactly the</text>
-    <text x="108" y="300" font-size="11.5" class="f-quiet">(cluster, namespace) pairs it needs</text>
-    <text x="108" y="323" font-weight="600" font-size="12" class="f-ink">routing</text>
-    <text x="108" y="338" font-size="11.5" class="f-quiet">when a source is degraded, added or retired</text>
+    <text x="108" y="149" font-weight="600" font-size="12" class="f-ink">reconfigure a component</text>
+    <text x="108" y="164" font-size="11.5" class="f-ink">▸ config, deploy</text>
+    <text x="108" y="179" font-size="11.5" class="f-quiet">when a component is over its budget, failing</text>
+    <text x="108" y="194" font-size="11.5" class="f-quiet">or lagging</text>
+    <text x="108" y="217" font-weight="600" font-size="12" class="f-ink">set retention</text>
+    <text x="108" y="232" font-size="11.5" class="f-ink">▸ retention</text>
+    <text x="108" y="247" font-size="11.5" class="f-quiet">when retention is changed for cost: never</text>
+    <text x="108" y="262" font-size="11.5" class="f-quiet">shorter than the longest outage the buffer</text>
+    <text x="108" y="277" font-size="11.5" class="f-quiet">rides out</text>
+    <text x="108" y="300" font-weight="600" font-size="12" class="f-ink">grant access</text>
+    <text x="108" y="315" font-size="11.5" class="f-ink">▸ access</text>
+    <text x="108" y="330" font-size="11.5" class="f-quiet">when a role needs access: grant exactly the</text>
+    <text x="108" y="345" font-size="11.5" class="f-quiet">(cluster, namespace) pairs it needs</text>
+    <text x="108" y="368" font-weight="600" font-size="12" class="f-ink">route a source</text>
+    <text x="108" y="383" font-size="11.5" class="f-ink">▸ routing</text>
+    <text x="108" y="398" font-size="11.5" class="f-quiet">when a source is degraded, added or retired</text>
     <text x="412" y="149" font-weight="600" font-size="12" class="f-ink">pipeline_health  ◂ health, audit, cost</text>
     <text x="412" y="164" font-size="11.5" class="f-quiet">Lag, errors, audit findings and cost of the</text>
     <text x="412" y="179" font-size="11.5" class="f-quiet">pipeline, per component and cluster</text>
@@ -70,24 +74,29 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="412" y="285" font-size="11.5" class="f-quiet">and which ranges each serves</text>
   </g>
   <g>
-    <rect x="96" y="610" width="102" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
-    <text x="108" y="637" font-weight="600" class="f-ink">Entity controllers</text>
+    <rect x="96" y="610" width="110" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
+    <text x="108" y="629" font-weight="600" class="f-ink">Entity</text>
+    <text x="108" y="645" font-weight="600" class="f-ink">controllers</text>
   </g>
   <g>
-    <rect x="224" y="610" width="102" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
-    <text x="236" y="637" font-weight="600" class="f-ink">Edge collectors</text>
+    <rect x="222" y="610" width="110" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
+    <text x="234" y="629" font-weight="600" class="f-ink">Edge</text>
+    <text x="234" y="645" font-weight="600" class="f-ink">collectors</text>
   </g>
   <g>
-    <rect x="352" y="610" width="102" height="44" rx="8" stroke-width="1.25" class="f-tint s-edge"/>
-    <text x="364" y="637" font-weight="600" class="f-ink">Central ClickHouse</text>
+    <rect x="348" y="610" width="110" height="44" rx="8" stroke-width="1.25" class="f-tint s-edge"/>
+    <text x="360" y="629" font-weight="600" class="f-ink">Central</text>
+    <text x="360" y="645" font-weight="600" class="f-ink">ClickHouse</text>
   </g>
   <g>
-    <rect x="480" y="610" width="102" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
-    <text x="492" y="637" font-weight="600" class="f-ink">Query service</text>
+    <rect x="474" y="610" width="110" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
+    <text x="486" y="629" font-weight="600" class="f-ink">Query</text>
+    <text x="486" y="645" font-weight="600" class="f-ink">service</text>
   </g>
   <g>
-    <rect x="608" y="610" width="102" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
-    <text x="620" y="637" font-weight="600" class="f-ink">GC, audit, sealer</text>
+    <rect x="600" y="610" width="110" height="44" rx="8" stroke-width="1.25" class="f-none s-edge"/>
+    <text x="612" y="629" font-weight="600" class="f-ink">GC, audit,</text>
+    <text x="612" y="645" font-weight="600" class="f-ink">sealer</text>
   </g>
   <g>
     <line x1="24" x2="56" y1="694" y2="694" stroke-width="1.25" class="s-edge"/>

@@ -17,7 +17,8 @@ process_model:
   meaning: The chosen scope, time range and snapshot
   source: the on-call engineers' queries and snapshot choice
 control_algorithm:
-- when: the scope, range or snapshot changes, or a view refreshes
+- name: refresh the view
+  when: the scope, range or snapshot changes, or a view refreshes
   uses: [scope, basis]
   issues: [ui->qs/control/requests]
 state: accepted

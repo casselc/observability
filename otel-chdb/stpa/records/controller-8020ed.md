@@ -30,16 +30,20 @@ process_model:
   meaning: Whether every incarnation of the lane's edge has closed or been tombstoned, so its custody is empty (D35)
   updated_by: [consumer->s3/feedback/list]
 control_algorithm:
-- when: the lane's lease is free or expired on this worker's own clock and the fair share wants it; or the held lease is due for renewal
+- name: take or renew the lease
+  when: the lane's lease is free or expired on this worker's own clock and the fair share wants it; or the held lease is due for renewal
   uses: [lease, checkpoint]
   issues: [consumer->s3/control/checkpoint, consumer->s3/control/lease]
-- when: the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved
+- name: insert a batch
+  when: the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved
   uses: [lease, fence, pending_objects, statement]
   issues: [consumer->clickhouse/control/insert]
-- when: a settled statement's objects are short in central's counts
+- name: repair a short count
+  when: a settled statement's objects are short in central's counts
   uses: [statement, row_counts]
   issues: [consumer->clickhouse/control/repair]
-- when: "every statement of a prefix is settled and counted: advance the checkpoint (and the watermark); a lane whose custody is proved empty is retired"
+- name: advance the checkpoint
+  when: "every statement of a prefix is settled and counted: advance the checkpoint (and the watermark); a lane whose custody is proved empty is retired"
   uses: [statement, row_counts, checkpoint, complete_through, lane_closed]
   issues: [consumer->s3/control/checkpoint]
 state: accepted

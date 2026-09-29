@@ -28,8 +28,9 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="60" y="211" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="388" y="195" width="330" height="192" rx="6" stroke="none" class="f-tint"/>
     <text x="394" y="211" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="60" y="233" font-weight="600" font-size="12" class="f-ink">entity records</text>
-    <text x="60" y="248" font-size="11.5" class="f-quiet">when a pod appears, changes version or goes</text>
+    <text x="60" y="233" font-weight="600" font-size="12" class="f-ink">record a pod change</text>
+    <text x="60" y="248" font-size="11.5" class="f-ink">▸ entity records</text>
+    <text x="60" y="263" font-size="11.5" class="f-quiet">when a pod appears, changes version or goes</text>
     <text x="394" y="233" font-weight="600" font-size="12" class="f-ink">pods</text>
     <text x="394" y="248" font-size="11.5" class="f-quiet">The running pods of its cluster and their resource</text>
     <text x="394" y="263" font-size="11.5" class="f-quiet">identities and versions</text>

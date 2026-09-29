@@ -22,16 +22,20 @@ process_model:
   meaning: Which sources (central, the lake) are healthy and which ranges each serves
   updated_by: [ops->gc/feedback/health]
 control_algorithm:
-- when: a component is over its budget, failing or lagging
+- name: reconfigure a component
+  when: a component is over its budget, failing or lagging
   uses: [pipeline_health, budgets]
   issues: [ops->edge/control/config, ops->ec/control/config]
-- when: "retention is changed for cost: never shorter than the longest outage the buffer rides out"
+- name: set retention
+  when: "retention is changed for cost: never shorter than the longest outage the buffer rides out"
   uses: [longest_outage, budgets]
   issues: [ops->clickhouse/control/retention]
-- when: "a role needs access: grant exactly the (cluster, namespace) pairs it needs"
+- name: grant access
+  when: "a role needs access: grant exactly the (cluster, namespace) pairs it needs"
   uses: [role_needs]
   issues: [ops->qs/control/access]
-- when: a source is degraded, added or retired
+- name: route a source
+  when: a source is degraded, added or retired
   uses: [source_state]
   issues: [ops->qs/control/routing]
 state: accepted

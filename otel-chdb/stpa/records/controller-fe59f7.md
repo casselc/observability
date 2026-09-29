@@ -19,16 +19,20 @@ process_model:
   meaning: Whether the lane's next slot is free, taken by this edge, or unresolved (a PUT with no answer)
   updated_by: [edge->s3/feedback/outcome]
 control_algorithm:
-- when: the request's batch is durable
+- name: acknowledge a durable batch
+  when: the request's batch is durable
   uses: [durable]
   issues: [edge->producers/control/ack]
-- when: the buffer is at its cap
+- name: push back when full
+  when: the buffer is at its cap
   uses: [buffer_level]
   issues: [edge->producers/control/push-back]
-- when: a buffered batch waits and the lane's next slot is free
+- name: put a batch
+  when: a buffered batch waits and the lane's next slot is free
   uses: [slot_state, received_at]
   issues: [edge->s3/control/put]
-- when: a PUT got no answer and the slot is unresolved (at most 8 resends, then hand back unresolved); or, after a restart, a buffered batch not yet committed, keeping its received_at
+- name: resend an unresolved PUT
+  when: a PUT got no answer and the slot is unresolved (at most 8 resends, then hand back unresolved); or, after a restart, a buffered batch not yet committed, keeping its received_at
   uses: [slot_state, durable, received_at]
   issues: [edge->s3/control/resend]
 state: accepted

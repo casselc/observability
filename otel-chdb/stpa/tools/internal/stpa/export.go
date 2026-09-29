@@ -124,7 +124,7 @@ func (p *Project) ExportV0(dir string) error {
 						acts = append(acts, entryID[e])
 					}
 				}
-				algo = append(algo, map[string]any{"when": rule["when"], "uses": rule["uses"], "issues": acts})
+				algo = append(algo, map[string]any{"name": rule["name"], "when": rule["when"], "uses": rule["uses"], "issues": acts})
 			}
 			if len(pm) > 0 {
 				m["process_model"] = pm

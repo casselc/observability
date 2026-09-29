@@ -49,7 +49,7 @@ const repoStyle = `svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;
 
 var jsxName = map[string]string{
 	"stroke-width": "strokeWidth", "stroke-dasharray": "strokeDasharray", "marker-end": "markerEnd",
-	"font-size": "fontSize", "font-weight": "fontWeight", "text-anchor": "textAnchor", "fill-opacity": "fillOpacity",
+	"font-size": "fontSize", "font-weight": "fontWeight", "text-anchor": "textAnchor", "fill-opacity": "fillOpacity", "font-style": "fontStyle",
 	"aria-label": "aria-label", "class": "className",
 }
 
@@ -280,7 +280,7 @@ func (L *Layout) diagram(markerID string) *el {
 // compartments draws a controller box's two compartments at its bottom: the control algorithm
 // (left, where control leaves) and the process model (right, where feedback arrives). With
 // Internals "headers" they carry only their name and size (the detail diagram has the rest);
-// with "full", the actions each rule issues and the variables' names.
+// with "full", the rules' names and the variables' names.
 func (L *Layout) compartments(b *Box) []*el {
 	c := b.Rec
 	rules, vars := algoOf(c), pmOf(c)
@@ -312,13 +312,7 @@ func (L *Layout) compartments(b *Box) []*el {
 	out = append(out, text(mid+8, top+13, "PROCESS MODEL", "pm", "font-size", "9.5", "font-weight", "600", "fill", "@quiet"))
 	room := int(float64(mid-b.X-16) / 5.7)
 	for i, r := range rules {
-		var acts []string
-		for _, path := range strList(r["issues"]) {
-			if e := L.p.Structure.Entries[path]; e != nil && !contains(acts, e.Label) {
-				acts = append(acts, e.Label)
-			}
-		}
-		out = append(out, text(b.X+11, top+27+13*i, clipTo("▸ "+strings.Join(acts, ", "), room), fmt.Sprintf("ca%d", i+1), "font-size", "10.5", "fill", "@ink"))
+		out = append(out, text(b.X+11, top+27+13*i, clipTo("▸ "+fmt.Sprint(r["name"]), room), fmt.Sprintf("ca%d", i+1), "font-size", "10.5", "fill", "@ink"))
 	}
 	for i, v := range vars {
 		out = append(out, text(mid+8, top+27+13*i, clipTo(fmt.Sprint(v["name"]), room), fmt.Sprintf("pm%d", i+1), "font-size", "10.5", "fill", "@ink"))
@@ -357,11 +351,14 @@ func (L *Layout) SVG() string {
 	return strings.Replace(b.String(), "&#39;", "'", -1)
 }
 
+// prdPrelude opens a PRD widget module: the colour roles as the document's theme tokens.
+const prdPrelude = "export default () => { const edge = 'var(--cds-chart-axis)', tint = 'var(--cds-chart-reference-tint)', accent = 'var(--cds-chart-categorical-1)', ink = 'var(--cds-text-primary)', quiet = 'var(--cds-text-secondary)'; return "
+
 // PRD renders the view as the PRD's widget code: JSX in SVG, the document's theme tokens,
 // one data-claude-text-id per text so the document can address each string.
 func (L *Layout) PRD() string {
 	var b strings.Builder
-	b.WriteString("export default () => { const edge = 'var(--cds-chart-axis)', tint = 'var(--cds-chart-reference-tint)', accent = 'var(--cds-chart-categorical-1)', ink = 'var(--cds-text-primary)', quiet = 'var(--cds-text-secondary)'; return ")
+	b.WriteString(prdPrelude)
 	L.diagram(L.View.Name + "-arrow").writeJSX(&b)
 	b.WriteString("; };\n")
 	return b.String()

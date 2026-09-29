@@ -203,10 +203,12 @@ process_model:
   meaning: "The deadline a statement carries, evaluated on ClickHouse's clock: sent + ttl - margin - budget (D9)"
   source: computed from the lease write's send time, the TTL and the margin
 control_algorithm:
-- when: the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved
+- name: insert a batch
+  when: the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved
   uses: [lease, fence, pending_objects, statement]
   issues: [consumer->clickhouse/control/insert]
-- when: a settled statement's objects are short in central's counts
+- name: repair a short count
+  when: a settled statement's objects are short in central's counts
   uses: [statement, row_counts]
   issues: [consumer->clickhouse/control/repair]
 state: accepted
@@ -245,13 +247,15 @@ action and feedback record ids resolvable (`generated/labels.json`).
 A **process-model variable** has a `name`, its `meaning`, and where it comes from: `updated_by`, the
 feedback entries (of this controller's own links) that update it, or `source`, a sentence for a belief no
 feedback updates (the edge's own clock, a configuration, the Kubernetes API outside the structure). A
-**rule** of the control algorithm has a condition (`when`), the variables it `uses`, and the control
-entries it `issues`. They were derived from what STPA.md (UCA contexts, loss scenarios, the CAST "flawed
+**rule** of the control algorithm has a `name` (what it decides: "take or renew the lease", "advance
+the checkpoint"; unique within its controller, since it heads the rule in the detail diagram, where two
+rules issuing the same action would otherwise read alike), a condition (`when`), the variables it `uses`,
+and the control entries it `issues`. They were derived from what STPA.md (UCA contexts, loss scenarios, the CAST "flawed
 process model" cells) and DECISIONS.md (D8, D9, D11, D12, D19, D21–D23, D29, D30, D35, D38) already say;
 42 variables and 25 rules for the 10 controllers.
 
 Checks: every feedback entry updates some variable of its upper controller; every variable has a source;
-every control entry is issued by some rule; a rule uses only its controller's variables and issues only its
+every control entry is issued by some rule; every rule has a name, unique within its controller; a rule uses only its controller's variables and issues only its
 controller's links. UCAs name the variables their context is about (`variables: [lease, fence]`, resolved
 against the UCA's controller); loss scenarios and CAST rows name them qualified (`consumer/lease`); a
 flawed-process-model scenario or CAST row that names none is a **warning** (34, all CAST rows whose
@@ -266,7 +270,7 @@ process (the edge's acks and 503s act on them: UCA-1, UCA-3).
 keeps its boxes and gives each controller a strip with its two compartments, control algorithm (left, where
 control leaves) and process model (right, where feedback arrives), with their sizes; one **detail
 diagram per controller** ([generated/controller-*.svg](generated/)) draws the controller as the STPA
-Handbook does: rules on the left, each starting the control arrows it issues; variables on the right, each
+Handbook does: rules on the left (headed by the rule's name, the actions it issues on the line below), each starting the control arrows it issues; variables on the right, each
 the end of the feedback arrows that update it; the controllers above and the nodes below as in the
 structure. The order of rules, variables and nodes is the one with the fewest crossings (tried
 exhaustively, deterministic). A Mermaid version of each detail is generated too; it is legible for small
@@ -391,7 +395,8 @@ for the controller side: a feedback entry needs a process-model variable that it
 rule that issues it. Placement is in `views/control-structure-*.yaml` (rows, `span`, `col`, `width`,
 `detail: false`, `internals`); every link between two placed nodes is drawn.
 
-**The PRD.** Paste `generated/<view>.prd.jsx` into the PRD's widget; its text ids are stable across
+**The PRD.** Paste `generated/<view>.prd.jsx` (the overviews) and `generated/controller-<node>.prd.jsx`
+(the detail diagrams, under "Controller internals") into the PRD's widgets; its text ids are stable across
 re-renders as long as the records keep their ids and the structure its node names and entry keys.
 
 ## 8. Owner decisions (2026-09-29)

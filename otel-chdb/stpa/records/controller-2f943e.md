@@ -22,13 +22,16 @@ process_model:
   meaning: The entities a query names, resolved to resource ids
   updated_by: [qs->catalog/feedback/entities]
 control_algorithm:
-- when: a request or an evaluation arrives within the caller's grants and central covers its range
+- name: answer from central
+  when: a request or an evaluation arrives within the caller's grants and central covers its range
   uses: [grants, source_coverage, basis]
   issues: [qs->clickhouse/control/sql]
-- when: "the range is older than central keeps, or central is degraded: route to the lake and say so"
+- name: route to the lake
+  when: "the range is older than central keeps, or central is degraded: route to the lake and say so"
   uses: [grants, source_coverage]
   issues: [qs->lake/control/reads]
-- when: a query names entities
+- name: resolve entities
+  when: a query names entities
   uses: [grants, entities]
   issues: [qs->catalog/control/lookups]
 state: accepted

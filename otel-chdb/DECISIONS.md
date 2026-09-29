@@ -3996,7 +3996,15 @@ its own document whose shape makes redundant or duplicate links impossible ("the
 allow controller and controlled process references which can be linked with labelled control or
 feedback edges"), decomposed into controller records (holding their process model and control
 algorithm), controlled-process records (metadata only), the analysis records, and the structure; and
-the diagrams show each controller's control algorithm and process model.
+the diagrams show each controller's control algorithm and process model. Then (2026-09-29) "Update the
+PRD's STPA diagrams to the generated layout: the overview with algorithm | process-model strips, plus one
+detail diagram per controller — all of it": the PRD's diagrams A and B are the generated overview widgets
+(`generated/control-structure-{a,b}.prd.jsx`) and its "Controller internals" subsection embeds the ten
+detail diagrams (`generated/controller-<node>.prd.jsx`, a PRD variant the renderer now emits); and, since
+a detail diagram headed each rule by the actions it issues (the consumer had two rules both headed
+"checkpoints"), every rule now has a `name` for what it decides ("take or renew the lease", "advance the
+checkpoint"), shown as the rule's heading with the issued actions on the line below, and checked unique
+within its controller.
 
 **Status:** **accepted; built** (2026-09-29): [stpa/](stpa/README.md) holds 222 records and
 [stpa/structure.yaml](stpa/structure.yaml); every table of STPA.md, the extensions' losses, hazards and

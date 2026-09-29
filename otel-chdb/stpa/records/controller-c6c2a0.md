@@ -18,16 +18,20 @@ process_model:
   meaning: Which silences and pinned snapshots are active, whose, and until when
   source: the engineers' own record of what they set; shown back only once R-S4 is met
 control_algorithm:
-- when: a page arrives or an incident is suspected
+- name: investigate
+  when: a page arrives or an incident is suspected
   uses: [incident_state, view_freshness]
   issues: [oncall->ui/control/queries, oncall->ui/control/snapshot]
-- when: a page is understood and someone owns it
+- name: acknowledge a page
+  when: a page is understood and someone owns it
   uses: [incident_state]
   issues: [oncall->alerting/control/acks]
-- when: a known cause keeps paging while the incident is handled
+- name: silence a known cause
+  when: a known cause keeps paging while the incident is handled
   uses: [incident_state, silences]
   issues: [oncall->alerting/control/silence]
-- when: a condition should page and no rule covers it, or a rule pages wrongly
+- name: fix the rules
+  when: a condition should page and no rule covers it, or a rule pages wrongly
   uses: [incident_state, alert_health]
   issues: [oncall->alerting/control/rules]
 state: accepted

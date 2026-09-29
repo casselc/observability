@@ -12,7 +12,8 @@ process_model:
   meaning: Its own cluster's identity, which prefixes every record it writes
   source: its configuration and its credentials' cluster tag (D18)
 control_algorithm:
-- when: a pod appears, changes version or goes
+- name: record a pod change
+  when: a pod appears, changes version or goes
   uses: [pods, cluster]
   issues: [ec->s3/control/write]
 state: accepted

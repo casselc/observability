@@ -16,9 +16,9 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <text x="24" y="34" font-size="15" font-weight="600" class="f-ink">Consumer workers: control algorithm and process model</text>
   <g stroke-width="1.25" class="f-none s-edge">
     <path d="M84 145H36V756H132V826" marker-end="url(#arrow)"/>
-    <path d="M84 311H60V732H447V826" marker-end="url(#arrow)"/>
-    <path d="M84 379H72V720H495V826" marker-end="url(#arrow)"/>
-    <path d="M84 228H48V744H180V826" marker-end="url(#arrow)"/>
+    <path d="M84 341H60V732H447V826" marker-end="url(#arrow)"/>
+    <path d="M84 424H72V720H495V826" marker-end="url(#arrow)"/>
+    <path d="M84 243H48V744H180V826" marker-end="url(#arrow)"/>
   </g>
   <g stroke-width="1.25" stroke-dasharray="5 4" class="f-none s-edge">
     <path d="M300 826V768H700V266"/>
@@ -40,23 +40,27 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="96" y="127" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="388" y="111" width="294" height="585" rx="6" stroke="none" class="f-tint"/>
     <text x="394" y="127" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="96" y="149" font-weight="600" font-size="12" class="f-ink">checkpoints, CAS leases</text>
-    <text x="96" y="164" font-size="11.5" class="f-quiet">when the lane's lease is free or expired on</text>
-    <text x="96" y="179" font-size="11.5" class="f-quiet">this worker's own clock and the fair share</text>
-    <text x="96" y="194" font-size="11.5" class="f-quiet">wants it; or the held lease is due for</text>
-    <text x="96" y="209" font-size="11.5" class="f-quiet">renewal</text>
-    <text x="96" y="232" font-weight="600" font-size="12" class="f-ink">checkpoints</text>
-    <text x="96" y="247" font-size="11.5" class="f-quiet">when every statement of a prefix is settled</text>
-    <text x="96" y="262" font-size="11.5" class="f-quiet">and counted: advance the checkpoint (and the</text>
-    <text x="96" y="277" font-size="11.5" class="f-quiet">watermark); a lane whose custody is proved</text>
-    <text x="96" y="292" font-size="11.5" class="f-quiet">empty is retired</text>
-    <text x="96" y="315" font-weight="600" font-size="12" class="f-ink">insert</text>
-    <text x="96" y="330" font-size="11.5" class="f-quiet">when the lease is held, now + budget &lt;=</text>
-    <text x="96" y="345" font-size="11.5" class="f-quiet">safe_until, objects are pending and no</text>
-    <text x="96" y="360" font-size="11.5" class="f-quiet">statement of the lane is unresolved</text>
-    <text x="96" y="383" font-weight="600" font-size="12" class="f-ink">repair</text>
-    <text x="96" y="398" font-size="11.5" class="f-quiet">when a settled statement's objects are short</text>
-    <text x="96" y="413" font-size="11.5" class="f-quiet">in central's counts</text>
+    <text x="96" y="149" font-weight="600" font-size="12" class="f-ink">take or renew the lease</text>
+    <text x="96" y="164" font-size="11.5" class="f-ink">▸ checkpoints, CAS leases</text>
+    <text x="96" y="179" font-size="11.5" class="f-quiet">when the lane's lease is free or expired on</text>
+    <text x="96" y="194" font-size="11.5" class="f-quiet">this worker's own clock and the fair share</text>
+    <text x="96" y="209" font-size="11.5" class="f-quiet">wants it; or the held lease is due for</text>
+    <text x="96" y="224" font-size="11.5" class="f-quiet">renewal</text>
+    <text x="96" y="247" font-weight="600" font-size="12" class="f-ink">advance the checkpoint</text>
+    <text x="96" y="262" font-size="11.5" class="f-ink">▸ checkpoints</text>
+    <text x="96" y="277" font-size="11.5" class="f-quiet">when every statement of a prefix is settled</text>
+    <text x="96" y="292" font-size="11.5" class="f-quiet">and counted: advance the checkpoint (and the</text>
+    <text x="96" y="307" font-size="11.5" class="f-quiet">watermark); a lane whose custody is proved</text>
+    <text x="96" y="322" font-size="11.5" class="f-quiet">empty is retired</text>
+    <text x="96" y="345" font-weight="600" font-size="12" class="f-ink">insert a batch</text>
+    <text x="96" y="360" font-size="11.5" class="f-ink">▸ insert</text>
+    <text x="96" y="375" font-size="11.5" class="f-quiet">when the lease is held, now + budget &lt;=</text>
+    <text x="96" y="390" font-size="11.5" class="f-quiet">safe_until, objects are pending and no</text>
+    <text x="96" y="405" font-size="11.5" class="f-quiet">statement of the lane is unresolved</text>
+    <text x="96" y="428" font-weight="600" font-size="12" class="f-ink">repair a short count</text>
+    <text x="96" y="443" font-size="11.5" class="f-ink">▸ repair</text>
+    <text x="96" y="458" font-size="11.5" class="f-quiet">when a settled statement's objects are short</text>
+    <text x="96" y="473" font-size="11.5" class="f-quiet">in central's counts</text>
     <text x="394" y="270" font-weight="600" font-size="12" class="f-ink">lease  ◂ list, get</text>
     <text x="394" y="285" font-size="11.5" class="f-quiet">Whether this worker holds the lane's lease,</text>
     <text x="394" y="300" font-size="11.5" class="f-quiet">its epoch, and until when it is safe to act</text>

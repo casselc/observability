@@ -35,9 +35,10 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="60" y="211" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="382" y="195" width="324" height="253" rx="6" stroke="none" class="f-tint"/>
     <text x="388" y="211" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="60" y="233" font-weight="600" font-size="12" class="f-ink">evaluate</text>
-    <text x="60" y="248" font-size="11.5" class="f-quiet">when a rule's window has ended and the query</text>
-    <text x="60" y="263" font-size="11.5" class="f-quiet">service labels it complete</text>
+    <text x="60" y="233" font-weight="600" font-size="12" class="f-ink">evaluate a complete window</text>
+    <text x="60" y="248" font-size="11.5" class="f-ink">▸ evaluate</text>
+    <text x="60" y="263" font-size="11.5" class="f-quiet">when a rule's window has ended and the query</text>
+    <text x="60" y="278" font-size="11.5" class="f-quiet">service labels it complete</text>
     <text x="388" y="233" font-weight="600" font-size="12" class="f-ink">completeness  ◂ values</text>
     <text x="388" y="248" font-size="11.5" class="f-quiet">Whether the rule's window is complete in the</text>
     <text x="388" y="263" font-size="11.5" class="f-quiet">rule's scope: the query service's label (D23, D29)</text>

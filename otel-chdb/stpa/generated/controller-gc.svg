@@ -16,8 +16,8 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <text x="24" y="34" font-size="15" font-weight="600" class="f-ink">GC, audit, sealer: control algorithm and process model</text>
   <g stroke-width="1.25" class="f-none s-edge">
     <path d="M72 229H36V496H122V554" marker-end="url(#arrow)"/>
-    <path d="M72 297H60V472H172V554" marker-end="url(#arrow)"/>
-    <path d="M72 297H48V484H474V554" marker-end="url(#arrow)"/>
+    <path d="M72 312H60V472H172V554" marker-end="url(#arrow)"/>
+    <path d="M72 312H48V484H474V554" marker-end="url(#arrow)"/>
   </g>
   <g stroke-width="1.25" stroke-dasharray="5 4" class="f-none s-edge">
     <path d="M394 142V94" marker-end="url(#arrow)"/>
@@ -37,13 +37,15 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="84" y="211" font-size="10.5" font-weight="600" class="f-quiet">CONTROL ALGORITHM</text>
     <rect x="388" y="195" width="306" height="253" rx="6" stroke="none" class="f-tint"/>
     <text x="394" y="211" font-size="10.5" font-weight="600" class="f-quiet">PROCESS MODEL</text>
-    <text x="84" y="233" font-weight="600" font-size="12" class="f-ink">delete</text>
-    <text x="84" y="248" font-size="11.5" class="f-quiet">when a slot is below every reader's position</text>
-    <text x="84" y="263" font-size="11.5" class="f-quiet">marked at least the delay ago, its epoch has</text>
-    <text x="84" y="278" font-size="11.5" class="f-quiet">retired, and it is not quarantined</text>
-    <text x="84" y="301" font-weight="600" font-size="12" class="f-ink">seal; commit</text>
-    <text x="84" y="316" font-size="11.5" class="f-quiet">when objects below the watermark are not yet in</text>
-    <text x="84" y="331" font-size="11.5" class="f-quiet">the lake's latest snapshot</text>
+    <text x="84" y="233" font-weight="600" font-size="12" class="f-ink">delete an old slot</text>
+    <text x="84" y="248" font-size="11.5" class="f-ink">▸ delete</text>
+    <text x="84" y="263" font-size="11.5" class="f-quiet">when a slot is below every reader's position</text>
+    <text x="84" y="278" font-size="11.5" class="f-quiet">marked at least the delay ago, its epoch has</text>
+    <text x="84" y="293" font-size="11.5" class="f-quiet">retired, and it is not quarantined</text>
+    <text x="84" y="316" font-weight="600" font-size="12" class="f-ink">seal into the lake</text>
+    <text x="84" y="331" font-size="11.5" class="f-ink">▸ seal; commit</text>
+    <text x="84" y="346" font-size="11.5" class="f-quiet">when objects below the watermark are not yet in</text>
+    <text x="84" y="361" font-size="11.5" class="f-quiet">the lake's latest snapshot</text>
     <text x="394" y="286" font-weight="600" font-size="12" class="f-ink">positions  ◂ checkpoints, marks</text>
     <text x="394" y="301" font-size="11.5" class="f-quiet">Every reader's position per lane (consumer</text>
     <text x="394" y="316" font-size="11.5" class="f-quiet">checkpoints, the sealer's watermark), each with</text>

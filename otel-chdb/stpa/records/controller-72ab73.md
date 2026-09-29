@@ -11,7 +11,8 @@ process_model:
   meaning: The catalog's current version of each entity
   source: its own earlier upserts; nothing reads the catalog back
 control_algorithm:
-- when: a record is newer than the catalog's version of its entity and comes from its writer's own cluster
+- name: accept a newer record
+  when: a record is newer than the catalog's version of its entity and comes from its writer's own cluster
   uses: [entity_records, catalog_version]
   issues: [agg->catalog/control/upsert]
 state: accepted

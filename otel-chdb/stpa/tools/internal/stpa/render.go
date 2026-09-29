@@ -25,6 +25,7 @@ func (p *Project) Outputs() map[string]string {
 		case "controller-details":
 			for _, n := range p.detailNodes(v) {
 				out["generated/controller-"+n.Name+".svg"] = p.DetailSVG(n)
+				out["generated/controller-"+n.Name+".prd.jsx"] = p.DetailPRD(n)
 				out["generated/controller-"+n.Name+".mmd"] = p.DetailMermaid(n)
 			}
 		}

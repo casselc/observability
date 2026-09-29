@@ -7,8 +7,8 @@ import (
 )
 
 // A controller's detail diagram, in the STPA Handbook's form: the controller is a box with two
-// compartments, its control algorithm (one row per rule: the actions it issues, then its
-// condition) and its process model (one row per variable: its name, the feedback that updates
+// compartments, its control algorithm (one row per rule: its name, what it decides; the actions
+// it issues; then its condition) and its process model (one row per variable: its name, the feedback that updates
 // it, its meaning). Control arrows start at the rule that issues them and run down the left
 // side to the controlled node; feedback arrows rise on the right side and end at each
 // variable they update. The controllers above it, if any, are drawn above with their links.
@@ -25,14 +25,22 @@ const (
 )
 
 // wrapWords splits s into lines of at most width pixels of the quiet type, at spaces.
-func wrapWords(s string, width int) []string {
-	max := int(float64(width) / charW)
+func wrapWords(s string, width int) []string { return wrapChars(s, int(float64(width)/charW)) }
+
+// nameCharW is the average advance of a 13 px semibold name.
+const nameCharW = 7.6
+
+// wrapChars splits s into lines of at most max characters, at spaces; a word longer than a
+// line stays whole on a line of its own.
+func wrapChars(s string, max int) []string {
 	var lines []string
 	for len([]rune(s)) > max {
 		r := []rune(s)
 		cut := strings.LastIndex(string(r[:max+1]), " ")
 		if cut <= 0 {
-			cut = len(string(r[:max]))
+			if cut = strings.Index(s, " "); cut <= 0 {
+				break
+			}
 		}
 		lines = append(lines, strings.TrimSpace(s[:cut]))
 		s = strings.TrimSpace(s[cut:])
@@ -51,25 +59,40 @@ type detailRow struct {
 // textRow is a compartment row's text, laid out once; rows are then stacked in whichever
 // order crosses least.
 type textRow struct {
+	id    string // text id of the head; the other lines' ids extend it (PRD)
 	head  string
+	sub   string   // a secondary line under the head (a rule's issued actions), or ""
 	lines []string // quiet lines
 	extra []string // italic lines
 	h     int
 }
 
+func (t textRow) nLines() int {
+	n := 1 + len(t.lines) + len(t.extra)
+	if t.sub != "" {
+		n++
+	}
+	return n
+}
+
 func (t textRow) at(x, y int) detailRow {
 	r := detailRow{y: y, h: t.h}
-	mkT := func(yy int, s string, attrs ...string) *el {
+	mkT := func(yy int, s, id string, attrs ...string) *el {
 		e := mk("text", append([]string{"x", itoa(x), "y", itoa(yy)}, attrs...)...)
-		e.text = s
+		e.text, e.textID = s, id
 		return e
 	}
-	r.lines = append(r.lines, mkT(y+12, t.head, "font-weight", "600", "font-size", "12", "fill", "@ink"))
+	r.lines = append(r.lines, mkT(y+12, t.head, t.id, "font-weight", "600", "font-size", "12", "fill", "@ink"))
+	k := 1
+	if t.sub != "" {
+		r.lines = append(r.lines, mkT(y+12+lineH, t.sub, t.id+"-s", "font-size", "11.5", "fill", "@ink"))
+		k++
+	}
 	for j, l := range t.lines {
-		r.lines = append(r.lines, mkT(y+12+lineH*(j+1), l, "font-size", "11.5", "fill", "@quiet"))
+		r.lines = append(r.lines, mkT(y+12+lineH*(k+j), l, fmt.Sprintf("%s-l%d", t.id, j+1), "font-size", "11.5", "fill", "@quiet"))
 	}
 	for j, l := range t.extra {
-		r.lines = append(r.lines, mkT(y+12+lineH*(len(t.lines)+j+1), l, "font-size", "11.5", "font-style", "italic", "fill", "@quiet"))
+		r.lines = append(r.lines, mkT(y+12+lineH*(k+len(t.lines)+j), l, fmt.Sprintf("%s-x%d", t.id, j+1), "font-size", "11.5", "font-style", "italic", "fill", "@quiet"))
 	}
 	return r
 }
@@ -190,12 +213,15 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	for i, r := range rules {
 		var acts []string
 		for _, cp := range cps {
-			if cp.rule == i {
-				acts = append(acts, strings.Join(cp.labels, ", "))
+			// Two links may carry the same label (config to the edge and to the entity
+			// controllers): the line names it once, the arrows show where it goes.
+			if l := strings.Join(cp.labels, ", "); cp.rule == i && !contains(acts, l) {
+				acts = append(acts, l)
 			}
 		}
-		t := textRow{head: strings.Join(acts, "; "), lines: wrapWords("when "+fmt.Sprint(r["when"]), caR-caL)}
-		t.h = lineH*(1+len(t.lines)) + rowPad
+		t := textRow{id: tid(c, fmt.Sprintf("r%d", i+1)), head: fmt.Sprint(r["name"]), sub: "▸ " + strings.Join(acts, "; "),
+			lines: wrapWords("when "+fmt.Sprint(r["when"]), caR-caL)}
+		t.h = lineH*t.nLines() + rowPad
 		ruleText[i] = t
 	}
 	varText := make([]textRow, len(vars))
@@ -206,13 +232,13 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 				from = append(from, e.Label)
 			}
 		}
-		t := textRow{head: fmt.Sprint(v["name"]), lines: wrapWords(fmt.Sprint(v["meaning"]), pmR-pmL)}
+		t := textRow{id: tid(c, "pm-"+fmt.Sprint(v["name"])), head: fmt.Sprint(v["name"]), lines: wrapWords(fmt.Sprint(v["meaning"]), pmR-pmL)}
 		if len(from) > 0 {
 			t.head += "  ◂ " + strings.Join(from, "; ")
 		} else if src, _ := v["source"].(string); src != "" {
 			t.extra = wrapWords("no feedback: "+src, pmR-pmL)
 		}
-		t.h = lineH*(1+len(t.lines)+len(t.extra)) + rowPad
+		t.h = lineH*t.nLines() + rowPad
 		varText[i] = t
 	}
 
@@ -280,11 +306,15 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 			ry += varText[i].h
 		}
 		if len(nodeOrder) > 0 {
-			w := (boxR - boxL - 26*(len(nodeOrder)-1)) / len(nodeOrder)
+			gap := 26
+			if len(nodeOrder) >= 5 {
+				gap = 16 // five names side by side need the room
+			}
+			w := (boxR - boxL - gap*(len(nodeOrder)-1)) / len(nodeOrder)
 			x := boxL
 			for _, lo := range nodeOrder {
 				d.lowerBoxes[lo] = [4]int{x, nodesTop, w, nodeH}
-				x += w + 26
+				x += w + gap
 			}
 		}
 		// Control lanes: the lowest rule takes the innermost lane and the level nearest the
@@ -392,17 +422,18 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	}
 
 	// Draw.
-	text := func(x, y int, s string, attrs ...string) *el {
+	// Every text carries its own text id (the PRD addresses each string): record ids, the rule's
+	// position in its record, the variable's name, the entry's path.
+	text := func(x, y int, s, id string, attrs ...string) *el {
 		t := mk("text", append([]string{"x", itoa(x), "y", itoa(y)}, attrs...)...)
-		t.text = s
+		t.text, t.textID = s, id
 		return t
 	}
 	var svgKids []*el
 	defs := mk("defs").add(mk("marker", "id", markerID, "viewBox", "0 0 10 10", "refX", "9", "refY", "5",
 		"markerWidth", "6", "markerHeight", "6", "orient", "auto-start-reverse").add(mk("path", "d", "M0 0L10 5L0 10z", "fill", "@edge")))
 	svgKids = append(svgKids, defs)
-	title := text(24, 34, c.S("title")+": control algorithm and process model", "font-size", "15", "font-weight", "600", "fill", "@ink")
-	title.textID = "title"
+	title := text(24, 34, c.S("title")+": control algorithm and process model", "title", "font-size", "15", "font-weight", "600", "fill", "@ink")
 	svgKids = append(svgKids, title)
 	ctl := mk("g", "fill", "none", "stroke", "@edge", "stroke-width", "1.25")
 	ctl.anchor = "control-actions"
@@ -414,11 +445,11 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 		cx := b[0] + b[2]/2
 		if len(l.Control) > 0 {
 			ctl.add(mk("path", "d", pathD([][2]int{{cx - 14, b[1] + b[3]}, {cx - 14, boxTop}}), "marker-end", "url(#"+markerID+")"))
-			labels = append(labels, text(cx-22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Control), "text-anchor", "end", "font-size", "11.5", "fill", "@quiet"))
+			labels = append(labels, text(cx-22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Control), "lbl-"+pathID(l.Control[0]), "text-anchor", "end", "font-size", "11.5", "fill", "@quiet"))
 		}
 		if len(l.Feedback) > 0 {
 			fb.add(mk("path", "d", pathD([][2]int{{cx + 14, boxTop}, {cx + 14, b[1] + b[3]}}), "marker-end", "url(#"+markerID+")"))
-			labels = append(labels, text(cx+22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Feedback), "font-size", "11.5", "fill", "@quiet"))
+			labels = append(labels, text(cx+22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Feedback), "lbl-"+pathID(l.Feedback[0]), "font-size", "11.5", "fill", "@quiet"))
 		}
 	}
 	for _, pl := range best.ctl {
@@ -442,17 +473,17 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 		rect.attrs = append(rect.attrs, attr{"fill", "none"}, attr{"stroke", "@edge"}, attr{"stroke-width", "1.25"})
 	}
 	g.add(rect)
-	g.add(text(boxL+12, titleY, c.S("title"), "font-weight", "600", "fill", "@ink"))
+	g.add(text(boxL+12, titleY, c.S("title"), tid(c, "name"), "font-weight", "600", "fill", "@ink"))
 	for i, line := range desc {
-		g.add(text(boxL+12, titleY+lineH*(i+1)+2, line, "font-size", "11.5", "fill", "@quiet"))
+		g.add(text(boxL+12, titleY+lineH*(i+1)+2, line, tid(c, fmt.Sprintf("l%d", i+1)), "font-size", "11.5", "fill", "@quiet"))
 	}
 	for _, comp := range []struct {
-		x1, x2 int
-		name   string
-	}{{boxL + 6, mid - 2, "Control algorithm"}, {mid + 2, boxR - 6, "Process model"}} {
+		x1, x2   int
+		name, id string
+	}{{boxL + 6, mid - 2, "Control algorithm", "ca"}, {mid + 2, boxR - 6, "Process model", "pm"}} {
 		g.add(mk("rect", "x", itoa(comp.x1), "y", itoa(headY-4), "width", itoa(comp.x2-comp.x1), "height", itoa(boxBottom-headY-2), "rx", "6",
 			"fill", "@tint", "stroke", "none"))
-		g.add(text(comp.x1+6, headY+12, strings.ToUpper(comp.name), "font-size", "10.5", "font-weight", "600", "fill", "@quiet"))
+		g.add(text(comp.x1+6, headY+12, strings.ToUpper(comp.name), tid(c, comp.id), "font-size", "10.5", "font-weight", "600", "fill", "@quiet"))
 	}
 	for _, i := range best.ruleOrder {
 		g.add(ruleText[i].at(caL, best.caRows[i]).lines...)
@@ -478,7 +509,18 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 		if nd.Rec != nil {
 			t = nd.Rec.S("title")
 		}
-		ng.add(text(b[0]+12, b[1]+b[3]/2+5, t, "font-weight", "600", "fill", "@ink"))
+		// A name wider than its box (five nodes side by side) takes two lines.
+		lines := []string{t}
+		if float64(len([]rune(t)))*nameCharW > float64(b[2]-24) {
+			lines = wrapChars(t, int(float64(b[2]-24)/nameCharW))
+		}
+		for i, line := range lines {
+			id := tid(nd.Rec, "name")
+			if i > 0 {
+				id += fmt.Sprintf("%d", i+1)
+			}
+			ng.add(text(b[0]+12, b[1]+b[3]/2+5+16*i-8*(len(lines)-1), line, id, "font-weight", "600", "fill", "@ink"))
+		}
 		return ng
 	}
 	for _, u := range uppers {
@@ -491,13 +533,13 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	key := mk("g")
 	key.anchor = "key"
 	x := 24
-	item := func(sym *el, symW int, label string) {
+	item := func(sym *el, symW int, label, id string) {
 		key.add(sym)
-		key.add(text(x+symW+8, ky+4, label, "font-size", "11.5", "fill", "@quiet"))
+		key.add(text(x+symW+8, ky+4, label, id, "font-size", "11.5", "fill", "@quiet"))
 		x += symW + 8 + textW(label) + 32
 	}
-	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25"), 32, "control action, from the rule that issues it")
-	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25", "stroke-dasharray", "5 4"), 32, "feedback, into each variable it updates")
+	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25"), 32, "control action, from the rule that issues it", "key-control")
+	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25", "stroke-dasharray", "5 4"), 32, "feedback, into each variable it updates", "key-feedback")
 	svgKids = append(svgKids, key)
 	svg := mk("svg", "viewBox", fmt.Sprintf("0 0 %d %d", dW, height), "role", "img", "aria-label", c.S("title")+": control algorithm and process model", "font-size", "13")
 	svg.add(svgKids...)
@@ -527,6 +569,17 @@ func (p *Project) DetailSVG(n *Node) string {
 	return strings.Replace(b.String(), "&#39;", "'", -1)
 }
 
+// DetailPRD renders a controller's detail diagram as the PRD's widget code, like the overview's
+// (L.PRD): JSX in SVG, the document's theme tokens, a data-claude-text-id on every text.
+func (p *Project) DetailPRD(n *Node) string {
+	root, _ := p.DetailDiagram(n, "controller-"+n.Name+"-arrow")
+	var b strings.Builder
+	b.WriteString(prdPrelude)
+	root.writeJSX(&b)
+	b.WriteString("; };\n")
+	return b.String()
+}
+
 // DetailMermaid renders a controller's detail as Mermaid: the controller a subgraph with two
 // subgraphs (its rules and its variables), control from each rule to the node it acts on,
 // feedback from each node to each variable it updates.
@@ -546,7 +599,7 @@ func (p *Project) DetailMermaid(n *Node) string {
 				acts = append(acts, e.Label)
 			}
 		}
-		fmt.Fprintf(&b, "      r%d[\"<b>%s</b><br/>when %s\"]\n", i+1, q(strings.Join(acts, ", ")), q(fmt.Sprint(r["when"])))
+		fmt.Fprintf(&b, "      r%d[\"<b>%s</b><br/>▸ %s<br/>when %s\"]\n", i+1, q(fmt.Sprint(r["name"])), q(strings.Join(acts, ", ")), q(fmt.Sprint(r["when"])))
 	}
 	b.WriteString("    end\n    subgraph PM[\"Process model\"]\n")
 	for i, v := range pmOf(c) {

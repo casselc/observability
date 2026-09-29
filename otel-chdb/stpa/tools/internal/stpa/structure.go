@@ -497,8 +497,9 @@ func (p *Project) checkInternals(r *Record, field string, v any) []string {
 			names[n] = true
 		}
 	}
-	allowed := map[string][]string{"process_model": {"name", "meaning", "updated_by", "source"}, "control_algorithm": {"when", "uses", "issues"}}[field]
+	allowed := map[string][]string{"process_model": {"name", "meaning", "updated_by", "source"}, "control_algorithm": {"name", "when", "uses", "issues"}}[field]
 	seen := map[string]bool{}
+	ruleNames := map[string]int{}
 	for i, x := range xs {
 		m, ok := x.(map[string]any)
 		if !ok {
@@ -533,6 +534,16 @@ func (p *Project) checkInternals(r *Record, field string, v any) []string {
 				}
 			}
 		} else {
+			// A rule is named for what it decides; the name heads it in the detail diagram, so
+			// two rules of one controller may not share one (the actions they issue may).
+			name, _ := m["name"].(string)
+			if strings.TrimSpace(name) == "" {
+				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: name is required (what the rule decides, e.g. \"advance the checkpoint\")", i))
+			} else if key := strings.ToLower(strings.Join(strings.Fields(name), " ")); ruleNames[key] > 0 {
+				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: rule name %q is already the name of rule %d: rule names are unique within a controller", i, name, ruleNames[key]-1))
+			} else {
+				ruleNames[key] = i + 1
+			}
 			if s, _ := m["when"].(string); s == "" {
 				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: when is required", i))
 			}

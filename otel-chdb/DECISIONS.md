@@ -3740,6 +3740,16 @@ proposed for the coordinator. AMBIGUITY X22–X25 (designed).
 
 ### D37. The tenant from a user's Entra identity, for producers outside Kubernetes: a device forwarder and an authenticated ingress (proposed)
 
+**Owner decisions, 2026-09-29:** accepted as recommended, O-E1..O-E8 (single-tenant, no guests;
+the forwarder in MSAL.NET, Node as fallback; device buffer 256 MiB / 7 days, deleted on sign-out or switch;
+Intune device certificates with mTLS later; stamp the Entra object id, names resolved only for entitled
+readers; pair grants; teams by app role; retries past the 3-day horizon sent and counted by the audit).
+The grants fix (O-E6, CAST 52) is widened by the owner: consider an **environment tier** (dev/stg/prd…) in
+the scope hierarchy, and **Cedar** to express grants, limited to grants expressible through our S3 prefixes
+and ABAC (see the grants design, D38 when written). Also: **all Go modules and CI move to the latest Go**;
+**no contact with any vendor or person on the owner's behalf** (Antithesis not approached); a half-day probe
+of the gosim fork on the edge commit path is approved.
+
 **Status:** **proposed** (2026-09-29). Ingress prototype built and tested against a fake Entra
 issuer ([`ingress/`](ingress/README.md), `go test` passes); the device forwarder is designed, not
 built; nothing verified against a real tenant or device

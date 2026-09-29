@@ -272,6 +272,14 @@ func TestDetailNodeNamesFitTheirBoxes(t *testing.T) {
 	}
 }
 
+// JSX text is literal text: the PRD refuses an expression such as {'<'} in a text that carries
+// a text id (the consumer's "now + budget <= safe_until"), so special characters are entities.
+func TestJSXTextIsLiteral(t *testing.T) {
+	if got, want := jsxText("now + budget <= safe_until {x} & y > z"), "now + budget &lt;= safe_until &#123;x&#125; &amp; y &gt; z"; got != want {
+		t.Fatalf("jsxText = %q, want %q", got, want)
+	}
+}
+
 // The control structure's forbidden forms. The first group cannot be written: the parser
 // refuses the document. The second group parses and fails the check.
 const miniStructure = `nodes:

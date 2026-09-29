@@ -89,8 +89,10 @@ func (e *el) writeSVG(b *strings.Builder, ind string) {
 }
 
 func jsxText(s string) string {
-	// Braces and angle brackets are the only characters JSX text cannot hold literally.
-	r := strings.NewReplacer("{", "{'{'}", "}", "{'}'}", "<", "{'<'}", ">", "{'>'}")
+	// Braces and angle brackets are the only characters JSX text cannot hold literally. They
+	// are written as HTML entities, not as {'<'} expressions: the PRD takes a text that carries
+	// a text id only as literal text (an expression is refused, rule text-literal).
+	r := strings.NewReplacer("&", "&amp;", "{", "&#123;", "}", "&#125;", "<", "&lt;", ">", "&gt;")
 	return r.Replace(s)
 }
 

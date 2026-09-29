@@ -226,6 +226,31 @@ avoided. The losses, hazards and requirements are adopted here.
 | R-L11 | No storage-engine merge decides which version of a fact wins (no `ReplacingMergeTree`/`FINAL`/`min`/`anyLast` for correctness) (CAST 37) |
 | R-L12 | The GenAI semconv mapping is versioned policy; a mapping change runs every consumer of the mapped columns (CAST 45, 46) |
 
+### Extension: producers outside Kubernetes, Entra identity (D37, proposed)
+
+Analysed first in [research/entra-ingress.md](research/entra-ingress.md) §1 (control structure, UCA-E1..E11,
+SEC-E1..E10, TM-E1..E6, and how each CAST theme is avoided). New loss **L-E1**: the telemetry harms the
+developer's own work (sign-in prompts, a blocked tool), so people disable it.
+
+| ID | Hazard | ⊂ |
+| --- | --- | --- |
+| H-E1 | Telemetry committed under a tenant its sender may not write, or attributed to a person who did not send it | H-3, H-6 |
+| H-E2 | A party that is not an authenticated, compliant member of the organisation can write | H-6 |
+| H-E3 | Device telemetry readable beyond its owner's scope (device buffer, transit, or an over-reaching query grant) | H-6 |
+| H-E4 | Telemetry the forwarder acknowledged is dropped without the drop being counted and visible | H-1 |
+| H-E5 | One principal's volume exhausts the ingress, its lanes, central or the budget | H-7 |
+| H-E6 | A retry or replay counted twice | H-2 |
+| H-E7 | The ingress uses its own authority for what the caller could not do (confused deputy) | H-6 |
+| H-E8 | Attribution read as more than it proves, or a view trusted with devtools data missing | H-5 |
+| H-E9 | Sign-in friction makes the tool unusable | – |
+
+Requirements R-E1..R-E9 (full text there): tenant and person asserted by the ingress from a verified token and
+policy only (R-E1); strict token validation (R-E2); admission before the body, per-principal budgets (R-E3);
+deterministic stamping so retries stay copies (R-E4); 200 only after the commit verdict (R-E5); the forwarder
+resends bytes unchanged under the producer's own token and never prompts on the tool's path (R-E6); an
+encrypted, bounded, per-user buffer deleted on sign-out, drops counted (R-E7); **query grants as explicit
+(cluster, namespace) pairs** (R-E8, CAST 52); Conditional Access requiring a compliant device (R-E9).
+
 ## CAST: issues already found
 
 Most of the defects found so far share one control flaw: a controller treated an ambiguous outcome (no answer, an error, a timeout, a restart) as a definite one, and its process model drifted from reality. [AMBIGUITY.md](AMBIGUITY.md) turns this into a register of every boundary call's outcomes.
@@ -418,6 +443,7 @@ A strict gate means a transient S3 error now fails CI where it used to skip sile
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 50 | A consumer checkpoint PUT got no answer; the read-back showed the checkpoint unchanged, so the worker kept its old version (17), but the store applied the write later (next = 21). GC acts on the stored checkpoint and deleted slots 17–19; the worker's scan then waited at a "gap" at 17 forever: the lane stalled for good and nothing after it was ingested | Nightly DST Level 1, seed 504836 (10,000 new seeds per night); reproduced at HEAD and root-caused from the trace | H-2 class (liveness: a lane never advances, `complete_through` stalls for its cluster — visible as `stale`), and data not ingested until an operator intervened; no duplicate and no silent wrong answer | Consumer worker's checkpoint writer: "no answer, then an unchanged read-back, means the write never applied" | An unchanged read-back normally proves a conditional write did not apply, and the lease still fenced the checkpoint so a retry looked safe; a request applied after the client gave up was not modelled, and GC acting on the stored value turned the stale belief into a stall | After an unchanged read-back the lane is marked `ckpt_unsure`; before scanning, `refresh_own_ckpt` reads the checkpoint and takes it back when it is its own (same lease epoch, later version); stat `ckpt_late_taken`; regression `a_checkpoint_write_landing_late_is_taken_back` (fails before the fix); commit 397456b | **The same class as rows 1–6 and 42, again:** "no answer + read back unchanged" means *not applied yet*, not *never applied*. When another controller (GC) acts on the stored state, the writer must take its belief back from the store before acting. The model checked non-atomic CAS (row 10's extension) but not a write applied after the reader's check; add that step to `s3InlineConsumer.qnt` |
 | 51 | Per-push CI was red for about 29 hours (runs 38–95, 09-27 23:05Z to 09-29 04:16Z: 28 failed, ~30 cancelled, none green), and the nightly was red from its first runs, including a Kani harness that stopped compiling on 09-28 because it is only built nightly. Nobody read the results | The coordinator, while answering the owner's question about dispatching model runs to CI | Verification gap across everything: real bugs (row 50, the fenced-announcement seeds of row 42) sat in red runs; failures that appear only in CI (the service container's environment, races under `-race`, nightly-only compilation) were invisible locally | **The coordinator:** "each agent's local suites passed (the verification gate, row 41), so the branch is green"; no role owned reading CI | The gate made local evidence rigorous, and with several agents pushing to one branch, per-push status looked like noise (runs cancelling each other) | CI green again (129f3a2, b078ca1, 397456b); the nightly's `jobs` input lets one job be rerun on any ref. **Coordinator rule from now on:** no agent report is accepted as done, and no work is reported to the owner as done, until the latest completed ci.yml and nightly runs at or after its commits have been read; a red run gets a named owner at once | "Tests pass locally" and "CI is green" are different claims; a shared branch's CI status needs an explicit controller with a feedback loop, which here is the coordinator. Recurrence of the row 41/43 theme at the level above the agents |
+| 52 | The query service's grants are a cluster set × a namespace set, not pairs: a principal granted `devtools/dev-payments` and `prod-eu-1/search` can also read `prod-eu-1/dev-payments` and `devtools/search` (`query/internal/auth/principal.go`) | Reading the grant code while designing the devtools tenant key (D37) | H-6, H-E3: reads beyond the intended scope once any principal holds grants in two clusters with different namespaces | Query service: "a principal's scope is one cluster set and one namespace set" | Every scope so far was one cluster, or all clusters, so the product and the pairs were equal | **Open**: proposed fix is explicit (cluster, namespace) pairs (R-E8, owner decision O-E6); until then D37 keeps devtools namespaces distinct (`dev-` prefix, a separate `devtools` cluster). Latent, not exploited by any current grant | CAST theme 36 again: a scope expressed as two independent sets means more than any grant intended; express grants in the shape of the thing granted |
 
 ### CAST: the Langfuse design (2026-09-29)
 

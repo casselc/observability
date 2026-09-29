@@ -9,9 +9,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Queue, don't cancel: with several writers on one branch, cancelling left no run finished for
+# hours (CAST 51). A newer push waits for the running one; GitHub keeps only the newest pending run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read

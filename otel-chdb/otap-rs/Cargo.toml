@@ -75,6 +75,10 @@ inherits = "dev"
 opt-level = 1
 debug = false
 incremental = true
+# as release: the randomized tests' generators rely on wrapping arithmetic
+# (nightly run 42: "attempt to multiply with overflow" in the unmutated tree)
+overflow-checks = false
+debug-assertions = false
 
 [profile.dist]
 inherits = "release"

@@ -83,7 +83,9 @@ for m in observeAtRequest renewOnlyAtInsert own412IsTakeover; do runs $m "${m}Br
 sim $C designLate slowSafety 5000 60 ok
 for w in wLateLanded wLateTaken; do sim $C designLate "not($w)" 20000 60 VIOLATED; done
 sim $C designSlow "not(wLateLanded)" 20000 60 VIOLATED
-sim $C lateCkptLost noGapStall 20000 60 VIOLATED
+# (random runs rarely reach the stall once a worker awaiting its own answer is excluded:
+# 0 in 20,000 at 0x5eed, 465 s; lateCkptLostBreaksTest pins it)
+sim $C lateCkptLost noGapStall 5000 60 VIOLATED
 sim $C lateCkptLost safety 5000 60 ok
 for m in designLate designSlow designSlowQuiet; do runs $m lateCkptDesignTest all-pass; done
 runs lateCkptLost lateCkptLostBreaksTest all-pass

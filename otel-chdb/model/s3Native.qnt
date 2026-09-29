@@ -385,6 +385,13 @@ module s3Native {
   // ---- consumer -----------------------------------------------------------------------
   // Take (or take over) the consumer lease on this producer's log: a CAS on
   // the lease object. The previous holder is not told.
+  // The new holder rewrites the checkpoint (a new ETag) when it takes the
+  // lease, so an old holder's checkpoint CAS in flight fails (CKPT_CAS; the
+  // built consumer's fence, STPA.md row 10). Without it (the model before
+  // 2026-09-29) the old holder's advance lands after the new holder read the
+  // checkpoint, GC deletes the slot the new holder is inserting, and its
+  // INSERT reads a deleted object (noReadOfDeleted; the model-open nightly,
+  // seeds 0x2 and 0x3; ckptFenceTest in s3Native_test.qnt).
   action takeLease(w: int): bool = all {
     clease.epoch < MAX_CEPOCH, clease.owner != w or workers.get(w).epoch == 0,
     val ne = clease.epoch + 1
@@ -392,7 +399,8 @@ module s3Native {
       clease' = { owner: w, epoch: ne },
       workers' = workers.set(w, { epoch: ne, phase: CIdle, slot: -1, ver: 0, sawPresent: false }),
     },
-    ckpt' = ckpt, window' = window, central' = central, events' = events,
+    ckpt' = if (CKPT_CAS) { ...ckpt, ver: ckpt.ver + 1 } else ckpt,
+    window' = window, central' = central, events' = events,
     keepEdge, keepS3, keepGc,
   }
 

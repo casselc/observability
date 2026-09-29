@@ -148,6 +148,22 @@ module designTest {
       .then(cAdvance(1))
       .expect(and { ckpt.next == 2, events.contains("ckptCasFailed"), payloadIngestedAtMostOnce })
 
+  // The takeover fences the checkpoint (2026-09-29, the model-open nightly):
+  // w1 inserts, loses its lease to w2, which reads the checkpoint and checks
+  // the slot; w1's advance then fails its CAS, so GC has nothing to delete
+  // and w2's INSERT reads its object. Without the fence w1's advance lands,
+  // GC deletes slot 0's data, and w2's INSERT reads a deleted object
+  // (noReadOfDeleted; seeds 0x2 and 0x3 of s3NativeDesign before the fix).
+  run ckptFenceTest =
+    init
+      .then(publish(1, 1, 1, 0))
+      .then(takeLease(1)).then(cBegin(1)).then(cCheck(1)).then(cInsert(1))
+      .then(takeLease(2)).then(cBegin(2)).then(cCheck(2))
+      .then(cAdvance(1))
+      .expect(and { ckpt.next == 0, events.contains("ckptCasFailed"), ckpt.next <= gc.horizon })
+      .then(cInsert(2))
+      .expect(and { noReadOfDeleted, payloadIngestedAtMostOnce })
+
   // GC waits for a reader's lease, and a lease taken between GC's read and
   // its write makes the write fail (If-Match on the GC-state object).
   run readerLeaseStopsGcTest =

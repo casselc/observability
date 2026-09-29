@@ -529,10 +529,24 @@ and raw output are in the scratch directory (`runall.sh`, `targeted.sh`,
    for the data, because the INSERT fails, but GC's horizon should trail the
    checkpoint by at least one lease TTL.
 
-**Deterministic scenarios** (`quint test s3Native_test.qnt --main <module>
---backend typescript`): 25 tests, all passing.
+**A third finding (2026-09-29, the nightly `model-open`).** Sampled longer
+and with new seeds (3,000 × 120 steps, seeds 0x2 and 0x3; the Rust
+evaluator), `s3NativeDesign` broke `noReadOfDeleted`, so "all 13 invariants
+hold" above was a sampling result that did not survive more samples. A
+takeover did not rewrite the consumer checkpoint: the old holder's advance,
+a CAS on the version it read, still landed after the new holder had read
+the same version and checked the slot; GC then deleted that slot's data, and
+the new holder's INSERT read a deleted object (it fails: nothing is lost or
+duplicated, but the invariant is broken, and it is row 10's shape). The
+design now fences the checkpoint when it takes the lease (a new version, as
+the built consumer does), and `designTest.ckptFenceTest` shows the old
+holder's advance losing its CAS and the new holder's INSERT reading its
+object; it fails on the model before the fix.
 
-- `designTest` (14): F1 ambiguous and late appends; F1 across a crash; the
+**Deterministic scenarios** (`quint test s3Native_test.qnt --main <module>
+--backend typescript`): 26 tests, all passing.
+
+- `designTest` (15, with `ckptFenceTest` since 2026-09-29): F1 ambiguous and late appends; F1 across a crash; the
   zombie fenced; a late zombie request losing; PBT 1–3; the fence closing
   abandoned generations; F4 with the check; a zombie checkpoint losing its
   CAS; a reader lease stopping GC; an orphan swept; every payload committed

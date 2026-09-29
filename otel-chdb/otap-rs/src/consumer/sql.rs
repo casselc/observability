@@ -1927,7 +1927,7 @@ mod tests {
     /// D18 names, which `run_insert` adds in that mode.
     #[tokio::test(flavor = "current_thread")]
     async fn refused_credentials_are_unsettled_and_redacted() {
-        let _trace = otap_s3pq::oscope_trace::covers("IT", &["CAST-31", "H-6"]);
+        let _trace = otap_s3pq::oscope_trace::covers("IT", &["CAST-31", "CAST-58", "H-6"]);
         use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         if ClickHouse::new(&url).query("SELECT 1", &[]).await.is_err() {

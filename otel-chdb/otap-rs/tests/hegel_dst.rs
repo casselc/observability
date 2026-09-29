@@ -770,7 +770,7 @@ fn hegel_dst_finds_mutants() {
 /// ingested". The fleet was not done; the harness stopped waiting.
 #[test]
 fn regression_finish_waits_for_a_copys_announcement() {
-    let _trace = otap_s3pq::oscope_trace::covers("SM", &["CAST-56"]);
+    let _trace = otap_s3pq::oscope_trace::covers("SM", &["CAST-56", "CAST-62"]);
     let s = Setup {
         seed: 0,
         workers: 3,
@@ -794,13 +794,17 @@ fn regression_finish_waits_for_a_copys_announcement() {
         // is not (378 ms before D36's payload statement joined the round;
         // the wait keeps the shape whatever a round's statements cost).
         sleep_ms(300).await;
+        let mut shaped = false;
         for _ in 0..300 {
             let (missing, _, _) = final_state(&f.w);
             if missing.is_empty() && announcement_state(&f.w).0.len() == 1 {
+                shaped = true;
                 break;
             }
             sleep_ms(2).await;
         }
+        // Without the shape the case tests nothing (CAST-62).
+        assert!(shaped, "never reached the case's shape: rows in, one announcement out");
         let mut slots = f.slots.borrow_mut();
         trace(format!("KILL {}", slots[0].proc.name));
         if let Some(h) = slots[0].handle.take() {

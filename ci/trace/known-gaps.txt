@@ -55,3 +55,5 @@ H-7:G | coordinator | evidence exists, not yet tagged — plan: ✅ (mechanism) 
 H-7:P | coordinator | not built or not run — plan: partial per-caller limits (SEC-5, R-S9): limits exist and are unit-tested; no property over concurrent callers; #35 shows limits are set independently
 H-1:G | coordinator | not built or not run — plan: ❌ retention refused below custody age (R-S6): not built: the measure exists (consumer_lane_watermark_lag_seconds), the refusal at config time does not
 CAST-57 | coordinator | no automated test: the regression needs an S3 store that hangs during rig setup; fix checked by hand and by the nightly journeys runs
+CAST-59 | coordinator | control is a check in conformance/run.sh (fails on any refused or failed send), exercised by the nightly conformance job; no tagged test yet
+CAST-60 | coordinator | process mechanism (G), not a test: AGENT-RULES requires cargo clean -p for workspace crates before each worktree check

@@ -288,7 +288,7 @@ func (L *Layout) compartments(b *Box) []*el {
 	rules, vars := algoOf(c), pmOf(c)
 	var sh int
 	if L.View.Internals == "headers" {
-		sh = 38
+		sh = stripHeaders
 	} else {
 		sh = 26 + 13*maxi(len(rules), len(vars))
 	}
@@ -304,23 +304,38 @@ func (L *Layout) compartments(b *Box) []*el {
 		out = append(out, mk("rect", "x", itoa(half.x1), "y", itoa(top), "width", itoa(half.x2-half.x1), "height", itoa(sh-5), "rx", "5", "fill", "@tint"))
 	}
 	if L.View.Internals == "headers" {
-		out = append(out, text(b.X+11, top+13, "ALGORITHM", "ca", "font-size", "9", "font-weight", "600", "fill", "@quiet"))
-		out = append(out, text(mid+8, top+13, "PROCESS MODEL", "pm", "font-size", "9", "font-weight", "600", "fill", "@quiet"))
-		out = append(out, text(b.X+11, top+27, plural(len(rules), "rule"), "ca-n", "font-size", "10.5", "fill", "@ink"))
-		out = append(out, text(mid+8, top+27, plural(len(vars), "variable"), "pm-n", "font-size", "10.5", "fill", "@ink"))
+		// The compartment names when both fit their half; in a narrow box only the sizes,
+		// "4 rules | 8 variables" (the key names the compartments).
+		if float64(len("PROCESS MODEL"))*stripCapW <= float64(b.x2()-19-mid) {
+			out = append(out, text(b.X+11, top+16, "ALGORITHM", "ca", "font-size", stripFont, "font-weight", "600", "fill", "@quiet"))
+			out = append(out, text(mid+8, top+16, "PROCESS MODEL", "pm", "font-size", stripFont, "font-weight", "600", "fill", "@quiet"))
+			out = append(out, text(b.X+11, top+32, plural(len(rules), "rule"), "ca-n", "font-size", stripFont, "fill", "@ink"))
+			out = append(out, text(mid+8, top+32, plural(len(vars), "variable"), "pm-n", "font-size", stripFont, "fill", "@ink"))
+			return out
+		}
+		out = append(out, text(b.X+11, top+24, plural(len(rules), "rule"), "ca-n", "font-size", stripFont, "fill", "@ink"))
+		out = append(out, text(mid+8, top+24, plural(len(vars), "variable"), "pm-n", "font-size", stripFont, "fill", "@ink"))
 		return out
 	}
 	out = append(out, text(b.X+11, top+13, "ALGORITHM", "ca", "font-size", "9.5", "font-weight", "600", "fill", "@quiet"))
 	out = append(out, text(mid+8, top+13, "PROCESS MODEL", "pm", "font-size", "9.5", "font-weight", "600", "fill", "@quiet"))
 	room := int(float64(mid-b.X-16) / 5.7)
 	for i, r := range rules {
-		out = append(out, text(b.X+11, top+27+13*i, clipTo("▸ "+fmt.Sprint(r["name"]), room), fmt.Sprintf("ca%d", i+1), "font-size", "10.5", "fill", "@ink"))
+		out = append(out, text(b.X+11, top+27+13*i, clipTo("▸ "+fmt.Sprint(r["name"]), room), "ca-"+ruleSlug(fmt.Sprint(r["name"])), "font-size", "10.5", "fill", "@ink"))
 	}
 	for i, v := range vars {
 		out = append(out, text(mid+8, top+27+13*i, clipTo(fmt.Sprint(v["name"]), room), fmt.Sprintf("pm%d", i+1), "font-size", "10.5", "fill", "@ink"))
 	}
 	return out
 }
+
+// The "headers" strip: its labels are read in the PRD, where a 760-wide widget shows at about
+// 0.88 of its size (a 672 px column), so 12 lands at 10.5 px, the PRD's minimum.
+const (
+	stripFont    = "12"
+	stripHeaders = 44
+	stripCapW    = 8.4 // average advance of a 12 px semibold capital
+)
 
 func plural(n int, w string) string {
 	if n == 1 {

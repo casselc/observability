@@ -378,7 +378,7 @@ func (p *Project) stripH(v *View, n *Node) int {
 	}
 	switch v.Internals {
 	case "headers":
-		return 38
+		return stripHeaders
 	case "full":
 		return 26 + 13*maxi(len(algoOf(n.Rec)), len(pmOf(n.Rec)))
 	}

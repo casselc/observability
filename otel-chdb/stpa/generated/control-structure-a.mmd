@@ -24,11 +24,11 @@ flowchart TB
   n8020ed fb2@<-.->|list, get| n21e324
   n8020ed -->|insert, repair| ned00c7
   n8020ed fb3@<-.->|answers, counts| ned00c7
-  n72ab73 fb4@<-.->|read records| n21e324
-  n72ab73 -->|upsert| nce1c77
   nfe59f7 -->|create-only PUT, resend| n21e324
-  nfe59f7 fb5@<-.->|PUT outcome| n21e324
+  nfe59f7 fb4@<-.->|PUT outcome| n21e324
   nfe59f7 -->|503, ack| ndf7b55
+  n72ab73 fb5@<-.->|read records| n21e324
+  n72ab73 -->|upsert| nce1c77
   nac2fd1 -->|delete, seal| n21e324
   nac2fd1 fb6@<-.->|checkpoints, marks| n21e324
   nac2fd1 -->|commit| nb29392

@@ -5,7 +5,6 @@ type: control-structure
 internals: headers   # compartment strips; the detail diagrams (controller-details.yaml) hold the rest
 title: "Data plane: controllers act on S3 and the stores; operators get feedback"
 columns: 4
-width: 920
 rows:
   - [{ref: ops, span: 4}]
   - [{ref: ec, span: 2}, {ref: edge, span: 2}]

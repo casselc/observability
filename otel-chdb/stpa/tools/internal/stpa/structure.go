@@ -432,6 +432,30 @@ func listOfMaps(v any) []map[string]any {
 	return out
 }
 
+// ruleSlug is a rule's name as the stable part of its text ids in the diagrams: lower case,
+// runs of anything but letters and digits as one hyphen. Rule names are unique within a
+// controller by this key (checkInternals), so the ids are too, and they survive a reordering
+// of the rules.
+func ruleSlug(name string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		} else {
+			dash = true
+		}
+	}
+	return b.String()
+}
+
+// ruleSlugMax keeps "<controller id>-rule-<slug>-l9" within the PRD's 64-character text ids.
+const ruleSlugMax = 36
+
 func pmOf(c *Record) []map[string]any   { return listOfMaps(c.F["process_model"]) }
 func algoOf(c *Record) []map[string]any { return listOfMaps(c.F["control_algorithm"]) }
 
@@ -539,7 +563,11 @@ func (p *Project) checkInternals(r *Record, field string, v any) []string {
 			name, _ := m["name"].(string)
 			if strings.TrimSpace(name) == "" {
 				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: name is required (what the rule decides, e.g. \"advance the checkpoint\")", i))
-			} else if key := strings.ToLower(strings.Join(strings.Fields(name), " ")); ruleNames[key] > 0 {
+			} else if key := ruleSlug(name); key == "" {
+				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: rule name %q has no letters or digits", i, name))
+			} else if len(key) > ruleSlugMax {
+				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: rule name %q is longer than %d characters as a text id (%s)", i, name, ruleSlugMax, key))
+			} else if ruleNames[key] > 0 {
 				errs = append(errs, fmt.Sprintf("control_algorithm[%d]: rule name %q is already the name of rule %d: rule names are unique within a controller", i, name, ruleNames[key]-1))
 			} else {
 				ruleNames[key] = i + 1

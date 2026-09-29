@@ -396,8 +396,7 @@ rule that issues it. Placement is in `views/control-structure-*.yaml` (rows, `sp
 `detail: false`, `internals`); every link between two placed nodes is drawn.
 
 **The PRD.** Paste `generated/<view>.prd.jsx` (the overviews) and `generated/controller-<node>.prd.jsx`
-(the detail diagrams, under "Controller internals") into the PRD's widgets; its text ids are stable across
-re-renders as long as the records keep their ids and the structure its node names and entry keys.
+(the detail diagrams, under "Controller internals") into the PRD's widgets; its text ids are stable across re-renders as long as the records keep their ids, the structure its node names and entry keys, and the rules their names (a rule's ids come from its name, not its position).
 
 ## 8. Owner decisions (2026-09-29)
 

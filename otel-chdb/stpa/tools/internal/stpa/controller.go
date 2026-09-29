@@ -219,7 +219,7 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 				acts = append(acts, l)
 			}
 		}
-		t := textRow{id: tid(c, fmt.Sprintf("r%d", i+1)), head: fmt.Sprint(r["name"]), sub: "▸ " + strings.Join(acts, "; "),
+		t := textRow{id: tid(c, "rule-"+ruleSlug(fmt.Sprint(r["name"]))), head: fmt.Sprint(r["name"]), sub: "▸ " + strings.Join(acts, "; "),
 			lines: wrapWords("when "+fmt.Sprint(r["when"]), caR-caL)}
 		t.h = lineH*t.nLines() + rowPad
 		ruleText[i] = t

@@ -17,6 +17,7 @@ otel-chdb/query/internal/*             ci:go-test
 otel-chdb/query/integration/hdxadapter/compare_test.go  ci:go-test
 otel-chdb/alerts/internal/*            ci:go-test
 otel-chdb/s3cas/*                      ci:go-test
+otel-chdb/stpa/tools/*                 ci:go-test
 
 # Rust (ci.yml rust: --lib --bins, then the named test targets; the nightly repeats some at scale)
 otel-chdb/otap-rs/src/*                ci:rust

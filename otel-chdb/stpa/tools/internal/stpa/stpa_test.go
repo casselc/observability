@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 	"gopkg.in/yaml.v3"
 )
 
@@ -185,7 +186,7 @@ func TestRuleNamesUniqueWithinAController(t *testing.T) {
 		return p.Check()
 	}
 	dup := "  - {name: delete an old slot, when: a slot is below every reader's position, uses: [positions], issues: [janitor->store/control/delete]}\n" +
-		"  - {name: 'Delete  an old slot', when: a slot is quarantined, uses: [positions], issues: [janitor->store/control/delete]}\n"
+		"  - {name: 'Delete an old-slot!', when: a slot is quarantined, uses: [positions], issues: [janitor->store/control/delete]}\n"
 	found := false
 	for _, f := range load(t, dup) {
 		found = found || (!f.Warn && f.Rule == "controller-internals" && strings.Contains(f.Msg, "rule names are unique within a controller"))
@@ -237,7 +238,7 @@ func TestDetailRuleHeadingAndTextIDs(t *testing.T) {
 		}
 		seen[m[1]] = true
 	}
-	if !seen["controller-000b04-r1"] || !seen["controller-000b04-r1-s"] {
+	if !seen["controller-000b04-rule-delete-an-old-slot"] || !seen["controller-000b04-rule-delete-an-old-slot-s"] {
 		t.Fatalf("rule text ids missing: %v", seen)
 	}
 }
@@ -245,6 +246,7 @@ func TestDetailRuleHeadingAndTextIDs(t *testing.T) {
 // Every node name in the repository's detail diagrams fits its box: a name wider than the box
 // (five nodes under the platform operators) is wrapped, not drawn across the border.
 func TestDetailNodeNamesFitTheirBoxes(t *testing.T) {
+	tracetag.Covers(t, "G", "CAST-71")
 	p, err := Load(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -272,9 +274,76 @@ func TestDetailNodeNamesFitTheirBoxes(t *testing.T) {
 	}
 }
 
+// A rule's text ids come from its name, not its position: reordering a controller's rules
+// keeps every id on the same words (comments in the PRD hang on the ids).
+func TestRuleTextIDsSurviveReordering(t *testing.T) {
+	p, err := Load(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idText := regexp.MustCompile(`data-claude-text-id='([^']+)'[^>]*>([^<]*)<`)
+	texts := func(jsx string) map[string]string {
+		m := map[string]string{}
+		for _, g := range idText.FindAllStringSubmatch(jsx, -1) {
+			if strings.Contains(g[1], "-rule-") {
+				m[g[1]] = g[2]
+			}
+		}
+		return m
+	}
+	n := p.Structure.Nodes["consumer"]
+	before := texts(p.DetailPRD(n))
+	rules := n.Rec.F["control_algorithm"].([]any)
+	for i, j := 0, len(rules)-1; i < j; i, j = i+1, j-1 {
+		rules[i], rules[j] = rules[j], rules[i]
+	}
+	after := texts(p.DetailPRD(n))
+	if len(before) == 0 || len(before) != len(after) {
+		t.Fatalf("rule texts: %d before, %d after", len(before), len(after))
+	}
+	for id, w := range before {
+		if after[id] != w {
+			t.Errorf("%s: %q before the reordering, %q after", id, w, after[id])
+		}
+	}
+}
+
+// The overview's compartment strips are read in the PRD, whose column is 672 px wide: every
+// strip label lands at 10.5 px or more at the widget's displayed scale.
+func TestOverviewStripLabelsLegibleInThePRD(t *testing.T) {
+	p, err := Load(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	strip := regexp.MustCompile(`data-claude-text-id='[^']*-(?:ca|pm)(?:-n|-[a-z0-9-]+)?'[^>]*fontSize='([0-9.]+)'`)
+	for _, v := range p.Views {
+		if v.Type != "control-structure" || v.Internals == "" {
+			continue
+		}
+		L := p.Place(v)
+		scale := 672.0 / float64(L.W)
+		if scale > 1 {
+			scale = 1
+		}
+		found := 0
+		for _, m := range strip.FindAllStringSubmatch(L.PRD(), -1) {
+			var fs float64
+			fmt.Sscan(m[1], &fs)
+			found++
+			if fs*scale < 10.5 {
+				t.Errorf("%s: a strip label at %.1f px authored shows at %.1f px (width %d)", v.Name, fs, fs*scale, L.W)
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s: no strip labels found", v.Name)
+		}
+	}
+}
+
 // JSX text is literal text: the PRD refuses an expression such as {'<'} in a text that carries
 // a text id (the consumer's "now + budget <= safe_until"), so special characters are entities.
 func TestJSXTextIsLiteral(t *testing.T) {
+	tracetag.Covers(t, "G", "CAST-70")
 	if got, want := jsxText("now + budget <= safe_until {x} & y > z"), "now + budget &lt;= safe_until &#123;x&#125; &amp; y &gt; z"; got != want {
 		t.Fatalf("jsxText = %q, want %q", got, want)
 	}

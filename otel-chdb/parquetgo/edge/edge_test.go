@@ -109,7 +109,8 @@ func TestTracesObject(t *testing.T) {
 	b, _ := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
 	want := map[string]string{
 		"oscope-format": "2", "oscope-cluster": "c1", "oscope-kind": "data", "oscope-producer": "p1", "oscope-epoch": "20260926T000000.000Z-00000001", "oscope-seq": "0",
-		"oscope-content": commit.ContentHash("traces", b), "oscope-signal": "traces", "oscope-schema": "2", "oscope-rows": "5", "oscope-announce": "1",
+		"oscope-content": commit.ContentHash("traces", b), "oscope-signal": "traces", "oscope-schema": "3", "oscope-rows": "5", "oscope-announce": "1",
+		"oscope-payloads": "0", "oscope-payload-refs": "0",
 		"oscope-min-time": "1700000000000000000", "oscope-max-time": "1700000000000000004", "oscope-received": "1790000000123456789",
 	}
 	for k, v := range want {

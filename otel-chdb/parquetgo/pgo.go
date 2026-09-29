@@ -112,8 +112,9 @@ var pgEnvelope = []pgCol{
 	{"received_at", kTS}, {"schema_version", kU16},
 }
 
-// pgResource: resource_id and resource_announce (resource.go), before the envelope.
-var pgResource = []pgCol{{"resource_id", kU64}, {"resource_announce", kMap}}
+// pgResource: resource_id, payload_refs, resource_announce and payloads
+// (schema.go resourceFields), before the envelope.
+var pgResource = []pgCol{{"resource_id", kU64}, {"payload_refs", kListStr}, {"resource_announce", kMap}, {"payloads", kMap}}
 
 var pgTraceCols = slices.Concat([]pgCol{
 	{"Timestamp", kTS}, {"TraceId", kStr}, {"SpanId", kStr}, {"ParentSpanId", kStr}, {"TraceState", kStr},

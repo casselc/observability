@@ -168,8 +168,9 @@ func (f *flattener) hexID(sb *array.StringBuilder, id []byte) {
 	sb.BinaryBuilder.Append(nil)
 }
 
-// resource writes resource_id and resource_announce, which sit between the
-// ClickStack columns and the envelope since 4d382ac: the id is parquetgo's
+// resource writes resource_id, payload_refs, resource_announce and
+// payloads, which sit between the ClickStack columns and the envelope
+// (4d382ac; the payload columns since schema 3, D36): the id is parquetgo's
 // (SplitCovered over the resource's attributes in table order, the order
 // CoveredOf walks); this spike announces nothing (an empty map, as parquetgo
 // writes on every row but an announcement's first).
@@ -185,11 +186,13 @@ func (f *flattener) resource(bs []array.Builder, a *attrTable, id int64) {
 		}
 	}
 	bs[0].(*array.Uint64Builder).Append(parquetgo.SplitCovered(kvs).ID)
-	bs[1].(*array.MapBuilder).Append(true)
+	bs[1].(*array.ListBuilder).Append(true) // payload_refs: this spike offloads nothing
+	bs[2].(*array.MapBuilder).Append(true)
+	bs[3].(*array.MapBuilder).Append(true) // payloads
 }
 
 // resourceAt is the index of resource_id in a published schema; the
-// envelope follows resource_announce.
+// envelope follows payloads.
 func resourceAt(s *arrow.Schema) int { return s.FieldIndices("resource_id")[0] }
 
 func (f *flattener) envelope(bs []array.Builder, row int, ts uint64) {
@@ -298,7 +301,7 @@ func (f *flattener) traces(mem memory.Allocator) arrow.Record {
 			f.mapOf(lb.(*array.MapBuilder), lkAttrs, b.ChildID[SpanLinks][l])
 		})
 		f.resource(fb[ra:], res, int64(rid))
-		f.envelope(fb[ra+2:], i, ts)
+		f.envelope(fb[ra+4:], i, ts)
 	}
 	return rb.NewRecordBatch()
 }
@@ -379,7 +382,7 @@ func (f *flattener) logs(mem memory.Allocator) arrow.Record {
 		s, _ = strAt(event, i)
 		str(15).Append(s)
 		f.resource(fb[ra:], res, int64(rid))
-		f.envelope(fb[ra+2:], i, ts)
+		f.envelope(fb[ra+4:], i, ts)
 	}
 	return rb.NewRecordBatch()
 }

@@ -50,6 +50,8 @@ func createDefaultConfig() component.Config {
 		S3:            S3Config{Region: "us-east-1", PutTimeout: 10 * time.Second, HeadTimeout: 2 * time.Second},
 		Heartbeat:     HeartbeatConfig{Interval: 30 * time.Second, BirthTimeout: 30 * time.Second},
 		Resources:     ResourcesConfig{Announce: true, Window: time.Hour, CacheSize: 65536},
+		// DECISIONS.md D36: on, 2 KiB, 8 MiB, the GenAI content keys.
+		Offload: defaultOffloadConfig(),
 		// DECISIONS.md D31: above a 5-minute clock skew with margin.
 		LateSplitAfter: 15 * time.Minute,
 	}
@@ -136,7 +138,7 @@ func acquire(id component.ID, cfg *Config, mp metric.MeterProvider, log *zap.Log
 		}
 		ec.Custody = custodyFor(id).lowNow
 		if s.e, s.err = edge.New(ec); s.err == nil && mp != nil {
-			s.reg, s.err = registerOutcomes(mp, s.e.Stats())
+			s.reg, s.err = registerOutcomes(mp, s.e.Stats(), s.e.OffloadStats)
 		}
 		if s.err == nil && cfg.Heartbeat.Interval > 0 {
 			var ctx context.Context

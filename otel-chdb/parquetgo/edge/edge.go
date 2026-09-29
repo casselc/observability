@@ -44,10 +44,11 @@ import (
 
 // SchemaVersion is the envelope's schema_version of metrics objects;
 // ResourceSchemaVersion that of traces and logs, which carry resource_id and
-// resource_announce (../resource.go).
+// resource_announce (../resource.go; 2) and payload_refs and payloads
+// (../offload.go, DECISIONS.md D36; 3).
 const (
 	SchemaVersion         = 1
-	ResourceSchemaVersion = 2
+	ResourceSchemaVersion = 3
 )
 
 func schemaVersion(ns string) int {
@@ -71,10 +72,11 @@ type ResourceOptions struct {
 	CacheSize int
 }
 
-// laneAnn is one lane's announcement cache.
+// laneAnn is one lane's announcement cache and sent payloads.
 type laneAnn struct {
 	mu sync.Mutex
 	c  parquetgo.AnnounceCache
+	p  parquetgo.PayloadCache
 }
 
 // Metrics layouts.
@@ -129,6 +131,12 @@ type Config struct {
 	// replay under another bound publishes other objects (duplicates, never
 	// a loss: the split's content keys name the bound).
 	LateSplitAfter time.Duration
+	// Offload is content by reference (../offload.go, DECISIONS.md D36):
+	// large values and the GenAI content keys of traces and logs go to the
+	// object's payload part. The zero value is off (the s3pq exporter's
+	// default is on: parquetgo.DefaultOffloadOptions). With it on, an OTLP
+	// request over MaxRequestBytes is refused as permanent.
+	Offload parquetgo.OffloadOptions
 	// Custody is the floor of what waits for the edge before it has it (a
 	// persistent queue: ../s3pqexporter), in ns; nil: nothing does (a sender
 	// waits for the commit). Every object's oscope-low is the lowest of it,
@@ -163,6 +171,10 @@ type Edge struct {
 	series *parquetgo.SeriesEncoder
 	encs   *parquetgo.FreeList[*parquetgo.PGEncoder]
 	ann    map[*commit.Lane]*laneAnn
+	policy *parquetgo.OffloadPolicy // nil: offloading off
+
+	offMu    sync.Mutex
+	offStats parquetgo.OffloadStats
 
 	mu         sync.Mutex
 	inHands    map[uint64]int       // received_at of the requests being published (a multiset)
@@ -214,6 +226,9 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.Resources.CacheSize <= 0 {
 		cfg.Resources.CacheSize = 65536
 	}
+	if err := cfg.Offload.Validate(); err != nil {
+		return nil, err
+	}
 	e := &Edge{cfg: cfg, store: cfg.Store, lanes: map[string][]*commit.Lane{}, stats: &commit.Stats{},
 		inHands: map[uint64]int{}, lastCommit: map[string]time.Time{}, ann: map[*commit.Lane]*laneAnn{}}
 	if e.store == nil {
@@ -243,12 +258,36 @@ func New(cfg Config) (*Edge, error) {
 	if cfg.MetricsLayout == SeriesTable {
 		e.series = parquetgo.NewSeriesEncoder(cfg.Series, cfg.Parquet)
 	}
+	if cfg.Offload.Enabled {
+		e.policy = parquetgo.NewOffloadPolicy(cfg.Offload)
+	}
 	e.encs = parquetgo.NewFreeList(64, func() *parquetgo.PGEncoder { return parquetgo.NewPGEncoder(cfg.Parquet) })
 	return e, nil
 }
 
 // Stats are the lanes' counters (shared by every lane).
 func (e *Edge) Stats() *commit.Stats { return e.stats }
+
+// OffloadStats are the offloader's counters: what the committed objects'
+// walks did, the payloads they carried and deduplicated, and the requests
+// refused (s3pq_offload_total).
+func (e *Edge) OffloadStats() parquetgo.OffloadStats {
+	e.offMu.Lock()
+	defer e.offMu.Unlock()
+	return e.offStats
+}
+
+// overCap is a permanent error for an OTLP request over the offloader's
+// request cap (R-L4: refused as a client error, counted, not dropped).
+func (e *Edge) overCap(n int) error {
+	if e.policy == nil || n <= e.cfg.Offload.MaxRequestBytes {
+		return nil
+	}
+	e.offMu.Lock()
+	e.offStats.Refused++
+	e.offMu.Unlock()
+	return &PermanentError{fmt.Errorf("request of %d bytes exceeds offload.max_request_bytes %d", n, e.cfg.Offload.MaxRequestBytes)}
+}
 
 // Lane returns a namespace's lanes (tests, observers).
 func (e *Edge) Lane(ns string) []*commit.Lane { return e.lanes[ns] }
@@ -450,13 +489,17 @@ func (e *Edge) env(r commit.Ref, received uint64) *parquetgo.Envelope {
 	return &parquetgo.Envelope{Producer: e.cfg.ProducerID, Epoch: r.Epoch, Batch: r.Seq, Received: received, Schema: SchemaVersion}
 }
 
-// announcing is a traces or logs object's announcement state: the lane's
-// cache, the request's window, and what the last encode announced.
+// announcing is a traces or logs object's announcement and payload state:
+// the lane's caches, the request's window, and what the last encode
+// announced and carried.
 type announcing struct {
 	ann       *laneAnn
 	window    int64
 	off       bool
 	announced []uint64
+	carried   [][16]byte
+	refs      int
+	stats     parquetgo.OffloadStats
 }
 
 func (e *Edge) announcing(l *commit.Lane, received uint64) *announcing {
@@ -476,11 +519,36 @@ func (a *announcing) wants(epoch string) func(uint64) bool {
 	}
 }
 
-// committed marks what the committed object announced: only once it has
-// committed (../../model/entityCatalog.qnt announcedAfterCommit). An object
-// found committed without being encoded by this call marks nothing (its
-// resources are announced again: harmless).
+// carries is the object's payload choice for the slot's epoch: a payload
+// not yet sent in this epoch (../offload.go PayloadCache).
+func (a *announcing) carries(epoch string) func([16]byte) bool {
+	return func(h [16]byte) bool {
+		a.ann.mu.Lock()
+		defer a.ann.mu.Unlock()
+		return a.ann.p.Wants(epoch, h)
+	}
+}
+
+// committed marks what the committed object announced and carried: only
+// once it has committed (../../model/entityCatalog.qnt
+// announcedAfterCommit). An object found committed without being encoded by
+// this call marks nothing (its resources are announced, and its payloads
+// carried, again: harmless).
 func (e *Edge) committed(a *announcing, r commit.Ref) {
+	if e.policy != nil {
+		st := a.stats
+		st.Carried = uint64(len(a.carried))
+		st.Dedup = uint64(a.refs - min(len(a.carried), a.refs))
+		e.offMu.Lock()
+		e.offStats.Add(st)
+		e.offMu.Unlock()
+		if len(a.carried) > 0 {
+			a.ann.mu.Lock()
+			a.ann.p.Sent(r.Epoch, a.carried, e.cfg.Offload.CacheSize)
+			a.ann.mu.Unlock()
+		}
+		a.carried, a.refs, a.stats = nil, 0, parquetgo.OffloadStats{}
+	}
 	if len(a.announced) == 0 {
 		return
 	}
@@ -501,6 +569,8 @@ func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *
 		meta = e.description(ns, rows, env.MinTS, env.MaxTS, received)
 		if ann != nil {
 			meta[commit.MetaAnnounce] = strconv.Itoa(len(env.Announced))
+			meta[commit.MetaPayloads] = strconv.Itoa(len(env.Carried))
+			meta[commit.MetaPayloadRefs] = strconv.Itoa(env.PayloadRefs())
 		}
 		for k, v := range extra {
 			meta[k] = v
@@ -514,12 +584,22 @@ func (e *Edge) pgObject(ns, content string, r commit.Ref, received uint64, ann *
 	if ann != nil {
 		env.Announce = ann.wants(r.Epoch)
 		ann.announced = nil
+		if e.policy != nil {
+			env.Offload = parquetgo.NewOffloader(e.policy, e.cfg.Cluster, received)
+			env.Carry = ann.carries(r.Epoch)
+		}
+		ann.carried, ann.refs, ann.stats = nil, 0, parquetgo.OffloadStats{}
 	}
 	if _, err := walk(enc, buf, env); err != nil {
 		return commit.Object{}, err
 	}
 	if ann != nil {
 		ann.announced = slices.Clone(env.Announced)
+		if env.Offload != nil {
+			ann.carried = slices.Clone(env.Carried)
+			ann.refs = env.PayloadRefs()
+			ann.stats = env.Offload.Stats
+		}
 	}
 	body := buf.Bytes()
 	if n := e.cfg.Parquet.TruncateStatistics; n > 0 {
@@ -570,6 +650,9 @@ func (e *Edge) PushTraces(ctx context.Context, td ptrace.Traces) error {
 	if err != nil {
 		return &PermanentError{err}
 	}
+	if err := e.overCap(len(b)); err != nil {
+		return err
+	}
 	walk := func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 		return enc.Traces(buf, td, env)
 	}
@@ -600,6 +683,9 @@ func (e *Edge) PushLogs(ctx context.Context, ld plog.Logs) error {
 	b, err := (&plog.ProtoMarshaler{}).MarshalLogs(ld)
 	if err != nil {
 		return &PermanentError{err}
+	}
+	if err := e.overCap(len(b)); err != nil {
+		return err
 	}
 	walk := func(enc *parquetgo.PGEncoder, buf *bytes.Buffer, env *parquetgo.Envelope) (int, error) {
 		return enc.Logs(buf, ld, env)
@@ -642,6 +728,9 @@ func (e *Edge) PushMetrics(ctx context.Context, md pmetric.Metrics) error {
 	b, err := (&pmetric.ProtoMarshaler{}).MarshalMetrics(md)
 	if err != nil {
 		return &PermanentError{err}
+	}
+	if err := e.overCap(len(b)); err != nil {
+		return err
 	}
 	var parts []part
 	if e.series != nil {

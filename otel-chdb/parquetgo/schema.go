@@ -37,11 +37,16 @@ var envelopeFields = []arrow.Field{
 }
 
 // resourceFields sit between the ClickStack columns and the envelope of
-// traces and logs (resource.go): the row's resource_id, and the covered set
-// of a resource the object announces, on its first row (else empty).
+// traces and logs (schema 3): the row's resource_id (resource.go) and
+// payload_refs (its distinct payload references, hex: offload.go), content
+// columns; then, decided per slot, resource_announce (the covered set of a
+// resource the object announces, on its first row) and payloads (hash hex
+// -> content, on the first row referencing a payload the object carries).
 var resourceFields = []arrow.Field{
 	col("resource_id", arrow.PrimitiveTypes.Uint64),
+	col("payload_refs", list(strType)),
 	col("resource_announce", attrMap()),
+	col("payloads", attrMap()),
 }
 
 func withResource(f []arrow.Field) []arrow.Field {

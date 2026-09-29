@@ -20,6 +20,8 @@ exporters:
     heartbeat:                    # births and idle-lane heartbeats (../FORMAT.md §2)
       interval: ${env:HEARTBEAT:-30s}
     metrics_layout: ${env:METRICS_LAYOUT:-series_table}
+    offload:                      # content by reference (../FORMAT.md §2.3, D36), as the Rust edge's
+      enabled: ${env:OFFLOAD:-true}
     s3:
       url: ${env:S3_URL}
       region: us-east-1

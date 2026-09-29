@@ -59,6 +59,41 @@ type Config struct {
 	// it above the fleet's clock skew, or every request with a skewed
 	// sender splits. The Rust edge's `late_split_after`.
 	LateSplitAfter time.Duration `mapstructure:"late_split_after"`
+	// Offload: content by reference (../offload.go, DECISIONS.md D36), as
+	// the Rust edge's `offload:`.
+	Offload OffloadConfig `mapstructure:"offload"`
+}
+
+// OffloadConfig is parquetgo.OffloadOptions under the Rust edge's keys:
+// values of span, span event and log attributes and log bodies longer than
+// Threshold bytes, or non-empty under Keys, go to the object's payload part
+// by reference; SplitKeys' JSON arrays per element; RedactKeys' values are
+// replaced by ""; values are capped at MaxValue; an OTLP request over
+// MaxRequestBytes is refused (permanent).
+type OffloadConfig struct {
+	Enabled          bool     `mapstructure:"enabled"`
+	Threshold        int      `mapstructure:"threshold"`
+	MaxValue         int      `mapstructure:"max_value"`
+	MaxRequestBytes  int      `mapstructure:"max_request_bytes"`
+	Keys             []string `mapstructure:"keys"`
+	SplitKeys        []string `mapstructure:"split_keys"`
+	RedactKeys       []string `mapstructure:"redact_keys"`
+	SplitMaxDepth    int      `mapstructure:"split_max_depth"`
+	SplitMaxElements int      `mapstructure:"split_max_elements"`
+	CacheSize        int      `mapstructure:"cache_size"`
+}
+
+func defaultOffloadConfig() OffloadConfig {
+	d := parquetgo.DefaultOffloadOptions()
+	return OffloadConfig{Enabled: d.Enabled, Threshold: d.Threshold, MaxValue: d.MaxValue, MaxRequestBytes: d.MaxRequestBytes,
+		Keys: d.Keys, SplitKeys: d.SplitKeys, RedactKeys: d.RedactKeys, SplitMaxDepth: d.SplitMaxDepth,
+		SplitMaxElements: d.SplitMaxElements, CacheSize: d.CacheSize}
+}
+
+func (o OffloadConfig) options() parquetgo.OffloadOptions {
+	return parquetgo.OffloadOptions{Enabled: o.Enabled, Threshold: o.Threshold, MaxValue: o.MaxValue,
+		MaxRequestBytes: o.MaxRequestBytes, Keys: o.Keys, SplitKeys: o.SplitKeys, RedactKeys: o.RedactKeys,
+		SplitMaxDepth: o.SplitMaxDepth, SplitMaxElements: o.SplitMaxElements, CacheSize: o.CacheSize}
 }
 
 // ResourcesConfig: announce each resource once per window per lane epoch
@@ -165,6 +200,9 @@ func (c *Config) Validate() error {
 	if err := c.Batch.validate(); err != nil {
 		errs = append(errs, err)
 	}
+	if err := c.Offload.options().Validate(); err != nil {
+		errs = append(errs, err)
+	}
 	return errors.Join(errs...)
 }
 
@@ -195,5 +233,6 @@ func (c *Config) EdgeConfig() edge.Config {
 	}
 	return edge.Config{S3: s3, Cluster: c.Cluster, ProducerID: c.ProducerID, Lanes: c.Lanes, MetricsLayout: c.MetricsLayout,
 		Series: series, Parquet: p, PutTimeout: c.S3.PutTimeout, HeadTimeout: c.S3.HeadTimeout, LateSplitAfter: c.LateSplitAfter,
-		Resources: edge.ResourceOptions{Off: !c.Resources.Announce, Window: c.Resources.Window, CacheSize: c.Resources.CacheSize}}
+		Resources: edge.ResourceOptions{Off: !c.Resources.Announce, Window: c.Resources.Window, CacheSize: c.Resources.CacheSize},
+		Offload:   c.Offload.options()}
 }

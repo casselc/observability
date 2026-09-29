@@ -58,6 +58,14 @@ const (
 	// in resource_announce (../../FORMAT.md §2); the consumer inserts
 	// announcements only from objects with a nonzero count.
 	MetaAnnounce = "oscope-announce"
+	// MetaPayloads (traces, logs): how many payloads the object carries in
+	// payloads (../../FORMAT.md §2.3, DECISIONS.md D36); the consumer
+	// inserts payloads only from objects with a nonzero count, before their
+	// rows. MetaPayloadRefs: how many distinct payload references its rows
+	// hold (payload_refs); the consumer's dangling check reads only objects
+	// with a nonzero count.
+	MetaPayloads    = "oscope-payloads"
+	MetaPayloadRefs = "oscope-payload-refs"
 	// MetaPart and MetaLateAfter (traces, logs; DECISIONS.md D31): on the
 	// two objects of a request split by event time, PartBulk (the rows at
 	// or after the request's newest row − the bound) or PartLate (the rest),

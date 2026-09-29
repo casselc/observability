@@ -1,6 +1,7 @@
 package parquetgo
 
 import (
+	"encoding/hex"
 	"math"
 	"strconv"
 
@@ -51,16 +52,139 @@ type Envelope struct {
 	// late split, DECISIONS.md D31): a row it rejects is skipped entirely,
 	// and row_ordinal counts the rows written.
 	Keep func(ts uint64) bool
-	res  Resources
+	// Offload (traces, logs): the object's payload offloader (offload.go);
+	// nil: values stay inline, payload_refs and payloads stay empty. The
+	// walkers reset it. Carry says which payloads the object carries (nil:
+	// every one); Carried lists them, in walk order.
+	Offload *Offloader
+	Carry   func(h [16]byte) bool
+	Carried [][16]byte
+	res     Resources
+	carried int // Offload.Payloads written so far
+}
+
+// offloader is env's offloader, or nil.
+func (e *Envelope) offloader() *Offloader {
+	if e == nil {
+		return nil
+	}
+	return e.Offload
+}
+
+// start resets env's per-walk state.
+func (e *Envelope) start() {
+	e.res.reset()
+	e.Announced = e.Announced[:0]
+	e.Carried = e.Carried[:0]
+	e.carried = 0
+	if e.Offload != nil {
+		e.Offload.reset()
+	}
+}
+
+// PayloadRefs is how many distinct payloads the object's rows reference
+// (oscope-payload-refs).
+func (e *Envelope) PayloadRefs() int {
+	if e.Offload == nil {
+		return 0
+	}
+	return len(e.Offload.Payloads)
+}
+
+// attrsOff writes a span, span event or log attribute map through the
+// offloader (otap-rs flatten.rs push_attrs_off): a value may become a
+// reference document; the markers of this map, and any pending before it (a
+// log body's), follow its entries. A map without a candidate value and with
+// no markers pending is written as it is.
+func attrsOff(w rowWriter, env *Envelope, m pcommon.Map, row int) {
+	o := env.offloader()
+	if o == nil || (!o.Pending() && !o.anyCandidate(m)) {
+		w.attrs(m)
+		return
+	}
+	pairs := make([][2]string, 0, m.Len()+4)
+	m.Range(func(k string, v pcommon.Value) bool {
+		var s string
+		if v.Type() == pcommon.ValueTypeStr {
+			s = v.Str()
+		} else {
+			s = string(valueString(nil, v))
+		}
+		if o.Candidate(k, len(s)) {
+			if out, ok := o.Value(k, bytesOf(s), uint32(row)); ok {
+				s = string(out)
+			}
+		}
+		pairs = append(pairs, [2]string{k, s})
+		return true
+	})
+	pairs = append(pairs, o.Markers...)
+	o.Markers = o.Markers[:0]
+	w.pairs(pairs)
+}
+
+// bodyOff is a log body through the offloader (key BodyKey); its markers
+// wait for the log's attributes.
+func bodyOff(env *Envelope, body string, row int) string {
+	o := env.offloader()
+	if o == nil || !o.Candidate(BodyKey, len(body)) {
+		return body
+	}
+	if out, ok := o.Value(BodyKey, bytesOf(body), uint32(row)); ok {
+		return string(out)
+	}
+	return body
+}
+
+// payloadCols writes a row's payload_refs (its distinct references, hex)
+// and, after resource_announce, payloads: the payloads first referenced by
+// this row that the object carries.
+func payloadRefs(w rowWriter, env *Envelope) {
+	o := env.offloader()
+	if o == nil {
+		w.arr(0)
+		w.end()
+		return
+	}
+	refs := o.EndRow()
+	w.arr(len(refs))
+	for _, h := range refs {
+		w.str(hex.EncodeToString(h[:]))
+	}
+	w.end()
+}
+
+func payloadsCol(w rowWriter, env *Envelope) {
+	o := env.offloader()
+	if o == nil || env.carried == len(o.Payloads) {
+		w.pairs(nil)
+		return
+	}
+	var pairs [][2]string
+	for _, p := range o.Payloads[env.carried:] {
+		if env.Carry == nil || env.Carry(p.Hash) {
+			pairs = append(pairs, [2]string{hex.EncodeToString(p.Hash[:]), string(p.Content)})
+			env.Carried = append(env.Carried, p.Hash)
+		}
+	}
+	env.carried = len(o.Payloads)
+	w.pairs(pairs)
 }
 
 // skip reports whether env's Keep rejects a row with event time ts.
 func (e *Envelope) skip(ts uint64) bool { return e != nil && e.Keep != nil && !e.Keep(ts) }
 
-// resourceCols writes a row's resource_id and resource_announce: the
-// covered set on the first row of a resource the object announces.
+// resourceCols writes a row's resource_id, payload_refs,
+// resource_announce (the covered set on the first row of a resource the
+// object announces) and payloads.
 func resourceCols(w rowWriter, env *Envelope, id uint64) {
 	w.u64(id)
+	payloadRefs(w, env)
+	announceCol(w, env, id)
+	payloadsCol(w, env)
+}
+
+func announceCol(w rowWriter, env *Envelope, id uint64) {
 	if env == nil {
 		w.pairs(nil)
 		return
@@ -77,11 +201,22 @@ func resourceCols(w rowWriter, env *Envelope, id uint64) {
 	w.pairs(nil)
 }
 
-// resourceOf registers a resource with the object's collector.
+// resourceOf registers a resource with the object's collector and sets the
+// offloader's tenant: the resource's covered k8s.namespace.name.
 func resourceOf(env *Envelope, res pcommon.Map) uint64 {
 	c := CoveredOf(res)
 	if env == nil {
 		return c.ID
+	}
+	if o := env.Offload; o != nil {
+		ns := ""
+		for _, p := range c.Pairs {
+			if p[0] == "k8s.namespace.name" {
+				ns = p[1]
+				break
+			}
+		}
+		o.Tenant(ns)
 	}
 	return env.res.resource(c)
 }
@@ -133,8 +268,7 @@ func valueString(dst []byte, v pcommon.Value) []byte {
 func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 	n := 0
 	if env != nil {
-		env.res.reset()
-		env.Announced = env.Announced[:0]
+		env.start()
 	}
 	rss := td.ResourceSpans()
 	for i := 0; i < rss.Len(); i++ {
@@ -164,7 +298,7 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 				w.attrs(res)
 				w.str(scope.Name())
 				w.str(scope.Version())
-				w.attrs(s.Attributes())
+				attrsOff(w, env, s.Attributes(), n)
 				w.u64(uint64(s.EndTimestamp() - s.StartTimestamp()))
 				w.str(s.Status().Code().String())
 				w.str(s.Status().Message())
@@ -182,7 +316,7 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 				w.end()
 				w.arr(ev.Len())
 				for e := 0; e < ev.Len(); e++ {
-					w.attrs(ev.At(e).Attributes())
+					attrsOff(w, env, ev.At(e).Attributes(), n)
 				}
 				w.end()
 
@@ -222,8 +356,7 @@ func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
 func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 	n := 0
 	if env != nil {
-		env.res.reset()
-		env.Announced = env.Announced[:0]
+		env.start()
 	}
 	rls := ld.ResourceLogs()
 	for i := 0; i < rls.Len(); i++ {
@@ -257,9 +390,9 @@ func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 				w.str(svc)
 				body := r.Body()
 				if body.Type() == pcommon.ValueTypeStr {
-					w.str(body.Str())
+					w.str(bodyOff(env, body.Str(), n))
 				} else {
-					w.str(AttrString(body))
+					w.str(bodyOff(env, AttrString(body), n))
 				}
 				w.str(resURL)
 				w.attrs(res)
@@ -267,7 +400,7 @@ func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 				w.str(scope.Name())
 				w.str(scope.Version())
 				w.attrs(scope.Attributes())
-				w.attrs(r.Attributes())
+				attrsOff(w, env, r.Attributes(), n)
 				w.str(r.EventName())
 				resourceCols(w, env, rid)
 				if env != nil {

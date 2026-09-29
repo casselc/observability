@@ -168,6 +168,30 @@ func (f *flattener) hexID(sb *array.StringBuilder, id []byte) {
 	sb.BinaryBuilder.Append(nil)
 }
 
+// resource writes resource_id and resource_announce, which sit between the
+// ClickStack columns and the envelope since 4d382ac: the id is parquetgo's
+// (SplitCovered over the resource's attributes in table order, the order
+// CoveredOf walks); this spike announces nothing (an empty map, as parquetgo
+// writes on every row but an announcement's first).
+func (f *flattener) resource(bs []array.Builder, a *attrTable, id int64) {
+	var kvs []parquetgo.ResourceKV
+	for _, r := range a.g.of(id) {
+		k, _ := strAt(a.key, int(r))
+		if t, _ := uintAt(a.typ, int(r)); t == tStr {
+			v, _ := strAt(a.v.str, int(r))
+			kvs = append(kvs, parquetgo.ResourceKV{Key: k, Value: v, Str: true})
+		} else {
+			kvs = append(kvs, parquetgo.ResourceKV{Key: k})
+		}
+	}
+	bs[0].(*array.Uint64Builder).Append(parquetgo.SplitCovered(kvs).ID)
+	bs[1].(*array.MapBuilder).Append(true)
+}
+
+// resourceAt is the index of resource_id in a published schema; the
+// envelope follows resource_announce.
+func resourceAt(s *arrow.Schema) int { return s.FieldIndices("resource_id")[0] }
+
 func (f *flattener) envelope(bs []array.Builder, row int, ts uint64) {
 	e := f.env
 	if e.MinTS == 0 || ts < e.MinTS {
@@ -188,6 +212,7 @@ func (f *flattener) traces(mem memory.Allocator) arrow.Record {
 	b, r := f.b, f.b.Root
 	n := rows(r)
 	rb := array.NewRecordBuilder(mem, parquetgo.TracesSchema)
+	ra := resourceAt(parquetgo.TracesSchema)
 	defer rb.Release()
 	rb.Reserve(n)
 	fb := rb.Fields()
@@ -272,7 +297,8 @@ func (f *flattener) traces(mem memory.Allocator) arrow.Record {
 		f.list(fb[21], lks, func(lb array.Builder, l int) {
 			f.mapOf(lb.(*array.MapBuilder), lkAttrs, b.ChildID[SpanLinks][l])
 		})
-		f.envelope(fb[22:], i, ts)
+		f.resource(fb[ra:], res, int64(rid))
+		f.envelope(fb[ra+2:], i, ts)
 	}
 	return rb.NewRecordBatch()
 }
@@ -290,6 +316,7 @@ func (f *flattener) logs(mem memory.Allocator) arrow.Record {
 	b, r := f.b, f.b.Root
 	n := rows(r)
 	rb := array.NewRecordBuilder(mem, parquetgo.LogsSchema)
+	ra := resourceAt(parquetgo.LogsSchema)
 	defer rb.Release()
 	rb.Reserve(n)
 	fb := rb.Fields()
@@ -351,7 +378,8 @@ func (f *flattener) logs(mem memory.Allocator) arrow.Record {
 		f.mapOf(fb[14].(*array.MapBuilder), logAttrs, b.RootID[i])
 		s, _ = strAt(event, i)
 		str(15).Append(s)
-		f.envelope(fb[16:], i, ts)
+		f.resource(fb[ra:], res, int64(rid))
+		f.envelope(fb[ra+2:], i, ts)
 	}
 	return rb.NewRecordBatch()
 }

@@ -42,6 +42,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/central"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 func env(k, d string) string {
@@ -275,7 +277,7 @@ func TestIntegration(t *testing.T) {
 		bucket: env("QS_IT_BUCKET", "otel"), run: "qs-" + id, db: "qs_" + id, cat: "qs_" + id + "_cat", ro: "qs_ro_" + id,
 		roPass: fmt.Sprintf("%016x", rand.Uint64())}
 	if _, err := r.sqlErr("SELECT 1", ""); err != nil {
-		t.Skipf("no ClickHouse at %s: %v", r.ch, err)
+		testgate.Skip(t, "clickhouse", "no ClickHouse at %s: %v", r.ch, err)
 	}
 	r.s3 = s3.New(s3.Options{Region: "us-east-1", BaseEndpoint: aws.String(r.s3url), UsePathStyle: true,
 		Credentials: credentials.NewStaticCredentialsProvider("otel", "otelsecret", "")})

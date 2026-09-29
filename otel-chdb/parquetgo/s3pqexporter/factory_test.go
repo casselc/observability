@@ -14,6 +14,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 func load(t *testing.T, m map[string]any) *Config {
@@ -74,7 +76,7 @@ func TestConfig(t *testing.T) {
 func TestExportToBucket(t *testing.T) {
 	url := os.Getenv("GOEDGE_S3")
 	if url == "" {
-		t.Skip("GOEDGE_S3 not set")
+		testgate.Skip(t, "s3", "GOEDGE_S3 not set")
 	}
 	run := time.Now().Format("150405.000")
 	cfg := load(t, map[string]any{"cluster": "c1", "producer_id": "exporter-test", "s3": map[string]any{"url": url + "/exporter-test/" + run}})

@@ -681,8 +681,7 @@ pub(crate) mod tests {
         let urls = std::env::var("OTAPRS_REPLICAS").unwrap_or_else(|_| "http://127.0.0.1:28123,http://127.0.0.1:38123".into());
         let reps: Vec<ClickHouse> = urls.split(',').map(ClickHouse::new).collect();
         if reps.len() < 2 || !ch_up(&reps[0]).await || !ch_up(&reps[1]).await {
-            eprintln!("no replicated ClickHouse: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse-replicated", "no replicated ClickHouse");
         }
         let (r1, r2) = (&reps[0], &reps[1]);
         let db = format!("repl_audit_it_{}", run_id());
@@ -748,8 +747,7 @@ pub(crate) mod tests {
     async fn planted_copies_on_clickhouse() {
         let ch = ClickHouse::new(&ch_url());
         if !ch_up(&ch).await {
-            eprintln!("no ClickHouse: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", "no ClickHouse");
         }
         let db = format!("audit_it_{}", run_id());
         let k = LaneKind::for_signal("logs").unwrap();
@@ -847,8 +845,7 @@ pub(crate) mod tests {
     async fn recut_copies_are_counted_by_content() {
         let ch = ClickHouse::new(&ch_url());
         if !ch_up(&ch).await {
-            eprintln!("no ClickHouse: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", "no ClickHouse");
         }
         let db = format!("audit_dup_{}", run_id());
         ch.query(&format!("CREATE DATABASE {db}"), &[]).await.unwrap();
@@ -977,8 +974,7 @@ pub(crate) mod tests {
         let ch = ClickHouse::new(&ch_url());
         let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
         if !ch_up(&ch).await {
-            eprintln!("no ClickHouse: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", "no ClickHouse");
         }
         let id = run_id();
         let db = format!("audit_e2e_{id}");
@@ -992,9 +988,8 @@ pub(crate) mod tests {
         .unwrap();
         let root = store.prefix.clone();
         let bucket = Rc::new(S3Bucket::new(store));
-        if bucket.list(&root, None).await.is_err() {
-            eprintln!("no S3 at {s3}: skipped");
-            return;
+        if let Err(e) = bucket.list(&root, None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no S3 at {s3}: {e}"));
         }
         // format v2: cluster/producer/signal (a lane without its cluster is never
         // discovered: this test found nothing to ingest while it was skipped)

@@ -44,6 +44,35 @@ Every job that touches the services uploads their logs on failure; the
 end-to-end jobs always upload their output directories (summaries, edge,
 proxy and consumer logs).
 
+## Service-gated tests fail where the services are (CAST row 43)
+
+A test that needs ClickHouse, S3 or another service skips without it, so the
+suites run on a laptop; but a skip reads as a pass, and two tests skipped
+silently for lack of a bucket while broken underneath. So every such gate goes
+through one helper per language, and fails instead of skipping where the run
+says the service exists:
+
+- Rust: `otap_s3pq::testgate::skip(service, why)` (`otel-chdb/otap-rs/src/testgate.rs`);
+  the gate `return`s it.
+- Go: `testgate.Skip(t, service, format, args...)` (module `otel-chdb/testgate`,
+  no dependencies; a module using it, or building one that does, carries
+  `replace .../otel-chdb/testgate => <path>`, as do the two ocb builder configs).
+- `OSCOPE_REQUIRE_SERVICES`: unset, empty or `0` nothing is required; `1`,
+  `all` or `*` everything; else names separated by commas or spaces. Names:
+  `clickhouse`, `s3`, `kms`, `credstubs`, `clickhouse-replicated`.
+- `ci/services.sh start` writes `OSCOPE_REQUIRE_SERVICES=clickhouse,s3` to
+  `$GITHUB_ENV` (`REQUIRE_SERVICES` overrides), so every job that starts the
+  services requires them; `kms-emulator.sh` adds `kms`, and the creds step of
+  `rust-integration` adds `credstubs`.
+- Opt-in gates are not service gates and still skip: a binaries directory
+  (`QS_IT_BIN`, `ALR_IT_BIN`, `FAULTPROXY2`), a dataset (`OTAPRS_DATA`), libchdb
+  (`CHDB_LIB_PATH`), a slow or measuring test (`HDXA_IT`, `HEGEL_*`,
+  `PBT_*`, `*_MEASURE*`, `OTAP_CENTRAL_BENCH`), and the replicated central
+  (`clickhouse-replicated`, `central-replicated/`), which no job starts.
+
+Locally, with the services up: `set -a; . ci/test.env; set +a; export
+OSCOPE_REQUIRE_SERVICES=clickhouse,s3` before the commands below.
+
 ## Scripts
 
 | script | does |
@@ -52,7 +81,7 @@ proxy and consumer logs).
 | `iam-lint.sh [DIR]` | every `otel-chdb/deploy/iam/*.json` parses, and a role granting `s3:ListBucket` under an `s3:prefix` condition also grants it on the same prefixes under `StringLikeIfExists` (or unconditioned): a HEAD carries no prefix, and S3 answers a missing key 403 without `ListBucket` (DECISIONS D18 amendment, 2026-09-28). Fails on the pre-amendment policies. KMS grants (the query service's basis key, `query-basis-kms*.json`, D30 amendment): one key ARN per resource, named actions, and no key policy letting `*` or the account root call `GenerateMac`/`VerifyMac`/`CreateGrant` |
 | `kms-emulator.sh [PORT]` | starts `moto_server` (on PATH: `pip install 'moto[server]'`) and runs `TestKMSEmulator` (`otel-chdb/query/internal/app`) against it; nightly `query-kms-emulator` |
 | `clippy.sh` | `cargo clippy --release --all-targets -D warnings`, allowing the 16 lint kinds the crate trips today (a new kind fails; the list can only shrink) |
-| `services.sh start\|stop\|logs` | SeaweedFS (`chrislusf/seaweedfs:4.47`, S3 :18333, otel/otelsecret, `-volume.max=64 -master.volumeSizeLimitMB=1024`) and ClickHouse (`clickhouse/clickhouse-server:26.9`, HTTP :18123, TCP :19000) in Docker on the host network, since ClickHouse reads SeaweedFS through `s3()`; creates the buckets |
+| `services.sh start\|stop\|logs` | SeaweedFS (`chrislusf/seaweedfs:4.47`, S3 :18333, otel/otelsecret, `-volume.max=64 -master.volumeSizeLimitMB=1024`) and ClickHouse (`clickhouse/clickhouse-server:26.9`, HTTP :18123, TCP :19000) in Docker on the host network, since ClickHouse reads SeaweedFS through `s3()`; creates the buckets; under Actions writes `OSCOPE_REQUIRE_SERVICES=clickhouse,s3` to `$GITHUB_ENV` (see above) |
 | `test.env` | every endpoint and key the tests read; appended to `$GITHUB_ENV` |
 | `gen-data.sh DATA [BIN]` | builds the Go tools and writes otlpgen's datasets; `VARIANTS`, `CONFORMANCE`, `SERIES`, `FLEET` add the rest |
 | `build-collectors.sh BIN [s3pq\|chdb\|all]` | ocb v0.161.0 builds of the two collectors |

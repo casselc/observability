@@ -1077,8 +1077,7 @@ mod tests {
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         let admin = otap_s3pq::central::ClickHouse::new(&url);
         if admin.query("SELECT 1", &[]).await.is_err() {
-            eprintln!("no ClickHouse at {url}: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let id = format!("{:08x}", rand::random::<u32>());
         let (db, user, prof) = (format!("am_h2_{id}"), format!("am_h2_u_{id}"), format!("am_h2_p_{id}"));
@@ -1090,10 +1089,9 @@ mod tests {
         ];
         for q in &setup {
             if let Err(e) = admin.query(q, &[]).await {
-                eprintln!("{q}: {e}: skipped");
                 let _ = admin.query(&format!("DROP USER IF EXISTS {user}"), &[]).await;
                 let _ = admin.query(&format!("DROP SETTINGS PROFILE IF EXISTS {prof}"), &[]).await;
-                return;
+                return otap_s3pq::testgate::skip("clickhouse", format!("a ClickHouse that allows CREATE USER: {q}: {e}"));
             }
         }
         let t = format!("{db}.otel_logs");
@@ -1139,10 +1137,7 @@ mod tests {
         let ch = otap_s3pq::central::ClickHouse::new(&url);
         match ch.query("SELECT timezone()", &[]).await {
             Ok(tz) if matches!(tz.trim(), "UTC" | "Etc/UTC") => {}
-            r => {
-                eprintln!("no ClickHouse at {url}, or not on UTC ({r:?}): skipped");
-                return;
-            }
+            r => return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}, or not on UTC ({r:?})")),
         }
         let db = format!("pk_range_{:08x}", rand::random::<u32>());
         ch.query(&format!("CREATE DATABASE {db}"), &[]).await.unwrap();
@@ -1196,8 +1191,7 @@ mod tests {
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         let ch = otap_s3pq::central::ClickHouse::new(&url);
         if ch.query("SELECT 1", &[]).await.is_err() {
-            eprintln!("no ClickHouse at {url}: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let b = Rc::new(MemBucket::default());
         let c = ClickHouseCentral::new(&url, "db", b, "k", "s", 1000);
@@ -1316,8 +1310,7 @@ mod tests {
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         let ch = ClickHouse::new(&url);
         if ch.query("SELECT 1", &[]).await.is_err() {
-            eprintln!("no ClickHouse at {url}: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
         let id = format!("{:08x}", rand::random::<u32>());
@@ -1331,9 +1324,8 @@ mod tests {
         .unwrap();
         let root = store.prefix.clone();
         let bucket = Rc::new(S3Bucket::new(store));
-        if bucket.list(&root, None).await.is_err() {
-            eprintln!("no S3 at {s3}: skipped");
-            return;
+        if let Err(e) = bucket.list(&root, None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no S3 at {s3}: {e}"));
         }
         let db = format!("rollup_it_{id}");
         let c = ClickHouseCentral::new(&url, &db, bucket.clone(), "otel", "otelsecret", 20_000);
@@ -1420,8 +1412,7 @@ mod tests {
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         let ch = ClickHouse::new(&url);
         if ch.query("SELECT 1", &[]).await.is_err() {
-            eprintln!("no ClickHouse at {url}: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
         let id = format!("{:08x}", rand::random::<u32>());
@@ -1435,9 +1426,8 @@ mod tests {
         .unwrap();
         let root = store.prefix.clone();
         let bucket = Rc::new(S3Bucket::new(store));
-        if bucket.list(&root, None).await.is_err() {
-            eprintln!("no S3 at {s3}: skipped");
-            return;
+        if let Err(e) = bucket.list(&root, None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no S3 at {s3}: {e}"));
         }
         let db = format!("announce_it_{id}");
         let c = ClickHouseCentral::new(&url, &db, bucket.clone(), "otel", "otelsecret", 20_000);
@@ -1595,8 +1585,7 @@ mod tests {
         use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         if ClickHouse::new(&url).query("SELECT 1", &[]).await.is_err() {
-            eprintln!("no ClickHouse at {url}: skipped");
-            return;
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/otel".into());
         let id = format!("{:08x}", rand::random::<u32>());
@@ -1611,9 +1600,9 @@ mod tests {
         let root = store.prefix.clone();
         let bucket = Rc::new(S3Bucket::new(store));
         let key = format!("{root}/x.parquet");
-        if !matches!(bucket.put(&key, bytes::Bytes::from_static(b"PAR1"), Cond::Create, &BTreeMap::new()).await, Put::Ok(_)) {
-            eprintln!("no S3 at {s3}: skipped");
-            return;
+        let put = bucket.put(&key, bytes::Bytes::from_static(b"PAR1"), Cond::Create, &BTreeMap::new()).await;
+        if !matches!(put, Put::Ok(_)) {
+            return otap_s3pq::testgate::skip("s3", format!("no S3 at {s3}: {put:?}"));
         }
         let mut c = ClickHouseCentral::new(&url, "default", bucket.clone(), "", "", 20_000);
         c.s3_auth = S3Auth::Keys(S3Keys { key: "otel".into(), secret: "GAPWRONGSECRET".into(), token: Some("GAPFOREIGNTOKEN".into()) });

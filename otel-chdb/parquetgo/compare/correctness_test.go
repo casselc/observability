@@ -17,6 +17,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // The chdb exporter's plain-typed Parquet structure (chdbexporter/schema.go
@@ -97,8 +99,14 @@ type dataset struct {
 // Needs CHDB_LIB_PATH, CHDB_TEST_S3(_KEY/_SECRET) and CHDB_TEST_CLICKHOUSE.
 func TestSameRowsAsChdb(t *testing.T) {
 	s3, ok := S3FromEnv()
-	if !ok || os.Getenv("CHDB_TEST_CLICKHOUSE") == "" || os.Getenv("CHDB_LIB_PATH") == "" {
-		t.Skip("needs CHDB_LIB_PATH, CHDB_TEST_S3 and CHDB_TEST_CLICKHOUSE")
+	if os.Getenv("CHDB_LIB_PATH") == "" {
+		t.Skip("needs CHDB_LIB_PATH (libchdb; the chdb job)")
+	}
+	if !ok {
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
+	}
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	run := fmt.Sprintf("r%d", time.Now().Unix())
 	base := s3.Endpoint + "/pqcmp/" + run
@@ -211,8 +219,11 @@ func TestSameRowsAsChdb(t *testing.T) {
 			if got := sum(src(engine, false, "*")); got != wantInferred {
 				t.Errorf("%s %s inferred: got %s, chdb %s", sig.name, engine, got, wantInferred)
 			}
-			if got := ch(t, "DESCRIBE "+src(engine, false, "*")); got != chdbSchema {
-				t.Errorf("%s %s inferred schema differs:\n%s\nchdb:\n%s", sig.name, engine, got, chdbSchema)
+			// parquetgo writes resource_id and resource_announce before the
+			// envelope (4d382ac); the chdb exporter, a superseded prototype,
+			// does not. The rest of the inferred schema must be chdb's.
+			if got, rest := withoutResourceCols(ch(t, "DESCRIBE "+src(engine, false, "*"))); got != chdbSchema || !rest {
+				t.Errorf("%s %s inferred schema differs (resource columns present: %v):\n%s\nchdb:\n%s", sig.name, engine, rest, got, chdbSchema)
 			}
 			for _, b := range []string{"00000000000000000001", "00000000000000000002"} {
 				for _, dir := range [][2]string{{engine, "chdb"}, {"chdb", engine}} {
@@ -296,4 +307,19 @@ func compareManifests(a, b map[string]any, aBase, bBase string, ignore ...string
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+// withoutResourceCols drops the resource_id and resource_announce lines of a
+// DESCRIBE, and reports whether both were there.
+func withoutResourceCols(describe string) (string, bool) {
+	var keep []string
+	n := 0
+	for _, l := range strings.Split(describe, "\n") {
+		if strings.HasPrefix(l, "resource_id\t") || strings.HasPrefix(l, "resource_announce\t") {
+			n++
+			continue
+		}
+		keep = append(keep, l)
+	}
+	return strings.Join(keep, "\n"), n == 2
 }

@@ -22,3 +22,5 @@ replaces:
   # The chdb-go fork with the binary-safe streaming insert. Relative to
   # output_path.
   - github.com/chdb-io/chdb-go/v2 => ../../chdb-go
+  # chdbexporter's tests use testgate; its go.mod replace is not inherited.
+  - github.com/casselc/observability/otel-chdb/testgate => ../../testgate

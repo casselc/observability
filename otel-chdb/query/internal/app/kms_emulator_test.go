@@ -15,6 +15,8 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/query/internal/basis"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // TestKMSEmulator runs the KMS signer against a KMS emulator (moto server:
@@ -41,7 +43,7 @@ func TestKMSEmulator(t *testing.T) {
 		return
 	}
 	if ep == "" {
-		t.Skip("QS_TEST_KMS_ENDPOINT not set (moto_server; ci/kms-emulator.sh)")
+		testgate.Skip(t, "kms", "QS_TEST_KMS_ENDPOINT not set (moto_server; ci/kms-emulator.sh)")
 	}
 	for k, v := range map[string]string{"AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing", "AWS_REGION": "us-east-1"} {
 		if os.Getenv(k) == "" {

@@ -10,7 +10,8 @@
 #
 # Env: CH_IMAGE, SW_IMAGE; the ports (S3_PORT, CH_HTTP_PORT, CH_TCP_PORT,
 # SW_MASTER_PORT, SW_VOLUME_PORT, SW_FILER_PORT) to run beside a local stack;
-# BUCKETS to create.
+# BUCKETS to create; REQUIRE_SERVICES (default clickhouse,s3), written to
+# $GITHUB_ENV as OSCOPE_REQUIRE_SERVICES when running under Actions.
 set -euo pipefail
 CH_IMAGE=${CH_IMAGE:-clickhouse/clickhouse-server:26.9}
 SW_IMAGE=${SW_IMAGE:-chrislusf/seaweedfs:4.47}
@@ -63,6 +64,14 @@ start)
     echo "bucket $b: $code"
   done
   echo "ClickHouse $(curl -sS "http://127.0.0.1:$CH_HTTP_PORT/" --data-binary 'SELECT version()')"
+  # This job has the services, so a test that finds them missing must fail,
+  # not skip (STPA.md CAST row 43): the gates (otap-rs/src/testgate.rs,
+  # otel-chdb/testgate) read OSCOPE_REQUIRE_SERVICES. A step can widen it
+  # (e.g. clickhouse,s3,credstubs) in its own env.
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "OSCOPE_REQUIRE_SERVICES=${REQUIRE_SERVICES:-clickhouse,s3}" >> "$GITHUB_ENV"
+    echo "OSCOPE_REQUIRE_SERVICES=${REQUIRE_SERVICES:-clickhouse,s3} for the rest of this job"
+  fi
   ;;
 stop) docker rm -f "$SW" "$CH" >/dev/null 2>&1 || true ;;
 logs) for c in "$SW" "$CH"; do echo "== $c"; docker logs "$c" 2>&1 | tail -n "${TAIL:-500}" || true; done ;;

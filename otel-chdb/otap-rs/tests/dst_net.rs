@@ -835,9 +835,8 @@ fn s3_emulator_matches_seaweedfs() {
         let real = real_bucket(&format!("{base}/dst-diff"));
         let nonce = format!("{:08x}", rand::random::<u32>());
         let root = format!("dst-diff/{nonce}");
-        if real.list("dst-diff", None).await.is_err() {
-            eprintln!("no SeaweedFS at {base}: skipped");
-            return;
+        if let Err(e) = real.list("dst-diff", None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no SeaweedFS at {base}: {e}"));
         }
         let want = s3_script(&real, &root).await;
         let bucket = base.rsplit('/').next().unwrap().to_string();
@@ -902,9 +901,11 @@ fn ch_emulator_matches_clickhouse() {
         let base = seaweed();
         let nonce = format!("{:08x}", rand::random::<u32>());
         let bucket = real_bucket(&format!("{base}/dst-diff"));
-        if ch.query("SELECT 1", &[]).await.is_err() || bucket.list("dst-diff", None).await.is_err() {
-            eprintln!("no ClickHouse at {ch_url} or no SeaweedFS at {base}: skipped");
-            return;
+        if ch.query("SELECT 1", &[]).await.is_err() {
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {ch_url}"));
+        }
+        if let Err(e) = bucket.list("dst-diff", None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no SeaweedFS at {base}: {e}"));
         }
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos() as u64;
         let lane = format!("dst-diff/{nonce}/p1/logs");

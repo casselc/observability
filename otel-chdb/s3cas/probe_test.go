@@ -29,13 +29,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 func client(t *testing.T) (*Client, string) {
 	t.Helper()
 	c, ok := FromEnv()
 	if !ok {
-		t.Skip("S3CAS_BUCKET not set")
+		testgate.Skip(t, "s3", "S3CAS_BUCKET not set")
 	}
 	cl, err := New(context.Background(), c)
 	if err != nil {

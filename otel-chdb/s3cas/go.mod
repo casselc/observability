@@ -3,6 +3,7 @@ module github.com/casselc/observability/otel-chdb/s3cas
 go 1.24.7
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
@@ -25,3 +26,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

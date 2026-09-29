@@ -12,6 +12,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/ch"
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/lane"
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/rid"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // The catalog's resources merged with the edges' announcements
@@ -23,7 +25,7 @@ import (
 func TestAnnouncementsMergeIntoResources(t *testing.T) {
 	c := ch.New(env("ENT_CH", "http://127.0.0.1:18123"))
 	if _, err := c.Query("SELECT 1"); err != nil {
-		t.Skipf("no ClickHouse: %v", err)
+		testgate.Skip(t, "clickhouse", "no ClickHouse: %v", err)
 	}
 	id := fmt.Sprintf("%08x", rand.Uint32())
 	db, cons := "agg_ann_"+id, "cons_ann_"+id

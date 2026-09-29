@@ -17,6 +17,7 @@
 //! - `series`:  metrics layout B: narrow points + series objects, edge series ids
 //! - `resource`: resource_id (the entity catalog's content address) and the announcement cache
 //! - `central`: the ClickHouse side of the consumer
+//! - `testgate`: service-gated tests skip, or fail where `OSCOPE_REQUIRE_SERVICES` names the service
 
 pub mod batch;
 pub mod central;
@@ -36,6 +37,7 @@ pub mod runner;
 pub mod schema;
 pub mod series;
 pub mod store;
+pub mod testgate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Signal {

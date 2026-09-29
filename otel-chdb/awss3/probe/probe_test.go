@@ -32,6 +32,8 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/awss3/inline"
 	"github.com/casselc/observability/otel-chdb/awss3/parquetencoding"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 const bucket = "otel"
@@ -41,7 +43,7 @@ var runID = time.Now().UTC().Format("20060102T150405")
 func endpoint(t *testing.T) string {
 	e := os.Getenv("INLINE_S3")
 	if e == "" {
-		t.Skip("INLINE_S3 not set")
+		testgate.Skip(t, "s3", "INLINE_S3 not set")
 	}
 	return e
 }
@@ -310,7 +312,7 @@ func TestTombstoneFencesWriter(t *testing.T) {
 func ch(t *testing.T, q string) (string, error) {
 	u := os.Getenv("INLINE_CH")
 	if u == "" {
-		t.Skip("INLINE_CH not set")
+		testgate.Skip(t, "clickhouse", "INLINE_CH not set")
 	}
 	resp, err := http.Post(u+"/?"+url.Values{"query": {q}}.Encode(), "text/plain", nil)
 	if err != nil {

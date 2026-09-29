@@ -5,6 +5,7 @@ go 1.26.0
 replace github.com/casselc/observability/otel-chdb/parquetgo => ../parquetgo
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
@@ -108,3 +109,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

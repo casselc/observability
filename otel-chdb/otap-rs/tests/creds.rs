@@ -143,8 +143,7 @@ async fn roundtrip(name: &str, cfg: S3Config) -> Result<(), String> {
 #[tokio::test(flavor = "current_thread")]
 async fn credential_modes() {
     let Ok(dir) = std::env::var("OTAPRS_CREDSTUBS") else {
-        eprintln!("skipped: set OTAPRS_CREDSTUBS to the credstubs directory");
-        return;
+        return otap_s3pq::testgate::skip("credstubs", "OTAPRS_CREDSTUBS (the credstubs directory) not set");
     };
     let _ = otel_arrow_dfe_otap::crypto::install_crypto_provider(); // once per process
     let plain = "http://127.0.0.1:18333/otel/otap-rs-edge".to_string();
@@ -409,7 +408,7 @@ async fn credential_modes() {
 #[tokio::test(flavor = "current_thread")]
 async fn sigv4_accepted_by_seaweedfs() {
     if std::env::var("OTAPRS_CREDSTUBS").is_err() {
-        return;
+        return otap_s3pq::testgate::skip("credstubs", "OTAPRS_CREDSTUBS (the credstubs directory) not set");
     }
     let _ = otel_arrow_dfe_otap::crypto::install_crypto_provider(); // once per process
     use otap_s3pq::creds::{amz_date, sha256_hex, sign};

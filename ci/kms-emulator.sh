@@ -18,4 +18,6 @@ for _ in $(seq 1 120); do
 done
 curl -s -o /dev/null "http://127.0.0.1:$port/" || { cat "$log"; echo "moto_server did not start" >&2; exit 1; }
 cd "$root/otel-chdb/query"
-QS_TEST_KMS_ENDPOINT="http://127.0.0.1:$port" go test -count=1 -run TestKMSEmulator -v ./internal/app/
+# moto is up, so the test must run (testgate: kms required, CAST row 43).
+OSCOPE_REQUIRE_SERVICES="${OSCOPE_REQUIRE_SERVICES:+$OSCOPE_REQUIRE_SERVICES,}kms" \
+  QS_TEST_KMS_ENDPOINT="http://127.0.0.1:$port" go test -count=1 -run TestKMSEmulator -v ./internal/app/

@@ -8,6 +8,7 @@ replace (
 )
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/casselc/observability/otel-chdb/chdbexporter v0.0.0-00010101000000-000000000000
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/clickhouseexporter v0.161.0
 	go.opentelemetry.io/collector/component v1.67.0
@@ -91,3 +92,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

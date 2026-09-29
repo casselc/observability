@@ -61,6 +61,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/alerts/internal/rule"
 	"github.com/casselc/observability/otel-chdb/alerts/internal/runner"
 	"github.com/casselc/observability/otel-chdb/alerts/internal/store"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 func env(k, d string) string {
@@ -330,7 +332,7 @@ func TestIntegration(t *testing.T) {
 	r := &rig{t: t, bin: bin, dir: t.TempDir(), ch: env("ALR_IT_CH", "http://127.0.0.1:18123"), s3url: env("ALR_IT_S3", "http://127.0.0.1:18333"),
 		bucket: env("ALR_IT_BUCKET", "otel"), run: "alr-" + id, db: "alr_" + id, ro: "alr_ro_" + id, roPass: fmt.Sprintf("%016x", rand.Uint64())}
 	if resp, err := http.Get(r.ch + "/ping"); err != nil {
-		t.Skipf("no ClickHouse at %s: %v", r.ch, err)
+		testgate.Skip(t, "clickhouse", "no ClickHouse at %s: %v", r.ch, err)
 	} else {
 		resp.Body.Close()
 	}

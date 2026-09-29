@@ -12,6 +12,8 @@ import (
 	"time"
 
 	chp "github.com/AfterShip/clickhouse-sql-parser/parser"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // chURL is a live ClickHouse for the differential tests (HDXA_CH, default
@@ -24,7 +26,7 @@ func chURL(t *testing.T) string {
 	c := http.Client{Timeout: 2 * time.Second}
 	resp, err := c.Get(u + "/ping")
 	if err != nil {
-		t.Skipf("no ClickHouse at %s: %v", u, err)
+		testgate.Skip(t, "clickhouse", "no ClickHouse at %s: %v", u, err)
 	}
 	resp.Body.Close()
 	return u

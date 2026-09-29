@@ -25,6 +25,8 @@ import (
 	"github.com/parquet-go/parquet-go"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // The credential-path tests publish a real batch through each way the
@@ -53,7 +55,7 @@ type credsEnv struct {
 func newCredsEnv(t *testing.T) *credsEnv {
 	base, key, secret := os.Getenv("CHDB_TEST_S3"), os.Getenv("CHDB_TEST_S3_KEY"), os.Getenv("CHDB_TEST_S3_SECRET")
 	if base == "" || key == "" {
-		t.Skip("CHDB_TEST_S3 / CHDB_TEST_S3_KEY / CHDB_TEST_S3_SECRET not set")
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 / CHDB_TEST_S3_KEY / CHDB_TEST_S3_SECRET not set")
 	}
 	u, err := url.Parse(base)
 	if err != nil {

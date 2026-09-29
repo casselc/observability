@@ -558,7 +558,9 @@ jobs:
           mkdir -p "$OTAPRS_CREDSTUBS"
           (cd "$OTAPRS_CREDSTUBS" && exec "$OTAPRS_DATA/bin/credstubs" > credstubs.log 2>&1) &
           for _ in $(seq 50); do [ -s "$OTAPRS_CREDSTUBS/ca.pem" ] && break; sleep 0.2; done
-          cargo test --release --locked --test creds -- --nocapture --test-threads 1
+          # credstubs is up: its gate fails rather than skips (testgate, CAST row 43)
+          OSCOPE_REQUIRE_SERVICES="$OSCOPE_REQUIRE_SERVICES,credstubs" \
+            cargo test --release --locked --test creds -- --nocapture --test-threads 1
       - name: Logs
         if: failure()
         run: |

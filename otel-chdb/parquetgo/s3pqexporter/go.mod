@@ -5,6 +5,7 @@ go 1.26.0
 replace github.com/casselc/observability/otel-chdb/parquetgo => ../
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/collector/client v1.67.0
 	go.opentelemetry.io/collector/component v1.67.0
@@ -104,3 +105,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../../testgate

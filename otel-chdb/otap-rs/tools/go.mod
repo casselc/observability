@@ -147,3 +147,5 @@ require (
 )
 
 replace github.com/casselc/observability/otel-chdb/metrics-layout => ../../metrics-layout
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../../testgate

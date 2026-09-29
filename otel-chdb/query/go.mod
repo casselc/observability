@@ -3,6 +3,7 @@ module github.com/casselc/observability/otel-chdb/query
 go 1.24
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/AfterShip/clickhouse-sql-parser v0.5.6
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
@@ -39,3 +40,5 @@ require (
 	github.com/segmentio/encoding v0.4.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

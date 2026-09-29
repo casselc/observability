@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/ch"
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/lane"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // A gap record marks what opened or closed inside the gap as uncertain
@@ -25,7 +27,7 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 	s3URL := env("ENT_S3", "http://127.0.0.1:18333")
 	c := ch.New(chURL)
 	if _, err := c.Query("SELECT 1"); err != nil {
-		t.Skipf("no ClickHouse at %s: %v", chURL, err)
+		testgate.Skip(t, "clickhouse", "no ClickHouse at %s: %v", chURL, err)
 	}
 	if os.Getenv("AWS_ACCESS_KEY_ID") == "" {
 		t.Setenv("AWS_ACCESS_KEY_ID", "otel")
@@ -85,7 +87,7 @@ func TestGapMarksVersionsUncertain(t *testing.T) {
 	fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := w.Flush(fctx); err != nil {
-		t.Skipf("S3 at %s does not take writes: %v", s3URL, err)
+		testgate.Skip(t, "s3", "S3 at %s does not take writes: %v", s3URL, err)
 	}
 	if err := w2.Flush(fctx); err != nil {
 		t.Fatal(err)

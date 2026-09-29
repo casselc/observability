@@ -19,6 +19,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // Environment: OTAP_TEST_S3 (http://host/bucket/prefix), OTAP_TEST_S3_KEY,
@@ -27,8 +29,11 @@ type env struct{ s3, key, secret, ch string }
 
 func testEnv(t *testing.T) env {
 	e := env{os.Getenv("OTAP_TEST_S3"), os.Getenv("OTAP_TEST_S3_KEY"), os.Getenv("OTAP_TEST_S3_SECRET"), os.Getenv("OTAP_TEST_CLICKHOUSE")}
-	if e.s3 == "" || e.ch == "" {
-		t.Skip("needs OTAP_TEST_S3 and OTAP_TEST_CLICKHOUSE")
+	if e.s3 == "" {
+		testgate.Skip(t, "s3", "OTAP_TEST_S3 not set")
+	}
+	if e.ch == "" {
+		testgate.Skip(t, "clickhouse", "OTAP_TEST_CLICKHOUSE not set")
 	}
 	return e
 }

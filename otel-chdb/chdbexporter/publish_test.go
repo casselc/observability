@@ -20,6 +20,8 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 
 	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // Object storage tests need an S3 endpoint with a bucket, e.g. SeaweedFS:
@@ -30,7 +32,7 @@ import (
 func s3Env(t *testing.T) (endpoint, key, secret string) {
 	endpoint = os.Getenv("CHDB_TEST_S3")
 	if endpoint == "" {
-		t.Skip("CHDB_TEST_S3 not set")
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
 	}
 	return strings.TrimRight(endpoint, "/"), os.Getenv("CHDB_TEST_S3_KEY"), os.Getenv("CHDB_TEST_S3_SECRET")
 }
@@ -453,7 +455,7 @@ func BenchmarkPublish(b *testing.B) {
 	for i, v := range variants {
 		b.Run(v.name, func(b *testing.B) {
 			if v.s3 && root == "" {
-				b.Skip("CHDB_TEST_S3 not set")
+				testgate.Skip(b, "s3", "CHDB_TEST_S3 not set")
 			}
 			if !insertSupported {
 				b.Skip("publishing needs the chdb-go fork")
@@ -520,7 +522,7 @@ func chHTTP(t *testing.T, sql string) string {
 func TestClickHouseServerReaderFollowsWriter(t *testing.T) {
 	root, key, secret := s3Env(t)
 	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
-		t.Skip("CHDB_TEST_CLICKHOUSE not set")
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	t.Logf("server %s", chHTTP(t, "SELECT version()"))
 	cfg := publishConfig(t, "os_server", "os-server")
@@ -627,7 +629,7 @@ func TestClickHouseServerReaderFollowsWriter(t *testing.T) {
 func TestOldPartsLifetimeProtectsServerQueries(t *testing.T) {
 	root, key, secret := s3Env(t)
 	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
-		t.Skip("CHDB_TEST_CLICKHOUSE not set")
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	for _, life := range []time.Duration{0, 10 * time.Minute} {
 		secs := int(life.Seconds())

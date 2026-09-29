@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/casselc/observability/otel-chdb/parquetgo"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // TestArrowPageSplitVariants: arrow-go (v18.7.0) with V1 data pages can end
@@ -19,8 +21,11 @@ import (
 // which ones the server reads.
 func TestArrowPageSplitVariants(t *testing.T) {
 	s3, ok := S3FromEnv()
-	if !ok || os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
-		t.Skip("needs CHDB_TEST_S3 and CHDB_TEST_CLICKHOUSE")
+	if !ok {
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
+	}
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	run := fmt.Sprintf("s%d", time.Now().Unix())
 	td := NastyTraces(700)

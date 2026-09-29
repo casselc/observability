@@ -12,6 +12,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 func newRefExporter(t testing.TB, db string) exporter.Metrics {
@@ -35,8 +37,11 @@ func newRefExporter(t testing.TB, db string) exporter.Metrics {
 // port is CHDB_TEST_CLICKHOUSE_NATIVE, default host:19000).
 func TestMetricsSameRowsAsExporter(t *testing.T) {
 	s3, ok := S3FromEnv()
-	if !ok || os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
-		t.Skip("needs CHDB_TEST_S3 and CHDB_TEST_CLICKHOUSE")
+	if !ok {
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
+	}
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	run := fmt.Sprintf("m%d", time.Now().UnixNano())
 	base := s3.Endpoint + "/metrics-go/" + run
@@ -181,8 +186,11 @@ func atoi(s string) int {
 // does not make a retry of such an object idempotent. See README "Metrics".
 func TestMetricsCentralSingleBlock(t *testing.T) {
 	s3, ok := S3FromEnv()
-	if !ok || os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
-		t.Skip("needs CHDB_TEST_S3 and CHDB_TEST_CLICKHOUSE")
+	if !ok {
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
+	}
+	if os.Getenv("CHDB_TEST_CLICKHOUSE") == "" {
+		testgate.Skip(t, "clickhouse", "CHDB_TEST_CLICKHOUSE not set")
 	}
 	run := fmt.Sprintf("b%d", time.Now().UnixNano())
 	base := s3.Endpoint + "/metrics-go/" + run

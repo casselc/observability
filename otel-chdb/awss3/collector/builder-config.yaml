@@ -36,3 +36,5 @@ replaces:
   - github.com/casselc/observability/otel-chdb/awss3 => @AWSS3@
   - github.com/casselc/observability/otel-chdb/parquetgo => @AWSS3@/../parquetgo
   - github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter => @AWSS3@/../parquetgo/s3pqexporter
+  # The service gate their tests use (go.mod replaces are not inherited).
+  - github.com/casselc/observability/otel-chdb/testgate => @AWSS3@/../testgate

@@ -724,8 +724,7 @@ mod tests {
         let key = format!("{}/region-{}", st.prefix, std::process::id());
         match st.head(&key).await {
             Err(e) if e.0.contains("onnect") => {
-                eprintln!("no S3 at {url}: skipped");
-                return;
+                return crate::testgate::skip("s3", format!("no S3 at {url}: {}", e.0));
             }
             r => assert_eq!(r.unwrap(), None, "a free key under eu-west-2 signing"),
         }

@@ -27,6 +27,8 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/chdbexporter"
 	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 var chdbPath string
@@ -115,7 +117,7 @@ func BenchmarkExporters(b *testing.B) {
 			for _, v := range variants {
 				b.Run(fmt.Sprintf("%s/batch=%d/%s", sig, batch, v.name), func(b *testing.B) {
 					if v.ch && os.Getenv("CLICKHOUSE_ENDPOINT") == "" {
-						b.Skip("CLICKHOUSE_ENDPOINT not set")
+						testgate.Skip(b, "clickhouse", "CLICKHOUSE_ENDPOINT not set")
 					}
 					dbSeq++
 					f, cfg := v.make(fmt.Sprintf("bench_%d", dbSeq))

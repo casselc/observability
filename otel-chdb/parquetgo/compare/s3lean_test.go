@@ -19,6 +19,8 @@ import (
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 // staticEndpoint resolves every request to {base}/{bucket} (path-style),
@@ -86,7 +88,7 @@ func BenchmarkS3PutLean(b *testing.B) {
 func TestS3LeanAgainstS3(t *testing.T) {
 	s, ok := S3FromEnv()
 	if !ok {
-		t.Skip("needs CHDB_TEST_S3")
+		testgate.Skip(t, "s3", "CHDB_TEST_S3 not set")
 	}
 	u, err := url.Parse(s.Endpoint)
 	if err != nil {

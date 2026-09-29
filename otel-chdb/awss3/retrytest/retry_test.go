@@ -37,6 +37,8 @@ import (
 
 	patched "github.com/casselc/observability/otel-chdb/awss3/awss3inline"
 	"github.com/casselc/observability/otel-chdb/awss3/parquetencoding"
+
+	"github.com/casselc/observability/otel-chdb/testgate"
 )
 
 var runID = time.Now().UTC().Format("20060102T150405")
@@ -232,7 +234,7 @@ func report(t *testing.T, p *proxy, prefix string, err error, elapsed time.Durat
 // exporterhelper retries, and the first PUT is applied later anyway.
 func TestSlowPutThenRetry(t *testing.T) {
 	if os.Getenv("INLINE_S3") == "" {
-		t.Skip("INLINE_S3 not set")
+		testgate.Skip(t, "s3", "INLINE_S3 not set")
 	}
 	for _, tc := range []struct {
 		name    string
@@ -267,7 +269,7 @@ func TestSlowPutThenRetry(t *testing.T) {
 // the persistent queue hands the same request to the next incarnation.
 func TestRedeliveryAfterRestart(t *testing.T) {
 	if os.Getenv("INLINE_S3") == "" {
-		t.Skip("INLINE_S3 not set")
+		testgate.Skip(t, "s3", "INLINE_S3 not set")
 	}
 	prefix := "s3inline/retry/" + runID + "/restart"
 	_, srv := newProxy(t, prefix)

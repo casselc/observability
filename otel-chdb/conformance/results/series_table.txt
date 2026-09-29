@@ -1,16 +1,16 @@
 PASS central: same tables: rust only [], go only []
-PASS otel_logs: count + hash: rust 4180	8423616347536014468 go 4180	8423616347536014468
+PASS otel_logs: count + hash: rust 4180	895080921257019131 go 4180	895080921257019131
 PASS otel_logs: rows in rust not in go: 0
 PASS otel_logs: rows in go not in rust: 0
 PASS otel_logs: same content keys and rows per key (4): rust 4 keys, go 4, common 4
 PASS otel_logs: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
 PASS otel_logs: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
 INFO otel_logs_attr_kv_rollup_15m_mv: compared summed per key: span-kind '' rows normalized to 'Unspecified'; rows changed: rust 0, go 0
-PASS otel_logs_attr_kv_rollup_15m_mv: count + hash: rust 164	929339590245159308 go 164	929339590245159308
+PASS otel_logs_attr_kv_rollup_15m_mv: count + hash: rust 164	3959994938312290294 go 164	3959994938312290294
 PASS otel_logs_attr_kv_rollup_15m_mv: rows in rust not in go: 0
 PASS otel_logs_attr_kv_rollup_15m_mv: rows in go not in rust: 0
 INFO otel_logs_kv_rollup_15m: compared summed per key: span-kind '' rows normalized to 'Unspecified'; rows changed: rust 0, go 0
-PASS otel_logs_kv_rollup_15m: count + hash: rust 164	929339590245159308 go 164	929339590245159308
+PASS otel_logs_kv_rollup_15m: count + hash: rust 164	3959994938312290294 go 164	3959994938312290294
 PASS otel_logs_kv_rollup_15m: rows in rust not in go: 0
 PASS otel_logs_kv_rollup_15m: rows in go not in rust: 0
 PASS otel_metrics_exponential_histogram_points: count + hash: rust 5603	7718431097656791386 go 5603	7718431097656791386
@@ -47,18 +47,18 @@ PASS otel_resources_announced: count + hash: rust 12	14991983619206647122 go 12	
 PASS otel_resources_announced: rows in rust not in go: 0
 PASS otel_resources_announced: rows in go not in rust: 0
 INFO otel_traces.SpanKind: known difference normalized: a span kind outside 0..5 is '' from the Go edge (pdata SpanKind.String(), as contrib stores it) and 'Unspecified' from the Rust edge (otap-dataflow's OTLP span view: SpanKind::try_from(v).unwrap_or(Unspecified)); rows changed: rust 0, go 60
-PASS otel_traces: count + hash: rust 4180	17750100198122373392 go 4180	17750100198122373392
+PASS otel_traces: count + hash: rust 4180	5516890602735533492 go 4180	5516890602735533492
 PASS otel_traces: rows in rust not in go: 0
 PASS otel_traces: rows in go not in rust: 0
 PASS otel_traces: same content keys and rows per key (4): rust 4 keys, go 4, common 4
 PASS otel_traces: rust envelope (one received_at per object, ordinals 0..n-1, producer ['edge-rust']): 0
 PASS otel_traces: go envelope (one received_at per object, ordinals 0..n-1, producer ['edge-go']): 0
 INFO otel_traces_kv_rollup_15m: compared summed per key: span-kind '' rows normalized to 'Unspecified'; rows changed: rust 0, go 1
-PASS otel_traces_kv_rollup_15m: count + hash: rust 173	986407134408512560 go 173	986407134408512560
+PASS otel_traces_kv_rollup_15m: count + hash: rust 173	13860908576835131923 go 173	13860908576835131923
 PASS otel_traces_kv_rollup_15m: rows in rust not in go: 0
 PASS otel_traces_kv_rollup_15m: rows in go not in rust: 0
 INFO otel_traces_kv_rollup_15m_mv: compared summed per key: span-kind '' rows normalized to 'Unspecified'; rows changed: rust 0, go 1
-PASS otel_traces_kv_rollup_15m_mv: count + hash: rust 173	986407134408512560 go 173	986407134408512560
+PASS otel_traces_kv_rollup_15m_mv: count + hash: rust 173	13860908576835131923 go 173	13860908576835131923
 PASS otel_traces_kv_rollup_15m_mv: rows in rust not in go: 0
 PASS otel_traces_kv_rollup_15m_mv: rows in go not in rust: 0
 PASS objects: same namespaces: rust ['logs', 'metrics_exponential_histogram_points', 'metrics_histogram_points', 'metrics_number_points', 'metrics_series', 'metrics_summary_points', 'traces'] go ['logs', 'metrics_exponential_histogram_points', 'metrics_histogram_points', 'metrics_number_points', 'metrics_series', 'metrics_summary_points', 'traces']
@@ -102,35 +102,35 @@ PASS metrics_exponential_histogram_points/00000000000000000001.parquet: footer k
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: Parquet schema: []
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: rows: rust 3000 go 3000
-INFO metrics_exponential_histogram_points/00000000000000000001.parquet: bytes: rust 89543 (footer 3202) go 107195 (footer 3824)
+INFO metrics_exponential_histogram_points/00000000000000000001.parquet: bytes: rust 89543 (footer 3202) go 107196 (footer 3824)
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: S3 metadata
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: footer = metadata (go): []
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: footer keys as rust's: []
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: Parquet schema: []
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000002.parquet: rows: rust 420 go 420
-INFO metrics_exponential_histogram_points/00000000000000000002.parquet: bytes: rust 28205 (footer 3182) go 37912 (footer 3817)
+INFO metrics_exponential_histogram_points/00000000000000000002.parquet: bytes: rust 28205 (footer 3182) go 37913 (footer 3817)
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: S3 metadata
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: footer = metadata (go): []
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: footer keys as rust's: []
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: Parquet schema: []
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000003.parquet: rows: rust 3 go 3
-INFO metrics_exponential_histogram_points/00000000000000000003.parquet: bytes: rust 4778 (footer 3089) go 6756 (footer 3624)
+INFO metrics_exponential_histogram_points/00000000000000000003.parquet: bytes: rust 4778 (footer 3089) go 6757 (footer 3624)
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: S3 metadata
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: footer = metadata (go): []
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: footer keys as rust's: []
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: Parquet schema: []
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000004.parquet: rows: rust 180 go 180
-INFO metrics_exponential_histogram_points/00000000000000000004.parquet: bytes: rust 10460 (footer 3153) go 16441 (footer 3787)
+INFO metrics_exponential_histogram_points/00000000000000000004.parquet: bytes: rust 10460 (footer 3153) go 16442 (footer 3787)
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: S3 metadata
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: footer = metadata (go): []
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: footer keys as rust's: []
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: Parquet schema: []
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: rows: rust 2000 go 2000
-INFO metrics_exponential_histogram_points/00000000000000000005.parquet: bytes: rust 66316 (footer 3199) go 79222 (footer 3819)
+INFO metrics_exponential_histogram_points/00000000000000000005.parquet: bytes: rust 66316 (footer 3199) go 79223 (footer 3819)
 PASS metrics_histogram_points: same object count: rust 6 go 6
 PASS metrics_histogram_points/00000000000000000000.parquet: S3 metadata
 PASS metrics_histogram_points/00000000000000000000.parquet: both heartbeats: rust beat

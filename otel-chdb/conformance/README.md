@@ -44,6 +44,17 @@ kind as `SpanKind::try_from(v).unwrap_or(Unspecified)`
 it (`KNOWN`) and reports the rows it changes (60 of 4,180). Out-of-range
 status codes (9) and severity numbers (300) are stored alike by both edges.
 
+**Re-run at cdd1e6f (2026-09-29)** [M], after D33 (a `cluster` column on
+the key/value rollups) and D34 (`late_part` in traces and logs), with the Go
+edge rebuilt: layout B **272 PASS, 0 FAIL**; ClickStack metrics tables
+**203 PASS, 0 FAIL** (the 16 more than 187 are the heartbeat slots, 7411571,
+now in every namespace). Row counts unchanged; the hashes changed with the
+new columns, equal on both sides. Both results files replaced. The first run
+died in `compare.py`: its rollup query listed the rollup's columns by hand
+and lacked `cluster` (UNKNOWN_IDENTIFIER); it now groups by every column but
+`count`, and `compare_test.py` (nightly, no services) checks the query
+against the rollup DDL in `../otap-rs/sql`.
+
 Also measured, not a row difference: the Go objects are **28% larger** than
 the Rust objects on these datasets (1.32 MB against 1.03 MB; traces and logs
 +26%), with the same encodings per column: parquet-go's zstd and V2 pages

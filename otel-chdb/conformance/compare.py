@@ -52,9 +52,13 @@ KNOWN = {
 ROLLUP_VALUE = "if(`Key` = 'SpanKind' AND `Value` = '', 'Unspecified', `Value`)"
 
 
-def rollup_source(table):
-    return (f"(SELECT `Timestamp`, `ColumnIdentifier`, `Key`, {ROLLUP_VALUE} AS `Value`, sum(`count`) AS `count` "
-            f"FROM {table} GROUP BY `Timestamp`, `ColumnIdentifier`, `Key`, `Value`)")
+def rollup_source(table, cols):
+    """The rollup summed over every column but `count`: its sort key, which
+    includes `cluster` since D33 (a table created before it has none), and any
+    later column; so a column added to the rollup is compared, never dropped."""
+    keys = [c for c in cols if c != "count"]
+    sel = ", ".join(f"{ROLLUP_VALUE} AS `Value`" if c == "Value" else f"`{c}`" for c in keys)
+    return f"(SELECT {sel}, sum(`count`) AS `count` FROM {table} GROUP BY {', '.join(f'`{c}`' for c in keys)})"
 
 
 def check(name, ok, detail=""):
@@ -148,7 +152,7 @@ def central(tag):
         if "_kv_rollup_" in t and {"Key", "Value", "count"} <= set(cols):
             n = {e: ch(f"SELECT countIf(`Key` = 'SpanKind' AND `Value` = '') FROM {s}") for e, s in src.items()}
             info(f"{t}: compared summed per key", f"span-kind '' rows normalized to 'Unspecified'; rows changed: rust {n['rust']}, go {n['go']}")
-            src = {e: rollup_source(s) for e, s in src.items()}
+            src = {e: rollup_source(s, cols) for e, s in src.items()}
         exprs = []
         for c in cols:
             if c in RUN_COLS:

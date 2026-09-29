@@ -120,6 +120,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyarrow requests
+      - name: compare.py unit tests (its queries against the consumer's DDL)
+        working-directory: otel-chdb/conformance
+        run: python3 -m unittest -v compare_test
       - uses: actions/download-artifact@v8
         with:
           name: bin

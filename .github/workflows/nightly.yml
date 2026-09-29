@@ -137,8 +137,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: cargo build --release
         working-directory: otel-chdb/otap-rs
         run: cargo build --release --locked --bins
@@ -175,8 +175,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -278,8 +278,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/download-artifact@v8
         with:
           name: bin
@@ -322,8 +322,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: moto server
         run: pipx install 'moto[server]==5.2.3'
       - name: ci/kms-emulator.sh
@@ -359,8 +359,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -406,8 +406,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -471,8 +471,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -541,8 +541,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -622,8 +622,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/download-artifact@v8
         with:
           name: bin
@@ -664,8 +664,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/download-artifact@v8
         with:
           name: bin
@@ -762,8 +762,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: Start SeaweedFS and ClickHouse
         run: ci/services.sh start
       - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
@@ -1034,8 +1034,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -1147,8 +1147,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -1258,8 +1258,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: seed sweep
         working-directory: otel-chdb/parquetgo/dst
         env:
@@ -1303,8 +1303,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-nightly-${{ runner.os }}-
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: fuzz every target
         env:
           FUZZTIME: 60s

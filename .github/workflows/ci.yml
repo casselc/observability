@@ -48,8 +48,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-vet-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-vet-${{ runner.os }}-
+          key: go-vet-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-vet-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - run: ci/go-modules.sh vet all
       - name: IAM policies (a missing key must answer 404 under every role)
         run: ci/iam-lint.sh
@@ -79,8 +79,8 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-test-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: go-test-${{ runner.os }}-
+          key: go-test-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-test-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -213,13 +213,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: false
+      # Keyed by Go version: a key without it kept restoring (and re-saving)
+      # the Go 1.26 build cache next to 1.27's, and with the cargo cache the
+      # runner's disk filled during the restore (runs 133, 133 re-run: "No
+      # space left on device" in the runner's own log).
       - uses: actions/cache@v6
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-rust-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/tools/go.sum', 'otel-chdb/parquetgo/compare/go.sum') }}
-          restore-keys: go-rust-${{ runner.os }}-
+          key: go-rust-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('otel-chdb/otap-rs/tools/go.sum', 'otel-chdb/parquetgo/compare/go.sum') }}
+          restore-keys: go-rust-${{ runner.os }}-go${{ env.GO_VERSION }}-
       - name: Start SeaweedFS and ClickHouse
         run: ../../ci/services.sh start
       - run: grep -Ev '^(#|$)' ../../ci/test.env >> "$GITHUB_ENV"

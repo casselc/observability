@@ -61,10 +61,6 @@ type req struct {
 	sawFree bool
 }
 
-func (r req) q() string {
-	return fmt.Sprintf("{ epoch: %d, slot: %d, entry: %s, sawFree: %v }", r.e, r.slot, r.x.q(), r.sawFree)
-}
-
 // args: the binding's rq(qe, qs, qk, qp, qf) (the entry's epoch is the slot's).
 func (r req) args() []any {
 	return []any{"qe", int64(r.e), "qs", int64(r.slot), "qk", r.x.code(), "qp", int64(r.x.p), "qf", r.sawFree}
@@ -74,10 +70,6 @@ type resp struct {
 	e, slot int
 	x       entry
 	ok      bool
-}
-
-func (r resp) q() string {
-	return fmt.Sprintf("{ epoch: %d, slot: %d, entry: %s, ok: %v }", r.e, r.slot, r.x.q(), r.ok)
 }
 
 // args: the binding's rs(re, rs, rk, rp, rok).

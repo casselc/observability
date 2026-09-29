@@ -219,7 +219,6 @@ type Encoder struct {
 
 	buf  []byte
 	kvs  []kvp
-	hex  []byte
 	opts []parquet.WriterOption
 	// WindowSeconds is the cache window (default 3600).
 	WindowSeconds int64

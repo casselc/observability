@@ -300,12 +300,3 @@ func TestMetricsCentralSingleBlock(t *testing.T) {
 		t.Logf("big object, %s, same token 3 times: parts after each %v", v.name, after)
 	}
 }
-
-func indexOf(s []string, v string) int {
-	for i, x := range s {
-		if x == v {
-			return i
-		}
-	}
-	return -1
-}

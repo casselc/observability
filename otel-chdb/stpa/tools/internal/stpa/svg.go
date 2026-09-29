@@ -31,16 +31,6 @@ func mk(tag string, kv ...string) *el {
 
 func (e *el) add(k ...*el) *el { e.kids = append(e.kids, k...); return e }
 
-// Colour roles. In attributes a role is written "@ink" etc.
-var roles = []string{"edge", "tint", "ink", "quiet", "accent"}
-
-// PRD theme tokens, as the PRD's own widgets use them.
-var prdToken = map[string]string{
-	"edge": "var(--cds-chart-axis)", "tint": "var(--cds-chart-reference-tint)",
-	"ink": "var(--cds-text-primary)", "quiet": "var(--cds-text-secondary)",
-	"accent": "var(--cds-chart-categorical-1)",
-}
-
 const repoStyle = `svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--accent:#0969da}
 @media (prefers-color-scheme:dark){svg{--bg:#0d1117;--edge:#8b949e;--tint:#1c2128;--ink:#e6edf3;--quiet:#9198a1;--accent:#4493f8}}
 .bg{fill:var(--bg)}

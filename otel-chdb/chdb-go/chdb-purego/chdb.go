@@ -309,6 +309,7 @@ func NewConnection(argc int, argv []string) (ChdbConn, error) {
 
 		defer func() {
 			if r := recover(); r != nil {
+				//lint:ignore ST1005 "C++" is a proper noun, not a capitalised sentence
 				err = fmt.Errorf("C++ exception: %v", r)
 			}
 		}()

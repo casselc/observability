@@ -371,7 +371,7 @@ func nastyPoint(m pmetric.Metric, t parquetgo.MetricType, j int, times []uint64)
 		switch j % 4 {
 		case 0: // empty histogram, unset sum/min/max
 		case 1:
-			dp.ExplicitBounds().FromRaw([]float64{math.Inf(-1), -0.0, 1, math.NaN(), math.MaxFloat64})
+			dp.ExplicitBounds().FromRaw([]float64{math.Inf(-1), math.Copysign(0, -1), 1, math.NaN(), math.MaxFloat64})
 			dp.BucketCounts().FromRaw([]uint64{0, math.MaxUint64, 1, 2, 3, 4})
 			dp.SetCount(math.MaxUint64)
 			dp.SetSum(math.NaN())
@@ -381,7 +381,7 @@ func nastyPoint(m pmetric.Metric, t parquetgo.MetricType, j int, times []uint64)
 			dp.ExplicitBounds().FromRaw([]float64{1, 2, 3})
 			dp.BucketCounts().FromRaw([]uint64{7})
 			dp.SetCount(7)
-			dp.SetSum(-0.0)
+			dp.SetSum(math.Copysign(0, -1))
 		case 3:
 			b := make([]float64, 200)
 			c := make([]uint64, 201)
@@ -451,7 +451,7 @@ func nastyPoint(m pmetric.Metric, t parquetgo.MetricType, j int, times []uint64)
 		dp.SetSum(nastyDoubles[j%len(nastyDoubles)])
 		for x := 0; x < []int{0, 1, 5, 2}[j%4]; x++ {
 			q := dp.QuantileValues().AppendEmpty()
-			q.SetQuantile([]float64{0, 0.5, 1, math.NaN(), -0.0}[x%5])
+			q.SetQuantile([]float64{0, 0.5, 1, math.NaN(), math.Copysign(0, -1)}[x%5])
 			q.SetValue(nastyDoubles[(j+x)%len(nastyDoubles)])
 		}
 	}

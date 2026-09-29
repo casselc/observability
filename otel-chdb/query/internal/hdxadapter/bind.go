@@ -26,7 +26,6 @@
 package hdxadapter
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -612,5 +611,3 @@ func firstLine(s string) string {
 	}
 	return s
 }
-
-var errNotSelect = errors.New("not a select")

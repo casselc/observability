@@ -175,6 +175,7 @@ func kvs(attrs []attribute.KeyValue) []KeyValue {
 			f := a.Value.AsFloat64()
 			v.DoubleValue = &f
 		default:
+			//lint:ignore SA1019 Emit renders slices as fmt / JSON, which the recorded traces were written with; String renders them differently
 			s := a.Value.Emit()
 			v.StringValue = &s
 		}

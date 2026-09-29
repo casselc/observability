@@ -698,27 +698,6 @@ func and(a, b chp.Expr) chp.Expr {
 // parentheses (and the fixed-point check re-parses).
 func paren(e chp.Expr) chp.Expr { return list([]chp.Expr{e}) }
 
-func strs(vals []string, re *regexp.Regexp, what string) ([]chp.Expr, error) {
-	if len(vals) == 0 {
-		return nil, reject("empty_scope", "no %s in scope", what)
-	}
-	seen := map[string]bool{}
-	var out []chp.Expr
-	sorted := append([]string(nil), vals...)
-	sort.Strings(sorted)
-	for _, v := range sorted {
-		if !re.MatchString(v) {
-			return nil, reject("bad_scope_value", "%s %q is not a valid name", what, v)
-		}
-		if seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, &chp.StringLiteral{Literal: escape(v)})
-	}
-	return out, nil
-}
-
 func in(left chp.Expr, items []chp.Expr) chp.Expr {
 	return &chp.BinaryOperation{LeftExpr: left, Operation: chp.TokenKind(chp.KeywordIn), RightExpr: list(items)}
 }

@@ -119,7 +119,7 @@ func (l *oneConn) Addr() net.Addr { return l.c.LocalAddr() }
 
 func connectProxy(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodConnect {
-		http.Error(w, "CONNECT only", 405)
+		http.Error(w, "CONNECT only", http.StatusMethodNotAllowed)
 		return
 	}
 	host, _, _ := net.SplitHostPort(r.Host)
@@ -158,7 +158,9 @@ func main() {
 	go func() { log.Fatal(http.ListenAndServe("127.0.0.1:18902", http.HandlerFunc(connectProxy))) }()
 	up, _ := url.Parse(*upstream)
 	rp := httputil.NewSingleHostReverseProxy(up)
+	//lint:ignore SA1019 a test stub: Director keeps the incoming Host, which the client signed (SigV4); Rewrite would rewrite it and need it put back
 	inner := rp.Director
+	//lint:ignore SA1019 as above
 	rp.Director = func(r *http.Request) {
 		logj(map[string]any{"m": "S3", "method": r.Method, "host": r.Host, "path": r.URL.Path, "token": r.Header.Get("X-Amz-Security-Token")})
 		inner(r)

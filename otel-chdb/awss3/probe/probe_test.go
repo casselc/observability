@@ -385,11 +385,3 @@ func TestClickHouseReadsLog(t *testing.T) {
 		_ = os.WriteFile(p, b, 0o644)
 	}
 }
-
-func firstLines(s string, n int) string {
-	l := strings.Split(s, "\n")
-	if len(l) > n {
-		l = l[:n]
-	}
-	return strings.Join(l, "\n")
-}

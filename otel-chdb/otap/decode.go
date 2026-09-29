@@ -66,8 +66,8 @@ func EncodeLogs(ld plog.Logs) (*pb.BatchArrowRecords, error) {
 // ids. The tables themselves are left as the producer built them.
 type Batch struct {
 	Traces bool
-	T      map[pb.ArrowPayloadType]arrow.Record
-	Root   arrow.Record
+	T      map[pb.ArrowPayloadType]arrow.RecordBatch
+	Root   arrow.RecordBatch
 
 	RootID  []int64  // root row's id; -1 when null (no children)
 	ResID   []uint16 // root row's resource.id
@@ -94,7 +94,7 @@ func Decode(bar *pb.BatchArrowRecords) (*Batch, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := &Batch{T: map[pb.ArrowPayloadType]arrow.Record{}, Parent: map[pb.ArrowPayloadType][]uint32{},
+	b := &Batch{T: map[pb.ArrowPayloadType]arrow.RecordBatch{}, Parent: map[pb.ArrowPayloadType][]uint32{},
 		ChildID: map[pb.ArrowPayloadType][]int64{}}
 	b.release = func() {
 		for _, r := range recs {
@@ -161,7 +161,7 @@ func (b *Batch) decodeRoot() {
 // decodeChildren resolves events and links: id is delta over non-null
 // values; parent_id is quasi-delta, a delta while the equality column
 // (event name, link trace id) repeats, absolute otherwise.
-func decodeChildren(r arrow.Record, eq func(int) (string, bool)) ([]uint32, []int64) {
+func decodeChildren(r arrow.RecordBatch, eq func(int) (string, bool)) ([]uint32, []int64) {
 	n := rows(r)
 	id, pid := col(r, "id"), col(r, "parent_id")
 	parents, ids := make([]uint32, n), make([]int64, n)
@@ -193,7 +193,7 @@ func decodeChildren(r arrow.Record, eq func(int) (string, bool)) ([]uint32, []in
 // the key and the value (type included) equal the previous row's, absolute
 // otherwise. Empty, map and slice values are never equal, matching
 // otlp.AttrsParentIDDecoder and arrow.Equal in the Go library.
-func decodeAttrParents(r arrow.Record) []uint32 {
+func decodeAttrParents(r arrow.RecordBatch) []uint32 {
 	n := rows(r)
 	pid, key, typ := col(r, "parent_id"), col(r, "key"), col(r, "type")
 	vals := attrValueCols(r)
@@ -213,7 +213,7 @@ func decodeAttrParents(r arrow.Record) []uint32 {
 
 type attrCols struct{ str, i64, f64, boolean, bin, ser arrow.Array }
 
-func attrValueCols(r arrow.Record) attrCols {
+func attrValueCols(r arrow.RecordBatch) attrCols {
 	return attrCols{col(r, "str"), col(r, "int"), col(r, "double"), col(r, "bool"), col(r, "bytes"), col(r, "ser")}
 }
 

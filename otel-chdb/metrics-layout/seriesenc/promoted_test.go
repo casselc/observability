@@ -88,7 +88,7 @@ func hostile() pmetric.Metrics {
 				dp.Attributes().PutStr("route", fmt.Sprintf("/r%d", p))
 				dp.SetTimestamp(ts)
 				dp.SetCount(uint64(p) * 3)
-				dp.SetSum(-0.0)
+				dp.SetSum(math.Copysign(0, -1))
 				dp.ExplicitBounds().FromRaw([]float64{0, 1, float64(p)})
 				dp.BucketCounts().FromRaw([]uint64{1, 1, uint64(p), math.MaxUint64})
 				if p%2 == 0 {

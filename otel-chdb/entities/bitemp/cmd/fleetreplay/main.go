@@ -363,7 +363,6 @@ func simulate(pods map[string]*pod, t0, tEnd Time, outs, gaps []window_, rnd *ra
 	newLane(t0 - min_)
 	reconcile(t0 - min_ + 2*sec)
 	i := 0
-	type gapRec struct{ from, to, at Time }
 	down := false
 	var curGap *window_
 	for t := t0 - min_; t < tEnd; {

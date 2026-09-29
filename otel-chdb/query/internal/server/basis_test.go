@@ -373,7 +373,7 @@ func TestBasisDelta(t *testing.T) {
 		row{Cluster: "prod-a", Namespace: "shop", TsNs: ev, RecvNs: f.ct["prod-a"] + 10})
 	f.ct["prod-a"] += int64(time.Minute)
 	f.publish()
-	_, out, n := f.count(t, fleet, map[string]any{"window": w30, "basis": b1})
+	_, _, n := f.count(t, fleet, map[string]any{"window": w30, "basis": b1})
 	if n != 1 {
 		t.Fatalf("the old basis moved: %d", n)
 	}

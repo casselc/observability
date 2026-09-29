@@ -92,9 +92,6 @@ func New(cfg Config, store Store) *Publisher {
 	return &Publisher{cfg: cfg, epoch: ep, store: store}
 }
 
-// Actor names this publisher's model instance: one writer per producer and signal.
-func (p *Publisher) actor() string { return p.cfg.Producer + "/" + p.cfg.Signal }
-
 func (p *Publisher) namespace() string {
 	return fmt.Sprintf("%s/%s/%s/%s", p.cfg.Region, p.cfg.Signal, p.cfg.Producer, p.epoch)
 }

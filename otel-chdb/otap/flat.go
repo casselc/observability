@@ -27,7 +27,7 @@ import (
 // Rows come out in OTAP row order, and Map entries in attribute-table order
 // (the producer sorts attribute rows by type, key, value), so both differ
 // from the pdata order the Go exporters use; the values do not.
-func Flatten(b *Batch, env *parquetgo.Envelope, mem memory.Allocator) arrow.Record {
+func Flatten(b *Batch, env *parquetgo.Envelope, mem memory.Allocator) arrow.RecordBatch {
 	if mem == nil {
 		mem = memory.DefaultAllocator
 	}
@@ -211,7 +211,7 @@ func (f *flattener) envelope(bs []array.Builder, row int, ts uint64) {
 	bs[5].(*array.Uint16Builder).Append(e.Schema)
 }
 
-func (f *flattener) traces(mem memory.Allocator) arrow.Record {
+func (f *flattener) traces(mem memory.Allocator) arrow.RecordBatch {
 	b, r := f.b, f.b.Root
 	n := rows(r)
 	rb := array.NewRecordBuilder(mem, parquetgo.TracesSchema)
@@ -315,7 +315,7 @@ func (f *flattener) list(b array.Builder, idx []int32, each func(array.Builder, 
 	}
 }
 
-func (f *flattener) logs(mem memory.Allocator) arrow.Record {
+func (f *flattener) logs(mem memory.Allocator) arrow.RecordBatch {
 	b, r := f.b, f.b.Root
 	n := rows(r)
 	rb := array.NewRecordBuilder(mem, parquetgo.LogsSchema)

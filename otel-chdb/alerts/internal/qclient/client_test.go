@@ -183,7 +183,7 @@ func TestClientCredentialsAndRetryOn401(t *testing.T) {
 		u, p, _ := r.BasicAuth()
 		_ = r.ParseForm()
 		if u != "alertd" || p != "s3cret" || r.Form.Get("grant_type") != "client_credentials" || r.Form.Get("audience") != "otel-query" {
-			http.Error(w, "bad client", 401)
+			http.Error(w, "bad client", http.StatusUnauthorized)
 			return
 		}
 		n := issued.Add(1)

@@ -278,10 +278,6 @@ func main() {
 	for b := 0; b < *batches; b++ {
 		bstart := t0.Add(time.Duration(b) * window)
 		// Sample rows: service by share, then a pod of it, then a time.
-		type row struct {
-			pod int
-			ts  time.Time
-		}
 		perPod := map[int][]time.Time{}
 		st := batchStat{Batch: b, Rows: *rows, WindowMs: float64(window) / 1e6, StartNs: bstart.UnixNano(), Services: map[string]int{}}
 		for k := 0; k < *rows; k++ {
@@ -375,7 +371,7 @@ func addSpans(td ptrace.Traces, m *mix, p int, tss []time.Time, r *rand.Rand) {
 		}
 		op := sv.ops[r.IntN(len(sv.ops))]
 		s.SetName(op)
-		dur := time.Duration(math.Exp(13+1.2*r.NormFloat64())) // median ~0.44 ms, long tail
+		dur := time.Duration(math.Exp(13 + 1.2*r.NormFloat64())) // median ~0.44 ms, long tail
 		s.SetStartTimestamp(pcommon.NewTimestampFromTime(ts))
 		s.SetEndTimestamp(pcommon.NewTimestampFromTime(ts.Add(dur)))
 		a := s.Attributes()

@@ -122,7 +122,7 @@ func boolAt(a arrow.Array, i int) (bool, bool) {
 }
 
 // col returns the named top-level column, or nil.
-func col(r arrow.Record, name string) arrow.Array {
+func col(r arrow.RecordBatch, name string) arrow.Array {
 	if r == nil {
 		return nil
 	}
@@ -147,7 +147,7 @@ func child(a arrow.Array, name string) arrow.Array {
 	return s.Field(i)
 }
 
-func rows(r arrow.Record) int {
+func rows(r arrow.RecordBatch) int {
 	if r == nil {
 		return 0
 	}

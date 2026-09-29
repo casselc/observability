@@ -33,11 +33,11 @@ import (
 // Dictionary columns of strings are kept (Parquet stores them dictionary-
 // encoded anyway); other dictionaries are unpacked, and durations become
 // int64, which Parquet has no type for.
-func StarTables(b *Batch, env *parquetgo.Envelope, mem memory.Allocator) (map[pb.ArrowPayloadType]arrow.Record, error) {
+func StarTables(b *Batch, env *parquetgo.Envelope, mem memory.Allocator) (map[pb.ArrowPayloadType]arrow.RecordBatch, error) {
 	if mem == nil {
 		mem = memory.DefaultAllocator
 	}
-	out := map[pb.ArrowPayloadType]arrow.Record{}
+	out := map[pb.ArrowPayloadType]arrow.RecordBatch{}
 	payloads := LogPayloads
 	if b.Traces {
 		payloads = TracePayloads
@@ -69,7 +69,7 @@ func (c *colSet) add(name string, a arrow.Array) {
 	c.cols = append(c.cols, a)
 }
 
-func starTable(b *Batch, t pb.ArrowPayloadType, r arrow.Record, env *parquetgo.Envelope, mem memory.Allocator) (arrow.Record, error) {
+func starTable(b *Batch, t pb.ArrowPayloadType, r arrow.RecordBatch, env *parquetgo.Envelope, mem memory.Allocator) (arrow.RecordBatch, error) {
 	n := rows(r)
 	var cs colSet
 	cs.add("batch_id", constU64(mem, env.Batch, n))

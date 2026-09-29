@@ -12,7 +12,7 @@ import (
 func TestValueStringMatchesAsString(t *testing.T) {
 	vals := []pcommon.Value{
 		pcommon.NewValueStr("x\x00y"), pcommon.NewValueInt(-42), pcommon.NewValueBool(true),
-		pcommon.NewValueDouble(0), pcommon.NewValueDouble(-0.0), pcommon.NewValueDouble(1.25),
+		pcommon.NewValueDouble(0), pcommon.NewValueDouble(math.Copysign(0, -1)), pcommon.NewValueDouble(1.25),
 		pcommon.NewValueDouble(1e-7), pcommon.NewValueDouble(1e-6), pcommon.NewValueDouble(123456789.125),
 		pcommon.NewValueDouble(1e21), pcommon.NewValueDouble(9.99e20), pcommon.NewValueDouble(math.NaN()),
 		pcommon.NewValueDouble(math.Inf(-1)), pcommon.NewValueEmpty(),

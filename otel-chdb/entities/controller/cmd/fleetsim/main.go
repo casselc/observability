@@ -89,7 +89,6 @@ type sim struct {
 	region  [2]string
 	stats   map[string]int
 	mu      sync.Mutex
-	jobDur  string
 }
 
 func (s *sim) now() time.Time {

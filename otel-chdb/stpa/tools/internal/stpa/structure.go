@@ -95,7 +95,6 @@ var (
 	nameRE    = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	pairRE    = regexp.MustCompile(`^([a-z][a-z0-9_]*) -> ([a-z][a-z0-9_]*)$`)
 	entryKey  = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-	pathRE    = regexp.MustCompile(`^([a-z][a-z0-9_]*)->([a-z][a-z0-9_]*)/(control|feedback)/([a-z][a-z0-9_-]*)$`)
 	pmNameRE  = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	qualVarRE = regexp.MustCompile(`^([a-z][a-z0-9_]*)/([a-z][a-z0-9_]*)$`)
 )

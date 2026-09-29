@@ -147,6 +147,7 @@ func request(t time.Time, podsBy map[string][]*pod, out *[]spanRec, logs *[]logR
 	pick := func(svc string) *pod { ps := podsBy[svc]; return ps[rng.Intn(len(ps))] }
 	route := routes["frontend"][rng.Intn(3)]
 	fail := rng.Float64() < 0.04
+	//lint:ignore S1021 a recursive closure: mk calls itself, so it is declared before it is assigned
 	var mk func(p *pod, parent pcommon.SpanID, name string, kind ptrace.SpanKind, start time.Time, dur time.Duration, attrs map[string]any) ptrace.Span
 	mk = func(p *pod, parent pcommon.SpanID, name string, kind ptrace.SpanKind, start time.Time, dur time.Duration, attrs map[string]any) ptrace.Span {
 		s := ptrace.NewSpan()

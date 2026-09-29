@@ -1,5 +1,7 @@
 package chdbexporter
 
+//lint:file-ignore U1000 used by the pbt-tagged tests (go.pbt.mod, publisher_pbt_test.go, pbt_test.go), which staticcheck does not build
+
 import (
 	"bytes"
 	"context"

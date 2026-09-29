@@ -211,13 +211,12 @@ type SeriesEncoder struct {
 	seen        map[uint64]struct{}
 
 	// walk scratch
-	buf   []byte
-	rkv   seriesKV
-	skv   seriesKV
-	kv    seriesKV
-	exkv  []attrKV
-	bnds  []float64
-	scrat []byte
+	buf  []byte
+	rkv  seriesKV
+	skv  seriesKV
+	kv   seriesKV
+	exkv []attrKV
+	bnds []float64
 }
 
 // NewSeriesEncoder builds a layout-B encoder. base supplies the compression

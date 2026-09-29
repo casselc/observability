@@ -1,5 +1,7 @@
 package chdbpurego
 
+//lint:file-ignore U1000 the structs mirror libchdb's C structs for purego: every field is there for the offsets of the ones after it and the struct's size
+
 import "unsafe"
 
 // old local result struct. for reference:

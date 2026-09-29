@@ -1,5 +1,7 @@
 package chdbpurego
 
+//lint:file-ignore U1000 kept as upstream chdb-go has it (this module tracks upstream; see ../README.md)
+
 import (
 	"unsafe"
 )

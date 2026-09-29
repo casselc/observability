@@ -128,7 +128,7 @@ func cases() []vector {
 		{Name: "the same, attributes in reverse order", Attrs: rev},
 		{Name: "only keys outside the covered set", Attrs: []vAttr{s("telemetry.sdk.name", "x"), s("service.version", "1"), s("service.namespace", "shop"), s("custom", "y")}},
 		{Name: "empty values are not covered", Attrs: []vAttr{s("k8s.pod.name", "p"), s("k8s.node.name", ""), s("k8s.pod.label.team", ""), s("k8s.namespace.name", "ns")}},
-		{Name: "unicode values", Attrs: []vAttr{s("k8s.pod.name", "café-☕-🚀"), s("k8s.namespace.name", "日本語"), s("service.name", "e\u0301\u200d"), s("k8s.pod.label.note", "עברית ‮rtl")}},
+		{Name: "unicode values", Attrs: []vAttr{s("k8s.pod.name", "café-☕-🚀"), s("k8s.namespace.name", "日本語"), s("service.name", "e\u0301\u200d"), s("k8s.pod.label.note", "עברית \u202ertl")}},
 		{Name: "unicode and odd label keys, bytewise order", Attrs: []vAttr{s("k8s.pod.label.é", "1"), s("k8s.pod.label.Z", "2"), s("k8s.pod.label.a", "3"), s("k8s.pod.label.a.b", "4"), s("k8s.pod.label.a b", "5"), s("k8s.pod.label.~", "6")}},
 		{Name: "300 labels and 50 residual keys", Attrs: many},
 		{Name: "duplicate key: the first occurrence decides", Attrs: []vAttr{s("k8s.pod.name", "first"), s("k8s.pod.name", "second"), s("k8s.node.name", ""), s("k8s.node.name", "later-node")}},

@@ -156,13 +156,13 @@ func pgCodec(name string, level int) (compress.Codec, error) {
 
 // pgSignal holds one signal's schema, writer and per-leaf value buffers.
 type pgSignal struct {
-	cols     []pgCol
-	leaf     [][2]int // walker column -> leaf column index (key, value for maps)
-	vals     [][]parquet.Value
-	pages    []int // row boundaries, as per-leaf value offsets, every pageRows rows
-	offs     [][]int
-	rows     int
-	schema   *parquet.Schema
+	cols   []pgCol
+	leaf   [][2]int // walker column -> leaf column index (key, value for maps)
+	vals   [][]parquet.Value
+	offs   [][]int
+	rows   int
+	schema *parquet.Schema
+	//lint:ignore SA1019 GenericWriter is not a drop-in: reuse (Reset + restoreColumnPaths) is written and measured against *parquet.Writer; migrating is an edge change, not a lint fix
 	w        *parquet.Writer
 	reusable bool // w can be Reset for the next file (restoreColumnPaths works)
 	parallel int
@@ -466,6 +466,8 @@ func (s *pgSignal) flush(dst io.Writer) error {
 // ColumnWriter.columnPath, which the file footer's path_in_schema aliases)
 // from the schema. It reports false, changing nothing, if the field is not
 // there as expected.
+//
+//lint:ignore SA1019 see Writer.w: the reuse path is built on *parquet.Writer
 func restoreColumnPaths(w *parquet.Writer, schema *parquet.Schema) bool {
 	paths := schema.Columns()
 	cws := w.ColumnWriters()

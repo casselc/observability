@@ -33,8 +33,8 @@ import (
 )
 
 var words = []string{
-	"", "ascii", "héllo wörld", "日本語テキスト", "中文字符", "한국어", "עברית RTL ‏mark", "العربية",
-	"emoji 🚀🔥👩‍👩‍👧‍👦 🇺🇳", "combining é ä", "zero​width", "line sep para",
+	"", "ascii", "héllo wörld", "日本語テキスト", "中文字符", "한국어", "עברית RTL \u200fmark", "العربية",
+	"emoji 🚀🔥👩‍👩‍👧‍👦 🇺🇳", "combining é ä", "zero\u200bwidth", "line sep para",
 	"\ufeffbom", "nul\x00byte", "tab\tnew\nline\r", `quote"back\slash'`, "invalid \xff\xfe utf8", "\xc3\x28",
 	"surrogate-ish \xed\xa0\x80", "𝔘𝔫𝔦𝔠𝔬𝔡𝔢 math", "<script>&amp;</script>",
 }
@@ -47,7 +47,7 @@ func putAll(m pcommon.Map, i int) {
 	m.PutStr("str", word(i))
 	m.PutStr(word(i+1), word(i+2)) // unicode keys, the empty key once
 	m.PutInt("int", math.MinInt64+int64(i))
-	m.PutDouble("double", []float64{math.NaN(), math.Inf(1), math.Inf(-1), -0.0, 1e-300, 5e21, 0.1}[i%7])
+	m.PutDouble("double", []float64{math.NaN(), math.Inf(1), math.Inf(-1), math.Copysign(0, -1), 1e-300, 5e21, 0.1}[i%7])
 	m.PutBool("bool", i%2 == 0)
 	m.PutEmptyBytes("bytes").FromRaw([]byte(word(i)))
 	s := m.PutEmptySlice("slice")
@@ -254,7 +254,7 @@ func metrics() pmetric.Metrics {
 					dp.SetTimestamp(ts)
 					dp.SetStartTimestamp(ts - pcommon.Timestamp(p)*1e9)
 					if p%2 == 0 {
-						dp.SetDoubleValue([]float64{math.NaN(), -0.0, math.MaxFloat64, math.SmallestNonzeroFloat64}[p%4])
+						dp.SetDoubleValue([]float64{math.NaN(), math.Copysign(0, -1), math.MaxFloat64, math.SmallestNonzeroFloat64}[p%4])
 					} else {
 						dp.SetIntValue(math.MinInt64 + int64(p))
 					}

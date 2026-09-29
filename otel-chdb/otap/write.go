@@ -19,7 +19,7 @@ import (
 // uses (copied from parquetgo/encode.go, where they are unexported), so
 // object sizes compare like for like. o.PlainFor names columns of the flat
 // schema; they are simply absent from star tables.
-func WriteParquet(dst io.Writer, rec arrow.Record, o parquetgo.Options, mem memory.Allocator) error {
+func WriteParquet(dst io.Writer, rec arrow.RecordBatch, o parquetgo.Options, mem memory.Allocator) error {
 	if mem == nil {
 		mem = memory.DefaultAllocator
 	}
@@ -65,7 +65,7 @@ func WriteParquet(dst io.Writer, rec arrow.Record, o parquetgo.Options, mem memo
 // WriteArrowFile writes rec as an Arrow IPC *file* (random-access format,
 // what ClickHouse's `Arrow` input format reads), with zstd-compressed
 // buffers unless compression is "none".
-func WriteArrowFile(dst io.Writer, rec arrow.Record, compression string, mem memory.Allocator) error {
+func WriteArrowFile(dst io.Writer, rec arrow.RecordBatch, compression string, mem memory.Allocator) error {
 	if mem == nil {
 		mem = memory.DefaultAllocator
 	}

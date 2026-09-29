@@ -2,10 +2,18 @@
 name: ci
 
 on:
-  # A push that changes only Markdown (STPA/CAST rows, decisions, research notes) does not start
-  # a run, so it cannot cancel the run verifying the code before it (CAST 51).
+  # A push that changes only prose Markdown (decisions, research text, READMEs) does not start a
+  # run (CAST 51). Markdown that CI checks does start one (CAST-63): the STPA records and every
+  # generated section (stpa check), and VERIFICATION.md (the traceability job reads its cells).
+  # Later patterns override earlier ones.
   push:
-    paths-ignore: ['**/*.md']
+    paths:
+      - '**'
+      - '!**/*.md'
+      - 'otel-chdb/stpa/**'
+      - 'otel-chdb/STPA.md'
+      - 'otel-chdb/VERIFICATION.md'
+      - 'otel-chdb/research/*.md'
   pull_request:
   workflow_dispatch:
 

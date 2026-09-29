@@ -57,3 +57,4 @@ H-1:G | coordinator | not built or not run — plan: ❌ retention refused below
 CAST-57 | coordinator | no automated test: the regression needs an S3 store that hangs during rig setup; fix checked by hand and by the nightly journeys runs
 CAST-59 | coordinator | control is a check in conformance/run.sh (fails on any refused or failed send), exercised by the nightly conformance job; no tagged test yet
 CAST-60 | coordinator | process mechanism (G), not a test: AGENT-RULES requires cargo clean -p for workspace crates before each worktree check
+CAST-63 | coordinator | process mechanism (G): ci.yml's paths filter re-includes checked Markdown; stpa check before commit

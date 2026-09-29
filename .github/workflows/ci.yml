@@ -270,6 +270,8 @@ jobs:
         with:
           pattern: trace-*
           path: ${{ runner.temp }}/trace
+      - name: trace.py's own tests (a check that cannot fail is no check)
+        run: python3 -m unittest -v ci/trace/trace_test.py
       - name: trace.py check
         run: |
           python3 ci/trace/trace.py check --workflow ci --jobs go-vet,go-test,lakeui,lakeui-mosaic,rust \

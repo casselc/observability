@@ -17,6 +17,8 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 | `lakeui-mosaic` | `otel-chdb/lakeui/mosaic` (the Mosaic spike, research/mosaic.md): `npm ci` in `lakeui` and the spike, `npm test` (the columns loaded from edge Parquet fixtures = brute force with lakeui's completeness states; Arrow IPC into DuckDB-WASM in Node keeps every value; property: the completeness band starts at lakeui's first unsettled bucket) |
 | `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
 
+| `traceability` | after the others, even when one failed: joins their trace records with the STPA catalogue (`ci/trace/trace.py check`; "Traceability" below) |
+
 **`nightly.yml`: 03:17 UTC daily and on demand** (`workflow_dispatch`, with
 the soak's length and the jobs to run as inputs). `plan` decides which jobs
 run; `build` runs next; the others run beside it or after it.
@@ -92,6 +94,55 @@ says the service exists:
 
 Locally, with the services up: `set -a; . ci/test.env; set +a; export
 OSCOPE_REQUIRE_SERVICES=clickhouse,s3` before the commands below.
+
+## Traceability (runtime evidence, not static tags)
+
+A test tagged as verifying a hazard, requirement or CAST row counts only if it
+**ran and passed at this commit**: skipped and unrun tests are unknowns (STPA.md
+CAST rows 41, 43, 45, 46, 53). The tag is a call that runs with the test and,
+when `OSCOPE_TRACE_OUT` is set (both workflows set it to
+`$GITHUB_WORKSPACE/_trace/records.jsonl`), appends one JSON record with the IDs,
+the technique (a VERIFICATION.md §1 code), the test, file, commit, job and
+outcome (`passed`, `failed`, `skipped`):
+
+| language | tag, first in the test | outcome from |
+|---|---|---|
+| Go | `tracetag.Covers(t, "P", "CAST-52", "H-6")` (`otel-chdb/testgate/tracetag`, in the testgate module: no new `replace`) | `t.Cleanup`: `t.Failed()`, `t.Skipped()` |
+| Rust | `let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-42", "LS-5"]);` (`crate::` inside the library) | the guard's drop: `thread::panicking()`; `testgate::skip` (or `oscope_trace::skipped()` before an opt-in gate's return) marks it skipped |
+| node:test | `test('…', (t) => { covers(t, 'P2C', 'CAST-26')` (`lakeui/test/trace.js`) | `lakeui/test/trace-reporter.js`, a `--test-reporter` in `npm test` |
+| Quint scripts | an entry in `ci/trace/models.txt` (a regex over the script's report) | `trace.py model --script … --report …` after the script |
+| a CI step that is evidence (a lint) | `python3 ci/trace/trace.py record --test ci/clippy.sh --technique G --ids CAST-8,H-1` after it | the step ran (it runs only if the check passed) |
+
+Go tests must run with `-count=1` (a cached result runs nothing and records
+nothing). Every test job uploads `_trace` as `trace-<job>`; the `traceability`
+job (in `ci.yml`, and last in the nightly for the jobs `plan` selected)
+downloads them and runs `ci/trace/trace.py check`, which **fails** when
+
+- an ID in a tag or record is not in the catalogue (`trace.py catalog`: every
+  L-, H-, SC-, UCA-, LS-, SEC-, TM-, R- ID in STPA.md and the STPA sections of
+  research/{langfuse,entra-ingress,grants}.md, and CAST-n from the CAST tables),
+  or a technique is not a §1 code; the catalogue itself fails on an ID defined
+  twice with different meanings unless `ci/trace/same-meaning.txt` says why they agree;
+- a record's outcome is `failed`, or its commit is not the run's;
+- a tag in source (listed statically by `trace.py scan`) whose jobs, from
+  `ci/trace/scope.txt`, include one this run ran has no **passing** record from
+  it: tagged but skipped or unrun;
+- a CAST row, or a required (hazard × technique) cell of VERIFICATION.md §3, has
+  no passing record, unless `ci/trace/known-gaps.txt` lists it with an owner and a
+  reason. Items claimed only by tags of jobs this run did not run are reported as
+  *deferred*, not judged (ci.yml defers the model, chdb and conformance evidence to
+  the nightly).
+
+The report (hazard → requirements → techniques → tests with outcomes; CAST rows;
+every tag; coverage numbers) is the job summary and the `traceability-report`
+artifact, and is printed in the log between `BEGIN/END TRACEABILITY REPORT`
+markers. `otel-chdb/TRACEABILITY.md` is a snapshot of a green run, written by
+`python3 ci/trace/trace.py snapshot <report.md or the job's log>`, never by hand.
+
+Locally: `OSCOPE_TRACE_OUT=/tmp/t.jsonl go test -count=1 ./...` (or `cargo test`,
+`npm test`), then `python3 ci/trace/trace.py check --workflow ci --jobs go-test
+--records /tmp/t.jsonl --report /tmp/TRACEABILITY.md` (records without a job
+stand for any job).
 
 ## Scripts
 

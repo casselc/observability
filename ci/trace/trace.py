@@ -67,6 +67,11 @@ def rel(p):
     return os.path.relpath(p, ROOT).replace(os.sep, '/')
 
 
+def lines_of(path):
+    with open(path, encoding='utf-8') as f:
+        return f.read().split('\n')
+
+
 def read(path):
     with open(os.path.join(ROOT, path), encoding='utf-8') as f:
         return f.read()
@@ -174,7 +179,7 @@ def load_same_meaning():
     rules = []
     p = os.path.join(TRACE_DIR, 'same-meaning.txt')
     if os.path.exists(p):
-        for n, l in enumerate(open(p, encoding='utf-8'), 1):
+        for n, l in enumerate(lines_of(p), 1):
             l = l.strip()
             if not l or l.startswith('#'):
                 continue
@@ -301,7 +306,7 @@ def code_files(patterns):
 
 def load_scope():
     rules = []
-    for n, l in enumerate(open(os.path.join(TRACE_DIR, 'scope.txt'), encoding='utf-8'), 1):
+    for n, l in enumerate(lines_of(os.path.join(TRACE_DIR, 'scope.txt')), 1):
         l = l.split('#', 1)[0].strip()
         if l:
             parts = l.split()
@@ -324,7 +329,7 @@ def workflow_steps():
     for wf in sorted(glob.glob(os.path.join(ROOT, '.github', 'workflows', '*.yml'))):
         name = os.path.splitext(os.path.basename(wf))[0]
         job, in_jobs = None, False
-        for n, l in enumerate(open(wf, encoding='utf-8'), 1):
+        for n, l in enumerate(lines_of(wf), 1):
             if re.match(r'^jobs:\s*$', l):
                 in_jobs = True
                 continue
@@ -346,7 +351,7 @@ def workflow_steps():
 def load_models():
     out = []
     p = os.path.join(TRACE_DIR, 'models.txt')
-    for n, l in enumerate(open(p, encoding='utf-8'), 1):
+    for n, l in enumerate(lines_of(p), 1):
         if not l.strip() or l.lstrip().startswith('#'):
             continue
         parts = [x.strip() for x in l.rstrip('\n').split('|')]
@@ -368,7 +373,7 @@ def scan_tags():
         r = rel(f)
         if r in NOT_TAGS:
             continue
-        text = open(f, encoding='utf-8').read()
+        text = '\n'.join(lines_of(f))
         for m in GO_TAG.finditer(text):
             fn = enclosing(text, m.start(), go_func)
             args = strs(m.group(1))
@@ -378,7 +383,7 @@ def scan_tags():
         r = rel(f)
         if r in NOT_TAGS:
             continue
-        text = open(f, encoding='utf-8').read()
+        text = '\n'.join(lines_of(f))
         for m in RS_TAG.finditer(text):
             ls = text.rfind('\n', 0, m.start()) + 1
             if text[ls:m.start()].lstrip().startswith('//'):
@@ -390,7 +395,7 @@ def scan_tags():
         r = rel(f)
         if r in NOT_TAGS:
             continue
-        text = open(f, encoding='utf-8').read()
+        text = '\n'.join(lines_of(f))
         for m in JS_TAG.finditer(text):
             t = enclosing(text, m.start(), js_test)
             name = re.sub(r'\\(.)', r'\1', t.group(2)) if t else ''
@@ -463,7 +468,7 @@ def model(args):
         print(f'::error::no ci/trace/models.txt entries for {args.script}')
         return 1
     try:
-        report = open(args.report, encoding='utf-8').read().split('\n')
+        report = lines_of(args.report)
     except OSError as e:
         print(f'::error::{args.report}: {e}')
         report = []
@@ -504,7 +509,7 @@ def load_records(paths):
         elif os.path.exists(p):
             files.append(p)
     for f in files:
-        for n, l in enumerate(open(f, encoding='utf-8'), 1):
+        for n, l in enumerate(lines_of(f), 1):
             if not l.strip():
                 continue
             try:
@@ -522,7 +527,7 @@ def load_records(paths):
 def load_gaps():
     gaps, errs = {}, []
     p = os.path.join(TRACE_DIR, 'known-gaps.txt')
-    for n, l in enumerate(open(p, encoding='utf-8'), 1):
+    for n, l in enumerate(lines_of(p), 1):
         if not l.strip() or l.lstrip().startswith('#'):
             continue
         parts = [x.strip() for x in l.rstrip('\n').split('|')]
@@ -820,7 +825,7 @@ def render(ids, tech, cells_req, tags, recs, files, status, gaps, fails, warns, 
 # ---------------------------------------------------------------- snapshot
 
 def snapshot(args):
-    text = open(args.src, encoding='utf-8').read()
+    text = '\n'.join(lines_of(args.src))
     if BEGIN in text:
         text = text.split(BEGIN, 1)[1].split(END, 1)[0]
         # job logs prefix every line with a timestamp

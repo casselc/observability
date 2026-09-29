@@ -428,6 +428,45 @@ against the next #24), 2 (M, the only defence against the next #34).
 nothing here. Items 4, 9 and 10 are fast PR tests. Only item 8 (if FUSE is
 missing on runners) and local development of 5(b) need the heavy-job lock.
 
+## 8. Traceability: which tests ran, and passed, at this commit
+
+The ✅ cells above say a test exists and a workflow runs it; they were not
+re-run for this plan. The traceability job turns that into evidence per commit
+(the mechanism and commands: [ci/README.md](../ci/README.md), "Traceability").
+
+**How to tag.** First in the test, one line naming the §1 technique and the IDs
+it verifies: `tracetag.Covers(t, "P2C", "CAST-26", "H-4", "R-S1")` (Go),
+`let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-42", "LS-5"]);`
+(Rust), `covers(t, 'P2C', 'CAST-54')` (node:test); a Quint check is an entry
+in `ci/trace/models.txt`. Use the technique of the cell the test is evidence
+for (an example regression carries its cell's code, e.g. `ML` for
+`a_store_that_fails_every_put_is_not_resent_forever`), and the CAST row plus the
+hazard, UCA, scenario and requirement IDs the row and the cell cite. Several
+techniques: `"DST,ML"`. A test that can skip must skip through `testgate` (or
+call `oscope_trace::skipped()`), so the skip is recorded as one.
+
+**How the job decides.** A tag counts only through a record the test wrote when
+it ran, with its outcome, at the run's commit. The job fails on a failed record,
+an unknown ID or technique, a tagged test a selected job should run with no
+passing record, and a CAST row or a required cell of §3 (hazard × technique,
+"A + B" two cells, "A / B" one cell either satisfies) with no passing record.
+A cell is judged per hazard and technique, not per component row: a covered
+cell can still hold a ❌ row (H-1 DST covers the consumer, not the Go edge),
+which the report prints beside it.
+
+**Known gaps.** `ci/trace/known-gaps.txt` lists what may lack a passing
+record, each with an owner and a reason: the CAST rows with no regression test
+(#6, #11, #35, #36, #49), those whose control is a process mechanism (#12, #22,
+#27, #28, #38, #41, #51, #55) or a test outside the instrumented runners (#29
+jest in the fork, #33 Playwright), and the §3 cells no test is tagged for yet.
+The job reports them and does not fail; a listed item that gains a passing
+record is reported stale and should be removed in the same change. Adding a
+line weakens a check and gets the same review as deleting a test.
+
+The first slice tags every CAST row's regression test that exists and the model
+runs that pin CAST mutants; tagging the rest of §3's evidence closes the
+"evidence exists, not yet tagged" lines of known-gaps.txt.
+
 ## Appendix A: tool inventory per module
 
 "Tests" counts `func Test*` / `#[test]`. **Model link**: *connected* =

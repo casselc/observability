@@ -21,7 +21,7 @@ otel-chdb/otap-rs/src/*                ci:rust
 otel-chdb/otap-rs/tests/dst_consumer.rs  ci:rust nightly:dst
 otel-chdb/otap-rs/tests/dst_net.rs       ci:rust nightly:dst
 otel-chdb/otap-rs/tests/hegel_props.rs   ci:rust nightly:hegel
-otel-chdb/otap-rs/tests/hegel_dst.rs     ci:rust nightly:hegel
+otel-chdb/otap-rs/tests/hegel_dst.rs     ci:rust   # the nightly runs only hegel_dst_fleet and hegel_dst_finds_mutants
 
 # Node (ci.yml lakeui: npm test, with test/trace-reporter.js)
 otel-chdb/lakeui/test/*                ci:lakeui

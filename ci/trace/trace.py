@@ -181,7 +181,7 @@ def records_catalog():
     under otel-chdb/stpa/, our ID as `label`), once they replace the tables. Reads only the flat
     `label`, `title` and `name` keys; each item's citations from any other ID in its file."""
     ids, dups, cites_all = {}, [], defaultdict(set)
-    for f in code_files(['otel-chdb/stpa/**/*.md']):
+    for f in code_files(['otel-chdb/stpa/records/*.md']):
         text = '\n'.join(lines_of(f))
         m = re.match(r'^---\n(.*?)\n---\n', text, re.S)
         if not m:

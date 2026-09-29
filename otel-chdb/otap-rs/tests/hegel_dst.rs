@@ -770,6 +770,7 @@ fn hegel_dst_finds_mutants() {
 /// ingested". The fleet was not done; the harness stopped waiting.
 #[test]
 fn regression_finish_waits_for_a_copys_announcement() {
+    let _trace = otap_s3pq::oscope_trace::covers("SM", &["CAST-56"]);
     let s = Setup {
         seed: 0,
         workers: 3,

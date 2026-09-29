@@ -3365,6 +3365,10 @@ sample that read everything is still labelled a sample.
 
 ### D34. Central's partition key `(toDate(received_at), late_part)`: late parts in partitions of their own
 
+**Migration timing (owner, 2026-09-29):** there are no deployed tables, so
+nothing to migrate: every environment is created with the new key. The
+migration script stays for any environment created from the older DDL.
+
 **Status:** **built** (2026-09-28; owner decision of 2026-09-28, "adopt the
 central partition key", from D31's measurement): the consumer
 (`otap-rs/src/consumer`: `plan.rs`, `sql.rs`, `worker.rs`), the DDL

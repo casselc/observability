@@ -19,6 +19,10 @@ type Grant struct {
 	Namespaces []string `json:"namespaces"`
 	Pairs      []Pair   `json:"pairs,omitempty"`
 	Roles      []string `json:"roles"`
+	// Tuples are explicit (role, cluster, namespace) grants, as the Cedar
+	// grants compiler emits them (otel-chdb/grants): one group may hold
+	// different scopes per role. Used as they are, never crossed.
+	Tuples []Tuple `json:"tuples,omitempty"`
 }
 
 // Pair is one (cluster, namespace); "*" is every value of that tier.
@@ -33,7 +37,7 @@ type Tuple struct {
 
 // tuples expands g.
 func (g Grant) tuples() []Tuple {
-	var out []Tuple
+	out := append([]Tuple(nil), g.Tuples...)
 	for _, r := range g.Roles {
 		r = strings.TrimSpace(r)
 		for _, c := range g.Clusters {
@@ -122,6 +126,11 @@ func (m *Mapping) Principal(c jwt.MapClaims) (*Principal, error) {
 		for _, r := range g.Roles {
 			if r = strings.TrimSpace(r); r == RoleQuery || r == RolePlan {
 				roles[r] = true
+			}
+		}
+		for _, t := range g.Tuples {
+			if t.Role == RoleQuery || t.Role == RolePlan {
+				roles[t.Role] = true
 			}
 		}
 		ts = append(ts, g.tuples()...)

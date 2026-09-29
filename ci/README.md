@@ -11,7 +11,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 
 | job | runs |
 |---|---|
-| `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`); `ci/iam-lint.sh` (the `deploy/iam/` policies) |
+| `go-vet` | `go vet ./...` in every Go module (`ci/go-modules.sh vet all`); `ci/iam-lint.sh` (the `deploy/iam/` policies, and the IAM compiled from the Cedar grants, `otel-chdb/grants/examples/out/iam`, D38) |
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
 | `lakeui` | `otel-chdb/lakeui`: `npm ci`, `npm run vendor:check` (vendor/ matches the pinned packages), `npm test` (node:test + fast-check: the planner client, range reader, completeness math, re-plan state machine, queries over edge Parquet fixtures, SVG) |
 | `lakeui-mosaic` | `otel-chdb/lakeui/mosaic` (the Mosaic spike, research/mosaic.md): `npm ci` in `lakeui` and the spike, `npm test` (the columns loaded from edge Parquet fixtures = brute force with lakeui's completeness states; Arrow IPC into DuckDB-WASM in Node keeps every value; property: the completeness band starts at lakeui's first unsettled bucket) |

@@ -1,0 +1,93 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd/lake/${aws:PrincipalTag/cluster}/*",
+      "Sid": "CreateSlotsUnderOwnClusterOnly"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "lake/${aws:PrincipalTag/cluster}/*",
+            "lake/${aws:PrincipalTag/cluster}"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd",
+      "Sid": "ListOwnCluster"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLikeIfExists": {
+          "s3:prefix": [
+            "lake/${aws:PrincipalTag/cluster}/*",
+            "lake/${aws:PrincipalTag/cluster}"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd",
+      "Sid": "ListOwnClusterHeadCarriesNoPrefix"
+    },
+    {
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutObjectAcl",
+        "s3:PutBucketPolicy"
+      ],
+      "Effect": "Deny",
+      "Resource": [
+        "arn:aws:s3:::oscope-prd",
+        "arn:aws:s3:::oscope-prd/*"
+      ],
+      "Sid": "NeverDeleteNeverControl"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Effect": "Deny",
+      "Resource": "arn:aws:s3:::oscope-prd/lake/_*",
+      "Sid": "NoControlPrefix"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Effect": "Deny",
+      "Resource": "arn:aws:s3:::oscope-prd/lake/*/_*",
+      "Sid": "NoIndexOrOtherControlPrefixInsideTheCluster"
+    },
+    {
+      "Action": "s3:*",
+      "Condition": {
+        "Null": {
+          "aws:PrincipalTag/cluster": "true"
+        }
+      },
+      "Effect": "Deny",
+      "Resource": "*",
+      "Sid": "NoSessionWithoutAClusterTag"
+    },
+    {
+      "Action": "s3:*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalTag/cluster": [
+            "prod-eu-1",
+            "prod-us-1"
+          ]
+        }
+      },
+      "Effect": "Deny",
+      "Resource": "*",
+      "Sid": "NoClusterOfAnotherEnvironment"
+    }
+  ]
+}

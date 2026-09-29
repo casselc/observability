@@ -1,0 +1,34 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "sts:AssumeRole",
+        "sts:TagSession"
+      ],
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "env",
+            "cluster"
+          ]
+        },
+        "Null": {
+          "aws:RequestTag/cluster": "false"
+        },
+        "StringEquals": {
+          "aws:RequestTag/cluster": [
+            "prod-eu-1",
+            "prod-us-1"
+          ],
+          "aws:RequestTag/env": "prd"
+        }
+      },
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::ACCOUNT:role/QUERY_SERVICE_ROLE"
+      },
+      "Sid": "QueryServiceOnlyOneClusterOfThisEnvironment"
+    }
+  ]
+}

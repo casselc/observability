@@ -1,0 +1,43 @@
+// The grants schema (DECISIONS.md D38, research/grants.md §6).
+//
+// Resources form the scope hierarchy: an environment holds clusters, a
+// cluster holds namespaces. A Namespace's id is "{cluster}/{namespace}"
+// (namespace names repeat across clusters). Principals are people and
+// workloads, granted through groups (Entra groups or app roles; a person
+// is never granted directly, TM-E3).
+namespace Oscope {
+  entity Env;
+  entity Cluster in [Env];
+  entity Namespace in [Cluster];
+  entity Group;
+  entity User in [Group];
+  entity Workload in [Group] {
+    cluster: Cluster,
+  };
+
+  // read rows through the query service (central, SQL rewrite)
+  action query appliesTo {
+    principal: [User, Workload],
+    resource: [Env, Cluster, Namespace],
+  };
+  // plan: presigned GETs of raw lane objects (the lake)
+  action plan appliesTo {
+    principal: [User, Workload],
+    resource: [Env, Cluster, Namespace],
+  };
+  // read LLM prompt and completion content (D36, R-L2)
+  action llm_content appliesTo {
+    principal: [User, Workload],
+    resource: [Env, Cluster, Namespace],
+  };
+  // create lane objects (edges, D18)
+  action write appliesTo {
+    principal: [Workload],
+    resource: [Env, Cluster, Namespace],
+  };
+  // operate the pipeline (consumer, GC, retirement): infrastructure roles
+  action admin appliesTo {
+    principal: [User, Workload],
+    resource: [Env],
+  };
+}

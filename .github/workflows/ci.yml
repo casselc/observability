@@ -50,6 +50,8 @@ jobs:
       - run: ci/go-modules.sh vet all
       - name: IAM policies (a missing key must answer 404 under every role)
         run: ci/iam-lint.sh
+      - name: IAM policies compiled from the Cedar grants (D38)
+        run: ci/iam-lint.sh otel-chdb/grants/examples/out/iam
 
   go-test:
     name: go test (fast modules, -race)

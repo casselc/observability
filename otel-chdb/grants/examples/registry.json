@@ -1,0 +1,15 @@
+{
+  "envs": {
+    "prd": {
+      "bucket": "oscope-prd",
+      "root": "lake",
+      "cluster_tag": "cluster",
+      "clusters": {"prod-eu-1": ["search", "shop"], "prod-us-1": ["shop"]}
+    },
+    "dev": {
+      "bucket": "oscope-dev",
+      "root": "lake",
+      "clusters": {"dev-eu-1": ["search"], "devtools": ["dev-payments", "dev-search"]}
+    }
+  }
+}

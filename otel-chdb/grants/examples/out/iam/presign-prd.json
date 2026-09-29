@@ -1,0 +1,82 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "s3:GetObject",
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd/lake/${aws:PrincipalTag/cluster}/*",
+      "Sid": "ReadOneClusterPerSession"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "lake/${aws:PrincipalTag/cluster}/*",
+            "lake/${aws:PrincipalTag/cluster}"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd",
+      "Sid": "ListOneClusterPerSession"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLikeIfExists": {
+          "s3:prefix": [
+            "lake/${aws:PrincipalTag/cluster}/*",
+            "lake/${aws:PrincipalTag/cluster}"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-prd",
+      "Sid": "ListOneClusterPerSessionHeadCarriesNoPrefix"
+    },
+    {
+      "Action": "s3:GetObject",
+      "Effect": "Deny",
+      "Resource": "arn:aws:s3:::oscope-prd/lake/_*",
+      "Sid": "NoControlObjects"
+    },
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutObjectAcl",
+        "s3:PutBucketPolicy"
+      ],
+      "Effect": "Deny",
+      "Resource": [
+        "arn:aws:s3:::oscope-prd",
+        "arn:aws:s3:::oscope-prd/*"
+      ],
+      "Sid": "ReadOnly"
+    },
+    {
+      "Action": "s3:*",
+      "Condition": {
+        "Null": {
+          "aws:PrincipalTag/cluster": "true"
+        }
+      },
+      "Effect": "Deny",
+      "Resource": "*",
+      "Sid": "NoSessionWithoutAClusterTag"
+    },
+    {
+      "Action": "s3:*",
+      "Condition": {
+        "StringNotEquals": {
+          "aws:PrincipalTag/env": "prd"
+        }
+      },
+      "Effect": "Deny",
+      "Resource": "*",
+      "Sid": "NoSessionOfAnotherEnvironment"
+    }
+  ]
+}

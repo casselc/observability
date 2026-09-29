@@ -1,0 +1,38 @@
+{
+  "environment": "prd",
+  "group_grants": {
+    "sre": {
+      "tuples": [
+        {
+          "role": "plan",
+          "cluster": "prod-eu-1",
+          "namespace": "*"
+        },
+        {
+          "role": "plan",
+          "cluster": "prod-us-1",
+          "namespace": "*"
+        },
+        {
+          "role": "query",
+          "cluster": "prod-eu-1",
+          "namespace": "*"
+        },
+        {
+          "role": "query",
+          "cluster": "prod-us-1",
+          "namespace": "*"
+        }
+      ]
+    },
+    "team-search": {
+      "tuples": [
+        {
+          "role": "query",
+          "cluster": "prod-eu-1",
+          "namespace": "search"
+        }
+      ]
+    }
+  }
+}

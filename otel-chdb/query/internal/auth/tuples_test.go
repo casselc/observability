@@ -1,7 +1,9 @@
 package auth_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -209,4 +211,65 @@ func TestProductMutantCaughtByOracle(t *testing.T) {
 		t.Fatal("no generated scenario separates the product from the union")
 	}
 	t.Logf("%d of 1000 generated scenarios separate the old product from the union", found)
+}
+
+// TestCompiledCedarGrantsLoad: the Cedar compiler's queryd output
+// (otel-chdb/grants/examples/out, D38) is a Mapping's group_grants: a group
+// holding tuples of two roles gets each role over its own scope only.
+func TestCompiledCedarGrantsLoad(t *testing.T) {
+	for env, check := range map[string]func(*auth.Principal){
+		"prd": func(p *auth.Principal) {
+			q, pl := p.For(auth.RoleQuery), p.For(auth.RolePlan)
+			if !q.Scope().Allows("prod-eu-1", "shop") || !q.Scope().Allows("prod-us-1", "any") {
+				t.Fatalf("prd query: %+v", q)
+			}
+			if !pl.WholeClusters().MayCluster("prod-us-1") {
+				t.Fatalf("prd plan: %+v", pl)
+			}
+		},
+		"dev": func(p *auth.Principal) {
+			q, pl := p.For(auth.RoleQuery), p.For(auth.RolePlan)
+			if !q.Scope().Allows("devtools", "dev-payments") || q.Scope().Allows("devtools", "dev-search") || !q.Scope().Allows("dev-eu-1", "anything") {
+				t.Fatalf("dev query: %+v", q)
+			}
+			if pl.MayCluster("devtools") || !pl.WholeClusters().MayCluster("dev-eu-1") {
+				t.Fatalf("dev plan: %+v", pl)
+			}
+		},
+	} {
+		b, err := os.ReadFile("../../../grants/examples/out/queryd-grants-" + env + ".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg struct {
+			Groups map[string]auth.Grant `json:"group_grants"`
+		}
+		if err := json.Unmarshal(b, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		m := auth.Mapping{GroupsClaim: "groups", Groups: cfg.Groups}
+		var gs []any
+		for g := range cfg.Groups {
+			gs = append(gs, g)
+		}
+		p, err := m.Principal(jwt.MapClaims{"sub": "u", "groups": gs})
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(p)
+	}
+	// one group alone: team-search in prd reads its namespace, plans nothing
+	b, _ := os.ReadFile("../../../grants/examples/out/queryd-grants-prd.json")
+	var cfg struct {
+		Groups map[string]auth.Grant `json:"group_grants"`
+	}
+	_ = json.Unmarshal(b, &cfg)
+	m := auth.Mapping{GroupsClaim: "groups", Groups: cfg.Groups}
+	p, _ := m.Principal(jwt.MapClaims{"sub": "u", "groups": "team-search"})
+	if q := p.For(auth.RoleQuery).Scope(); !q.Allows("prod-eu-1", "search") || q.Allows("prod-eu-1", "shop") || q.Allows("prod-us-1", "search") {
+		t.Fatalf("team-search: %+v", p)
+	}
+	if p.Has(auth.RolePlan) {
+		t.Fatalf("team-search plans: %+v", p)
+	}
 }

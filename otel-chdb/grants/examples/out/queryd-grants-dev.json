@@ -1,0 +1,33 @@
+{
+  "environment": "dev",
+  "group_grants": {
+    "approle:Team.Payments": {
+      "tuples": [
+        {
+          "role": "llm_content",
+          "cluster": "devtools",
+          "namespace": "dev-payments"
+        },
+        {
+          "role": "query",
+          "cluster": "devtools",
+          "namespace": "dev-payments"
+        }
+      ]
+    },
+    "team-search": {
+      "tuples": [
+        {
+          "role": "plan",
+          "cluster": "dev-eu-1",
+          "namespace": "*"
+        },
+        {
+          "role": "query",
+          "cluster": "dev-eu-1",
+          "namespace": "*"
+        }
+      ]
+    }
+  }
+}

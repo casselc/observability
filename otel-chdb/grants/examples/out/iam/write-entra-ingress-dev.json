@@ -1,0 +1,70 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Effect": "Allow",
+      "Resource": [
+        "arn:aws:s3:::oscope-dev/lake/devtools/*"
+      ],
+      "Sid": "CreateSlotsUnderGrantedClusters"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "lake/devtools/*",
+            "lake/devtools"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-dev",
+      "Sid": "ListGrantedClusters"
+    },
+    {
+      "Action": "s3:ListBucket",
+      "Condition": {
+        "StringLikeIfExists": {
+          "s3:prefix": [
+            "lake/devtools/*",
+            "lake/devtools"
+          ]
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::oscope-dev",
+      "Sid": "ListGrantedClustersHeadCarriesNoPrefix"
+    },
+    {
+      "Action": [
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion",
+        "s3:PutObjectAcl",
+        "s3:PutBucketPolicy"
+      ],
+      "Effect": "Deny",
+      "Resource": [
+        "arn:aws:s3:::oscope-dev",
+        "arn:aws:s3:::oscope-dev/*"
+      ],
+      "Sid": "NeverDeleteNeverControl"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Effect": "Deny",
+      "Resource": "arn:aws:s3:::oscope-dev/lake/_*",
+      "Sid": "NoControlPrefix"
+    },
+    {
+      "Action": "s3:PutObject",
+      "Effect": "Deny",
+      "Resource": "arn:aws:s3:::oscope-dev/lake/*/_*",
+      "Sid": "NoIndexOrOtherControlPrefixInsideTheCluster"
+    }
+  ]
+}

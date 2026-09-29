@@ -81,10 +81,10 @@ type OffloadOptions struct {
 	CacheSize        int      `json:"cache_size"`
 }
 
-// DefaultOffloadOptions is the owner's policy: on, 2 KiB, 8 MiB, 64 MiB.
+// DefaultOffloadOptions is the owner's policy: on, 2 KiB, 8 MiB; a 128 MiB request cap (the receivers' body limit).
 func DefaultOffloadOptions() OffloadOptions {
 	return OffloadOptions{
-		Enabled: true, Threshold: 2 << 10, MaxValue: 8 << 20, MaxRequestBytes: 64 << 20,
+		Enabled: true, Threshold: 2 << 10, MaxValue: 8 << 20, MaxRequestBytes: 128 << 20,
 		Keys: slices.Clone(DefaultOffloadKeys), SplitKeys: slices.Clone(DefaultSplitKeys), RedactKeys: []string{},
 		SplitMaxDepth: 64, SplitMaxElements: 4096, CacheSize: 65536,
 	}

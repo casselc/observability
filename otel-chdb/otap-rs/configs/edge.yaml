@@ -69,6 +69,8 @@ groups:
               # OFFLOAD=false keeps every value inline.
               offload:
                 enabled: ${env:OFFLOAD:-true}
+                # An OTLP request larger than this is refused (permanent): 128 MiB, the receiver's body limit below.
+                max_request_bytes: ${env:OFFLOAD_MAX_REQUEST:-134217728}
               parquet:
                 sort:
                   by: none              # D16: sorting off

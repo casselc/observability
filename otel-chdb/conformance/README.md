@@ -65,6 +65,18 @@ metadata, its kind, and "both edges end the lane with their close");
 ClickStack metrics tables **224 PASS, 0 FAIL** (+21). The Go collector was
 rebuilt with ocb v0.161.0 for it. Both results files replaced.
 
+**With the payload offloader (D36 phase 1, 2026-09-29)** [M, nightly run
+[36544548953](https://github.com/casselc/observability/actions/runs/36544548953)]: both edges
+offloading by default, a GenAI corpus added (`gen/genai.go`: `traces-genai`, `logs-genai`), the
+consumer filling `llm_payloads`, `llm_spans`, `llm_scores` and `llm_mapping`: layout B **281
+PASS, 0 FAIL** (the llm tables equal: 104 payloads, 51 LLM spans, 10 scores, 12 mapping rows),
+ClickStack metrics tables **194 PASS, 0 FAIL**; `go_faults.sh` 6 of 6. **Finding:** that run
+passed while both edges refused `traces-nasty-700` (85 MB) and `metrics-nasty-700` (78 MB) as
+over the offloader's request cap (then 64 MiB): both refused alike, so nothing differed, and
+`run.sh` logged the sends' refusals without failing. `run.sh` now fails when any send was
+refused or failed, the edges' default cap is 128 MiB (the receivers' body limit), and the
+conformance run raises it to 256 MiB (`MAXREQ`).
+
 Also measured, not a row difference: the Go objects are **28% larger** than
 the Rust objects on these datasets (1.32 MB against 1.03 MB; traces and logs
 +26%), with the same encodings per column: parquet-go's zstd and V2 pages

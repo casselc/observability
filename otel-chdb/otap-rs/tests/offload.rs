@@ -660,7 +660,7 @@ fn a_late_split_carries_each_parts_payloads() {
 #[test]
 fn the_policy_is_validated_together() {
     assert!(OffloadOptions::default().validate().is_ok());
-    let bad = OffloadOptions { max_value: 128 << 20, ..Default::default() };
+    let bad = OffloadOptions { max_value: 256 << 20, ..Default::default() };
     assert!(bad.validate().unwrap_err().contains("max_request_bytes"));
     let cfg: OffloadOptions = serde_json::from_value(json!({"threshold": 1024, "keys": ["a"], "split_keys": []})).unwrap();
     assert!(cfg.validate().is_ok() && cfg.enabled);

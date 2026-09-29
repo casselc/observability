@@ -1934,7 +1934,9 @@ mod tests {
             return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
         }
         let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/otel".into());
-        let id = format!("{:08x}", rand::random::<u32>());
+        // "403" in the path on purpose: the check below must not read the
+        // object's own name as an S3 403 (ci run 126).
+        let id = format!("403{:08x}", rand::random::<u32>());
         let store = otap_s3pq::store::S3Config {
             url: format!("{s3}/gap-creds-{id}"),
             access_key_id: Some("otel".into()),
@@ -1972,12 +1974,15 @@ mod tests {
         // With it (run_insert), the read gets past authorisation: this
         // 4-byte object then fails as Parquet, not on access.
         let e = c.run_insert("db.t", &format!("SELECT count() FROM {src}"), f, "t3").await.unwrap_err();
+        // The object's path out of the message first: its random id can hold
+        // "403" (ci run 126: "gap-creds-572f4033" failed this check).
+        let msg = e.msg.replace(&root, "{root}");
         assert!(
-            error_code(&e.msg) != Some(497) && !e.msg.contains("403"),
+            error_code(&msg) != Some(497) && !msg.contains("403"),
             "{}\n(a 403 here means the ClickHouse server has no S3 credentials of its own for {s3}: \
              ci/services.sh gives its container AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY; a local \
              server must be started with them in its environment)",
-            e.msg
+            msg
         );
         let _ = bucket.delete(&[key]).await;
     }

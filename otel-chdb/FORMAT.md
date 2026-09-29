@@ -297,7 +297,7 @@ resolves to a payload carried by its own object or by an earlier committed
 object of its lane's epoch (the consumer ingests a lane in slot order).
 
 **The request cap:** with offloading on, an OTLP request whose protobuf is
-larger than `max_request_bytes` (64 MiB) is refused as permanent (a client
+larger than `max_request_bytes` (128 MiB, the receivers' default body limit) is refused as permanent (a client
 error, counted `refused`), never accepted and dropped.
 
 **Counters** `s3pq_offload_total{outcome}`: `offloaded`, `offloaded_bytes`,

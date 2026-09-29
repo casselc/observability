@@ -99,7 +99,7 @@
           "input.value",
           "output.value"
         ],
-        "max_request_bytes": 67108864,
+        "max_request_bytes": 134217728,
         "max_value": 4096,
         "redact_keys": [
           "secret",
@@ -778,7 +778,7 @@
           "input.value",
           "output.value"
         ],
-        "max_request_bytes": 67108864,
+        "max_request_bytes": 134217728,
         "max_value": 8388608,
         "redact_keys": [],
         "split_keys": [

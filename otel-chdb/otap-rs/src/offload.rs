@@ -97,7 +97,7 @@ pub struct OffloadOptions {
     /// Values longer than this are truncated first, with a marker (8 MiB).
     pub max_value: usize,
     /// An OTLP request larger than this (its protobuf bytes) is refused as a
-    /// client error, counted (64 MiB); OTAP input is bounded by its
+    /// client error, counted (128 MiB: the receivers' default body limit); OTAP input is bounded by its
     /// receiver's message size.
     pub max_request_bytes: usize,
     /// Keys offloaded whatever the value's size (when non-empty).
@@ -123,7 +123,7 @@ impl Default for OffloadOptions {
             enabled: true,
             threshold: 2 << 10,
             max_value: 8 << 20,
-            max_request_bytes: 64 << 20,
+            max_request_bytes: 128 << 20,
             keys: DEFAULT_KEYS.iter().map(|s| s.to_string()).collect(),
             split_keys: DEFAULT_SPLIT_KEYS.iter().map(|s| s.to_string()).collect(),
             redact_keys: Vec::new(),
@@ -831,7 +831,7 @@ mod tests {
         assert!(OffloadOptions { enabled: false, threshold: 0, ..Default::default() }.validate().is_ok());
         for bad in [
             OffloadOptions { threshold: 8 << 20, ..Default::default() },
-            OffloadOptions { max_value: 128 << 20, ..Default::default() },
+            OffloadOptions { max_value: 256 << 20, ..Default::default() },
             OffloadOptions { max_request_bytes: 2 << 30, max_value: 2 << 30, ..Default::default() },
             OffloadOptions { split_max_depth: 0, ..Default::default() },
             OffloadOptions { split_max_elements: 0, ..Default::default() },

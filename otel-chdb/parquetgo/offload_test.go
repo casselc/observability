@@ -259,7 +259,7 @@ func TestOffloadOptionsValidated(t *testing.T) {
 	}
 	for i, f := range []func(*OffloadOptions){
 		func(o *OffloadOptions) { o.Threshold = 8 << 20 },
-		func(o *OffloadOptions) { o.MaxValue = 128 << 20 },
+		func(o *OffloadOptions) { o.MaxValue = 256 << 20 },
 		func(o *OffloadOptions) { o.MaxRequestBytes, o.MaxValue = 2<<30, 2<<30 },
 		func(o *OffloadOptions) { o.SplitMaxDepth = 0 },
 		func(o *OffloadOptions) { o.SplitMaxElements = 0 },

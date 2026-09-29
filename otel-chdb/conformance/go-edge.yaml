@@ -24,6 +24,7 @@ exporters:
     metrics_layout: ${env:METRICS_LAYOUT:-series_table}
     offload:                      # content by reference (../FORMAT.md §2.3, D36), as the Rust edge's
       enabled: ${env:OFFLOAD:-true}
+      max_request_bytes: ${env:OFFLOAD_MAX_REQUEST:-134217728}
     s3:
       url: ${env:S3_URL}
       region: us-east-1

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"strings"
 	"testing"
 
@@ -195,8 +197,12 @@ func TestPayloadLogBodyAndCap(t *testing.T) {
 	// the request cap: permanent, counted
 	huge := plog.NewLogs()
 	huge.ResourceLogs().AppendEmpty().ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr(strings.Repeat("x", 2<<20))
-	if err := e.PushLogs(ctx, huge); !IsPermanent(err) {
+	err = e.PushLogs(ctx, huge)
+	if !IsPermanent(err) {
 		t.Fatalf("over the cap: %v", err)
+	}
+	if st, ok := status.FromError(err); !ok || st.Code() != codes.InvalidArgument {
+		t.Fatalf("over the cap: want InvalidArgument (HTTP 400), got %v", err)
 	}
 	if e.OffloadStats().Refused != 1 || len(st.Keys("root/c1/p1/logs/")) != 1 {
 		t.Fatal("refused request published or not counted")

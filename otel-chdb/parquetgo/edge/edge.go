@@ -29,6 +29,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"slices"
 	"strconv"
 	"strings"
@@ -286,7 +288,9 @@ func (e *Edge) overCap(n int) error {
 	e.offMu.Lock()
 	e.offStats.Refused++
 	e.offMu.Unlock()
-	return &PermanentError{fmt.Errorf("request of %d bytes exceeds offload.max_request_bytes %d", n, e.cfg.Offload.MaxRequestBytes)}
+	// InvalidArgument: the OTLP receiver answers 400 (a client error, not
+	// retryable), as the Rust edge does; a bare permanent error would be 500.
+	return &PermanentError{status.Errorf(codes.InvalidArgument, "request of %d bytes exceeds offload.max_request_bytes %d", n, e.cfg.Offload.MaxRequestBytes)}
 }
 
 // Lane returns a namespace's lanes (tests, observers).

@@ -420,6 +420,26 @@ cluster-wide budget, if wanted, belongs in central's admission, not here.
 | Intune client certificates + mTLS at the ingress | the **device** (cert subject), not the user | yes, with a forwarder | strong device binding, and binds the connection (theft-resistant) | a PKI, SCEP/PKCS profiles, cert-to-user mapping, revocation | **later, in addition** (O-E4): closes SEC-E1 where Token Protection cannot |
 | Langfuse project keys per team at the ingress | the team (a shared secret) | yes | none | keys leak and are shared; no person; rotation by hand | rejected (R-L1, SEC-L1) |
 
+**How the forwarder is built (asked 2026-09-29).** Two build choices were weighed [E, not measured]:
+
+- **YARP** (Microsoft's reverse-proxy library for ASP.NET Core) would give the forwarding pass-through,
+  header transforms (the bearer token injected per request), retries, and routing across ingress endpoints.
+  That is the easy part: a few dozen lines of Kestrel and `HttpClient`. It does not give the hard,
+  hazard-carrying part: **store and forward** — acknowledging to the tool only after a durable, encrypted,
+  per-user write (H-E4), resending byte-identical requests later (H-E6), working offline, deleting on
+  sign-out (SEC-E6). A reverse proxy answers the tool with the upstream's answer; the forwarder must answer
+  with its own durable one. Using YARP for an "online fast path" beside the buffered path would create two
+  paths with different acknowledgement meanings (CAST 40: divergence between implementations). Not adopted;
+  revisit only if routing across several ingress regions becomes a need. Native AOT and trimming support for
+  a small signed device binary would also have to be confirmed.
+- **Our own Go edge distribution as the device forwarder**, with an otlphttp exporter, the persistent queue,
+  and a custom auth extension that gets tokens from a tiny .NET **token helper** (MSAL.NET + broker, over a
+  local named pipe / Unix socket, never a TCP port). This reuses verified code and its Go DST (VERIFICATION.md
+  gap 4), and keeps .NET to the part only .NET (or Node/Python) can do. Against it: a much larger binary on
+  every laptop, two processes to sign and ship, and the Go persistent queue's known ENOSPC loss (U22) must be
+  fixed first. **To be compared in the build's step (1)** against the single .NET process, on the hazard
+  table of §10a.
+
 ## 9. Later: serverless and CI
 
 Workload identity federation: a GitHub Actions (or other OIDC) token exchanged for an Entra

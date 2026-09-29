@@ -19,12 +19,12 @@ presented as complete while it is missing data.
 
 ## 1. Signing in
 
-![Header after sign-in: alice, clusters lui-a, token lifetime](img/complete/01-signed-in.png)
+![Header after sign-in: alice, clusters lui-a, namespaces *, token lifetime](img/complete/01-signed-in.png)
 
 The page is static; it signs in with an OIDC authorization code and PKCE
 (no client secret) and sends the access token to the query service with
 every plan request. The header shows what the token says about her: user
-`alice`, scope `clusters lui-a`. Everything that follows is limited to that
+`alice`, scope `clusters lui-a, namespaces *` (every namespace of one cluster). Everything that follows is limited to that
 scope by the **service**, not by the page (journey 3 shows what happens
 when she asks for more).
 

@@ -23,7 +23,7 @@ test('Is this data complete?', {
 
   await test.step('1. signed in with code + PKCE', async () => {
     page = await signedIn(browser, 'alice')
-    await expect(page.locator('#who')).toContainText('alice (clusters lui-a)')
+    await expect(page.locator('#who')).toContainText('alice (clusters lui-a, namespaces *)')
     await expect(page.locator('#who')).toContainText('token valid')
     await j.step(page, 'signed-in', 'Signed in: the token names cluster lui-a', { region: ['header'] })
   })

@@ -72,6 +72,7 @@ disagreed with each other, and how each was resolved.
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
 | [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
 | [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29), not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
+| [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
 
 ---
 
@@ -3736,6 +3737,63 @@ split at the edge or the consumer; the `llm_content` role; the score settle poli
 tombstone only or also a physical purge (an epoch older bases report); the UI option; the
 Langfuse ingestion API; the payload dedup scope. STPA additions (L-7, H-L1..H-L8, R-L1..R-L12)
 proposed for the coordinator. AMBIGUITY X22–X25 (designed).
+
+### D37. The tenant from a user's Entra identity, for producers outside Kubernetes: a device forwarder and an authenticated ingress (proposed)
+
+**Status:** **proposed** (2026-09-29). Ingress prototype built and tested against a fake Entra
+issuer ([`ingress/`](ingress/README.md), `go test` passes); the device forwarder is designed, not
+built; nothing verified against a real tenant or device
+([deploy/validation/entra-ingress.md](deploy/validation/entra-ingress.md)). Research and STPA:
+[research/entra-ingress.md](research/entra-ingress.md).
+
+**Context.** D36 item 5: the Langfuse opencode, Codex and Claude Code integrations run on
+developers' laptops and send OTLP/HTTP to `{LANGFUSE_BASE_URL}/api/public/otel/v1/traces` with
+Basic-auth project keys. No pod exists to derive the tenant from (R-L1), the keys are shared
+secrets that name a project, not a person, and the tools read their headers once at start, so an
+expiring bearer token cannot be configured into them.
+
+**Proposal.**
+
+1. **Device forwarder** per user on `127.0.0.1`: the tools' `LANGFUSE_BASE_URL`, with a random
+   per-user local key pair as their Langfuse keys. It acquires an access token for the ingress API
+   (`Telemetry.Write`) through **MSAL.NET ≥ 4.73.1 with the platform broker** (WAM; the Enterprise
+   SSO plug-in / Platform SSO on macOS); Node's `NativeBrokerPlugin` is the fallback; Go has no
+   broker. It keeps an encrypted (DPAPI / keychain key), bounded (256 MiB, 7 days) buffer of exact
+   request bytes keyed by `(tid, oid)`, resends only under the producing user's token, deletes on
+   sign-out, switch and uninstall, holds while the device is non-compliant, and counts and reports
+   every drop. Distributed by Intune (MSIX / `.intunewin`, `.pkg`) or Jamf.
+2. **Ingress** (Go, `otel-chdb/ingress`): Bearer only; v2.0 RS256 tokens from allowed tenant GUIDs
+   with `iss = {authority}/{tid}/v2.0` and tenant-bound keys honoured; audience = the ingress API;
+   `azp` allow-listed; delegated scope for users, app role for workloads. Identity and admission
+   before the body.
+3. **Tenant by policy only**: `(entra tenant, app role | group object id) → namespace`, cluster
+   `devtools` (never a Kubernetes cluster's name), namespaces with a mandatory prefix (`dev-`). One
+   grant is used; with several, `X-Oscope-Namespace` chooses among them and never grants.
+4. **Stamping over producer claims, deterministically**: `k8s.cluster.name`, `k8s.namespace.name`,
+   `user.id` (object id) and `oscope.ingress.*` asserted; producer `k8s.*`, `user.id`, `enduser.*`,
+   `langfuse.user.id` kept only as `oscope.ingress.claimed.*`. No time, token id or replica in the
+   bytes, so a retry to another replica is a D11 copy.
+5. **An edge with its own lanes**: each replica is a Go edge (cluster `devtools`, producer = pod);
+   200 only on the commit verdict, 503 + `Retry-After` when unresolved; heartbeats; on SIGTERM a
+   drain (503 to new requests, wait for running ones) and then the D35 close.
+6. **Per-user caps**: per `(tid, oid)` request and decoded-byte buckets, compressed and decoded body
+   caps, items per request; validated together.
+7. **Query service: grants as explicit `(cluster, namespace)` pairs** (finding: today a grant is a
+   clusters × namespaces product, `query/internal/auth/principal.go`, so devtools and Kubernetes
+   grants combine; CAST theme 36).
+8. **CI and serverless later** on the same ingress with app-only tokens from workload identity
+   federation (the app path is built and tested).
+
+**Alternatives.** Credential-helper headers (expire inside a session; no buffer); an OTel Collector
+on each device with `oauth2clientauth`/`azureauth` (no interactive user or broker; kept for CI);
+device-code flow (phishable, commonly blocked); Intune device certificates + mTLS (a device, not a
+person; proposed later in addition, for theft resistance that Entra Token Protection does not give
+a custom API); Langfuse keys per team (shared secrets, no person).
+
+**Consequences / open.** Owner decisions O-E1..O-E8 (research/entra-ingress.md §11). STPA additions
+(L-E1, H-E1..H-E9, UCA-E1..E11, SEC-E1..E10, TM-E1..E6, R-E1..R-E9) proposed for the coordinator.
+AMBIGUITY E7–E9. A stolen access token is a bearer token for its 60–90 minutes (bounded by per-user
+caps and CA, not prevented). Devtools completeness is the ingress's custody time, not the devices'.
 
 ## 6. Upstream bugs found
 

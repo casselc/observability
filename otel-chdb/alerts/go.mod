@@ -5,13 +5,15 @@ go 1.27.0
 toolchain go1.27.1
 
 require (
-	go.uber.org/goleak v1.3.0
-	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
+	github.com/anishathalye/porcupine v1.3.1
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/smithy-go v1.28.1
+	github.com/casselc/observability/otel-chdb/casreg v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
+	go.uber.org/goleak v1.3.0
 	gopkg.in/yaml.v3 v3.0.1
 	pgregory.net/rapid v1.2.0
 )
@@ -30,6 +32,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
 )
 
 replace github.com/casselc/observability/otel-chdb/testgate => ../testgate
+
+replace github.com/casselc/observability/otel-chdb/casreg => ../casreg

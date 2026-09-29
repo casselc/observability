@@ -128,6 +128,11 @@ func checks() []Check {
 					"%d LIST; %d 200-byte slot PUTs, %d CAS, %d HEAD-404", s, p.PerfOps, p.PerfOps, p.PerfOps, p.PerfConc,
 					float64(total)/1e6, max(10, p.PerfOps/4), p.PerfOps, p.PerfOps, p.PerfOps)
 			}},
+		{ID: "linearizable", Title: "every key's history of the run is a linearizable register (porcupine)", Level: Recommended,
+			Needs: []string{"control-plane", "inline-consumer"}, Run: checkLinearizable,
+			Plan: func(Params) string {
+				return "no extra request: the single-object reads and writes of the checks before, checked as one If-Match/If-None-Match register per key"
+			}},
 		{ID: "cleanup", Title: "delete this run's prefix", Level: Recommended, Run: nil,
 			Plan: func(Params) string {
 				return "LIST the run prefix, DeleteObjects (or DELETE one by one), ListMultipartUploads + Abort"

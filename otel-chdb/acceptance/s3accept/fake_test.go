@@ -134,11 +134,14 @@ func TestChecksCatchBrokenStores(t *testing.T) {
 		name string
 		run  func(context.Context, *Env, *Result)
 	}
-	cs := []c{{"create-only", checkCreateOnly}, {"if-match", checkIfMatch}, {"create-race", checkCreateRace}, {"cas-race", checkCASRace}}
+	// linearizable runs last, over the history of the checks before it:
+	// the porcupine check must also catch a store that ignores If-Match.
+	cs := []c{{"create-only", checkCreateOnly}, {"if-match", checkIfMatch}, {"create-race", checkCreateRace}, {"cas-race", checkCASRace},
+		{"linearizable", checkLinearizable}}
 	want := map[string]map[string]Status{
-		"honest": {"create-only": PASS, "if-match": PASS, "create-race": PASS, "cas-race": PASS},
-		"ignore": {"create-only": FAIL, "if-match": FAIL, "create-race": FAIL, "cas-race": FAIL},
-		"racy":   {"create-only": PASS, "if-match": PASS, "create-race": FAIL, "cas-race": FAIL},
+		"honest": {"create-only": PASS, "if-match": PASS, "create-race": PASS, "cas-race": PASS, "linearizable": PASS},
+		"ignore": {"create-only": FAIL, "if-match": FAIL, "create-race": FAIL, "cas-race": FAIL, "linearizable": FAIL},
+		"racy":   {"create-only": PASS, "if-match": PASS, "create-race": FAIL, "cas-race": FAIL, "linearizable": FAIL},
 	}
 	for _, mode := range []string{"honest", "ignore", "racy"} {
 		e := fakeEnv(t, mode)

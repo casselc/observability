@@ -14,7 +14,9 @@ package runner
 //     was acknowledged, each resolved one's resolution too, and no rule
 //     notice reached the sink that the reference does not have;
 //   - a resolution never reached the sink before a 2xx for its firing;
-//   - every "cannot evaluate" page was resolved once the rule caught up.
+//   - every "cannot evaluate" page was resolved once the rule caught up;
+//   - the store's history, as the replicas saw it (lost and late answers
+//     pending), is linearizable as one CAS register (casreg, porcupine).
 
 import (
 	"context"
@@ -29,6 +31,7 @@ import (
 	"github.com/casselc/observability/otel-chdb/alerts/internal/notify"
 	"github.com/casselc/observability/otel-chdb/alerts/internal/rule"
 	"github.com/casselc/observability/otel-chdb/alerts/internal/store"
+	"github.com/casselc/observability/otel-chdb/casreg"
 	"pgregory.net/rapid"
 )
 
@@ -194,9 +197,11 @@ func simulate(t *rapid.T) {
 	interleave := &script{vals: rapid.SliceOfN(rapid.IntRange(0, 3), 1, 32).Draw(t, "interleave")}
 	var reps [2]*Runner
 	depth := 0
+	// every replica's store calls, for the linearizability check at the end
+	hist, etags := &casreg.Recorder{}, &casreg.Etags{}
 	for i := range reps {
 		other := 1 - i
-		h := hooked{Store: mem, before: func() {
+		h := hooked{Store: linz{mem, hist, etags, i}, before: func() {
 			if depth == 0 && interleave.next() == 0 {
 				depth++
 				_ = reps[other].ProcessRule(ctx, ru)
@@ -238,6 +243,7 @@ func simulate(t *rapid.T) {
 	if historyErr != "" {
 		t.Fatal(historyErr)
 	}
+	hist.Verify(t)
 	st, _, err := reps[0].Load(ctx, ru.Name)
 	if err != nil || st == nil {
 		t.Fatalf("no state: %v", err)

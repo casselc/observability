@@ -24,6 +24,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/logging"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+
+	"github.com/casselc/observability/otel-chdb/casreg"
 )
 
 // Opts are the connection settings. They mirror the exporters' settings
@@ -230,6 +232,9 @@ type Env struct {
 	// client-facing IP of a Nutanix object store, so that concurrent writers
 	// land on different gateways).
 	Racers []*s3.Client
+	// Hist is every single-object read and write of the run, for the
+	// linearizability check (../../casreg).
+	Hist *casreg.Recorder
 }
 
 // racer returns the client for writer i.
@@ -251,12 +256,13 @@ func newEnv(ctx context.Context, o *Opts) (*Env, error) {
 	if err != nil {
 		return nil, err
 	}
-	rec := &Recorder{base: tr}
+	hist := &casreg.Recorder{}
+	rec := &Recorder{base: &casreg.Transport{Base: tr, Rec: hist}}
 	cfg, err := loadAWS(ctx, o, rec, pem)
 	if err != nil {
 		return nil, err
 	}
-	e := &Env{O: o, AWS: cfg, Rec: rec, Base: tr}
+	e := &Env{O: o, AWS: cfg, Rec: rec, Base: tr, Hist: hist}
 	e.S3 = e.client(nil)
 	e.Racers = []*s3.Client{e.S3}
 	for _, spec := range o.RaceEndpoints {
@@ -276,7 +282,8 @@ func newEnv(ctx context.Context, o *Opts) (*Env, error) {
 				}
 				return d.DialContext(ctx, network, net.JoinHostPort(ip, port))
 			}
-			hc = &http.Client{Transport: rtFunc(func(q *http.Request) (*http.Response, error) { return rec.via(tr2, q) })}
+			ct2 := &casreg.Transport{Base: tr2, Rec: hist}
+			hc = &http.Client{Transport: rtFunc(func(q *http.Request) (*http.Response, error) { return rec.via(ct2, q) })}
 		}
 		e.Racers = append(e.Racers, e.client(func(so *s3.Options) {
 			so.BaseEndpoint = aws.String(ep)

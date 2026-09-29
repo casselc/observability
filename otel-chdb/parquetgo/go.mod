@@ -5,8 +5,6 @@ go 1.27.0
 toolchain go1.27.1
 
 require (
-	go.uber.org/goleak v1.3.0
-	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/apache/arrow-go/v18 v18.7.0
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
@@ -14,10 +12,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1
 	github.com/aws/smithy-go v1.28.1
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/zeebo/blake3 v0.2.4
 	github.com/zeebo/xxh3 v1.1.0
 	go.opentelemetry.io/collector/pdata v1.67.0
+	go.uber.org/goleak v1.3.0
 )
 
 require (

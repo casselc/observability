@@ -228,8 +228,9 @@ func TestSameRowsAsChdb(t *testing.T) {
 				t.Errorf("%s %s inferred: got %s, chdb %s", sig.name, engine, got, wantInferred)
 			}
 			// parquetgo writes resource_id and resource_announce before the
-			// envelope (4d382ac); the chdb exporter, a superseded prototype,
-			// does not. The rest of the inferred schema must be chdb's.
+			// envelope (4d382ac), and payload_refs and payloads (D36); the
+			// chdb exporter, a superseded prototype, does not. The rest of
+			// the inferred schema must be chdb's.
 			if got, rest := withoutResourceCols(ch(t, "DESCRIBE "+src(engine, false, "*"))); got != chdbSchema || !rest {
 				t.Errorf("%s %s inferred schema differs (resource columns present: %v):\n%s\nchdb:\n%s", sig.name, engine, rest, got, chdbSchema)
 			}
@@ -325,6 +326,11 @@ func withoutResourceCols(describe string) (string, bool) {
 	for _, l := range strings.Split(describe, "\n") {
 		if strings.HasPrefix(l, "resource_id\t") || strings.HasPrefix(l, "resource_announce\t") {
 			n++
+			continue
+		}
+		// The payload offloader's columns (D36 phase 1, 8c9ee47), which the
+		// chdb exporter, a superseded prototype, does not write either.
+		if strings.HasPrefix(l, "payload_refs\t") || strings.HasPrefix(l, "payloads\t") {
 			continue
 		}
 		keep = append(keep, l)

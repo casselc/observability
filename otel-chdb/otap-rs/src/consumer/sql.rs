@@ -1734,7 +1734,13 @@ mod tests {
         // With it (run_insert), the read gets past authorisation: this
         // 4-byte object then fails as Parquet, not on access.
         let e = c.run_insert("db.t", &format!("SELECT count() FROM {src}"), f, "t3").await.unwrap_err();
-        assert!(error_code(&e.msg) != Some(497) && !e.msg.contains("403"), "{}", e.msg);
+        assert!(
+            error_code(&e.msg) != Some(497) && !e.msg.contains("403"),
+            "{}\n(a 403 here means the ClickHouse server has no S3 credentials of its own for {s3}: \
+             ci/services.sh gives its container AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY; a local \
+             server must be started with them in its environment)",
+            e.msg
+        );
         let _ = bucket.delete(&[key]).await;
     }
 }

@@ -2,7 +2,8 @@
 # The test services, in Docker, on the host network (ClickHouse reads
 # SeaweedFS through s3(), so both must see 127.0.0.1:18333):
 #   SeaweedFS  S3 :18333, keys otel/otelsecret, 64 volume slots of 1 GB
-#   ClickHouse HTTP :18123, TCP :19000, user default without a password
+#   ClickHouse HTTP :18123, TCP :19000, user default without a password; its
+#              own S3 credentials (env) are SeaweedFS's otel/otelsecret
 #
 #   ci/services.sh start     # pull, start, wait until both answer, create buckets
 #   ci/services.sh stop      # remove the containers
@@ -46,9 +47,16 @@ start)
     -s3 -s3.port="$S3_PORT" -s3.config=/etc/seaweedfs/s3.json
   # The image's entrypoint passes arguments after `--` to clickhouse-server as
   # config overrides. CLICKHOUSE_SKIP_USER_SETUP keeps `default` passwordless
-  # with network access, as the tests expect.
+  # with network access, as the tests expect. The AWS_* keys are the server's
+  # own credentials (what an instance role gives a deployed ClickHouse), read
+  # by s3() under use_environment_credentials: the consumer's S3Auth::Server
+  # mode and its test (otap-rs refused_credentials_are_unsettled_and_redacted)
+  # need them. A local stack started from a shell holding ci/test.env
+  # inherits them; the container did not, and that test failed on every push
+  # from 09ed92e on (403 from SeaweedFS for the anonymous read).
   docker run -d --name "$CH" --network host --ulimit nofile=262144:262144 \
-    -e CLICKHOUSE_SKIP_USER_SETUP=1 \
+    -e CLICKHOUSE_SKIP_USER_SETUP=1 -e AWS_ACCESS_KEY_ID="$KEY" -e AWS_SECRET_ACCESS_KEY="$SECRET" \
+    -e AWS_REGION=us-east-1 \
     "$CH_IMAGE" -- --http_port="$CH_HTTP_PORT" --tcp_port="$CH_TCP_PORT" \
     --mysql_port=$((CH_TCP_PORT + 4)) --postgresql_port=$((CH_TCP_PORT + 5)) \
     --interserver_http_port=$((CH_TCP_PORT + 9))

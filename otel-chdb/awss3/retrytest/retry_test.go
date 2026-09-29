@@ -43,6 +43,14 @@ import (
 
 var runID = time.Now().UTC().Format("20060102T150405")
 
+// runs numbers the tests of this process, so -count=N gets a fresh prefix
+// per run instead of finding the objects of the one before.
+var runs atomic.Int64
+
+func runPrefix(name string) string {
+	return fmt.Sprintf("s3inline/retry/%s-%d/%s", runID, runs.Add(1), name)
+}
+
 // proxy forwards to SeaweedFS (keeping the Host header, so SigV4 still
 // verifies) and can hold back the n-th data PUT: it is forwarded after
 // `land` and answered after `answer` (past the exporter's timeout, so the
@@ -56,7 +64,7 @@ type proxy struct {
 	answer      time.Duration
 	mu          sync.Mutex
 	log         []string
-	late        sync.WaitGroup
+	late        sync.WaitGroup // the held-back PUT: its handler and its late forward
 	matchPrefix string
 }
 
@@ -93,11 +101,15 @@ func (p *proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(rec.Body.Bytes())
 		return
 	}
+	// This handler notes the client's giving up after the exporter has
+	// returned, so report must wait for it as well as for the late PUT:
+	// it read p.log while this goroutine appended to it (-race, CI run 89).
+	p.late.Add(2)
+	defer p.late.Done()
 	body, _ := io.ReadAll(r.Body)
 	late := r.Clone(context.Background())
 	late.Body = io.NopCloser(bytes.NewReader(body))
 	late.ContentLength = int64(len(body))
-	p.late.Add(1)
 	go func() {
 		defer p.late.Done()
 		time.Sleep(p.land)
@@ -221,7 +233,10 @@ func report(t *testing.T, p *proxy, prefix string, err error, elapsed time.Durat
 	p.late.Wait()
 	objs := objects(t, prefix)
 	t.Logf("ConsumeTraces returned %v after %v", err, elapsed.Round(time.Millisecond))
-	for _, l := range p.log {
+	p.mu.Lock()
+	log := append([]string(nil), p.log...)
+	p.mu.Unlock()
+	for _, l := range log {
 		t.Logf("  proxy: %s", l)
 	}
 	for _, o := range objs {
@@ -247,7 +262,7 @@ func TestSlowPutThenRetry(t *testing.T) {
 		{"patched/lands-before-retry", true, 500 * time.Millisecond},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			prefix := "s3inline/retry/" + runID + "/" + strings.ReplaceAll(tc.name, "/", "-")
+			prefix := runPrefix(strings.ReplaceAll(tc.name, "/", "-"))
 			p, srv := newProxy(t, prefix)
 			p.holdPut, p.land, p.answer = 1, tc.land, 3*time.Second
 			e := newExporter(t, tc.patched, srv.URL, prefix)
@@ -271,7 +286,7 @@ func TestRedeliveryAfterRestart(t *testing.T) {
 	if os.Getenv("INLINE_S3") == "" {
 		testgate.Skip(t, "s3", "INLINE_S3 not set")
 	}
-	prefix := "s3inline/retry/" + runID + "/restart"
+	prefix := runPrefix("restart")
 	_, srv := newProxy(t, prefix)
 	td := traces(100, 2)
 	for i := range 2 {

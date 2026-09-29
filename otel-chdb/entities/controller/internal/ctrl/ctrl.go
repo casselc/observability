@@ -346,11 +346,16 @@ func (c *Controller) awaitRelist(res string, start, began lane.Time, rv0 string)
 func (c *Controller) gap(res, reason string, start, began, end lane.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.Gaps.Add(1)
 	c.emit(lane.Record{Level: lane.LGap, Key: rid.Key("gap", c.clusterUID, res, strconv.FormatInt(int64(began), 10)),
 		Entity: rid.Key("gap", c.clusterUID, res), ClusterKey: c.clusterKey, Kind: res, Name: reason,
 		Attrs:     map[string]string{"k8s.resource": res, "gap.reason": reason, "gap.relist_at": strconv.FormatInt(int64(began), 10)},
 		ValidFrom: start, ClosedAt: end, ObservedAt: end, EventAt: began, Writer: c.cfg.Writer})
+	// Counted once the record is in the lane's buffer, never before: a
+	// reader that sees Gaps = n (the metrics endpoint, the tests) finds n
+	// gap records written. Counting first let TestRelistWritesAGapRecord see
+	// the count and not the record (CI, 2026-09-27..29, ~1 run in 7 under
+	// -race: the test's 5 ms poll and awaitRelist's 5 ms poll wake together).
+	c.Gaps.Add(1)
 	log.Printf("gap record: %s %s from %d to %d (relist at %d)", res, reason, start, end, began)
 }
 
@@ -429,6 +434,15 @@ func (c *Controller) Run(ctx context.Context, workers int) error {
 		} else {
 			quiet = 0
 		}
+	}
+	if ctx.Err() != nil {
+		// Stopped before the queue drained: a sync now would leave out (and
+		// so close) what the workers have not processed, and its PUT, on a
+		// cancelled context, would only fail. Regression: a controller
+		// stopped within its first second still wrote the initial sync
+		// (TestRunStoppedBeforeTheFirstSyncWritesNone).
+		c.q.ShutDown()
+		return nil
 	}
 	c.Synced.Store(true)
 	c.sync(ctx)

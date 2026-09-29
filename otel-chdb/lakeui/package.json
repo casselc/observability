@@ -8,7 +8,9 @@
     "test": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./test/trace-reporter.js --test-reporter-destination=stderr test/*.test.js",
     "vendor": "node scripts/vendor.mjs",
     "vendor:check": "node scripts/vendor.mjs --check",
-    "e2e": "playwright test -c e2e/playwright.config.mjs"
+    "e2e": "playwright test -c e2e/playwright.config.mjs",
+    "journeys": "playwright test -c e2e/journeys/playwright.config.mjs",
+    "journeys:render": "e2e/journeys/render.sh"
   },
   "dependencies": {
     "hyparquet": "1.31.2",

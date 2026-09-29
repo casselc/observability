@@ -12,7 +12,7 @@ on:
         description: >-
           jobs to run: "all", or a comma list of build, conformance, close_e2e,
           query-integration, query-kms-emulator, hdxadapter-integration,
-          lakeui-e2e, lakeui-mosaic-e2e, alerts-integration, faults-soak,
+          lakeui-e2e, lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak,
           rust-integration, dst, hegel, rust-mbt (or mbt_s3inline,
           mbt_s3inline_metrics, mbt_s3inline_consumer), model, kani, chdb,
           upstream-patches. A job that needs the build's binaries brings build.
@@ -68,13 +68,13 @@ jobs:
           python3 - <<'EOF'
           import json, os
           jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
-                  "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "alerts-integration",
+                  "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
                   "faults-soak", "rust-integration", "dst", "hegel", "model", "kani", "chdb",
                   "upstream-patches"]
           mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
           # the jobs that download the build job's `bin` artifact
           uses_build = ["conformance", "close_e2e", "query-integration", "lakeui-e2e",
-                        "lakeui-mosaic-e2e", "alerts-integration", "faults-soak"]
+                        "lakeui-mosaic-e2e", "journeys", "alerts-integration", "faults-soak"]
           want = {w.strip() for w in os.environ["JOBS"].split(",") if w.strip()}
           if not want or "all" in want:
               want = set(jobs) | set(mbt)
@@ -519,6 +519,69 @@ jobs:
           name: trace-lakeui-mosaic-e2e
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
+
+  # The user journeys (otel-chdb/docs/journeys): five stories through the
+  # lake UI on the same rig, asserted at every step, a picture per step and
+  # a GIF per journey (e2e/journeys/render.sh). Fails when an assertion
+  # does; the pictures are the artifact (the committed ones are refreshed
+  # by running render.sh, never by hand).
+  journeys:
+    needs: [plan, build]
+    if: fromJSON(needs.plan.outputs.run).journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: otel-chdb/lakeui/package-lock.json
+      - uses: actions/download-artifact@v8
+        with:
+          name: bin
+          path: ${{ runner.temp }}
+      - run: tar -C "$RUNNER_TEMP" -xzf "$RUNNER_TEMP/bin.tgz"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: npm ci, Chromium, ffmpeg (the GIFs), DejaVu fonts (the pictures)
+        working-directory: otel-chdb/lakeui
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
+      - name: Build the rig
+        working-directory: otel-chdb/query
+        run: go build -o "$RUNNER_TEMP/lakeuirig" ./integration/lakeuirig
+      - name: journeys (render.sh)
+        working-directory: otel-chdb/lakeui
+        env:
+          QS_IT_BIN: ${{ runner.temp }}/bin
+          LAKEUI_RIG_BIN: ${{ runner.temp }}/lakeuirig
+        run: e2e/journeys/render.sh "$RUNNER_TEMP/journeys-img"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: journeys
+          path: |
+            ${{ runner.temp }}/journeys-img
+            otel-chdb/lakeui/test-results
+          if-no-files-found: ignore
+      - name: Service logs
+        if: failure()
+        run: ci/services.sh logs || true
 
   # The alert evaluator against the real pipeline and the query service
   # (built from otel-chdb/query): rules fire and resolve, a stalled lane

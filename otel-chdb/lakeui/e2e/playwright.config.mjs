@@ -4,6 +4,7 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: '.',
+  testMatch: 'lakeui.spec.mjs', // journeys/ has its own config (one rig for all journeys)
   timeout: 300_000,
   workers: 1,
   reporter: [['list']],

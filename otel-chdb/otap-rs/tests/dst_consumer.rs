@@ -216,21 +216,49 @@ fn retirement_seeds() {
         }
     }
     eprintln!("DST retirement: {n} seeds passed in {:.1} s; witnesses {seen:?}", t0.elapsed().as_secs_f64());
-    for w in ["a lane retired", "published past a retired lane", "reborn", "lost with its volume", "zombie landed", "adopted"] {
+    for w in ["a lane retired", "operator retired", "published past a retired lane", "reborn", "lost with its volume", "zombie landed", "adopted"] {
         assert!(seen.contains_key(w), "witness {w:?} never reached in {n} seeds: {seen:?}");
     }
     assert!(!seen.contains_key("quarantined"), "the design never quarantines");
 }
 
-/// Each of the model's mutants breaks a property on some seed.
+/// The model's `opMistake`: an operator retires a lane whose volume was
+/// kept (`consume retire-lane`'s attestation is wrong). Safe for readers:
+/// nothing is ingested below a published value and the quarantine holds
+/// only what the mistake declared gone (`stable`); completeness below the
+/// published value is lost for those requests until their replay reaches
+/// the quarantine, which some seed shows.
+#[test]
+fn retirement_operator_mistake_is_safe() {
+    let n = std::env::var("DST_RETIRE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(300u64);
+    let k = retire::Knobs { op: retire::OpMode::Mistake, ..retire::Knobs::design() };
+    let (mut quarantined, mut kept) = (0, 0);
+    for seed in 1..=n {
+        let o = retire_run(seed, k);
+        let unstable: Vec<&String> = o.violations.iter().filter(|v| !v.starts_with("completeSound")).collect();
+        assert!(unstable.is_empty(), "seed {seed}: {unstable:#?}\n{}", o.summary);
+        quarantined += u64::from(o.witnesses.contains("quarantined"));
+        kept += u64::from(o.witnesses.contains("operator retired a kept volume"));
+    }
+    eprintln!("DST operator mistake: {n} seeds stable; a kept volume retired in {kept}, its replay quarantined in {quarantined}");
+    assert!(kept > 0 && quarantined > 0, "the mistake and its quarantine reached: {kept} {quarantined}");
+}
+
+/// Each of the model's mutants breaks a property on some seed
+/// (`DST_RETIRE_MUTANT_SEEDS`, default 600; retireInFlight needs the most:
+/// a death with a PUT out, the volume deleted, the retirement, and the
+/// zombie landing within its lifetime).
 #[test]
 fn retirement_catches_mutants() {
-    let n = std::env::var("DST_MUTANT_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(300u64);
+    let n = std::env::var("DST_RETIRE_MUTANT_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(600u64);
     let d = retire::Knobs::design();
+    let mistake = retire::Knobs { op: retire::OpMode::Mistake, ..d };
     for (name, k, want) in [
         ("retireStale", retire::Knobs { mutation: Mutation::RetireStale, ..d }, "completeSound"),
         ("closeUndrained", retire::Knobs { close_undrained: true, ..d }, "completeSound"),
         ("staysRetired", retire::Knobs { mutation: Mutation::StaysRetired, ..d }, "completeSound"),
+        ("ingestBelow", retire::Knobs { mutation: Mutation::IngestBelow, ..mistake }, "noLateBelow"),
+        ("retireInFlight", retire::Knobs { mutation: Mutation::RetireInFlight, ..d }, "quarantineOnlyOnMistake"),
     ] {
         let caught = (1..=n).find_map(|seed| {
             let o = retire_run(seed, k);

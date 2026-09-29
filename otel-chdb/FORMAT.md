@@ -32,6 +32,7 @@ the **resource announcements** in the data object itself (§2.1).
 {ctl}/watermark.json                                               complete_through (§3, §4)
 {ctl}/watermark/{cluster}.json                                     one cluster's complete_through, per signal and per lane (§3, D29)
 {ctl}/quarantine/{cluster}/{producer}/{signal}.json                a retired lane's quarantined objects (§3.1, D35)
+{ctl}/retired/{cluster}/{producer}/{signal}/{wall_ms}.json         an operator's retirement: the record (§3.1, D35)
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.delta.ndjson.gz          entity lanes
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.sync.{syncAtMs}.ndjson.gz
 {root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix             lake index segments (§7)
@@ -329,7 +330,7 @@ result with its source and that source's value (completeness.qnt
 `evalWithinComplete`, `resultLabeled`, `clusterSound`). The lake's sealer
 publishes its own, by the same rule.
 
-### 3.1 Retiring a lane ([D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed): the orderly close, its retirement and the quarantine built)
+### 3.1 Retiring a lane ([D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed): the orderly close, the operator's retirement and the quarantine built)
 
 A lane that stops advancing holds its cluster's `complete_through` (and the
 fleet's) at its watermark for good, and is paged as `stale`: from S3 an idle
@@ -474,14 +475,44 @@ and only once the pod has been gone longer than a request lifetime.
   objects are never quarantined: a series row is a definition that no
   answer counts, idempotent by series; its points are quarantined with
   their own objects.
+- **The operator's retirement** (`consume retire-lane --lane
+  {cluster}/{producer}/{signal} --volume-deleted --evidence "…" [--zombie
+  10m] [--dry-run]`, `consumer/retire.rs` `retire_lane`). The tool cannot
+  see Kubernetes, so (a) is the operator's **attestation**: the flag
+  `--volume-deleted` and a non-empty `--evidence` are required, and both
+  are kept (the checkpoint's `retired_evidence`, and a create-only record
+  `{ctl}/retired/{lane}/{wall_ms}.json` with R, the evidence, the lane's
+  newest object's time, kind and `oscope-low` (every request of the dead
+  publisher received from that low on may be among those lost with its
+  volume), the tombstones and `$USER`). What it can see it enforces: (b)
+  the lane's newest object (its LastModified) is older than `--zombie`
+  (GC's zombie bound; it must exceed the heartbeat interval, so a quiet
+  lane means a gone process; the operator still confirms the pod is gone),
+  and (c) the lane's checkpoint has passed every slot the lane lists (a
+  zombie that landed is ingested, not quarantined). Then it tombstones the
+  head of every epoch the checkpoint has not closed (a PUT of the dead
+  process at that head now fails; a slot found there instead means the
+  publisher is alive: refused) and records the retirement in the
+  checkpoint by CAS at **R = now** (after the zombie bound, so strictly
+  after the death), `retired_by: operator`, the lane's newest epoch as
+  `retired_epoch`. Any check failing refuses with the reason (exit 1),
+  writing nothing (or, past (c), only tombstones: a rerun is idempotent).
+  The lane's holder then finds its checkpoint changed under it: its next
+  write fails on the ETag, it drops the lane and takes it again after its
+  own lease (one TTL of delay on that lane only).
 - Tests: unit and worker tests (`consumer/coord.rs`, `watermark.rs`,
   `tests.rs`), the retirement DST (`tests/dst_consumer.rs`
-  `retirement_seeds`, `retirement_catches_mutants`), Hegel properties
+  `retirement_seeds`, `retirement_catches_mutants`: retireStale,
+  closeUndrained, staysRetired, ingestBelow, retireInFlight;
+  `retirement_operator_mistake_is_safe`: the model's `opMistake`), the
+  retire-lane refusals and happy path, and a kept volume replayed after it
+  (`consumer/tests.rs`), Hegel properties
   (`tests/hegel_props.rs`), the edges' tests, `scripts/close_e2e.sh` (both
   edges, Quiver with a restart), the cross-edge conformance run (the closes
   compared), and a scale-down in `query/integration` (the cluster's
   `complete_through` passes the removed publisher; a window after it turns
-  complete; the same publisher killed stays holding).
+  complete; the same publisher killed stays holding, until `consume
+  retire-lane` retires it and the window turns complete there too).
 
 ## 4. Control documents
 
@@ -490,6 +521,7 @@ and only once the pod has been gone longer than a request lifetime.
 | `format.json` | consumer (create-only, at start) | `{"format": 2, "layout": "{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet"}` |
 | `lease/…` | consumer workers (CAS) | `{lane, owner, epoch, beat, ttl_ms, wall_ms}` (D8) |
 | `ckpt/…` | the lane's lease holder (CAS) | `{lane, lease_epoch, version, floor, epochs: {epoch: {next, closed, close_low}}, max_low_ns, wm_ns, wm_wall_ms, retired_ns, retired_epoch, reborn_epoch, retired_by, retired_evidence, retired_wall_ms}` (the retirement fields, §3.1, absent until a lane is retired) |
+| `retired/{lane}/{wall_ms}.json` | `consume retire-lane` (create-only) | `{lane, r_ns, epoch, evidence, volume_deleted, wall_ms, last_object_ms, last_kind, last_low_ns, tombstones, by}` (§3.1) |
 | `quarantine/{lane}.json` | the lane's lease holder (CAS) | `{lane, version, retired_ns, objects: [{key, epoch, seq, content, rows, received_ns, at_wall_ms, admitted_wall_ms?, admitted_rows?}]}` (§3.1) |
 | `workers/…` | each worker (plain PUT) | `{worker, beat, wall_ms, load, lanes}` |
 | `gc.json` | `consume gc` (CAS) | `{version, marks, deleted_below, retired}` (D12) |

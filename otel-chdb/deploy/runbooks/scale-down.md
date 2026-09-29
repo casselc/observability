@@ -76,13 +76,52 @@ custody ledger. So Rule 1 still applies, and the close is its proof:
 - **No close** (the edge logs `close: none (…)`: custody not empty, the
   buffer's drain unfinished, a NACK it did not see; or no log line at all:
   killed): scale that ordinal back up (§Orphaned buffer), let it drain, and
-  scale down again. For a node and volume that are gone for good, use
-  `consume retire-lane` (to come, D35 (2)).
+  scale down again. For a node and volume that are gone for good, see
+  §A lost node.
 - A later pod with the same ordinal (the same producer id) starts a new
   epoch; its birth puts the lane back in the minimum (`reborn`), and
   whatever its volume replays that was committed before the close is passed
   as a copy. Anything below R that central does not hold is **quarantined**
   (see §Quarantine), never ingested.
+
+## A lost node: `consume retire-lane`
+
+A publisher that died without a close (a crash, an eviction, a lost node)
+holds its lanes stale for good (`consumer_watermark_stale_lanes`, the
+lanes in `holding`), and its cluster's alert windows with them. If its pod
+comes back with its volume, nothing to do: it replays and the lanes move
+again. If the **volume is gone for good**, or you decide to give up its
+custody, retire each of its lanes (every registered signal of the
+producer: `holding`/`stale` list them):
+
+1. **Delete the volume first** (or confirm it is gone: the node and its
+   local disk lost, the PVC and PV deleted). Its un-committed requests are
+   lost; that is the acknowledged loss the retirement records. Confirm the
+   pod is gone and has been for longer than a request lifetime (GC's
+   `--zombie`, 10 min by default).
+2. Make sure the consumer is running and has caught up with the lane (its
+   checkpoint passed every slot the lane shows).
+3. For each lane:
+   ```
+   consume retire-lane --s3 … --lane {cluster}/{producer}/{signal} \
+     --volume-deleted --evidence "PVC buffer-otap-publisher-3 deleted 14:02Z, node ip-10-… terminated (INC-1234)" \
+     [--zombie 10m] [--dry-run]
+   ```
+   It refuses, with the reason, unless: (a) `--volume-deleted` and
+   `--evidence` are given (it cannot check Kubernetes; your attestation is
+   recorded in the lane's checkpoint and in
+   `{ctl}/retired/{lane}/{wall_ms}.json`); (b) the lane wrote nothing for
+   `--zombie`; (c) the consumer has passed every slot of the lane. Then it
+   tombstones the lane's open epochs and records R = now. `--dry-run` runs
+   the checks and writes nothing. The record says from which `oscope-low`
+   on the dead publisher's requests may have been lost.
+4. Check: the next watermark run lists the lanes under `retired` in
+   `{ctl}/watermark/{cluster}.json` and the cluster's `complete_through`
+   moves. The lane's holder drops the lane once (its checkpoint changed
+   under it) and takes it again after a lease TTL.
+5. If the volume turns out to have been kept (another pod mounts it and
+   replays), whatever it replays below R is **quarantined**, not ingested
+   (§Quarantine): the retirement's mistake is safe for readers.
 
 ## Quarantine
 

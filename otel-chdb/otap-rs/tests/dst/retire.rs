@@ -96,7 +96,13 @@ struct InFlight {
     meta: BTreeMap<String, String>,
     lane: usize,
     inc: u32,
+    /// When it was sent: a PUT lands within `PUT_LIFETIME_MS` or never
+    /// (the request lifetime the zombie bound covers).
+    sent_ms: u64,
 }
+
+/// The longest a PUT can be in flight (below `ZOMBIE_MS`, as GC's delay).
+pub const PUT_LIFETIME_MS: u64 = 3_000;
 
 struct Pub {
     producer: String,
@@ -250,7 +256,7 @@ impl World {
         let low = self.floor(l, Some(id));
         let m = self.meta(l, proto::KIND_DATA, &content(id), 1, self.reqs[&id].r_ns, low);
         let key = proto::slot_key(&self.prefix(l), &self.pubs[l].epoch, self.pubs[l].seq);
-        self.puts.push(InFlight { key: key.clone(), meta: m, lane: l, inc: self.pubs[l].inc });
+        self.puts.push(InFlight { key: key.clone(), meta: m, lane: l, inc: self.pubs[l].inc, sent_ms: self.now_ms() });
         self.pubs[l].busy = Some((id, key));
     }
     async fn land(&mut self, i: usize) {
@@ -320,7 +326,8 @@ impl World {
         let p = &self.pubs[l];
         // Only once no PUT of the dead process can land (the runbook: the pod
         // gone longer than a request lifetime).
-        if p.life == Life::Up || p.buffer.is_empty() || self.puts.iter().any(|f| f.lane == l) {
+        let wait = self.k.mutation != Mutation::RetireInFlight; // the model's ZOMBIE_WAIT
+        if p.life == Life::Up || p.buffer.is_empty() || (wait && self.puts.iter().any(|f| f.lane == l)) {
             return;
         }
         let ids = std::mem::take(&mut self.pubs[l].buffer);
@@ -343,7 +350,42 @@ impl World {
     }
 
     // ---- the operator ----------------------------------------------------------------
-    async fn operator(&mut self, _l: usize) {}
+    /// `consume retire-lane` on a dead lane: with the evidence (the volume
+    /// deleted) or, `OpMode::Mistake`, with the volume kept; the tool's own
+    /// checks (b) and (c) decide the rest.
+    async fn operator(&mut self, l: usize) {
+        let p = &self.pubs[l];
+        let attested = match self.k.op {
+            OpMode::Off => return,
+            OpMode::Evidence => p.buffer.is_empty(),
+            OpMode::Mistake => true,
+        };
+        // The operator also confirms the process gone longer than a request
+        // lifetime (the pod deleted: retire-lane's (b) sees only the lane's
+        // last object); the mutant does not wait.
+        let gone = self.now_ms() >= p.since_ms + PUT_LIFETIME_MS || self.k.mutation == Mutation::RetireInFlight;
+        if p.life != Life::Dead || !attested || !gone {
+            return;
+        }
+        let kept = !p.buffer.is_empty();
+        let cfg = crate::consumer::retire::RetireCfg {
+            root: ROOT.into(),
+            ctl: CTL.into(),
+            zombie_ms: ZOMBIE_MS,
+            mutation: self.k.mutation,
+            dry_run: false,
+        };
+        let lane = self.lane_id(l);
+        if crate::consumer::retire::retire_lane(&*self.b, &cfg, &lane, "sim: volume deleted", true, self.now_ms()).await.is_ok() {
+            self.mistake |= kept;
+            let _ = self.out.witnesses.insert(if kept { "operator retired a kept volume" } else { "operator retired" });
+        }
+    }
+    /// PUTs past their lifetime never land.
+    fn expire(&mut self) {
+        let now = self.now_ms();
+        self.puts.retain(|f| now < f.sent_ms + PUT_LIFETIME_MS);
+    }
 
     // ---- the reader: checks --------------------------------------------------------------
     async fn quarantined(&self) -> BTreeSet<u64> {
@@ -457,7 +499,7 @@ pub async fn run(seed: u64, k: Knobs) -> Outcome {
         match rng.below(100) {
             0..=14 => w.receive(l),
             15..=26 => w.send(l, rng.next()),
-            27..=36 if !w.puts.is_empty() => {
+            27..=36 if { w.expire(); !w.puts.is_empty() } => {
                 let i = rng.below(w.puts.len() as u64) as usize;
                 if rng.chance(0.85) { w.land(i).await } else { w.lose(i) }
             }
@@ -486,6 +528,7 @@ pub async fn run(seed: u64, k: Knobs) -> Outcome {
             w.send(l, 0);
             w.resolve(l).await;
         }
+        w.expire();
         while !w.puts.is_empty() {
             w.land(0).await;
         }

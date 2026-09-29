@@ -239,6 +239,13 @@ func (r *rig) consume(bin string, args ...string) {
 	t.Logf("consume %s: %s", args[0], lastLines(string(out), 3))
 }
 
+// consumeOut runs consume and returns its combined output and error.
+func (r *rig) consumeOut(bin string, args ...string) (string, error) {
+	all := append(args, "--s3", r.s3url+"/"+r.bucket+"/"+r.run, "--key", "otel", "--secret", "otelsecret")
+	out, err := exec.Command(filepath.Join(bin, "consume"), all...).CombinedOutput()
+	return string(out), err
+}
+
 func lastLines(s string, n int) string {
 	l := strings.Split(strings.TrimSpace(s), "\n")
 	if len(l) > n {
@@ -855,6 +862,41 @@ func TestIntegration(t *testing.T) {
 				t.Fatalf("%s: want %s rows %s, got %s rows %v (%v)", x.cluster, x.rows, x.want, n, out["completeness"], out)
 			}
 		}
+
+		// D35 (2): the killed publisher's volume is gone for good (a lost
+		// node): the operator retires its lanes with `consume retire-lane`.
+		// Without the attestation it refuses; with it, and the lane quiet
+		// past the zombie bound and passed by the consumer, qe's
+		// complete_through passes it and the window turns complete.
+		signals := []string{"traces", "logs", "metrics_number_points", "metrics_histogram_points",
+			"metrics_exponential_histogram_points", "metrics_summary_points", "metrics_series"}
+		if out, err := r.consumeOut(bin, "retire-lane", "--lane", "qe/pub-1/logs", "--evidence", "it"); err == nil || !strings.Contains(out, "(a)") {
+			t.Fatalf("retire-lane without --volume-deleted: %v %s", err, out)
+		}
+		for _, s := range signals {
+			out, err := r.consumeOut(bin, "retire-lane", "--lane", "qe/pub-1/"+s, "--volume-deleted", "--zombie", "2s",
+				"--evidence", "integration: pub-1 SIGKILLed, its (in-memory) queue gone with it")
+			if err != nil {
+				t.Fatalf("retire-lane qe/pub-1/%s: %v\n%s", s, err, out)
+			}
+		}
+		time.Sleep(2 * time.Second)
+		r.consume(bin, "run", "--ch", r.ch, "--db", r.db, "--exit-after-idle", "8s", "--poll", "300ms", "--full-list", "1s")
+		r.consume(bin, "watermark", "--wm-skew", "1s")
+		time.Sleep(1100 * time.Millisecond)
+		qe = doc{}
+		if !r.ctl("watermark/qe.json", &qe) {
+			t.Fatal("no qe document")
+		}
+		if len(qe.Retired) != 7 || !time.Unix(0, int64(qe.CT)).After(down) {
+			t.Fatalf("qe after retire-lane: complete_through %v, retired %v", time.Unix(0, int64(qe.CT)), qe.Retired)
+		}
+		code, out := c.post("/v1/query", tok(jwt.MapClaims{"clusters": "qe", "namespaces": "*", "roles": "query"}),
+			map[string]any{"sql": "SELECT count() FROM otel_logs", "window": window})
+		if code != 200 || out["completeness"] != "complete" {
+			t.Fatalf("qe after retire-lane: %d %v", code, out)
+		}
+		t.Logf("qe after retire-lane: complete_through %v, %v", out["complete_through"], out["completeness"])
 	})
 
 	t.Run("audit", func(t *testing.T) {

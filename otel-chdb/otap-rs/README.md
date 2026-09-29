@@ -1518,7 +1518,11 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   `complete_through` minimum until a later epoch appears. An object below
   R that central does not hold is quarantined, never inserted
   (`consumer_quarantined_objects_total`, `--quarantine-skew`).
-  `scripts/close_e2e.sh` runs it end to end for both edges.
+  `scripts/close_e2e.sh` runs it end to end for both edges. A publisher
+  that died without a close is retired by the operator: `consume
+  retire-lane --lane … --volume-deleted --evidence "…"` (refuses unless the
+  lane wrote nothing for `--zombie` and the consumer passed every slot it
+  shows; `../deploy/runbooks/scale-down.md` §A lost node).
 - **Leases** (`coord.rs`, sans-IO). A lease has a fencing epoch (+1 per
   change of owner) and a TTL. Expiry is judged on the observer's own
   monotonic clock: a lease whose ETag it has seen unchanged for

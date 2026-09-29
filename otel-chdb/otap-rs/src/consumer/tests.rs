@@ -1662,3 +1662,132 @@ async fn a_quarantine_that_cannot_be_recorded_holds_its_slot() {
     assert_eq!(w.checkpoint("c1/p0/logs").unwrap().next("E00020"), 2);
     assert_eq!((w.stats.quarantined_objects, c.count("otel_logs", "q9")), (1, 0));
 }
+
+// ---- consume retire-lane (D35 (2)) ---------------------------------------------------------
+
+fn rcfg(zombie_ms: u64) -> super::retire::RetireCfg {
+    super::retire::RetireCfg { root: ROOT.into(), ctl: CTL.into(), zombie_ms, mutation: Mutation::None, dry_run: false }
+}
+
+/// D35 (2): `consume retire-lane` refuses without each of its checks, (a)
+/// the volume attested deleted with evidence, (b) nothing written for the
+/// zombie bound, (c) every slot the lane shows passed by its holder; with
+/// them it tombstones the open epoch's head, records the retirement (R =
+/// now, the evidence) in the checkpoint and in `{ctl}/retired/…`, and the
+/// lane leaves its cluster's minimum.
+#[tokio::test(flavor = "current_thread")]
+async fn retire_lane_refuses_without_its_evidence_and_retires_with_it() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let now_ns = |clk: &FakeClock| clk.0.get() * 1_000_000;
+    let mut dead = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
+    assert!(dead.put(&b, "logs", 0, "birth-p0", proto::KIND_BEAT, 0, 0, false).await);
+    let r1 = now_ns(&clk);
+    assert!(dead.put(&b, "logs", 0, "q1", proto::KIND_DATA, r1, r1, false).await);
+    // a request in its custody, its PUT out when it dies (a zombie)
+    let r2 = now_ns(&clk) + 1;
+    dead.buffer.push((2, "logs", r2));
+    assert!(!dead.put(&b, "logs", 0, "q2", proto::KIND_DATA, r2, r1, true).await);
+    let mut w = Worker::new(cfg("w1"), b.clone(), c.clone(), clk.clone());
+    steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs")]).await;
+    let lane = "c1/p0/logs";
+    let retire = |ev: &'static str, vol: bool, z: u64| {
+        let b = b.clone();
+        let clk = clk.clone();
+        async move { super::retire::retire_lane(&*b, &rcfg(z), lane, ev, vol, clk.0.get()).await }
+    };
+    // not a lane; (a) the attestation and its evidence
+    assert!(super::retire::retire_lane(&*b, &rcfg(1_000), "c1/p0", "x", true, clk.0.get()).await.unwrap_err().contains("want {cluster}"));
+    assert!(retire("x", false, 1_000).await.unwrap_err().contains("(a) the publisher's volume must be deleted"));
+    assert!(retire(" ", true, 1_000).await.unwrap_err().contains("(a) --evidence is required"));
+    // (b) within the zombie bound of its last object
+    assert!(retire("pvc deleted", true, 60_000).await.unwrap_err().contains("(b)"), "within the zombie bound");
+    // the zombie lands; past the bound, but not passed by its holder: (c)
+    let (key, m) = dead.zombies.pop().unwrap();
+    assert!(matches!(b.put(&key, Bytes::from(vec![0u8; 10]), Cond::Create, &m).await, Put::Ok(_)));
+    clk.0.set(clk.0.get() + 2_000);
+    let err = retire("pvc deleted", true, 1_000).await.unwrap_err();
+    assert!(err.contains("(c) the consumer has not passed"), "{err}");
+    // the holder ingests the zombie; the lane still holds its cluster (q2's custody... it was committed)
+    steps_with_beats(&mut w, &b, &clk, 10, &mut [(&mut live, "logs")]).await;
+    assert_eq!(c.count("otel_logs", "q2"), 1, "a zombie that landed before the retirement is ingested");
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let held = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().complete_through_ns;
+    assert!(held <= r2 + 1_000_000_000, "the dead lane holds c1: {held}");
+    clk.0.set(clk.0.get() + 2_000);
+    // a dry run checks and writes nothing
+    let dry = super::retire::retire_lane(&*b, &super::retire::RetireCfg { dry_run: true, ..rcfg(1_000) }, lane, "pvc deleted", true, clk.0.get()).await.unwrap();
+    assert!(dry.tombstones.is_empty() && !super::coord::CkptDoc::default().retired_now());
+    let t = clk.0.get();
+    let rec = retire("pvc otap-publisher-0 deleted 02:10Z, node gone (INC-42)", true, 1_000).await.unwrap();
+    assert_eq!((rec.r_ns, rec.epoch.as_str(), rec.tombstones.len()), (t * 1_000_000, "E00010", 1), "{rec:?}");
+    assert!(rec.last_object_ms > 0 && rec.last_kind == "data");
+    // the tombstone at the head, the checkpoint, the record
+    let tomb = proto::slot_key(&format!("{ROOT}/{lane}"), "E00010", 3);
+    assert_eq!(proto::Slot::from_meta(&b.head(&tomb).await.unwrap().unwrap()), proto::Slot::Tomb);
+    let (body, _) = b.get(&format!("{CTL}/ckpt/{lane}.json")).await.unwrap().unwrap();
+    let ck: super::coord::CkptDoc = serde_json::from_slice(&body).unwrap();
+    assert!(ck.retired_now() && ck.retired_by == "operator" && ck.retired_ns == t * 1_000_000 && ck.retired_evidence.contains("INC-42"), "{ck:?}");
+    assert!(b.get(&super::retire::retired_record_key(CTL, lane, t)).await.unwrap().is_some());
+    assert!(retire("again", true, 1_000).await.unwrap_err().contains("already retired"));
+    // the holder's next checkpoint write fails on the ETag: it drops the
+    // lane, takes it again once its own lease has expired (TTL + margin),
+    // from the retired document, and closes the tombstoned epoch
+    steps_with_beats(&mut w, &b, &clk, 100, &mut [(&mut live, "logs")]).await;
+    assert!(w.stats.lanes_lost_cas >= 1, "the retirement's CAS moved the holder off the lane once");
+    assert!(w.checkpoint(lane).is_some_and(|c| c.retired_now()), "held again, retired");
+    let (body, _) = b.get(&format!("{CTL}/ckpt/{lane}.json")).await.unwrap().unwrap();
+    let ck: super::coord::CkptDoc = serde_json::from_slice(&body).unwrap();
+    assert!(ck.retired_now() && ck.closed("E00010"), "retired, and its epoch closed at the tombstone: {ck:?}");
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let d1 = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().clone();
+    assert_eq!(d1.retired.get("p0/logs"), Some(&(t * 1_000_000)));
+    assert!(d1.complete_through_ns > t * 1_000_000, "c1 passed the retired lane: {}", d1.complete_through_ns);
+}
+
+/// D35 (2), the model's `opMistake`: the operator retires a lane whose
+/// volume was kept after all; a new pod adopts it and replays its custody
+/// with the original received_at, below R: quarantined, never ingested
+/// (and, the mutant `ingestBelow`, ingested below the published value).
+#[tokio::test(flavor = "current_thread")]
+async fn a_kept_volume_replayed_after_retire_lane_is_quarantined() {
+    for ingest_below in [false, true] {
+        let (b, c, clk) = setup();
+        let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+        let mut dead = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+        let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
+        assert!(dead.put(&b, "logs", 0, "birth-p0", proto::KIND_BEAT, 0, 0, false).await);
+        let r9 = clk.0.get() * 1_000_000;
+        dead.buffer.push((9, "logs", r9)); // in custody on the kept volume, never committed
+        let mut cf = cfg("w1");
+        if ingest_below {
+            cf.timing.mutation = Mutation::IngestBelow;
+        }
+        let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+        steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs")]).await;
+        clk.0.set(clk.0.get() + 5_000);
+        let rec = super::retire::retire_lane(&*b, &rcfg(1_000), "c1/p0/logs", "the operator believed the PVC deleted", true, clk.0.get()).await.unwrap();
+        // (the holder drops the lane on its next write and takes it again after its lease)
+        steps_with_beats(&mut w, &b, &clk, 100, &mut [(&mut live, "logs")]).await;
+        assert!(w.checkpoint("c1/p0/logs").is_some_and(|c| c.retired_now()), "held again, retired");
+        let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+        let published = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().complete_through_ns;
+        assert!(published > r9, "c1 published past the kept request: {published} <= {r9}");
+        // the kept volume, adopted: a new epoch, its birth, the replay
+        dead.restart();
+        assert!(dead.put(&b, "logs", 0, "birth-p0-2", proto::KIND_BEAT, 0, 0, false).await);
+        assert!(dead.put(&b, "logs", 0, "q9", proto::KIND_DATA, r9, 0, false).await);
+        steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs"), (&mut dead, "logs")]).await;
+        if ingest_below {
+            assert_eq!(c.count("otel_logs", "q9"), 1, "the mutant ingests it below the published {published}");
+            continue;
+        }
+        assert_eq!(c.count("otel_logs", "q9"), 0, "never ingested");
+        assert_eq!(w.stats.quarantined_objects, 1);
+        let (q, _) = super::retire::read(&*b, CTL, "c1/p0/logs").await.unwrap().unwrap();
+        assert_eq!((q.objects[0].content.as_str(), q.objects[0].received_ns, q.retired_ns), ("q9", r9, rec.r_ns));
+        let ck = w.checkpoint("c1/p0/logs").unwrap();
+        assert!(!ck.retired_now() && ck.reborn_epoch == "E00020", "reborn: the lane counts again from its birth");
+    }
+}

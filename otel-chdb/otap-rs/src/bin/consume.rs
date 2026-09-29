@@ -20,6 +20,10 @@
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
 //!           [--depth 3 --wm-skew 5s --wm-stale 5m [--wm-cluster-every 0s | --no-cluster-watermarks] | --no-watermark]
+//!   consume retire-lane --s3 ... [--ctl PREFIX] --lane CLUSTER/PRODUCER/SIGNAL --volume-deleted --evidence "…"
+//!           [--zombie 10m] [--dry-run]
+//!           (D35: a lane whose publisher died without a close; ../../FORMAT.md §3.1; refuses unless the volume is
+//!           attested deleted, the lane wrote nothing for --zombie, and the consumer has passed every slot it shows)
 //!   consume watermark --s3 ... [--ctl PREFIX] [--every 5s --run-for 10m] [--depth 3 --wm-skew 5s --wm-stale 5m]
 //!           (complete_through alone: {ctl}/watermark.json and {ctl}/watermark/{cluster}.json, ../../FORMAT.md §3, D29)
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
@@ -371,6 +375,40 @@ async fn main() {
             eprintln!("consume: refusing to start: {e}");
             std::process::exit(2);
         }
+    }
+    // D35 (2): an operator's retirement of a lane whose publisher died
+    // without a close (../../FORMAT.md §3.1). Exit 0: retired (the record on
+    // stdout); 1: refused, with the reason; 2: usage.
+    if sub == Some("retire-lane") {
+        let Some(lane) = arg(&args, "--lane") else {
+            eprintln!("consume retire-lane: --lane {{cluster}}/{{producer}}/{{signal}} is required");
+            std::process::exit(2);
+        };
+        let cfg = consumer::retire::RetireCfg {
+            root: root.clone(),
+            ctl: ctl.clone(),
+            zombie_ms: opt_ms(&args, "--zombie", "10m"),
+            mutation: coord::Mutation::None,
+            dry_run: flag(&args, "--dry-run"),
+        };
+        let evidence = arg(&args, "--evidence").unwrap_or_default();
+        match consumer::retire::retire_lane(&*bucket, &cfg, &lane, &evidence, flag(&args, "--volume-deleted"), consumer::wall_ms()).await {
+            Ok(r) => {
+                println!("{}", serde_json::to_string_pretty(&r).expect("json"));
+                eprintln!(
+                    "consume retire-lane: {lane} {} at R {} (ns): every request of it received from its last low {} on is lost with its volume{}",
+                    if cfg.dry_run { "may be retired (--dry-run: nothing written)" } else { "retired" },
+                    r.r_ns,
+                    r.last_low_ns,
+                    if cfg.dry_run { "" } else { "; the consumer's next watermark run leaves it out" }
+                );
+            }
+            Err(e) => {
+                eprintln!("consume retire-lane: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
     }
     if matches!(sub, Some("gc" | "horizon-audit" | "watermark")) {
         // GC (`gc`), and the horizon audit beside it (`gc --audit-every`) or

@@ -14,6 +14,7 @@ otel-chdb/parquetgo/*                  ci:go-test
 otel-chdb/otap/*                       ci:go-test
 otel-chdb/entities/*                   ci:go-test
 otel-chdb/query/internal/*             ci:go-test
+otel-chdb/query/integration/hdxadapter/compare_test.go  ci:go-test
 otel-chdb/alerts/internal/*            ci:go-test
 otel-chdb/s3cas/*                      ci:go-test
 

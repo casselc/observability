@@ -361,8 +361,18 @@ func TestRwproxyChainThroughAdapter(t *testing.T) {
 				case rows:
 					counts["equal-rows"]++
 				default:
-					counts["MISMATCH"]++
-					t.Errorf("%s/%s #%d: rows %d/%d, %v", phase, cl.name, s.ID, len(a.rows), len(n.rows), diffCols(a, n))
+					// groupUniqArray and friends: the element order is not
+					// ClickHouse's to repeat (compare_test.go; nightly run 22)
+					switch v := arrayVerdict(s.Query, a, n); v {
+					case verdictArrayOrder:
+						counts[v]++
+					case verdictAtCap:
+						counts[v]++
+						t.Errorf("%s/%s #%d: an array reached its aggregate's cap, so its elements are undefined and the answers cannot be compared; keep the test data below the cap", phase, cl.name, s.ID)
+					default:
+						counts["MISMATCH"]++
+						t.Errorf("%s/%s #%d: rows %d/%d, %v", phase, cl.name, s.ID, len(a.rows), len(n.rows), diffCols(a, n))
+					}
 				}
 			}
 			summary[phase+" "+cl.name] = counts

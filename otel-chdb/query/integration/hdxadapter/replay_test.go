@@ -504,10 +504,15 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 				n2, _ := parse(format, again)
 				if e2, r2 := same(n, n2); !e2 && !r2 {
 					o.Outcome = "nondeterministic"
-				} else if sameUpToArrayOrder(a, n) {
+				} else if v := arrayVerdict(s.Query, a, n); v != verdictDiffers {
 					// groupUniqArray and friends: ClickHouse does not define
-					// the order of their elements (threads merge in any order)
-					o.Outcome = "equal-up-to-array-order"
+					// the order of their elements (threads merge in any
+					// order); only for a statement that has one
+					// (compare_test.go), and never past a cap
+					o.Outcome = v
+					if v == verdictAtCap {
+						o.Detail = "an array reached its aggregate's cap: keep the test data below it"
+					}
 				} else {
 					o.Outcome = "MISMATCH"
 					o.Detail = firstN(fmt.Sprintf("rows %d/%d; differing columns %v", len(a.rows), len(n.rows), diffCols(a, n)), 600)
@@ -564,7 +569,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 					// a restricted caller reads total_rows as 0/1 (D33)
 					n = totalRowsAsFlag(n)
 				}
-				if e, r := same(a, n); e || r || sameUpToArrayOrder(a, n) {
+				if e, r := same(a, n); e || r || arrayVerdict(s.Query, a, n) == verdictArrayOrder {
 					counts["qa:equal"]++
 					f, _ := parse(format, body)
 					if e2, r3 := same(a, f); !e2 && !r3 && r2.Header.Get("X-Otel-Source") != "metadata" {
@@ -579,7 +584,7 @@ func TestReplayHyperDXThroughAdapter(t *testing.T) {
 		if o.Kind == "select" && resp.StatusCode == 200 && resp.Header.Get("X-Otel-Source") == "central" {
 			counts["label:"+o.Completeness+map[bool]string{true: " (window derived)", false: " (no window)"}[o.Window]]++
 		}
-		if o.Outcome == "MISMATCH" || o.Outcome == "unparsed" {
+		if o.Outcome == "MISMATCH" || o.Outcome == "unparsed" || o.Outcome == verdictAtCap {
 			t.Errorf("#%d %s/%s %s: %s", i, s.Scenario, s.Side, o.Outcome, o.Detail)
 		}
 		outs = append(outs, o)

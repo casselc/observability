@@ -974,11 +974,13 @@ module s3InlineConsumer {
   //    checkpoint view, has that view behind the stored checkpoint at a slot
   //    GC has deleted. It would wait there for a batch that never comes (a
   //    "gap"), renewing its lease: the lane never advances again. A worker
-  //    that is `unsure` reads the checkpoint back first (wRefresh).
+  //    that is `unsure` reads the checkpoint back first (wRefresh); one
+  //    waiting for the answer to its own write (`blocked`) takes the view
+  //    from that answer (a first sweep counted it: designLate, 0x5eed).
   def gapStall(w: int): bool = {
     val wk = workers.get(w)
     and {
-      wk.holds, current(w), not(wk.unsure),
+      wk.holds, current(w), not(wk.unsure), not(blocked(w)),
       1.to(2).exists(e => and {
         not(wk.view.closed.get(e)), wk.view.next.get(e) < ckpt.next.get(e),
         L::at(e, wk.view.next.get(e)).kind == L::Free,

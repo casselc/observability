@@ -65,10 +65,8 @@ func sortedKeys(m map[string]bool) []string {
 func normalise(pairs []Pair) []Pair {
 	set := map[Pair]bool{}
 	for _, p := range pairs {
-		p.Cluster, p.Namespace = strings.TrimSpace(p.Cluster), strings.TrimSpace(p.Namespace)
-		if p.Cluster == "" || p.Namespace == "" {
-			continue
-		}
+		// values are kept exactly (never trimmed or dropped here): an
+		// invalid name is refused when the predicate is built
 		set[p] = true
 	}
 	if set[All] {
@@ -96,7 +94,19 @@ func (s Scope) pairs() []Pair {
 	if s.Pairs != nil {
 		return normalise(s.Pairs)
 	}
-	cs, ns := s.Clusters, s.Namespaces
+	// every cluster or namespace only through All*: a "*" in a list is a
+	// name, and not a valid one (bad_scope_value)
+	lit := func(xs []string) []string {
+		out := make([]string, len(xs))
+		for i, x := range xs {
+			if x == "*" {
+				x = notAName
+			}
+			out[i] = x
+		}
+		return out
+	}
+	cs, ns := lit(s.Clusters), lit(s.Namespaces)
 	if s.AllClusters {
 		cs = []string{"*"}
 	}
@@ -111,6 +121,10 @@ func (s Scope) pairs() []Pair {
 	}
 	return normalise(out)
 }
+
+// notAName stands for a literal "*" in a single-grant scope's lists: it
+// matches neither name pattern, so the scope is refused.
+const notAName = "\x00*"
 
 // Unrestricted reports whether the scope holds every cluster and namespace
 // (the pair (*, *)): only such a caller reads fleet tables, unprojected

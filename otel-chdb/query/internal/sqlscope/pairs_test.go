@@ -344,3 +344,27 @@ func TestScopeKeyDistinguishesPairs(t *testing.T) {
 		t.Fatal("equal keys for different pairs")
 	}
 }
+
+// TestLiteralStarAndSpacesAreNotNames: in a single-grant scope, every
+// cluster (or namespace) is only AllClusters (AllNamespaces); a "*" in the
+// list is an invalid name, and values are never trimmed into valid ones.
+// (A regression of the first pairs commit: the product fallback read "*" as
+// a wildcard and trimmed "a " to "a"; TestScopeValueProperty caught it.)
+func TestLiteralStarAndSpacesAreNotNames(t *testing.T) {
+	p := testPolicy(t)
+	for _, s := range []Scope{
+		{Clusters: []string{"*"}, AllNamespaces: true},
+		{AllClusters: true, Namespaces: []string{"*"}},
+		{Clusters: []string{"a "}, AllNamespaces: true},
+		{Clusters: []string{"prod-a"}, Namespaces: []string{" shop"}},
+		{Pairs: []Pair{{"prod-a ", "*"}}},
+		{Pairs: []Pair{{"", "shop"}}},
+	} {
+		pr, _ := p.Prepare("SELECT count() FROM otel_traces")
+		if _, err := pr.Finish(s); err == nil {
+			t.Errorf("%+v accepted", s)
+		} else if r, _ := AsRejection(err); r.Reason != "bad_scope_value" {
+			t.Errorf("%+v: %v", s, err)
+		}
+	}
+}

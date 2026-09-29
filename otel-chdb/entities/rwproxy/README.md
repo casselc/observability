@@ -523,7 +523,7 @@ Reproduce (ClickHouse on `:18123`, `CH_CLIENT` = a clickhouse binary):
 
 ```sh
 export RW_SCRATCH=<scratch dir> CH_CLIENT=<clickhouse>
-go build -o $RW_SCRATCH/rwproxy-target/rwproxy .       # Go 1.24
+go build -o $RW_SCRATCH/rwproxy-target/rwproxy .       # Go 1.27
 cd scripts
 python3 setup.py fleet telemetry index dicts load kv race  # ~3 min; then drop rw_src.traces / logs if disk is short
 python3 config.py --out $RW_SCRATCH/rwproxy.json

@@ -380,7 +380,7 @@ func TestExec(t *testing.T) {
 
 	tables, err := db.Query("SHOW TABLES;")
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 	defer tables.Close()
 	for tables.Next() {

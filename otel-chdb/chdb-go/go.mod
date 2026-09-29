@@ -1,6 +1,8 @@
 module github.com/chdb-io/chdb-go/v2
 
-go 1.21
+go 1.27.0
+
+toolchain go1.27.1
 
 require (
 	github.com/c-bata/go-prompt v0.2.6

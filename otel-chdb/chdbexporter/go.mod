@@ -1,6 +1,8 @@
 module github.com/casselc/observability/otel-chdb/chdbexporter
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 // The fork: upstream chdb-go plus a binary-safe streaming insert
 // (see ../chdb-go and ../patches). Drop this line to build against stock

@@ -40,7 +40,7 @@ var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 const maxSafeInteger = int64(1)<<53 - 1
 
 func corrupt(format string, args ...any) *Error {
-	return newError(CategoryCorrupt, "durable: head.json "+fmt.Sprintf(format, args...))
+	return newError(CategoryCorrupt, "durable: head.json %s", fmt.Sprintf(format, args...))
 }
 
 func asObject(v any) (map[string]any, bool) {

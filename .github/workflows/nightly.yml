@@ -33,7 +33,7 @@ defaults:
     shell: bash
 
 env:
-  GO_VERSION: "1.26.x"
+  GO_VERSION: "1.27.x"
   QUINT_VERSION: "0.32.0"
   NODE_VERSION: "22"
   CARGO_TERM_COLOR: always

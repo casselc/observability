@@ -1,6 +1,8 @@
 module github.com/casselc/observability/otel-chdb/bench
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 replace (
 	github.com/chdb-io/chdb-go/v2 => ../chdb-go

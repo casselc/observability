@@ -10,7 +10,7 @@ COPY . .
 RUN scripts/fetch-upstream.sh /upstream && cargo build --profile dist --bin otap-s3pq
 
 # The readiness probe (base/rust/publisher.yaml): static, stdlib only.
-FROM golang:1.26-bookworm AS probe
+FROM golang:1.27-bookworm AS probe
 COPY --from=edgeprobe . /src
 RUN cd /src && CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /edgeprobe .
 

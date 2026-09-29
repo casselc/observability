@@ -6,7 +6,7 @@
 # The ocb builds use CGO_ENABLED=0 (set it in the environment for build.sh).
 # Every image gets the publishers' readiness probe (edgeprobe/, used by
 # base/go/publisher.yaml); it is 6 MB and inert elsewhere.
-FROM golang:1.26-bookworm AS probe
+FROM golang:1.27-bookworm AS probe
 COPY edgeprobe /src
 RUN cd /src && CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /edgeprobe .
 

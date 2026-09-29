@@ -11,7 +11,7 @@
 #   RUN=v1 REGISTRY=registry.site.example/otel [TAG=...] eks/images.sh     # any other registry (Nutanix site):
 #                                                                        # no ECR, `docker login` done beforehand
 #
-# Needs docker (buildx), go 1.26, and ~15 GB of free disk for the Rust stages.
+# Needs docker (buildx), go 1.27, and ~15 GB of free disk for the Rust stages.
 # Writes $STATE/images.env (the image references deploy.sh uses).
 # shellcheck source=../lib.sh
 . "$(dirname "$0")/../lib.sh"

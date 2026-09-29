@@ -3,7 +3,7 @@
 [hegel-go](https://github.com/hegeldev/hegel-go) v0.9.8 (libhegel 0.43.4, the
 Hypothesis-derived Rust engine). It runs in process: hegel-go `go:embed`s a
 prebuilt `libhegel.so` and loads it with purego, so there is no server, no
-Python and no cgo. It needs Go 1.26 (the module already uses it).
+Python and no cgo. It needs Go 1.26 or later (the module uses 1.27).
 
 The hegel tests carry a `pbt` build tag and use their own module file,
 `go.pbt.mod`, in the same way `go.stock.mod` works for stock chdb-go:

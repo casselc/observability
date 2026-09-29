@@ -5,7 +5,9 @@ module github.com/casselc/observability/otel-chdb/chdbexporter
 // including collectors. Run with:
 //   go test -tags pbt -modfile=go.pbt.mod ./...
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 // The fork: upstream chdb-go plus a binary-safe streaming insert
 // (see ../chdb-go and ../patches). Drop this line to build against stock
@@ -28,6 +30,7 @@ require (
 )
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
@@ -78,3 +81,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

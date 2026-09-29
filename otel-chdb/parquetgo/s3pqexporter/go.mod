@@ -1,6 +1,8 @@
 module github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 replace github.com/casselc/observability/otel-chdb/parquetgo => ../
 

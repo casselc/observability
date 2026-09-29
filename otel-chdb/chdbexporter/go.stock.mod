@@ -3,7 +3,9 @@ module github.com/casselc/observability/otel-chdb/chdbexporter
 // Stock upstream chdb-go, no fork. Used with -tags stockchdb:
 //   go test -tags stockchdb -modfile=go.stock.mod ./...
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 require (
 	github.com/chdb-io/chdb-go/v2 v2.2.0
@@ -19,6 +21,7 @@ require (
 )
 
 require (
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/ebitengine/purego v0.8.2 // indirect
@@ -70,3 +73,5 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
+
+replace github.com/casselc/observability/otel-chdb/testgate => ../testgate

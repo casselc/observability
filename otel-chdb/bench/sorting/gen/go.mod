@@ -1,6 +1,8 @@
 module github.com/casselc/observability/otel-chdb/bench/sorting/gen
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.1
 
 require go.opentelemetry.io/collector/pdata v1.67.0
 

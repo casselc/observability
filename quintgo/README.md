@@ -40,7 +40,7 @@ quintgo/                      generic core (module github.com/casselc/observabil
     run-demo.sh
 ```
 
-Requirements: Go 1.25 (the toolchain is fetched automatically), and
+Requirements: Go 1.27 (the toolchain is fetched automatically), and
 `quint` 0.32 on PATH. `quint test`/`quint run` default to the Rust backend.
 Where it can't be downloaded, as in this sandbox, set
 `QUINTGO_BACKEND=typescript` or pass `-backend typescript`. Orchestrion is

@@ -689,7 +689,7 @@ visibility needs no edge-to-central path.
 | Start to OTLP port ready (warm cache) | 29 ms | 32–38 ms (publisher only) [D: ../parquetgo] |
 | RSS after start | 30 MB | – |
 | Dependency graph | 395 crates (424 without patch 0001) | Go modules |
-| Toolchain | Rust 1.98.1 (577 MB). Upstream pins it, and stable 1.94 can't build it (sysinfo 0.39 needs 1.95) | Go 1.26 |
+| Toolchain | Rust 1.98.1 (577 MB). Upstream pins it, and stable 1.94 can't build it (sysinfo 0.39 needs 1.95) | Go 1.27 |
 | Clean build, 3 jobs on 4 vCPUs | release: 11 min wall, 29 min CPU; dist: 10.4 min; target dir 2.0 GB (release) + 1.5 GB (dist) | seconds |
 
 The engine is most of the binary, not the exporter. The in-process

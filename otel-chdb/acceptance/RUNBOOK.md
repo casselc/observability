@@ -58,7 +58,7 @@ REJECTED, 2 on a setup error, and 0 otherwise.
 
 ## 2. Before the session (about 10 minutes, the day before)
 
-**Build** (on any machine with Go 1.24+):
+**Build** (on any machine with Go 1.27+ (older `go` commands fetch 1.27.1 automatically)):
 
 ```sh
 cd otel-chdb/acceptance && ./build.sh

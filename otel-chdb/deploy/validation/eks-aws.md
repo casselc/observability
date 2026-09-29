@@ -45,7 +45,7 @@ against a fake store; README §Local checks).
   node + headroom), 1 Elastic IP (the NAT gateway), 1 new VPC. The defaults of
   a fresh account are enough; an organisation SCP that denies `iam:CreateUser`
   or `iam:CreateAccessKey` blocks §2's consumer user (see the gap below).
-- A build host: Linux x86-64, docker with buildx, Go 1.26, ~15 GB free (the
+- A build host: Linux x86-64, docker with buildx, Go 1.27, ~15 GB free (the
   Rust stages build inside docker), aws CLI v2.22+ (for `--if-none-match`),
   eksctl 0.200+, kubectl, kustomize 5.7, python3.
 - A bucket name. Use a new, dedicated bucket: the bucket-policy rows of §4

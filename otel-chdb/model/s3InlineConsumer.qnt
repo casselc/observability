@@ -280,6 +280,10 @@ module s3InlineConsumer {
     if (SLOW_OBS) ws else ws.keys().mapBy(x => { ...ws.get(x), seen: time })
   pure val NOLEASE: Lease = { owner: -1, epoch: -1, sent: -1 }
   pure val NOSCAN: int -> int = 1.to(2).mapBy(_ => 0)
+  // A write identical to one of the worker's still in flight (a CLate one,
+  // since LATE_CAS) waits until that resolves or the clock moves: `writes` is
+  // a set, and the two would be one element (the MBT keeps both).
+  def inFlight(q: Write): bool = writes.exists(x => { ...x, st: CPending } == q)
   // CAS_AMBIG: the worker waits for the answer to its write (one at a time).
   // (A CLate write no longer blocks it: its answer timed out.)
   def blocked(w: int): bool = writes.exists(q => q.worker == w and q.inc == workers.get(w).inc and q.st != CLate)
@@ -655,8 +659,9 @@ module s3InlineConsumer {
       // (a tick after its last write: a lease record is (owner, epoch, sent),
       // and the read-back must tell two versions apart, as the code's beat does)
       time > wk.sent,
-      writes' = writes.union(Set({ worker: w, inc: wk.inc, kind: CRenew, st: CPending, prev: lease,
-                                   lease: { ...lease, sent: time }, base: 0, ckpt: C0, epoch: 0, from: 0 })),
+      val q = { worker: w, inc: wk.inc, kind: CRenew, st: CPending, prev: lease,
+                lease: { ...lease, sent: time }, base: 0, ckpt: C0, epoch: 0, from: 0 }
+      and { not(inFlight(q)), writes' = writes.union(Set(q)) },
       cevents' = cevents.union(if (wk.work > 0) Set("renewMidScan") else Set()),
       time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts,
       keepL, keepSeries, keepDays, crows' = crows,
@@ -669,9 +674,10 @@ module s3InlineConsumer {
     val n = advanceOf(wk)
     all {
       CAS_AMBIG, wk.holds, wk.phase == WSent, mayAdvance(w), not(blocked(w)),
-      writes' = writes.union(Set({ worker: w, inc: wk.inc, kind: CAdvance, st: CPending, prev: NOLEASE, lease: NOLEASE,
+      val q = { worker: w, inc: wk.inc, kind: CAdvance, st: CPending, prev: NOLEASE, lease: NOLEASE,
         base: wk.view.version, ckpt: { ...wk.view, version: wk.view.version + 1, next: wk.view.next.set(wk.epoch, n) },
-        epoch: wk.epoch, from: wk.view.next.get(wk.epoch) })),
+        epoch: wk.epoch, from: wk.view.next.get(wk.epoch) }
+      and { not(inFlight(q)), writes' = writes.union(Set(q)) },
       time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents,
       keepL, keepSeries, keepDays, crows' = crows,
     }

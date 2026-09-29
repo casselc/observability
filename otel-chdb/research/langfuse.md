@@ -776,6 +776,15 @@ hostile corpus; AMBIGUITY X22–X23 handled. HyperDX shows LLM spans as traces; 
 references until phase 2. Exit: exactly-once and dangling = 0 under the fault menus; the
 differential test against Langfuse's mapper on a shared corpus.
 
+**Phase 1 status (2026-09-29): built** (DECISIONS.md D36 status): both edges' offloader and
+payload part, the consumer's payloads-first and dangling check, `llm_payloads`, `llm_spans`,
+`llm_scores`, the mapping as versioned policy, conformance's GenAI corpus
+(`conformance/gen/genai.go`: GenAI semconv, OpenInference, the Langfuse SDKs as the opencode, Codex
+and Claude Code integrations send them, hostile shapes, evaluation facts), the Go edge's route
+alias. Still open for the phase's exit: the differential against Langfuse's own mapper (its
+`OtelIngestionProcessor` needs the monorepo installed; not run), the fault menus with payloads, and
+the Rust edge's route alias (upstream patch 0007).
+
 **Phase 2: LLM views and facts.** Query service: payload resolution in the tree, `llm_content`
 right and audit, cost from price facts at the basis, score resolution, settle labels. HyperDX fork:
 LLM trace list, trace detail with chat rendering (text only), sessions, cost and score views, human

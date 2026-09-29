@@ -123,6 +123,25 @@ are not Go's canonical encoding gets another content key in Go (a retry
 into a different edge kind is ingested twice); no durable buffer beyond the
 collector's persistent queue (D19); sorting off (D16) is the only mode.
 
+## Content by reference (D36 phase 1, 2026-09-29)
+
+`offload.go` is the Rust edge's `src/offload.rs`, byte for byte: the same
+policy (`offload:` in the s3pq exporter; on by default with the owner's
+values), the same keyed BLAKE3-128 per tenant (the edge's cluster, the
+resource's covered `k8s.namespace.name`) and day, the same bounded JSON
+split, cap and markers (`../FORMAT.md` §2.3). The walk (`walk.go`) writes
+`payload_refs` and the `payloads` part in both writers (schema 3); the edge
+(`edge/edge.go`) decides per slot which payloads an object carries from a
+per-lane `PayloadCache`, marks them sent only once the object committed, and
+refuses an OTLP request over `max_request_bytes` as permanent.
+`offload_test.go` checks the shared vectors
+(`../langfuse/testdata/offload_vectors.json`, written by the Rust edge);
+`edge/offload_test.go` the payload part across objects, tenants and a lost
+object; `s3pqexporter/telemetry_test.go` the `s3pq_offload` counter.
+`s3pqexporter/routealias` is the `routealias` HTTP middleware extension for
+the OTLP receiver: Langfuse's `/api/public/otel/v1/{traces,logs,metrics}`
+served as `/v1/...` (owner item 1).
+
 ## What's here
 
 | Path | What it is |

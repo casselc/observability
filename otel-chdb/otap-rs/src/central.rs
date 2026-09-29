@@ -215,6 +215,72 @@ pub fn announce_insert(table: &str, signal: crate::Signal, src: &str) -> String 
     )
 }
 
+// ---- LLM payloads and typed views (sql/llm_*.sql, DECISIONS.md D36) -------------------
+
+const LLM_PAYLOADS_DDL: &str = include_str!("../sql/llm_payloads.sql");
+const LLM_SPANS_DDL: &str = include_str!("../sql/llm_spans.sql");
+const LLM_SCORES_DDL: &str = include_str!("../sql/llm_scores.sql");
+
+/// The payloads table's name.
+pub const PAYLOADS_TABLE: &str = "llm_payloads";
+
+/// The s3() structure a payload statement reads from a trace or log object.
+pub const PAYLOADS_STRUCTURE: &str = "payloads Map(String, String), ResourceAttributes Map(String, String), producer_id String, producer_epoch String, batch_id UInt64, received_at DateTime64(9)";
+
+/// The s3() structure the dangling check reads.
+pub const PAYLOAD_REFS_STRUCTURE: &str = "payload_refs Array(String), received_at DateTime64(9)";
+
+fn ddl_statements(ddl: &str, subs: &[(&str, &str)]) -> Vec<String> {
+    let body: Vec<&str> = ddl.lines().filter(|l| !l.trim_start().starts_with("--")).collect();
+    body.join("\n")
+        .split(";\n")
+        .map(|s| s.trim().trim_end_matches(';').trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| subs.iter().fold(s.to_string(), |acc, (k, v)| acc.replace(k, v)))
+        .collect()
+}
+
+/// The LLM statements a traces or logs table gets in `db` (its fully
+/// qualified name `table`): the payloads table (both), then `llm_spans`,
+/// its view (mapping v1) and `llm_mapping` (traces), or `llm_scores` and
+/// its view (logs).
+pub fn llm_statements(db: &str, table: &str, signal: crate::Signal) -> Vec<String> {
+    let mut out = ddl_statements(LLM_PAYLOADS_DDL, &[("{table}", &format!("{db}.{PAYLOADS_TABLE}"))]);
+    let subs = [("{db}", db), ("{table}", table)];
+    match signal {
+        crate::Signal::Traces => out.extend(ddl_statements(LLM_SPANS_DDL, &subs)),
+        crate::Signal::Logs => out.extend(ddl_statements(LLM_SCORES_DDL, &subs)),
+        _ => {}
+    }
+    out
+}
+
+/// The payload statement's head and select list for objects of `signal`,
+/// read from `src` (the s3() call): one row per payload the objects carry,
+/// only well-formed hashes (32 lower hex, R-L7); the caller adds the fence.
+pub fn payloads_insert(table: &str, signal: crate::Signal, src: &str) -> String {
+    format!(
+        "INSERT INTO {table} (hash, received_day, cluster, namespace, bytes, content, signal, producer_id, producer_epoch, batch_id) \
+         SELECT toFixedString(unhex(h), 16), toDate(received_at), ResourceAttributes['k8s.cluster.name'], ResourceAttributes['k8s.namespace.name'], \
+         length(c), c, {}, producer_id, producer_epoch, batch_id FROM {src} ARRAY JOIN mapKeys(payloads) AS h, mapValues(payloads) AS c \
+         WHERE length(payloads) > 0 AND match(h, '^[0-9a-f]{{32}}$')",
+        sq(signal.name())
+    )
+}
+
+/// The dangling check over `src` (objects' `payload_refs`): per object
+/// (`_path`), its distinct references with no payload of that day in
+/// `table` (R-L9, AMBIGUITY X23), reading only the payload partitions of
+/// `days` (days since the Unix epoch, UTC).
+pub fn dangling_select(table: &str, src: &str, days: &[u64]) -> String {
+    let ds: Vec<String> = days.iter().map(|d| format!("toDate(toDateTime({}, 'UTC'))", d * 86_400)).collect();
+    format!(
+        "SELECT _path, count() FROM (SELECT DISTINCT _path, h, toDate(received_at) AS d FROM {src} ARRAY JOIN payload_refs AS h) \
+         WHERE (h, d) NOT IN (SELECT lower(hex(hash)), received_day FROM {table} WHERE received_day IN ({})) GROUP BY _path",
+        ds.join(", ")
+    )
+}
+
 // ---- metrics layout B (sql/series_tables.sql) ------------------------------------------
 //
 // The objects' structures and the select lists come from `series.rs`

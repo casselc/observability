@@ -29,6 +29,9 @@ exporters:
 extensions:
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.161.0
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/healthcheckextension v0.161.0
+  # Langfuse's OTLP path as an alias of the receiver's (DECISIONS.md D36, owner item 1).
+  - gomod: github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter v0.0.0
+    import: github.com/casselc/observability/otel-chdb/parquetgo/s3pqexporter/routealias
   - gomod: github.com/casselc/observability/otel-chdb/awss3 v0.0.0
     import: github.com/casselc/observability/otel-chdb/awss3/parquetencoding
 

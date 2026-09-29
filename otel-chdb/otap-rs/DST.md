@@ -185,6 +185,13 @@ evidence that the harness can find real bugs:
 - `fleet_catches_mutants` (level 1): `no_time_bound` by seed 74, `no_verify`
   by seed 1, `release_in_flight` by seed 1, `error_settles` by seed 3,
   `early_compact` by seed 4. All five in under 5 s.
+  Since D36 phase 1 (2026-09-29) the sim's trace and log objects also
+  reference a payload and carry it when their edge's per-epoch payload cache
+  lacks it; `payloadsFirst` (a row lands only after the payload it
+  references) is checked at every statement landing, every carried payload
+  must land, and the mutant `rows_before_payloads` (the payload statement
+  after the rows) is caught by seed 1 ("rows of c9 … land before their
+  payload").
 - `net_catches_mutants` (level 2): `no_verify`, `release_in_flight` and
   `error_settles`, each by seed 1. `no_time_bound` survived 250 level-2
   seeds: it needs a pause to land between an insert's window check and its

@@ -9,9 +9,11 @@ receivers:
       http:
         endpoint: ${env:OTLP_HTTP:-127.0.0.1:14518}
         max_request_body_size: 268435456
+        middlewares: [{id: routealias}]   # /api/public/otel/v1/* too (Langfuse's path, D36)
 extensions:
   health_check:
     endpoint: ${env:HEALTH:-127.0.0.1:14533}
+  routealias:
 exporters:
   s3pq:
     cluster: ${env:CLUSTER:-local}
@@ -33,7 +35,7 @@ exporters:
     retry_on_failure:
       enabled: false
 service:
-  extensions: [health_check]
+  extensions: [health_check, routealias]
   telemetry:
     metrics:
       level: none

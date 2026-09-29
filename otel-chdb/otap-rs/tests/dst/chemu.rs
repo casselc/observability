@@ -269,6 +269,23 @@ impl ChEmu {
             }
             return syntax(q);
         }
+        // The DDL's seed rows (llm_mapping's `INSERT … VALUES`), the payload
+        // statement (DECISIONS.md D36; the sim's objects carry no payloads,
+        // so it has nothing to land: fenced like the announcement, loudly)
+        // and the dangling check (nothing dangles where nothing is carried).
+        if q.starts_with("INSERT INTO ") && q.contains(" VALUES") && !q.contains(" FROM s3(") {
+            return Reply::Ok(String::new());
+        }
+        if q.starts_with("INSERT INTO ") && q["INSERT INTO ".len()..].split(' ').next().is_some_and(|t| t.ends_with(".llm_payloads")) {
+            let fence = number_after(q, "fromUnixTimestamp64Milli(toInt64(");
+            if fence.is_some_and(|f| (self.clock)() > f) {
+                return Reply::Err(500, format!("Code: 395. DB::Exception: {}: fenced. (FUNCTION_THROW_IF_VALUE_IS_NON_ZERO)", crate::consumer::sql::FENCED));
+            }
+            return Reply::Ok(String::new());
+        }
+        if q.starts_with("SELECT _path, count() FROM (SELECT DISTINCT _path, h, ") {
+            return Reply::Ok(String::new());
+        }
         if q.starts_with("INSERT INTO ") {
             return self.insert(st, q, peer).await;
         }

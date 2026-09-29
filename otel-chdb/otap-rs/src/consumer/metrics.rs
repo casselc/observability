@@ -158,6 +158,11 @@ pub fn worker_families(p: &mut Prom, v: &serde_json::Value, horizon_ms: Option<u
     p.counter("consumer_announce_statements_total", "Resource announcement statements (otel_resources).", wl, n("announce_statements"));
     p.counter("consumer_announced_objects_total", "Objects whose resource announcements landed before their rows.", wl, n("announce_objects"));
     p.counter("consumer_announce_deferred_total", "Objects held back a round because their lane's announcements did not surely land.", wl, n("announce_deferred"));
+    p.counter("consumer_payload_statements_total", "Payload statements (llm_payloads, DECISIONS.md D36).", wl, n("payload_statements"));
+    p.counter("consumer_payload_objects_total", "Objects whose payload parts landed before their rows.", wl, n("payload_objects"));
+    p.counter("consumer_payload_deferred_total", "Objects held back a round because their lane's payloads did not surely land.", wl, n("payload_deferred"));
+    p.counter("consumer_payload_dangling_checks_total", "Dangling checks run after rows with payload references landed.", wl, n("dangling_checks"));
+    p.counter("consumer_payload_dangling_total", "Payload references found with no payload of their day in central (R-L9: must stay 0).", wl, n("payload_dangling"));
     p.counter("consumer_statements_total", "INSERT statements sent (a statement holds up to --max-batch objects).", wl, n("statements"));
     p.counter("consumer_copies_skipped_total", "Objects the count check found already in central (copies and retries).", wl, n("dedup_skipped"));
     p.counter("consumer_repairs_total", "Objects re-inserted after a verify: missing (whole object) or partial (row repair).", &with(("kind", "missing")), n("retried_missing"));

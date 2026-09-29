@@ -29,7 +29,9 @@ CH = os.environ.get("CH", "http://127.0.0.1:18123")
 KEY, SECRET = os.environ.get("AWS_ACCESS_KEY_ID", "otel"), os.environ.get("AWS_SECRET_ACCESS_KEY", "otelsecret")
 RUN_COLS = {"producer_id", "producer_epoch", "received_at", "content_key",
             # otel_resources (the announcements) and its view: the same identity, as times
-            "seen_at", "ingested_at", "first_seen", "last_seen", "first_ingested"}
+            "seen_at", "ingested_at", "first_seen", "last_seen", "first_ingested",
+            # llm_payloads: the carrying object's day (equal unless the run straddles midnight UTC)
+            "received_day"}
 RUN_META = {"oscope-producer", "oscope-epoch", "oscope-received", "oscope-low"}
 fails = 0
 
@@ -146,8 +148,10 @@ def central(tag):
     for t in sorted(tables["rust"] & tables["go"]):
         cols = ch(f"SELECT name FROM system.columns WHERE database = '{dbs['rust']}' AND table = '{t}' ORDER BY position FORMAT TSV").split("\n")
         src = {e: f"{db}.{t}" for e, db in dbs.items()}
-        if t == "otel_resources":
-            # A ReplacingMergeTree: an announcement re-inserted (a retry) is one row.
+        if t in ("otel_resources", "llm_payloads", "llm_mapping"):
+            # A ReplacingMergeTree: an announcement or a payload re-inserted
+            # (a retry, a copy, the same content carried by another object)
+            # is one row.
             src = {e: f"{s} FINAL" for e, s in src.items()}
         if "_kv_rollup_" in t and {"Key", "Value", "count"} <= set(cols):
             n = {e: ch(f"SELECT countIf(`Key` = 'SpanKind' AND `Value` = '') FROM {s}") for e, s in src.items()}
@@ -186,7 +190,7 @@ def central(tag):
             check(f"{t}: same content keys and rows per key ({n})", ks["rust"] == ks["go"],
                   f"rust {len(ks['rust'].splitlines())} keys, go {len(ks['go'].splitlines())}, "
                   f"common {len(set(ks['rust'].splitlines()) & set(ks['go'].splitlines()))}")
-        if "received_at" in cols:
+        if {"received_at", "producer_epoch", "row_ordinal"} <= set(cols):
             for e, s in src.items():
                 bad = ch(f"SELECT countIf(nr != 1) + countIf(mx + 1 != n) + countIf(np != 1) FROM (SELECT producer_epoch, batch_id, "
                          f"uniqExact(received_at) nr, max(row_ordinal) mx, count() n, uniqExact(producer_id) np "

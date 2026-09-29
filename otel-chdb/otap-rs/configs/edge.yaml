@@ -63,6 +63,12 @@ groups:
               # (../../FORMAT.md §2, src/resource.rs). ANNOUNCE=false: ids only.
               resources:
                 announce: ${env:ANNOUNCE:-true}
+              # Content by reference (DECISIONS.md D36, ../../FORMAT.md §2.3,
+              # src/offload.rs): values over 2 KiB and the GenAI content keys go
+              # to the object's payload part; the owner's policy is the default.
+              # OFFLOAD=false keeps every value inline.
+              offload:
+                enabled: ${env:OFFLOAD:-true}
               parquet:
                 sort:
                   by: none              # D16: sorting off

@@ -62,7 +62,8 @@ pub enum Found {
     /// `low_ns`: the object's `oscope-low` (None: absent, as 0). `late`: the
     /// object is the late part of a split request (`oscope-part: late`,
     /// DECISIONS.md D31); central writes it as `late_part` (D34).
-    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64, late: bool },
+    /// `payloads`: its payload part (`oscope-payloads`, `oscope-payload-refs`).
+    Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64, payloads: PayloadCounts, late: bool },
     /// A heartbeat (`../../FORMAT.md` §2): nothing to ingest, only its low.
     Beat { low_ns: u64 },
     /// Its publisher's orderly close (`../../FORMAT.md` §3.1): nothing to
@@ -80,6 +81,24 @@ impl Found {
             Found::Beat { low_ns } | Found::Close { low_ns } => *low_ns,
             Found::Tomb => 0,
         }
+    }
+}
+
+/// A trace or log object's payload part (DECISIONS.md D36, `../../FORMAT.md`
+/// §2.3): how many payloads it carries (`oscope-payloads`: inserted into
+/// `llm_payloads` before its rows) and how many distinct references its
+/// rows hold (`oscope-payload-refs`: the dangling check reads only objects
+/// with some). Absent (an edge before schema 3, metrics): zero.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PayloadCounts {
+    pub carried: u64,
+    pub refs: u64,
+}
+
+impl PayloadCounts {
+    pub fn of(meta: &HashMap<String, String>) -> Self {
+        let n = |k: &str| meta.get(k).and_then(|r| r.parse().ok()).unwrap_or(0);
+        PayloadCounts { carried: n(proto::META_PAYLOADS), refs: n(proto::META_PAYLOAD_REFS) }
     }
 }
 
@@ -103,6 +122,7 @@ pub fn found(meta: &HashMap<String, String>) -> Found {
             received_ns: meta.get(proto::META_RECEIVED).and_then(|r| r.parse().ok()).unwrap_or(0),
             low_ns,
             announce: meta.get(proto::META_ANNOUNCE).and_then(|r| r.parse().ok()).unwrap_or(0),
+            payloads: PayloadCounts::of(meta),
             late: is_late_part(meta),
         },
     }
@@ -161,6 +181,9 @@ pub struct Obj {
     /// Resources the object announces (`oscope-announce`; traces and logs):
     /// inserted into `otel_resources` before its rows.
     pub announce: u64,
+    /// Its payload part (traces and logs): payloads inserted into
+    /// `llm_payloads` before its rows; references checked after them.
+    pub payloads: PayloadCounts,
     /// The late part of a split request (`oscope-part: late`): its rows get
     /// `late_part = 1`, a partition of their own where the table has the
     /// column (DECISIONS.md D34).
@@ -391,6 +414,7 @@ mod tests {
             received_ns: 0,
             seen_ms: 0,
             announce: 0,
+            payloads: Default::default(),
             late: false,
         }
     }
@@ -457,7 +481,7 @@ mod tests {
         m.insert(proto::META_KIND.to_string(), proto::KIND_DATA.to_string());
         m.insert(proto::META_CONTENT.to_string(), "h".to_string());
         m.insert(proto::META_ROWS.to_string(), "12".to_string());
-        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None, announce: 0, late: false });
+        assert_eq!(found(&m), Found::Data { content: "h".into(), rows: 12, received_ns: 0, low_ns: None, announce: 0, payloads: Default::default(), late: false });
         let _ = m.insert(proto::META_PART.into(), proto::PART_BULK.into());
         assert!(!is_late_part(&m));
         let _ = m.insert(proto::META_PART.into(), proto::PART_LATE.into());
@@ -469,7 +493,7 @@ mod tests {
         assert_eq!(found(&m).low_ns(), 7);
         let _ = m.insert(proto::META_KIND.into(), proto::KIND_BEAT.into());
         assert_eq!(found(&m), Found::Beat { low_ns: 7 });
-        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None, announce: 0, late: false });
+        let d = |r| Some(Found::Data { content: String::new(), rows: 1, received_ns: r, low_ns: None, announce: 0, payloads: Default::default(), late: false });
         // nothing pending: M; a pending request below M: its received_at; unknown: none
         assert_eq!(lane_wm(50, &[]), Some(50));
         assert_eq!(lane_wm(50, &[vec![Some(Found::Beat { low_ns: 60 }), d(40)], vec![d(45)]]), Some(40));

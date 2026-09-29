@@ -150,6 +150,7 @@ fn fleet_catches_mutants() {
         ("error_settles", Mutation::ErrorSettles),
         ("early_compact", Mutation::EarlyCompact),
         ("mix_late_parts", Mutation::MixLateParts),
+        ("rows_before_payloads", Mutation::RowsBeforePayloads),
     ] {
         let t0 = std::time::Instant::now();
         let caught = (1..=n).find_map(|seed| {

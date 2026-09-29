@@ -40,6 +40,7 @@ fn obj(seq: u64, rows: u64, size: u64, received_ns: u64) -> Obj {
         received_ns,
         seen_ms: 0,
         announce: 0,
+        payloads: Default::default(),
         late: false,
     }
 }

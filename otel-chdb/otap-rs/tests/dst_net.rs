@@ -921,7 +921,7 @@ fn ch_emulator_matches_clickhouse() {
             // writes `late_part` per object by `_path`, a repair by constant
             let late = seq == 1;
             let _ = infos.insert(bucket.object_url(&key), ObjInfo { rows: n as u64, received_ns: now, late });
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, late });
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, payloads: Default::default(), late });
         }
         let db = format!("dst_diff_{nonce}");
         let real = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), "otel", "otelsecret", 20_000);

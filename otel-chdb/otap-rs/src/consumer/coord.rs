@@ -179,6 +179,10 @@ pub enum Mutation {
     /// `consume retire-lane` retires without waiting out a request lifetime
     /// and with slots still pending (the model's `retireInFlight`).
     RetireInFlight,
+    /// A trace or log object's rows are inserted before its payload part
+    /// (DECISIONS.md D36, R-L9): the payload statement goes after the rows,
+    /// so a row can be in central before the content it references.
+    RowsBeforePayloads,
 }
 
 /// The smallest lease margin a production worker accepts: on a replicated

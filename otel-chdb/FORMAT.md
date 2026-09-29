@@ -83,8 +83,9 @@ metadata only.
 | `oscope-producer` | data, beat, close | the key's `{producer}` |
 | `oscope-epoch`, `oscope-seq` | data, beat, close | the slot |
 | `oscope-content` | data, beat, close | the content key: BLAKE3-128 hex of `"{signal}\0" + request bytes` (layout-B series objects: of their rows); a heartbeat's is `beat-` + 16 random hex digits, a close's `close-` + 16 |
-| `oscope-signal`, `oscope-schema`, `oscope-rows`, `oscope-min-time`, `oscope-max-time` | data | the namespace, envelope schema version (traces and logs `2`, metrics `1`), row count and the rows' event-time range (ns) |
+| `oscope-signal`, `oscope-schema`, `oscope-rows`, `oscope-min-time`, `oscope-max-time` | data | the namespace, envelope schema version (traces and logs `3`, metrics `1`), row count and the rows' event-time range (ns) |
 | `oscope-announce` | data (traces, logs) | how many resources the object announces in `resource_announce` (§2.1); the consumer reads announcements only from objects where it is nonzero |
+| `oscope-payloads`, `oscope-payload-refs` | data (traces, logs) | how many payloads the object carries in `payloads`, and how many distinct payload references its rows hold in `payload_refs` (§2.3); the consumer inserts payloads only from objects with a nonzero `oscope-payloads`, and checks references only in objects with a nonzero `oscope-payload-refs` |
 | `oscope-received` | data | `received_at` (ns since the Unix epoch): when the request entered the edge's durable custody, kept across retries and replays (D19) |
 | `oscope-low` | data, beat, close | the custody floor (ns), below |
 | `oscope-part`, `oscope-late-after` | data (traces, logs), split requests only | `bulk` or `late`, and the split's bound in ns (§2.2); absent on an object that holds its whole request |
@@ -143,8 +144,8 @@ lane at an orderly shutdown, the last slot of its epoch (§3.1).
 ### 2.1 Resources: `resource_id` and announcements (traces and logs)
 
 Two columns sit between the ClickStack columns and the envelope of every
-trace and log object (schema 2; Rust `src/schema.rs`, Go `schema.go` /
-`pgo.go`):
+trace and log object (schema 2; schema 3 adds the payload columns between
+and after them, §2.3; Rust `src/schema.rs`, Go `schema.go` / `pgo.go`):
 
 | column | type | value |
 |---|---|---|
@@ -232,6 +233,89 @@ the consumer writes `late_part` = 1 for an object whose `oscope-part` is
 `late` (0 for anything else) into traces and logs tables partitioned by
 `(toDate(received_at), late_part)`, so late rows never merge into the
 bulk's parts, and never in a statement with bulk objects.
+
+### 2.3 Content by reference: `payload_refs` and `payloads` (traces and logs; D36)
+
+Schema 3. Four columns sit between the ClickStack columns and the envelope,
+in this order: `resource_id`, **`payload_refs`**, `resource_announce`,
+**`payloads`** (Rust `src/schema.rs` / `src/offload.rs`, Go `schema.go` /
+`pgo.go` / `offload.go`):
+
+| column | type | value |
+|---|---|---|
+| `payload_refs` | LIST(STRING) | the row's distinct payload references, 32 lower-case hex digits each, in the order its values met them (a content column: part of the row) |
+| `payloads` | MAP(STRING, STRING) | `hash hex → content` for each payload the object **carries**, on the first row (walk order) that references it; an empty map on every other row |
+
+**The offloader** (both edges, byte for byte; policy `offload:`, validated
+together at start; [DECISIONS.md D36](DECISIONS.md) with the owner's
+values). Every span attribute, span event attribute, log attribute and log
+body (key `@body`) is rendered as always and then, in this order:
+
+1. **redacted** when its key is in `redact_keys` (non-empty value): stored as
+   `""`, marker `.redacted_from`; nothing is hashed;
+2. **offloaded** when it is longer than `threshold` bytes (2 KiB), or
+   non-empty under a key in `keys` (the GenAI content keys, Langfuse's input
+   and output keys, OpenInference's `input.value` / `output.value`): first
+   **capped** at `max_value` bytes (8 MiB; cut backed off at most 3 bytes to
+   a UTF-8 sequence start, marker `.truncated_from`), then, under a key in
+   `split_keys` whose value is one JSON array (RFC 8259 over bytes, an
+   iterative scan bounded by `split_max_depth` 64 and `split_max_elements`
+   4096; anything else is one payload), **split** into one payload per
+   top-level element (the element's exact bytes, marker `.elements`); the
+   value stored in the row is the **reference document**, a JSON array of
+   `"h:<32 hex>"`, and marker `.bytes` holds the (capped) size;
+3. anything else is stored as it is. A value that merely looks like a
+   reference document is data.
+
+Markers are `otel.payload.<key>.<bytes|truncated_from|elements|redacted_from>`
+= decimal, appended to the same map after its entries, in the order the
+values were met (a log body's go in the log's attributes). Resource, scope
+and link attributes are never offloaded.
+
+**The hash** (per tenant and day, R-L1/R-L2):
+
+```
+key  = BLAKE3.derive_key("otel-chdb payload v1",
+         le64(len cluster) ‖ cluster ‖ le64(len ns) ‖ ns ‖ decimal(received_ns / 86400e9))
+hash = first 16 bytes of BLAKE3.keyed(key, content)
+```
+
+`cluster` is the edge's own key segment, `ns` the resource's covered
+`k8s.namespace.name` (§2.1: the edge's resource detection, never a span
+attribute), `received_ns` the object's `received_at`. Equal content in two
+tenants or two days has unrelated hashes; within one it deduplicates.
+[`langfuse/testdata/offload_vectors.json`](langfuse/testdata/offload_vectors.json)
+holds the vectors both edges are tested against (hashes, splits, cuts,
+whole requests, hostile inputs).
+
+**Which payloads an object carries** is decided when it is encoded for its
+slot, exactly as announcements are (§2.1): each writer lane keeps the
+payloads sent in its current epoch (`offload.cache_size`, 65,536); an object
+carries every payload it references that the cache does not hold, and the
+cache marks them only once that object has committed. So every reference
+resolves to a payload carried by its own object or by an earlier committed
+object of its lane's epoch (the consumer ingests a lane in slot order).
+
+**The request cap:** with offloading on, an OTLP request whose protobuf is
+larger than `max_request_bytes` (64 MiB) is refused as permanent (a client
+error, counted `refused`), never accepted and dropped.
+
+**Counters** `s3pq_offload_total{outcome}`: `offloaded`, `offloaded_bytes`,
+`split`, `truncated`, `redacted`, `refused`, `carried`, `dedup`.
+
+**What the consumer does** (`src/consumer/worker.rs` `payloads_first`,
+`check_dangling`): for the trace and log objects of a round with
+`oscope-payloads` > 0, one statement per group inserts `(hash, content)` with
+the carrying row's `received_at` day and scope into `{db}.llm_payloads`
+(content-addressed, idempotent; `sql/llm_payloads.sql`), after the round's
+announcements and before its row inserts, with the announcement's
+discipline (a lane whose payload statement did not surely land inserts
+nothing that round; unanswered ones are waited out, AMBIGUITY X22). After an
+object's rows have landed, references with no payload of their day are
+counted (`consumer_payload_dangling_total`, X23; R-L9 wants 0). The rows'
+own statement fills the typed views `llm_spans` / `llm_scores` (materialized
+views, `sql/llm_spans.sql`, `sql/llm_scores.sql`; the mapping is versioned
+policy, R-L12).
 
 ## 3. What the consumer promises: `complete_through`
 
@@ -594,6 +678,16 @@ a consumer from before reads schema-2 objects and ignores the two columns
 (its `s3()` structure names the columns it takes). Central's `otel_traces`
 and `otel_logs` gain `resource_id` (`ALTER TABLE … ADD COLUMN resource_id
 UInt64` on a table created before, or recreate it: no real data exists).
+
+**The payload columns (schema 3, D36, 2026-09-29) are not a format change**
+either, for the same reasons: `oscope-payloads` and `oscope-payload-refs` are
+two more metadata keys, absent (0) on schema-2 objects, and a consumer from
+before ignores the two columns. What changes is the rows' values: with
+offloading on, an offloaded attribute holds a reference document instead of
+its content, so a reader of central that wants the content resolves it in
+`llm_payloads` (phase 2: the query service, under `llm_content`). A consumer
+from before would ingest such rows without their payloads: deploy the
+consumer first.
 
 ## 6. Who may write what (D18, ABAC)
 

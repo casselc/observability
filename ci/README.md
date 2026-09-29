@@ -15,7 +15,7 @@ compiles otel-arrow and its dependencies from nothing, takes longer).
 | `go-test` | SeaweedFS + ClickHouse, quint; `go test -race ./...` in the fast modules (`ci/go-modules.sh test fast`) |
 | `lakeui` | `otel-chdb/lakeui`: `npm ci`, `npm run vendor:check` (vendor/ matches the pinned packages), `npm test` (node:test + fast-check: the planner client, range reader, completeness math, re-plan state machine, queries over edge Parquet fixtures, SVG) |
 | `lakeui-mosaic` | `otel-chdb/lakeui/mosaic` (the Mosaic spike, research/mosaic.md): `npm ci` in `lakeui` and the spike, `npm test` (the columns loaded from edge Parquet fixtures = brute force with lakeui's completeness states; Arrow IPC into DuckDB-WASM in Node keeps every value; property: the completeness band starts at lakeui's first unsettled bucket) |
-| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series`; the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
+| `rust` | otap-rs: pinned upstream checkout; `ci/clippy.sh` (`-D warnings` with an allow-list); `cargo test --release --lib --bins` (the consumer's ClickHouse/S3 tests against the services); the otlpgen datasets; `--test determinism otap_view metrics series resource_id offload` (`offload`: the D36 payload offloader, its shared vectors `otel-chdb/langfuse/testdata/offload_vectors.json`, which the Go edge's `go test` checks too); the deterministic simulation tests `--test dst_consumer dst_net` at their fixed seeds (`otap-rs/DST.md`); the Hegel property and stateful tests `--test hegel_props hegel_dst` under `hegel.toml`'s `ci` profile (100 derandomized cases each, `HEGEL_CH=1`; `otap-rs/HEGEL.md`) |
 
 | `traceability` | after the others, even when one failed: joins their trace records with the STPA catalogue (`ci/trace/trace.py check`; "Traceability" below) |
 
@@ -179,7 +179,7 @@ scripts/fetch-upstream.sh                        # pinned otel-arrow + patches -
 cargo test --release --locked --lib --bins
 SERIES=1 ../../ci/gen-data.sh /tmp/otaprs-data
 OTAPRS_DATA=/tmp/otaprs-data OTAPRS_SERIES_GO=/tmp/otaprs-data/series/go \
-  cargo test --release --locked --test determinism --test otap_view --test metrics --test series
+  cargo test --release --locked --test determinism --test otap_view --test metrics --test series --test resource_id --test offload
 HEGEL_CH=1 cargo test --release --locked --test hegel_props --test hegel_dst   # HEGEL_DEFAULT_PROFILE=nightly for the nightly budget
 for t in mbt_s3inline mbt_s3inline_metrics mbt_s3inline_consumer; do   # one at a time: 2.5-4 GB each
   QUINT_SEED=0x5eed cargo test --release --locked --test $t -- --test-threads=1

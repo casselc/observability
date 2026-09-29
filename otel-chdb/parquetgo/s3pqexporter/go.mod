@@ -7,8 +7,8 @@ toolchain go1.27.1
 replace github.com/casselc/observability/otel-chdb/parquetgo => ../
 
 require (
-	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/collector/client v1.67.0
 	go.opentelemetry.io/collector/component v1.67.0
 	go.opentelemetry.io/collector/config/configopaque v1.67.0
@@ -84,7 +84,8 @@ require (
 	go.opentelemetry.io/collector/consumer/consumertest v0.161.0 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.161.0 // indirect
 	go.opentelemetry.io/collector/exporter/xexporter v0.161.0 // indirect
-	go.opentelemetry.io/collector/extension v1.67.0 // indirect
+	go.opentelemetry.io/collector/extension v1.67.0
+	go.opentelemetry.io/collector/extension/extensionmiddleware v0.161.0
 	go.opentelemetry.io/collector/extension/xextension v0.161.0 // indirect
 	go.opentelemetry.io/collector/featuregate v1.67.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.161.0 // indirect

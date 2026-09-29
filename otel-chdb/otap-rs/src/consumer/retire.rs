@@ -469,6 +469,7 @@ pub async fn admit<B: Bucket + ?Sized, R: super::sql::Recover + ?Sized>(
                 received_ns: q.received_ns,
                 seen_ms: 0,
                 announce: 0,
+                payloads: Default::default(),
                 late: super::plan::is_late_part(&meta),
             };
             let rows = if dry_run { q.rows } else { r.admit(&k, &obj, &lane_id).await? };

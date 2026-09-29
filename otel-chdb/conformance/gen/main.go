@@ -372,7 +372,16 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	for name, b := range map[string][]byte{"traces-hostile.pb": tb, "logs-hostile.pb": lb, "metrics-hostile.pb": mb} {
+	gtb, err := ptraceotlp.NewExportRequestFromTraces(genaiTraces()).MarshalProto()
+	if err != nil {
+		log.Fatal(err)
+	}
+	glb, err := plogotlp.NewExportRequestFromLogs(genaiLogs()).MarshalProto()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"traces-hostile.pb": tb, "logs-hostile.pb": lb, "metrics-hostile.pb": mb,
+		"traces-genai.pb": gtb, "logs-genai.pb": glb} {
 		p := filepath.Join(*out, name)
 		if err := os.WriteFile(p, b, 0o644); err != nil {
 			log.Fatal(err)

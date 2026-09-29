@@ -214,6 +214,14 @@ pub struct Stats {
     pub announce_statements: u64,
     pub announce_objects: u64,
     pub announce_deferred: u64,
+    /// Payload parts (DECISIONS.md D36): statements, objects whose payloads
+    /// landed, objects held back a round because their lane's did not
+    /// surely land; dangling checks and the references they found dangling.
+    pub payload_statements: u64,
+    pub payload_objects: u64,
+    pub payload_deferred: u64,
+    pub dangling_checks: u64,
+    pub payload_dangling: u64,
     pub dedup_skipped: u64,
     pub statements: u64,
     pub statement_objects: u64,
@@ -1189,7 +1197,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         w.data.push(*seq);
                         w.beats.push(*seq);
                     }
-                    Found::Data { content, rows, received_ns, announce, late, .. } => {
+                    Found::Data { content, rows, received_ns, announce, payloads, late, .. } => {
                         w.data.push(*seq);
                         // A retired lane's object below its bound: a
                         // quarantine candidate (../../FORMAT.md §3.1). The
@@ -1203,6 +1211,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         }
                         objs.push(Obj {
                             announce,
+                            payloads,
                             late,
                             lane: id.to_string(),
                             epoch: e.clone(),
@@ -1363,9 +1372,15 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             // Announcements before rows: an object's announcements must
             // have landed before any row of its lane goes in this round.
             let list = if k.announce { self.announce_first(&k, list).await } else { list };
+            // Payloads before rows (R-L9, AMBIGUITY X22): likewise, an
+            // object's payload part must have landed before any row of its
+            // lane goes in this round. The mutant sends them after the rows.
+            let rows_first = self.cfg.timing.mutation == coord::Mutation::RowsBeforePayloads;
+            let list = if k.announce && !rows_first { self.payloads_first(&k, list).await } else { list };
             if list.is_empty() {
                 continue;
             }
+            let late_payloads: Vec<Obj> = if k.announce && rows_first { list.clone() } else { Vec::new() };
             // Every slot's content, for mapping results back to slots.
             let slots: Vec<(SlotId, String)> =
                 list.iter().map(|o| ((o.lane.clone(), o.epoch.clone(), o.seq), o.content.clone())).collect();
@@ -1415,6 +1430,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
             for g in plan::group_parts(absent, &self.cfg.limits, self.cfg.timing.mutation != Mutation::MixLateParts) {
                 self.insert_group(&k, g, &mut ok).await;
+            }
+            if !late_payloads.is_empty() {
+                let _ = self.payloads_first(&k, late_payloads).await;
             }
             self.stats.dedup_skipped += copies;
             for (slot, c) in slots {
@@ -1506,6 +1524,84 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let (keep, wait): (Vec<Obj>, Vec<Obj>) = list.into_iter().partition(|o| !held.contains(&o.lane));
         self.stats.announce_deferred += wait.len() as u64;
         keep
+    }
+
+    /// Inserts the payload parts these objects carry (`oscope-payloads` > 0,
+    /// traces and logs) into `llm_payloads`, before any of their rows
+    /// (R-L9, AMBIGUITY X22): a row references payloads carried by its own
+    /// object or by an earlier object of its lane's epoch (the edge's
+    /// per-lane cache marks a payload sent only once its object committed),
+    /// so ingesting a lane's payloads first means no row reaches central
+    /// before the content it references. Exactly `announce_first`'s
+    /// discipline: a lane whose payload statement did not surely land sits
+    /// this round out; payloads are content-addressed, so a retry is
+    /// harmless.
+    async fn payloads_first(&mut self, k: &LaneKind, list: Vec<Obj>) -> Vec<Obj> {
+        let carrying: Vec<Obj> = list.iter().filter(|o| o.payloads.carried > 0).cloned().collect();
+        if carrying.is_empty() {
+            return list;
+        }
+        let mut held: HashSet<String> = HashSet::new();
+        for g in plan::group(carrying, &self.cfg.limits) {
+            self.maintain().await;
+            let refs: Vec<&Obj> = g.iter().collect();
+            let Some(fence) = self.window(&refs) else {
+                held.extend(g.iter().map(|o| o.lane.clone()));
+                continue;
+            };
+            let keys: Vec<&str> = g.iter().map(|o| o.key.as_str()).collect();
+            let token = plan::token(&format!("{}-payloads", k.signal), &keys);
+            self.stats.payload_statements += 1;
+            match self.central.payloads(k, &refs, fence, &token).await {
+                Ok(()) if self.clock.wall() <= fence.wall_ms + fence.budget_ms => self.stats.payload_objects += g.len() as u64,
+                Ok(()) => {
+                    self.stats.fenced_by_server += g.len() as u64;
+                    held.extend(g.iter().map(|o| o.lane.clone()));
+                }
+                Err(e) => {
+                    self.stats.insert_errors += 1;
+                    log(&self.cfg, &format!("payloads {}: {e}", k.signal));
+                    // Like any statement, it must settle inside the lease
+                    // that sent it (the announcement's CAST 23 lesson).
+                    if !self.settled(&e) {
+                        self.unsettle(&refs, &e);
+                    }
+                    held.extend(g.iter().map(|o| o.lane.clone()));
+                }
+            }
+        }
+        if held.is_empty() {
+            return list;
+        }
+        let (keep, wait): (Vec<Obj>, Vec<Obj>) = list.into_iter().partition(|o| !held.contains(&o.lane));
+        self.stats.payload_deferred += wait.len() as u64;
+        keep
+    }
+
+    /// The dangling check (R-L9, AMBIGUITY X23): after these objects' rows
+    /// landed, their references with no payload of their day in central are
+    /// counted (`consumer_payload_dangling_total`) and logged per object; a
+    /// row's reference then resolves to "missing" at read, never to empty
+    /// content. Only objects whose rows hold references are read. A failed
+    /// check is counted, not retried: it changes nothing that is stored.
+    async fn check_dangling(&mut self, k: &LaneKind, objs: &[&Obj]) {
+        let with: Vec<&Obj> = objs.iter().copied().filter(|o| o.payloads.refs > 0).collect();
+        if with.is_empty() || !k.announce {
+            return;
+        }
+        self.stats.dangling_checks += 1;
+        match self.central.dangling(k, &with).await {
+            Ok(per) => {
+                for (key, n) in per {
+                    self.stats.payload_dangling += n;
+                    log(&self.cfg, &format!("{key}: {n} payload references dangle (no payload of their day in central)"));
+                }
+            }
+            Err(e) => {
+                self.stats.errors += 1;
+                log(&self.cfg, &format!("dangling check {}: {e}", k.signal));
+            }
+        }
     }
 
     /// Whether a table's pending objects wait for more (the linger): the
@@ -1696,9 +1792,15 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
         };
         let mut missing = Vec::new();
+        let mut landed: Vec<Obj> = Vec::new();
         for o in g {
             match plan::verdict(o.rows, after.get(&o.content).copied().unwrap_or(0)) {
-                Verdict::Present => self.inserted(&o, ok),
+                Verdict::Present => {
+                    self.inserted(&o, ok);
+                    if o.payloads.refs > 0 {
+                        landed.push(o);
+                    }
+                }
                 Verdict::Over(h) => {
                     self.stats.over_count += 1;
                     log(&self.cfg, &format!("{} holds {h} rows of {} (committed {}) after insert", k.table, o.content, o.rows));
@@ -1711,6 +1813,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
                 Verdict::Absent => missing.push(o),
             }
+        }
+        if !landed.is_empty() {
+            self.check_dangling(k, &landed.iter().collect::<Vec<_>>()).await;
         }
         if missing.is_empty() {
             return;
@@ -1751,6 +1856,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             if let Ok(m) = self.verify_counts(k, &[&o], range).await {
                 if plan::verdict(o.rows, m.get(&o.content).copied().unwrap_or(0)) == Verdict::Present {
                     self.inserted(&o, ok);
+                    self.check_dangling(k, &[&o]).await;
                 }
             }
         }

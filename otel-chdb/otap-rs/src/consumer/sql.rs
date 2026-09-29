@@ -256,6 +256,14 @@ pub trait Central {
     /// (`oscope-announce` > 0) into `otel_resources`. Idempotent: the table
     /// keeps each (resource, object) once.
     async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr>;
+    /// One statement inserting the payload parts of these objects
+    /// (`oscope-payloads` > 0) into `llm_payloads` (DECISIONS.md D36).
+    /// Idempotent: content-addressed.
+    async fn payloads(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr>;
+    /// The dangling check for these objects (their rows landed): per object
+    /// key, how many of its distinct references have no payload of their
+    /// day in central; objects with none are left out.
+    async fn dangling(&self, k: &LaneKind, objs: &[&Obj]) -> Result<Vec<(String, u64)>, String>;
 }
 
 // ---- ClickHouse --------------------------------------------------------------------
@@ -624,6 +632,44 @@ impl<B: Bucket> ClickHouseCentral<B> {
         format!("{}.{}", self.db, central::RESOURCES_TABLE)
     }
 
+    /// `{db}.llm_payloads`.
+    pub fn payloads_fq(&self) -> String {
+        format!("{}.{}", self.db, central::PAYLOADS_TABLE)
+    }
+
+    fn objects_url(&self, objs: &[&Obj]) -> String {
+        let keys: Vec<&str> = objs.iter().map(|o| o.key.as_str()).collect();
+        if keys.len() == 1 { self.bucket.object_url(keys[0]) } else { format!("{}{{{}}}", self.bucket.object_url(""), keys.join(",")) }
+    }
+
+    /// The payload statement for these objects: their `payloads` parts,
+    /// fenced like an insert (loudly, as the announcement is: an answer
+    /// past the fence is an error, never an empty success).
+    pub fn payloads_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence) -> String {
+        let src = self.s3_fn(&self.objects_url(objs), central::PAYLOADS_STRUCTURE);
+        let sig = Signal::from_name(&k.signal).unwrap_or(Signal::Traces);
+        let msg = sq(&format!("{FENCED}: the payload statement started after its fence"));
+        format!(
+            "{} AND NOT throwIf(now64(3) > fromUnixTimestamp64Milli(toInt64({})), {msg})",
+            central::payloads_insert(&self.payloads_fq(), sig, &src),
+            fence.wall_ms
+        )
+    }
+
+    /// The dangling check's query for these objects.
+    pub fn dangling_sql(&self, objs: &[&Obj]) -> String {
+        let src = self.s3_fn(&self.objects_url(objs), central::PAYLOAD_REFS_STRUCTURE);
+        // The objects' days, and the day before and after (a row whose
+        // received_at is not its metadata's is the range guard's business).
+        let mut days: Vec<u64> = objs.iter().flat_map(|o| {
+            let d = o.received_ns / DAY_NS;
+            [d.saturating_sub(1), d, d + 1]
+        }).collect();
+        days.sort_unstable();
+        days.dedup();
+        central::dangling_select(&self.payloads_fq(), &src, &days)
+    }
+
     /// The announcement statement for these objects: their
     /// `resource_announce` rows, fenced like an insert.
     pub fn announce_sql(&self, k: &LaneKind, objs: &[&Obj], fence: Fence) -> String {
@@ -843,8 +889,39 @@ impl<B: Bucket> Central for ClickHouseCentral<B> {
             for st in central::resources_statements(&self.resources_fq()) {
                 self.q(&st, &[]).await?;
             }
+            // The LLM tables and views (DECISIONS.md D36): llm_payloads, and
+            // llm_spans (traces) or llm_scores (logs), each filled by a view
+            // in the rows' own statement.
+            let sig = Signal::from_name(&k.signal).unwrap_or(Signal::Traces);
+            for st in central::llm_statements(&self.db, &fq, sig) {
+                self.q(&st, &[]).await?;
+            }
         }
         self.learn_partition_key(&fq).await
+    }
+
+    async fn payloads(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr> {
+        self.s3_creds().await?;
+        let sql = self.payloads_sql(k, objs, fence);
+        let fq = self.payloads_fq();
+        self.run_insert(&fq, &sql, fence, token).await
+    }
+
+    async fn dangling(&self, _k: &LaneKind, objs: &[&Obj]) -> Result<Vec<(String, u64)>, String> {
+        self.s3_creds().await.map_err(|e| e.msg)?;
+        let fq = self.payloads_fq();
+        self.sync(&fq).await?;
+        let out = self.q(&format!("{} FORMAT TSV", self.dangling_sql(objs)), &[]).await.map_err(|e| self.redact(&e))?;
+        let mut per = Vec::new();
+        for l in out.lines().filter(|l| !l.is_empty()) {
+            let (path, n) = l.rsplit_once('\t').ok_or_else(|| format!("dangling check: {l}"))?;
+            let n: u64 = n.parse().map_err(|e| format!("dangling check: {e}: {l}"))?;
+            let key = objs.iter().find(|o| path.ends_with(o.key.as_str())).map(|o| o.key.clone()).unwrap_or_else(|| path.to_string());
+            if n > 0 {
+                per.push((key, n));
+            }
+        }
+        Ok(per)
     }
 
     async fn announce(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, token: &str) -> Result<(), InsertErr> {
@@ -969,6 +1046,14 @@ pub struct MemCentral {
     /// and the admits applied.
     pub recovered: RefCell<BTreeMap<(String, String), u64>>,
     pub admits: Cell<u64>,
+    /// Payload statements applied, per content key (DECISIONS.md D36), and
+    /// every n-th one failing before writing.
+    pub payloads_in: RefCell<BTreeMap<String, u64>>,
+    pub payload_fail_every: Cell<u64>,
+    pub payload_n: Cell<u64>,
+    /// Objects whose rows landed before their payload part (R-L9): what the
+    /// `RowsBeforePayloads` mutant does, and what nothing else may.
+    pub rows_before_payloads: Cell<u64>,
 }
 
 impl MemCentral {
@@ -1005,6 +1090,9 @@ impl MemCentral {
     }
 
     fn add(&self, table: &str, o: &Obj, rows: u64) {
+        if o.payloads.carried > 0 && !self.payloads_in.borrow().contains_key(&o.content) {
+            self.rows_before_payloads.set(self.rows_before_payloads.get() + 1);
+        }
         let recv = self.recv_of(o);
         *self.rows.borrow_mut().entry((table.to_string(), o.content.clone())).or_default() += rows;
         for i in 0..rows {
@@ -1128,6 +1216,30 @@ impl Central for MemCentral {
         Ok(())
     }
 
+    async fn payloads(&self, _k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), InsertErr> {
+        self.payload_n.set(self.payload_n.get() + 1);
+        if self.payload_fail_every.get() > 0 && self.payload_n.get() % self.payload_fail_every.get() == 0 {
+            return Err(InsertErr { msg: "injected: payload statement refused".into(), settled: true, answered: true, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            self.fenced.set(self.fenced.get() + 1);
+            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
+        }
+        for o in objs {
+            *self.payloads_in.borrow_mut().entry(o.content.clone()).or_default() += 1;
+        }
+        Ok(())
+    }
+
+    async fn dangling(&self, _k: &LaneKind, objs: &[&Obj]) -> Result<Vec<(String, u64)>, String> {
+        let have = self.payloads_in.borrow();
+        Ok(objs
+            .iter()
+            .filter(|o| o.payloads.carried > 0 && !have.contains_key(&o.content))
+            .map(|o| (o.key.clone(), o.payloads.refs))
+            .collect())
+    }
+
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), InsertErr> {
         self.flush_late();
         if self.now() > fence.wall_ms {
@@ -1148,7 +1260,7 @@ mod tests {
     use crate::consumer::bucket::MemBucket;
 
     fn obj(k: &str, c: &str) -> Obj {
-        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0, announce: 0, late: false }
+        Obj { lane: "l".into(), epoch: "E".into(), seq: 0, key: k.into(), size: 1, content: c.into(), rows: 5, received_ns: 0, seen_ms: 0, announce: 0, payloads: Default::default(), late: false }
     }
 
     /// Whether every single-quoted literal closes (ClickHouse: `\\` and `\'` escape).
@@ -1447,7 +1559,9 @@ mod tests {
         let tables = ch.query(&format!("SELECT name, engine FROM system.tables WHERE database = {} ORDER BY name FORMAT TSV", sq(&db)), &[]).await.unwrap();
         assert_eq!(
             tables,
-            "otel_logs\tMergeTree\notel_logs_attr_kv_rollup_15m_mv\tMaterializedView\notel_logs_kv_rollup_15m\tSummingMergeTree\n\
+            "llm_mapping\tReplacingMergeTree\nllm_payloads\tReplacingMergeTree\nllm_scores\tMergeTree\nllm_scores_mv_v1\tMaterializedView\n\
+             llm_spans\tMergeTree\nllm_spans_mv_v1\tMaterializedView\n\
+             otel_logs\tMergeTree\notel_logs_attr_kv_rollup_15m_mv\tMaterializedView\notel_logs_kv_rollup_15m\tSummingMergeTree\n\
              otel_resources\tReplacingMergeTree\notel_resources_announced\tView\n\
              otel_traces\tMergeTree\notel_traces_kv_rollup_15m\tSummingMergeTree\notel_traces_kv_rollup_15m_mv\tMaterializedView"
         );
@@ -1462,7 +1576,7 @@ mod tests {
             let key = format!("{lane}/E1/{seq}.parquet");
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
             // the second is a late part (D34): one statement, two partitions
-            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, late: seq == 1 });
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq: seq as u64, key, size: 1, content: f.content.clone(), rows: n as u64, received_ns: now, seen_ms: 0, announce: 0, payloads: Default::default(), late: seq == 1 });
         }
         assert!(c.writes_late_part(&lk) && c.writes_late_part(&tk) && c.ranged(&lk), "the new DDL: late_part, a ranged key");
         let refs: Vec<&Obj> = objs.iter().collect();
@@ -1569,7 +1683,7 @@ mod tests {
             assert_eq!(o.meta.get("oscope-announce").map(String::as_str), Some("2"));
             let key = format!("{lane}/{epoch}/{seq}.parquet");
             assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
-            objs.push(Obj { lane: lane.clone(), epoch: epoch.into(), seq, key, size: 1, content: f.content.clone(), rows: 8, received_ns: now, seen_ms: 0, announce: 2, late: false });
+            objs.push(Obj { lane: lane.clone(), epoch: epoch.into(), seq, key, size: 1, content: f.content.clone(), rows: 8, received_ns: now, seen_ms: 0, announce: 2, payloads: Default::default(), late: false });
         }
         let fence = || Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
         c.announce(&lk, &[&objs[0]], fence(), "ann-1").await.unwrap();
@@ -1596,6 +1710,127 @@ mod tests {
         ))
         .await;
         assert_eq!(joined, "6\t2\t8", "rows of announced resources, rows without covered attributes, all rows");
+        ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+        let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
+        let _ = bucket.delete(&keys).await;
+    }
+
+    /// Payload parts on a real server (DECISIONS.md D36, FORMAT.md §2.3): an
+    /// object carrying three payloads (a conversation split per message),
+    /// its payload statement run twice (a retry) and once past its fence
+    /// (refused, loudly), `llm_payloads` holding each payload once with its
+    /// content; a later object of the epoch that references them without
+    /// carrying them; the rows filling `llm_spans` with the references; the
+    /// dangling check finding nothing for either, and finding the
+    /// references of an object whose payloads never went in.
+    #[tokio::test(flavor = "current_thread")]
+    async fn payloads_land_first_and_nothing_dangles() {
+        use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
+        use crate::consumer::plan::PayloadCounts;
+        use otap_s3pq::batch::{Encoder, Format, Input};
+        use otap_s3pq::encode::ParquetOptions;
+        use otap_s3pq::flatten::Envelope;
+        use otap_s3pq::offload::OffloadOptions;
+        use otel_arrow_dfe_pdata::proto::opentelemetry::common::v1::{AnyValue, KeyValue, any_value::Value};
+        use otel_arrow_dfe_pdata::proto::opentelemetry::resource::v1::Resource;
+        use otel_arrow_dfe_pdata::proto::opentelemetry::trace::v1::{ResourceSpans, ScopeSpans, Span, TracesData};
+        use prost::Message;
+        let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
+        let ch = ClickHouse::new(&url);
+        if ch.query("SELECT 1", &[]).await.is_err() {
+            return otap_s3pq::testgate::skip("clickhouse", format!("no ClickHouse at {url}"));
+        }
+        let s3 = std::env::var("OTAPRS_S3").unwrap_or_else(|_| "http://127.0.0.1:18333/audit-consumer".into());
+        let id = format!("{:08x}", rand::random::<u32>());
+        let store = otap_s3pq::store::S3Config {
+            url: format!("{s3}/payload-it-{id}/edges"),
+            access_key_id: Some("otel".into()),
+            secret_access_key: Some("otelsecret".into()),
+            ..Default::default()
+        }
+        .build()
+        .unwrap();
+        let root = store.prefix.clone();
+        let bucket = Rc::new(S3Bucket::new(store));
+        if let Err(e) = bucket.list(&root, None).await {
+            return otap_s3pq::testgate::skip("s3", format!("no S3 at {s3}: {e}"));
+        }
+        let db = format!("payload_it_{id}");
+        let c = ClickHouseCentral::new(&url, &db, bucket.clone(), "otel", "otelsecret", 20_000);
+        let tk = LaneKind::for_signal("traces").unwrap();
+        c.ensure(&tk).await.unwrap();
+        let kv = |k: &str, v: &str| KeyValue { key: k.into(), value: Some(AnyValue { value: Some(Value::StringValue(v.into())) }) };
+        let m = |i: u32| format!(r#"{{"role":"user","content":"message {i}"}}"#);
+        let span = |sid: u8, msgs: &[u32]| Span {
+            trace_id: vec![7; 16],
+            span_id: vec![sid; 8],
+            name: "chat".into(),
+            start_time_unix_nano: 1_790_000_000_000_000_000 + sid as u64,
+            end_time_unix_nano: 1_790_000_000_000_000_100 + sid as u64,
+            attributes: vec![
+                kv("gen_ai.operation.name", "chat"),
+                kv("gen_ai.request.model", "m"),
+                kv("gen_ai.input.messages", &format!("[{}]", msgs.iter().map(|i| m(*i)).collect::<Vec<_>>().join(","))),
+            ],
+            ..Default::default()
+        };
+        let req = |spans: Vec<Span>| {
+            TracesData {
+                resource_spans: vec![ResourceSpans {
+                    resource: Some(Resource {
+                        attributes: vec![kv("k8s.namespace.name", "shop"), kv("k8s.cluster.name", "c1")],
+                        dropped_attributes_count: 0,
+                        entity_refs: Vec::new(),
+                    }),
+                    scope_spans: vec![ScopeSpans { scope: None, spans, schema_url: String::new() }],
+                    schema_url: String::new(),
+                }],
+            }
+            .encode_to_vec()
+        };
+        let now = crate::consumer::wall_ms() * 1_000_000;
+        let lane = format!("{root}/c1/p1/traces");
+        let mut enc = Encoder::new(ParquetOptions::default(), Format::Parquet).with_offload(OffloadOptions::default(), "c1");
+        let f = enc.flatten_all_at(&Input::Otlp(Signal::Traces, &req(vec![span(1, &[1, 2]), span(2, &[1, 2, 3])])), now).unwrap().remove(0);
+        assert_eq!(f.payloads.len(), 3, "three distinct messages");
+        let g = enc.flatten_all_at(&Input::Otlp(Signal::Traces, &req(vec![span(3, &[4, 5])])), now).unwrap().remove(0);
+        let mut objs = Vec::new();
+        // (flat, seq, carries its payloads)
+        for (fl, seq, carry) in [(&f, 0u64, true), (&f, 1, false), (&g, 2, true)] {
+            let env = Envelope { producer: "p1".into(), epoch: "E1".into(), batch: seq, received_ns: now };
+            let (o, carried) = enc.encode_carrying(fl, &env, &|_| true, &|_| carry).unwrap();
+            let payloads = PayloadCounts::of(&o.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+            assert_eq!(payloads, PayloadCounts { carried: carried.payloads.len() as u64, refs: fl.payloads.len() as u64 });
+            let key = format!("{lane}/E1/{seq}.parquet");
+            assert!(matches!(bucket.put(&key, o.body, Cond::Create, &o.meta).await, Put::Ok(_)));
+            let content = format!("{}-{seq}", fl.content);
+            objs.push(Obj { lane: lane.clone(), epoch: "E1".into(), seq, key, size: 1, content, rows: fl.stats.rows as u64, received_ns: now, seen_ms: 0, announce: 0, payloads, late: false });
+        }
+        assert_eq!((objs[0].payloads.carried, objs[1].payloads.carried, objs[1].payloads.refs), (3, 0, 3));
+        let fence = || Fence { wall_ms: crate::consumer::wall_ms() + 60_000, budget_ms: 10_000 };
+        c.payloads(&tk, &[&objs[0]], fence(), "pl-1").await.unwrap();
+        c.payloads(&tk, &[&objs[0]], fence(), "pl-1").await.unwrap(); // an exact retry
+        let past = Fence { wall_ms: crate::consumer::wall_ms() - 1_000, budget_ms: 10_000 };
+        let e = c.payloads(&tk, &[&objs[2]], past, "pl-2").await.unwrap_err();
+        assert!(e.settled && e.answered && e.msg.contains(FENCED), "{e:?}");
+        let q = |sql: String| {
+            let ch = &ch;
+            async move { ch.query(&sql, &[]).await.unwrap() }
+        };
+        assert_eq!(q(format!("SELECT count() FROM {db}.llm_payloads FINAL")).await, "3");
+        assert_eq!(
+            q(format!("SELECT content FROM {db}.llm_payloads FINAL WHERE namespace = 'shop' AND cluster = 'c1' ORDER BY content LIMIT 1 FORMAT TSVRaw")).await,
+            m(1)
+        );
+        for o in &objs {
+            c.insert(&tk, &[o], fence(), &format!("rows-{}", o.seq), true).await.unwrap();
+        }
+        let spans = q(format!("SELECT span_id, length(input_refs), type, namespace FROM {db}.llm_spans ORDER BY span_id FORMAT TSV")).await;
+        assert_eq!(spans.lines().count(), 5, "{spans}");
+        assert!(spans.contains("0101010101010101\t2\tGENERATION\tshop") && spans.contains("0202020202020202\t3\tGENERATION\tshop"), "{spans}");
+        assert_eq!(c.dangling(&tk, &[&objs[0], &objs[1]]).await.unwrap(), vec![], "the carrying object and the one that references it");
+        let d = c.dangling(&tk, &[&objs[2]]).await.unwrap();
+        assert_eq!(d, vec![(objs[2].key.clone(), 2)], "its payload statement never landed");
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
         let keys: Vec<String> = bucket.list(&root, None).await.unwrap().into_iter().map(|i| i.key).collect();
         let _ = bucket.delete(&keys).await;

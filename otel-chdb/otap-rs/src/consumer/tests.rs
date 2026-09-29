@@ -1056,6 +1056,7 @@ async fn the_check_range_follows_the_data() {
             received_ns: at(20_005, 8, 0),
             seen_ms: 0,
             announce: 0,
+            payloads: Default::default(),
             late: false,
         };
         let k = super::sql::LaneKind::for_signal("logs").unwrap();
@@ -1559,6 +1560,54 @@ async fn announcements_go_in_before_their_lanes_rows() {
     assert_eq!(ann.len(), 2, "the two announcing objects, and only them: {ann:?}");
     assert_eq!(ws[0].stats.announce_objects, 2);
     assert_eq!(ws[0].checkpoint("c1/p1/logs").unwrap().next("E0001"), 3);
+}
+
+/// Payload parts (DECISIONS.md D36, R-L9) go in before any row of their
+/// lane, exactly as announcements do: a lane whose payload statement fails
+/// sits the round out, other lanes go on, and once the payloads land the
+/// rows follow; only the objects that carry payloads are read for it; the
+/// dangling check reads only objects whose rows hold references, and finds
+/// none. The `RowsBeforePayloads` mutant (the statement after the rows) is
+/// caught: rows in central before their payloads, and references dangling.
+#[tokio::test(flavor = "current_thread")]
+async fn payloads_go_in_before_their_lanes_rows() {
+    for mutant in [false, true] {
+        let (b, c, clk) = setup();
+        // (content, payloads carried, references held): h1 references what
+        // h0 carried (the edge's lane cache), h2 carries its own.
+        for (seq, (content, carried, refs)) in [("h0", 2, 2), ("h1", 0, 2), ("h2", 1, 3)].into_iter().enumerate() {
+            let key = proto::slot_key(&format!("{ROOT}/c1/p1/traces"), "E0001", seq as u64);
+            let mut m = meta("E0001", seq as u64, content, 4);
+            let _ = m.insert(proto::META_PAYLOADS.to_string(), carried.to_string());
+            let _ = m.insert(proto::META_PAYLOAD_REFS.to_string(), refs.to_string());
+            b.insert(&key, Bytes::from(vec![0u8; 100]), m);
+        }
+        let mut e = Edge::new("c1/p2", "logs");
+        let _ = e.commit(&b, "l0", 3).await;
+        let mut ws = vec![worker("w1", &b, &c, &clk)];
+        if mutant {
+            ws[0].cfg.timing.mutation = Mutation::RowsBeforePayloads;
+            run(&mut ws, &clk, 3, 100).await;
+            assert!(c.rows_before_payloads.get() > 0, "the mutant puts rows before their payloads");
+            assert!(ws[0].stats.payload_dangling > 0, "and the dangling check sees it: {:?}", ws[0].stats);
+            continue;
+        }
+        c.payload_fail_every.set(1); // every payload statement is refused
+        run(&mut ws, &clk, 3, 100).await;
+        assert_eq!(c.count("otel_traces", "h1"), 0, "no row of the lane before its payloads");
+        assert_eq!(c.count("otel_logs", "l0"), 3, "other lanes go on");
+        assert!(ws[0].stats.payload_deferred > 0 && ws[0].stats.payload_objects == 0, "{:?}", ws[0].stats);
+        c.payload_fail_every.set(0);
+        run(&mut ws, &clk, 3, 100).await;
+        for h in ["h0", "h1", "h2"] {
+            assert_eq!(c.count("otel_traces", h), 4, "{h}");
+        }
+        assert_eq!(c.payloads_in.borrow().len(), 2, "the two carrying objects, and only them");
+        assert_eq!(ws[0].stats.payload_objects, 2);
+        assert_eq!(c.rows_before_payloads.get(), 0);
+        assert!(ws[0].stats.dangling_checks > 0 && ws[0].stats.payload_dangling == 0, "{:?}", ws[0].stats);
+        assert_eq!(ws[0].checkpoint("c1/p1/traces").unwrap().next("E0001"), 3);
+    }
 }
 
 // ---- dead-lane retirement (FORMAT.md §3.1, DECISIONS.md D35) ------------------------------

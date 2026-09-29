@@ -163,6 +163,24 @@ encbench: the in-process edge benchmark (pubbench's accounting)
     shared vectors (`../entities/testdata/resource_id_vectors.json`) and,
     with Hegel, arbitrary attribute lists against the controller's
     definition, through the OTLP and the OTAP walk.
+  - Since 2026-09-29 (schema 3, D36 phase 1, `src/offload.rs`,
+    `../FORMAT.md` §2.3) span, span event and log attributes and log bodies
+    over 2 KiB, or under the GenAI content keys, go by keyed reference into
+    the object's payload part (`payload_refs`, `payloads`), carried once per
+    lane epoch and marked sent only on commit; message lists split per
+    element; values capped at 8 MiB with markers; an OTLP request over
+    `max_request_bytes` refused (permanent NACK); `s3pq_offload_total`. The
+    exporter's `offload:` block (`enabled` default true, `threshold`,
+    `max_value`, `max_request_bytes`, `keys`, `split_keys`, `redact_keys`,
+    `split_max_depth`, `split_max_elements`, `cache_size`) is validated
+    together at start. `tests/offload.rs` writes and checks the shared
+    vectors (`../langfuse/testdata/offload_vectors.json`, the Go edge checks
+    them too), the hostile corpus through the walk and the object, and Hegel
+    properties (the bounded JSON scan against serde_json; round trips). The
+    consumer inserts payloads into `llm_payloads` before the rows
+    (`payloads_first`, AMBIGUITY X22), counts dangling references after them
+    (X23), and fills `llm_spans` / `llm_scores` by views in the rows' own
+    statement (`sql/llm_*.sql`; the mapping is versioned policy, `llm_mapping`).
   - Since 2026-09-28 (D31, `src/late.rs`, `../FORMAT.md` §2.2) a traces or
     logs request with rows more than `late_split_after` (default `15m`,
     `0s` off) older than its newest row is two objects in its lane, bulk

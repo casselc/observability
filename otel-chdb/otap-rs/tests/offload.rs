@@ -749,7 +749,7 @@ fn prop_offload_round_trips(tc: TestCase) {
         };
         let oc = o.value(k.as_bytes(), &v, row as u32, &mut out);
         let st = if oc == Outcome::Inline { v.clone() } else { out.clone() };
-        stored.push((k.to_string(), v, st, o.markers.drain(..).collect()));
+        stored.push((k.to_string(), v, st, std::mem::take(&mut o.markers)));
         let mut refs = otap_s3pq::columns::Bin::default();
         refs.clear();
         let _ = o.end_row(&mut refs);
@@ -765,7 +765,7 @@ fn prop_offload_round_trips(tc: TestCase) {
         let mk = |w: &str| [offload::MARKER_PREFIX, k.as_bytes(), b".", w.as_bytes()].concat();
         if k == "k.secret" {
             assert!(st.is_empty());
-            assert_eq!(m.get(&mk("redacted_from")).is_some(), !v.is_empty());
+            assert_eq!(m.contains_key(&mk("redacted_from")), !v.is_empty());
             continue;
         }
         let should = v.len() > threshold || ((k == "k.listed" || k == "k.split") && !v.is_empty());

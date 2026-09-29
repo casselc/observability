@@ -20,7 +20,7 @@ RUN=${RUN:-c$(date +%s)}
 S3=${S3:-http://127.0.0.1:18333}; BUCKET=${BUCKET:-goedge-conf}; CH=${CH:-http://127.0.0.1:18123}
 LAYOUT=${LAYOUT:-series_table}
 export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-otel} AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-otelsecret} AWS_REGION=us-east-1
-DATASETS=${DATASETS:-"traces-testgen-3000 traces-nasty-700 traces-hostile logs-testgen-3000 logs-nasty-700 logs-hostile
+DATASETS=${DATASETS:-"traces-testgen-3000 traces-nasty-700 traces-hostile traces-genai logs-testgen-3000 logs-nasty-700 logs-hostile logs-genai
   metrics-testgen-3000 metrics-nasty-700 metrics-extra metrics-hostile metrics-mixed-10000"}
 W=${W:-/tmp/goedge-conf}/$RUN; mkdir -p "$W"
 tag=$(echo "$RUN" | tr -c 'a-zA-Z0-9_\n' _)

@@ -67,7 +67,7 @@ flowchart TB
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
 | [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
-| [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29), not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
+| [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29); **phase 1 built** (2026-09-29: both edges' offloader, the payload part, the consumer's payloads-first, `llm_payloads`/`llm_spans`/`llm_scores`, the `routealias` for Langfuse's path in the Go edge); phase 2 not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
 | [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
 | [D38](#d38-grants-as-explicit-role-cluster-namespace-tuples-environments-as-buckets-cedar-as-the-source-compiled-to-tuples-and-prefixtag-iam-partly-built) | Grants: explicit `(role, cluster, namespace)` tuples combined as a union, never a product (CAST 52; built); environments as a bucket (or account) each with a cluster registry that gates writes; Cedar policies as the source, compiled to per-environment query-service tuples and prefix/principal-tag IAM, other policies refused with a reason and the output checked against Cedar; person facts scoped by a `resolve_person` tuple | **partly built** (2026-09-29): tuples in the query service; `grants/` compiler prototype; the rest proposed: [research/grants.md](research/grants.md) (STPA first) |
 | [D39](#d39-stpa-data-as-normalized-records-tables-and-control-structure-diagrams-generated-from-them-proposed-pilot-built) | STPA data as normalized records (one fact, one home; adapted from stpa-workbench v0, whose strict form is an export): STPA.md's tables, the control-structure diagrams in the PRD style (SVG, the PRD widget, Mermaid) and the label catalogue generated and checked in CI; OSCAL a later export for the assurance half. Proposed; pilot of 95 records built (stpa/) |
@@ -3716,8 +3716,32 @@ what `consume admit` may do.
 
 ### D36. Langfuse-shaped LLM traces: one store, content by reference, facts resolved at a basis
 
-**Status:** **accepted as proposed** by the owner (2026-09-29); not built. Research, STPA and a spike:
+**Status:** **accepted as proposed** by the owner (2026-09-29). Research, STPA and a spike:
 [research/langfuse.md](research/langfuse.md), [`langfuse/spike/`](langfuse/spike/README.md).
+**Phase 1 (collect and keep, no new UI) built, 2026-09-29:**
+- **The offloader at both edges, byte for byte** (Rust `otap-rs/src/offload.rs`, Go
+  `parquetgo/offload.go`; [FORMAT.md §2.3](FORMAT.md)): the owner's policy as the default (2 KiB
+  threshold, 8 MiB cap, split per message at the edge, the GenAI content keys), validated together
+  at start (R-L4); keyed BLAKE3-128 per (cluster, covered `k8s.namespace.name`) and UTC day (R-L1,
+  R-L2); an iterative, bounded JSON-array split; UTF-8-safe truncation; markers for size,
+  truncation, split and redaction; a request over `max_request_bytes` refused as permanent, never
+  dropped; `s3pq_offload_total`. Traces and logs schema 3: `payload_refs` and `payloads` in the
+  **same object**, the payload part decided per slot from a per-lane cache marked only on commit
+  (announcements' discipline, so every reference resolves in its lane epoch). Shared vectors
+  [`langfuse/testdata/offload_vectors.json`](langfuse/testdata/offload_vectors.json) (Rust writes,
+  both check: hashes, 40 split cases, cuts, whole hostile requests).
+- **Consumer** (`otap-rs/src/consumer`): payloads before rows (`payloads_first`, R-L9, AMBIGUITY
+  X22), the dangling check after them (`consumer_payload_dangling_total`, X23), `llm_payloads`
+  (content-addressed, by custody day), `llm_spans` and `llm_scores` filled by views in the rows' own
+  statement (exactly-once like the rollup; no `FINAL`, no replacing engine for facts, R-L11), the
+  mapping versioned as policy with `llm_mapping` (v1: OTel GenAI e57c543 + Langfuse v4.46.0's
+  precedence, R-L12). Tested by the DST fleet (`payloadsFirst` at every landing; mutant
+  `RowsBeforePayloads` caught) and against ClickHouse.
+- **Route alias** (owner item 1): the Go edge's `routealias` middleware extension serves
+  `/api/public/otel/v1/*` as `/v1/*`. The Rust edge's (upstream patch 0007) is not built.
+- **Not done in phase 1**: the differential against Langfuse's own mapper, the fault menus
+  (`faults.sh`, `go_faults.sh`) with payloads, and the Rust route alias: see the phase-1 report
+  in [research/langfuse.md](research/langfuse.md) §11.
 
 **Owner decisions, 2026-09-29:** every recommendation of research/langfuse.md §11 is taken: offload
 threshold 2 KiB and max value 8 MiB, split per message **at the edge**; a separate `llm_content` right,

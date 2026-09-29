@@ -110,8 +110,8 @@ impl Encoder {
                     .ok_or_else(|| EncodeError("late split: payload_refs is not a list".into()))?;
                 let index: HashMap<&[u8; 16], usize> = f.payloads.iter().enumerate().map(|(i, p)| (&p.hash, i)).collect();
                 let mut seen: HashSet<usize> = HashSet::new();
-                let mut row = 0u32;
-                for i in (0..ts.len()).filter(|i| keep[*i]) {
+                for (row, i) in (0..ts.len()).filter(|i| keep[*i]).enumerate() {
+                    let row = row as u32;
                     let l = refs.value(i);
                     let l = l.as_any().downcast_ref::<BinaryArray>().ok_or_else(|| EncodeError("late split: payload_refs elements".into()))?;
                     for r in l.iter().flatten() {
@@ -123,7 +123,6 @@ impl Encoder {
                             payloads.push(crate::offload::Payload { hash: h, content: f.payloads[j].content.clone(), first_row: row });
                         }
                     }
-                    row += 1;
                 }
             }
             let content = key(&part_namespace(f.signal, part, after_ns), &cols);

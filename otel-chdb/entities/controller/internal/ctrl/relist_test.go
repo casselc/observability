@@ -21,6 +21,7 @@ import (
 func TestRelistsAndUnknownDeletionsAreCounted(t *testing.T) {
 	cs := fake.NewClientset()
 	c := New(Config{Resync: time.Hour}, cs, &lane.Writer{})
+	defer c.q.ShutDown() // its delaying queue's goroutine (goleak)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	c.inf.Start(ctx.Done())

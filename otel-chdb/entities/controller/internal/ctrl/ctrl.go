@@ -394,6 +394,10 @@ func (c *Controller) enqueue(o any) {
 // Run starts the informers, the cluster record, the workers and the
 // periodic sync; it returns when ctx ends.
 func (c *Controller) Run(ctx context.Context, workers int) error {
+	// Every return stops the work queue, and with it the delaying queue's
+	// goroutine that New started: a Run that failed (kube-system unreadable,
+	// a cache that never synced) left it running (goleak, 2026-09-29).
+	defer c.q.ShutDown()
 	ksys, err := c.cs.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("kube-system (cluster uid): %w", err)

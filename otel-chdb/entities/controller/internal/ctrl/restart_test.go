@@ -49,6 +49,7 @@ func TestRestartDatesFromThePreviousIncarnation(t *testing.T) {
 		out := &lane.Writer{}
 		ct := New(Config{Resync: time.Hour, Writer: "w2", Since: c.since}, cs, out)
 		ct.clusterUID, ct.clusterKey = "uid", 42
+		defer ct.q.ShutDown() // its delaying queue's goroutine (goleak)
 		ctx, cancel := context.WithCancel(context.Background())
 		ct.inf.Start(ctx.Done())
 		ct.inf.WaitForCacheSync(ctx.Done())

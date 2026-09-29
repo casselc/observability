@@ -1052,7 +1052,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         match got {
             Ok(Some((_, e))) if e == ls.ckpt_etag => {} // not landed (yet)
             Ok(Some((body, e))) => match serde_json::from_slice::<CkptDoc>(&body) {
-                Ok(doc) if doc.lease_epoch == ls.held.doc.epoch && doc.version > ls.ckpt.version => {
+                Ok(doc) if doc.ours_landed_late(ls.held.doc.epoch, &ls.ckpt) => {
                     log(&self.cfg, &format!("checkpoint {id}: our write landed late (version {}); taking it", doc.version));
                     self.stats.ckpt_late_taken += 1;
                     let floor = doc.floor.clone();

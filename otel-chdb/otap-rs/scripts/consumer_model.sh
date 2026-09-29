@@ -76,6 +76,17 @@ runs designSlowShort "(scan|own412)DesignTest" all-pass
 # (an MBT finding, fixed: a lost renewal request keeps the lane, on its old window)
 runs designSlowShort lostRenewalKeepsTest all-pass
 for m in observeAtRequest renewOnlyAtInsert own412IsTakeover; do runs $m "${m}BreaksTest" all-pass; done
+# A write applied after the reader's check (2026-09-29, STPA.md CAST-50; LATE_CAS):
+# a checkpoint write's answer times out in flight, the read-back finds it
+# unchanged, it lands later and GC deletes by it. slowSafety includes
+# noGapStall. designSlow* have the step too (above, and the MBT replays them).
+sim $C designLate slowSafety 5000 60 ok
+for w in wLateLanded wLateTaken; do sim $C designLate "not($w)" 20000 60 VIOLATED; done
+sim $C designSlow "not(wLateLanded)" 20000 60 VIOLATED
+sim $C lateCkptLost noGapStall 20000 60 VIOLATED
+sim $C lateCkptLost safety 5000 60 ok
+for m in designLate designSlow designSlowQuiet; do runs $m lateCkptDesignTest all-pass; done
+runs lateCkptLost lateCkptLostBreaksTest all-pass
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

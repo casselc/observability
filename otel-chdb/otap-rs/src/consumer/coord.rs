@@ -676,6 +676,16 @@ impl CkptDoc {
     pub fn bumped(&self, lease_epoch: u64) -> CkptDoc {
         CkptDoc { lease_epoch, version: self.version + 1, ..self.clone() }
     }
+
+    /// Is this stored checkpoint a write of ours that landed after we gave
+    /// up on it (no answer, then a read-back that showed `held` unchanged)?
+    /// Written under our lease epoch `lease_epoch` (a takeover writes a
+    /// higher one) and a later version than `held`. The worker takes it
+    /// (`refresh_own_ckpt`) rather than scan from `held` while GC deletes
+    /// by it (STPA.md CAST-50; ../../model/s3InlineConsumer.qnt `wRefresh`).
+    pub fn ours_landed_late(&self, lease_epoch: u64, held: &CkptDoc) -> bool {
+        self.lease_epoch == lease_epoch && self.version > held.version
+    }
 }
 
 // ---- lane names and keys ---------------------------------------------------------

@@ -14,7 +14,7 @@ on:
           query-integration, query-kms-emulator, hdxadapter-integration,
           lakeui-e2e, lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak,
           rust-integration, dst, hegel, rust-mbt (or mbt_s3inline,
-          mbt_s3inline_metrics, mbt_s3inline_consumer), model, kani, chdb,
+          mbt_s3inline_metrics, mbt_s3inline_consumer), model, model-open, kani, chdb,
           upstream-patches, edge-dst, fuzz. A job that needs the build's binaries brings build.
         default: all
       soak_seconds:
@@ -69,7 +69,7 @@ jobs:
           import json, os
           jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
                   "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
-                  "faults-soak", "rust-integration", "dst", "hegel", "model", "kani", "chdb",
+                  "faults-soak", "rust-integration", "dst", "hegel", "model", "model-open", "kani", "chdb",
                   "upstream-patches", "edge-dst", "fuzz"]
           mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
           # the jobs that download the build job's `bin` artifact
@@ -1125,6 +1125,61 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
+  # The open-ended model nightly (ci/model-open.sh; VERIFICATION.md §7 P1, ci/README.md
+  # "model-open"): the models no other job runs (open_models.sh, s3Native, partLifetime, the
+  # fastPath sweep), the consumer designs at 4x the model job's samples and wider instances, and
+  # Apalache bounded runs, with a new seed each night (printed first in the report). The work is
+  # sized at about 2 h; the script starts no new row after BUDGET_MIN and bounds each
+  # simulation and Apalache run, so the job ends well inside its limit.
+  model-open:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['model-open']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      # Apalache (a JVM) and quint's traces are memory, not disk, but the runner's unused SDKs
+      # (~20 GB) go first all the same: CAST row 68.
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.quint
+          key: quint-${{ runner.os }}-${{ env.QUINT_VERSION }}
+      - name: Install quint and its Rust evaluator (and bc for the reports' timings); Java for Apalache
+        run: |
+          ci/install-quint.sh
+          command -v bc || { sudo apt-get update -q && sudo apt-get install -y -q bc; }
+          java -version
+      - name: ci/model-open.sh
+        env:
+          OUT_DIR: ${{ runner.temp }}/model-open
+          BUDGET_MIN: "170"
+          JVM_ARGS: -Xmx4g
+        run: ci/model-open.sh
+      - name: Traceability records (open models, ci/trace/models.txt)
+        if: always()
+        run: python3 ci/trace/trace.py model --script model_open --report "$RUNNER_TEMP/model-open/model-open.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: model-open
+          path: ${{ runner.temp }}/model-open
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-model-open
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
   # Kani proofs of the consumer's lease window and check range
   # (otap-rs/VERIFY.md): every harness in otap-rs/verify, one at a time,
   # ~20 min; the largest peaks near 6 GB. The mutant harnesses
@@ -1385,7 +1440,7 @@ jobs:
   traceability:
     name: traceability (tagged tests ran and passed at this commit)
     needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, lakeui-e2e,
-            lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, kani,
+            lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, model-open, kani,
             chdb, upstream-patches, edge-dst, fuzz]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04

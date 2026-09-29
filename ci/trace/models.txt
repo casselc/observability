@@ -1,5 +1,6 @@
 # Quint model checks as traceability records (ci/trace/trace.py model).
 #   jobs | script | name | regex over the script's report lines | technique | ids
+# (The regex may contain `|`: it is everything between the third bar and the second-to-last.)
 # After a script runs, `trace.py model --script <script> --report <its report>` writes one record
 # per entry: passed when every matching line has the result it expects (`sim ... X (expect X)`,
 # `runs ... passed N>0 failed 0`), skipped when a random simulation did not reach an expected
@@ -15,3 +16,24 @@ nightly:model | consumer_model | noHorizonBreaksTest | ^runs +noHorizon +noHoriz
 nightly:model | retirement_model | closeZombieBreaksTest | ^runs +closeUnsealed +closeZombieBreaksTest  | MS | CAST-47 H-4
 nightly:model | retirement_model | opMistakeQuarantinesTest | ^runs +opMistake +opMistakeQuarantinesTest  | MS | CAST-44 H-4 R-S1
 nightly:model | retirement_model | opMistake stable | ^sim +opMistake +stable  | M | CAST-44 H-4 R-S1
+# CAST-50: a checkpoint write applied after the reader's check (LATE_CAS; model/s3InlineConsumer.qnt).
+nightly:model | consumer_model | lateCkptLostBreaksTest | ^runs +lateCkptLost +lateCkptLostBreaksTest  | MS,MN | CAST-50 H-2
+nightly:model | consumer_model | lateCkptDesignTest | ^runs +(designLate|designSlow|designSlowQuiet) +lateCkptDesignTest  | MS,MN | CAST-50 H-2
+nightly:model | consumer_model | designLate slowSafety | ^sim +s3InlineConsumer\.qnt +designLate +slowSafety  | MN | CAST-50 H-2
+# The open-ended model nightly (ci/model-open.sh). Design rows and scripted runs only: a random
+# mutant miss, and an Apalache run that reaches its time limit, are unknowns, not evidence.
+nightly:model-open | model_open | completenessDesign safety | ^sim +completeness\.qnt +completenessDesign +safety  | M | H-2 H-4 H-5 LS-6 LS-7 LS-8 CAST-21
+nightly:model-open | model_open | completeness mutants (scripted) | ^runs +completeness\.qnt +(listTimeIdle|lastReceived|maxNotPrefix|noBirth|evalPastComplete|noDataOk|unlabeledFallback|scopeMax|clusterSplit)  | MS | H-2 H-4 H-5 LS-6 LS-7 LS-8
+nightly:model-open | model_open | catalogDesign safety | ^sim +entityCatalog\.qnt +catalogDesign +safety  | M | H-3 LS-5
+nightly:model-open | model_open | entityCatalog mutants (scripted) | ^runs +entityCatalog\.qnt +(noAnnounce|announceEarly|sameObjectEarly|shortGrace)  | MS | H-3 LS-5
+nightly:model-open | model_open | retentionDesign safety | ^sim +retention\.qnt +retentionDesign +safety  | M | H-1 LS-10
+nightly:model-open | model_open | retention mutants (scripted) | ^runs +retention\.qnt +(retentionShort|cutDuringOutage|capSized)  | MS | H-1 LS-10
+nightly:model-open | model_open | sealerDesign safety | ^sim +sealer\.qnt +sealerDesign +safety  | M | H-2
+nightly:model-open | model_open | sealer mutants (scripted) | ^runs +sealer\.qnt +(blindCommit|noRebase|wmFromList|noDedup)  | MS | H-2
+nightly:model-open | model_open | s3NativeDesign safety | ^sim +s3Native\.qnt +s3NativeDesign +safety  | M | H-1 H-2
+nightly:model-open | model_open | s3Native scenarios | ^runs +s3Native_test\.qnt  | MS | H-1 H-2
+nightly:model-open | model_open | partLifetime designs | ^sim +partLifetime\.qnt +(lifetimeSafe|proposedLifecycle)  | M | H-2
+nightly:model-open | model_open | partLifetime scenarios | ^runs +partLifetime_test\.qnt  | MS | H-2
+nightly:model-open | model_open | fastPath designs | ^sim +fastPath\.qnt +(recommended|recommendedNoFastPath|recommendedNoWait|happyPath) +\S+ .*\(expect ok\)  | M | H-1 H-2
+nightly:model-open | model_open | consumer designs, long | ^sim +(s3InlineConsumer|s3InlineConsumerCompact)\.qnt +\S+ +\S+ +20000 x 100  | M | H-1 H-2
+nightly:model-open | model_open | consumer, wider instances | ^sim +openInstances\.qnt  | M | H-1 H-2

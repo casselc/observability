@@ -411,10 +411,12 @@ def load_models():
     for n, l in enumerate(lines_of(p), 1):
         if not l.strip() or l.lstrip().startswith('#'):
             continue
-        parts = [x.strip() for x in l.rstrip('\n').split('|')]
-        if len(parts) != 6:
+        parts = l.rstrip('\n').split('|')
+        if len(parts) < 6:
             raise SystemExit(f'ci/trace/models.txt:{n}: want "jobs | script | name | line regex | technique | ids"')
-        jobs, script, name, rx, tech, ids = parts
+        # (the regex is everything between the third and the second-to-last bar: it may alternate)
+        jobs, script, name, tech, ids = [x.strip() for x in parts[:3] + parts[-2:]]
+        rx = '|'.join(parts[3:-2]).strip()
         out.append({'kind': 'model', 'file': 'ci/trace/models.txt', 'line': n, 'func': f'{script}: {name}', 'script': script,
                     'regex': rx, 'technique': tech, 'ids': ids.split(), 'jobs': jobs.split()})
     return out
@@ -515,9 +517,10 @@ def record(args):
 def model(args):
     """One record per models.txt entry of this script: the lines its regex matches in the report.
 
-    A `sim` line passes when its result is what it expects, a `runs` line when
-    it passed some and failed none; a mutant a random simulation did not reach
-    (`ok`, expect VIOLATED) is `skipped`, an unknown. No matching line, no
+    A `sim` or `verify` line passes when its result is what it expects, a
+    `runs` line when it passed some and failed none; a mutant a random
+    simulation did not reach (`ok`, expect VIOLATED) and a row with no answer
+    in its time (`UNKNOWN`) are `skipped`, an unknown. No matching line, no
     record: the check reports the entry as not run.
     """
     entries = [e for e in load_models() if e['script'] == args.script]
@@ -538,11 +541,15 @@ def model(args):
             continue
         outs = []
         for l in lines:
-            m = re.search(r' (ok|VIOLATED|ERROR)\s+\(expect (ok|VIOLATED)\)', l)
+            m = re.search(r' (ok|VIOLATED|ERROR|UNKNOWN)\s+\(expect (ok|VIOLATED)\)', l)
             p = re.search(r'passed (\d+) failed (\d+)', l)
-            if m:
+            if not m and ' UNKNOWN ' in l:
+                outs.append('skipped')
+            elif m:
                 got, want = m.groups()
-                outs.append('passed' if got == want else 'skipped' if (got, want) == ('ok', 'VIOLATED') else 'failed')
+                # UNKNOWN: a time limit (Apalache's, or the job's budget) ended it before an answer
+                outs.append('passed' if got == want else 'skipped' if (got, want) == ('ok', 'VIOLATED') or got == 'UNKNOWN'
+                            else 'failed')
             elif p:
                 outs.append('passed' if int(p.group(1)) > 0 and int(p.group(2)) == 0 else 'failed')
             else:

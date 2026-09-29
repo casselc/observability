@@ -404,7 +404,7 @@ under the heavy-job lock, which should be avoided where GH can run it.
 
 | P | Gap | Hazards / rows | Work | Effort | Where |
 |---|---|---|---|---|---|
-| **1** | Seven models are checked in no workflow: `completeness`, `entityCatalog`, `retention`, `sealer` (`open_models.sh`, 82 rows), `s3Native`, `fastPath`, `partLifetime` | H-1, H-2, H-4, H-3; #21, LS-5..8, LS-10 | a `model-open` job running `open_models.sh` (the same fail and warn rules as `ci/model-check.sh`), `fastpath/run_model.sh`, and the s3Native / partLifetime runs from model/README | S | GH nightly (`model-open`) |
+| **1** | Seven models are checked in no workflow: `completeness`, `entityCatalog`, `retention`, `sealer` (`open_models.sh`, 82 rows), `s3Native`, `fastPath`, `partLifetime`. **Done 2026-09-29**: nightly `model-open` (`ci/model-open.sh`) runs all seven with a new seed each night, the consumer designs at 4× the `model` job's samples plus wider instances (`model/openInstances.qnt`), and Apalache bounded runs; judged by `ci/model-verdict.sh`, the `model` job's rules | H-1, H-2, H-4, H-3; #21, LS-5..8, LS-10 | a `model-open` job running `open_models.sh` (the same fail and warn rules as `ci/model-check.sh`), `fastpath/run_model.sh`, and the s3Native / partLifetime runs from model/README | S | GH nightly (`model-open`) |
 | **2** | No automated mutation analysis; boundary mutants are planted only after a bug | H-2, H-4; #26, #34 class | cargo-mutants over `consumer/{coord,plan,watermark,retire}.rs` with the unit + Hegel `ci` profile; a Go mutator over `query/internal/{completeness,basis,lake}`, `alerts/internal/engine` (tool → go-verification); a surviving mutant becomes a property or an accepted-equivalent note | M | GH nightly (`mutants`, weekly, sharded) |
 | **3** | No fuzzing of any parser facing less-trusted text. **Go part done 2026-09-29** (targets for sqlscope, hdxadapter, rwproxy, the aggregator, basis, the ingress; nightly `fuzz`); `cargo fuzz` still open | H-6, H-3, H-2; #7, #24, SEC-7, R-S9 | Go native `Fuzz*` for `sqlscope` (parse → rebuild → re-parse is a fixed point, scope never widens), `hdxadapter` param decoder (differential against ClickHouse when `HEGEL_CH`-like env set), `rwproxy`, the aggregator's key and NDJSON parsing, `basis` token decode; `cargo fuzz` for OTAP/CBOR decode and `Slot::from_meta`; seed each from the hostile generators | M | GH nightly (`fuzz`, 10 min per target, corpus in the Actions cache like `hegel-db`) |
 | **4** | The Go edge has no deterministic simulation (#39 was found by a goroutine dump); `lanes: N` in parallel, heartbeats vs the lane mutex, slow S3. **Done 2026-09-29**: `parquetgo/dst` with synctest (PR 24 seeds, nightly `edge-dst`); heartbeats are not driven by it yet | H-1, H-2, H-7; #14/#39 class | a DST of `parquetgo/commit` + `edge` with lost and late answers and a liveness rule; tool → go-verification (`testing/synctest` is the obvious candidate to evaluate) | M | PR (fixed seeds) + GH nightly (new seeds) |
@@ -468,6 +468,17 @@ or it is listed there: the row's author adds one or the other with the row.
 The first slice tags every CAST row's regression test that exists and the model
 runs that pin CAST mutants; tagging the rest of §3's evidence closes the
 "evidence exists, not yet tagged" lines of known-gaps.txt.
+
+**Model evidence (2026-09-29).** The nightly `model-open` job (§7 P1) is traced
+through `ci/trace/models.txt` (script `model_open`): the design rows of each
+open model, the fastPath designs, the long and wide consumer runs (M) and the
+scripted mutant runs (MS), for H-1, H-2, H-3, H-4 and H-5 with LS-5..8, LS-10
+and #21; this closes the H-1, H-2, H-3 and H-5 × M lines of known-gaps.txt.
+CAST-50's model step (`s3InlineConsumer.qnt`, LATE_CAS: `lateCkptLostBreaksTest`,
+`lateCkptDesignTest`, `designLate`) is tagged MS/MN in the `model` job and
+closes H-2 × MN. Apalache rows and random mutant simulations are not tagged:
+a run that reaches its time limit (UNKNOWN, recorded skipped) or a mutant
+simulation does not reach is an unknown, not evidence.
 
 ## Appendix A: tool inventory per module
 

@@ -178,6 +178,36 @@ class Model(unittest.TestCase):
         self.assertEqual(got['consumer_model: keeperOverrunBreaksTest'], 'failed')
         self.assertNotIn('consumer_model: errorSettlesBreaksTest', got, 'no line, no record')
 
+    def test_open_model_rows_alternate_and_unknowns_are_skipped(self):
+        report = '\n'.join([
+            'sim   fastPath.qnt  recommended  safety  2000 x 40  ok       (expect ok)',
+            'sim   fastPath.qnt  happyPath    batchIngestedAtMostOnce  2000 x 40  ok       (expect ok)',
+            'sim   fastPath.qnt  tokenOnly    batchIngestedAtMostOnce  2000 x 40  ok       (expect VIOLATED)',
+            'sim   retention.qnt retentionDesign safety 20000 x 50 UNKNOWN  (expect ok) 0s',
+            'runs  sealer.qnt    blindCommit  blindCommitBreaksTest  UNKNOWN (expect all-pass) budget',
+        ])
+        got = self.outcomes('model_open', report)
+        self.assertEqual(got['model_open: fastPath designs'], 'passed', 'an alternation in the regex, mutant rows not matched')
+        self.assertEqual(got['model_open: retentionDesign safety'], 'skipped')
+        self.assertEqual(got['model_open: sealer mutants (scripted)'], 'skipped')
+
+    def outcomes(self, script, report):
+        with tempfile.TemporaryDirectory() as d:
+            rp, out = os.path.join(d, 'r.txt'), os.path.join(d, 't.jsonl')
+            with open(rp, 'w') as f:
+                f.write(report)
+            old = os.environ.get(tr.ENV)
+            os.environ[tr.ENV] = out
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    tr.model(argparse.Namespace(script=script, report=rp))
+            finally:
+                if old is None:
+                    del os.environ[tr.ENV]
+                else:
+                    os.environ[tr.ENV] = old
+            return {json.loads(l)['test']: json.loads(l)['outcome'] for l in tr.lines_of(out) if l}
+
 
 if __name__ == '__main__':
     unittest.main()

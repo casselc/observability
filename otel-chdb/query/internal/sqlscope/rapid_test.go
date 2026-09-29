@@ -143,8 +143,13 @@ func literals(sql string) []string {
 //     function or SETTINGS, carries a filter for every table it reads, and
 //     keeps every string literal byte for byte.
 func TestRewriteProperties(t *testing.T) {
-	p := testPolicy(t)
-	rapid.Check(t, func(rt *rapid.T) {
+	rapid.Check(t, rewriteProperty(testPolicy(t)))
+}
+
+// rewriteProperty is TestRewriteProperties' property, shared with
+// FuzzRewriteProperties (coverage-guided choices through rapid.MakeFuzz).
+func rewriteProperty(p *Policy) func(*rapid.T) {
+	return func(rt *rapid.T) {
 		g := &gen{t: rt}
 		sql := g.query(nil)
 		pr, err := p.Prepare(sql)
@@ -190,7 +195,7 @@ func TestRewriteProperties(t *testing.T) {
 		if strings.Join(in, "\x00") != strings.Join(out, "\x00") {
 			rt.Fatalf("string literals changed:\n in %q\nout %q", in, out)
 		}
-	})
+	}
 }
 
 // TestScopeValueProperty: whatever a token carries as a cluster name, the

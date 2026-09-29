@@ -48,7 +48,7 @@ type rig struct {
 	logs  []string
 }
 
-func newRig(t *testing.T, producer string, is *entratest.Issuer, st *commit.MemStore, lim *Limits) *rig {
+func newRig(t testing.TB, producer string, is *entratest.Issuer, st *commit.MemStore, lim *Limits) *rig {
 	t.Helper()
 	if is == nil {
 		is = entratest.New()

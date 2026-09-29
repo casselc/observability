@@ -340,5 +340,8 @@ func Bearer(h string) (string, bool) {
 	if len(h) <= len(p) || !strings.EqualFold(h[:len(p)], p) {
 		return "", false
 	}
-	return strings.TrimSpace(h[len(p):]), true
+	// "Bearer " and blanks is no token (FuzzBearer): refused here, as a
+	// missing header is, rather than handed to Verify.
+	tok := strings.TrimSpace(h[len(p):])
+	return tok, tok != ""
 }

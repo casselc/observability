@@ -268,3 +268,22 @@ func TestMetadataScope(t *testing.T) {
 		}
 	}
 }
+
+// D35 (3): a recovered table keeps its main table's scope and columns;
+// metadata tables have none.
+func TestRecoveredTables(t *testing.T) {
+	in := []*Table{
+		{Database: "otel", Name: "otel_logs", TimeColumn: "Timestamp", Scope: "columns", Cluster: "c", Namespace: "n", ReceivedColumn: "received_at", Signals: []string{"logs"}},
+		{Database: "otel", Name: "otel_traces", Scope: "catalog", ResourceID: "resource_id"},
+		{Database: "system", Name: "tables", Scope: "metadata"},
+	}
+	out := RecoveredTables(in)
+	if len(out) != 2 || out[0].Name != "otel_logs_recovered" || out[0].Cluster != "c" || out[0].ReceivedColumn != "received_at" ||
+		out[0].Signals[0] != "logs" || out[1].Name != "otel_traces_recovered" || out[1].ResourceID != "resource_id" {
+		t.Fatalf("%+v", out)
+	}
+	out[0].Signals[0] = "x"
+	if in[0].Signals[0] != "logs" {
+		t.Fatal("a copy, not an alias")
+	}
+}

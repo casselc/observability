@@ -1522,7 +1522,10 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   that died without a close is retired by the operator: `consume
   retire-lane --lane … --volume-deleted --evidence "…"` (refuses unless the
   lane wrote nothing for `--zombie` and the consumer passed every slot it
-  shows; `../deploy/runbooks/scale-down.md` §A lost node).
+  shows; `../deploy/runbooks/scale-down.md` §A lost node). `consume admit
+  --ch … --db … [--lane …]` puts quarantined objects into
+  `{table}_recovered`, never the main tables, and reports the windows and
+  published values they fall below; GC keeps quarantined objects.
 - **Leases** (`coord.rs`, sans-IO). A lease has a fencing epoch (+1 per
   change of owner) and a TTL. Expiry is judged on the observer's own
   monotonic clock: a lease whose ETag it has seen unchanged for

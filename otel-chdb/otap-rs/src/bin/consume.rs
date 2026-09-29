@@ -24,6 +24,9 @@
 //!           [--zombie 10m] [--dry-run]
 //!           (D35: a lane whose publisher died without a close; ../../FORMAT.md §3.1; refuses unless the volume is
 //!           attested deleted, the lane wrote nothing for --zombie, and the consumer has passed every slot it shows)
+//!   consume admit --s3 ... [--ctl PREFIX] --ch URL --db DB [--lane CLUSTER/PRODUCER/SIGNAL] [--dry-run]
+//!           (D35: quarantined objects into {table}_recovered, never the main tables; reports the event windows
+//!           and the published complete_through values they fall below)
 //!   consume watermark --s3 ... [--ctl PREFIX] [--every 5s --run-for 10m] [--depth 3 --wm-skew 5s --wm-stale 5m]
 //!           (complete_through alone: {ctl}/watermark.json and {ctl}/watermark/{cluster}.json, ../../FORMAT.md §3, D29)
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
@@ -405,6 +408,49 @@ async fn main() {
             }
             Err(e) => {
                 eprintln!("consume retire-lane: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    // D35 (3): quarantined objects into the recovered tables (never the
+    // main ones), with the report of what they would have changed. Exit 0:
+    // done (the report on stdout); 1: an error.
+    if sub == Some("admit") {
+        let Some(db) = arg(&args, "--db") else {
+            eprintln!("consume admit: --db is required (the recovered tables sit beside its main tables)");
+            std::process::exit(2);
+        };
+        let ch_url = arg(&args, "--ch").unwrap_or("http://127.0.0.1:18123".into());
+        let mut central = ClickHouseCentral::new(&ch_url, &db, bucket.clone(), "", "", opt_ms(&args, "--timeout", "120s"));
+        central.s3_auth = ch_s3_auth;
+        let dry = flag(&args, "--dry-run");
+        let lane = arg(&args, "--lane");
+        match consumer::retire::admit(&*bucket, &central, &ctl, lane.as_deref(), dry, consumer::wall_ms()).await {
+            Ok(r) => {
+                println!("{}", serde_json::to_string_pretty(&r).expect("json"));
+                for w in &r.windows {
+                    let t = |ns: u64| format!("{}.{:09}", ns / 1_000_000_000, ns % 1_000_000_000);
+                    eprintln!(
+                        "consume admit: {}/{}: {} objects, {} rows {} {}; event time {} .. {} ({} hours); received {} .. {}; published values above them now: {}",
+                        w.cluster,
+                        w.signal,
+                        w.objects,
+                        w.rows,
+                        if dry { "would go to" } else { "in" },
+                        w.table,
+                        t(w.event_from_ns),
+                        t(w.event_to_ns),
+                        w.hours_total,
+                        t(w.received_from_ns),
+                        t(w.received_to_ns),
+                        w.bases_now.iter().map(|b| format!("{} {}", b.scope, t(b.complete_through_ns))).collect::<Vec<_>>().join(", ")
+                    );
+                }
+                eprintln!("consume admit: {} admitted, {} already, {} gone from S3. {}", r.admitted, r.already, r.missing.len(), r.note);
+            }
+            Err(e) => {
+                eprintln!("consume admit: {e}");
                 std::process::exit(1);
             }
         }

@@ -83,6 +83,30 @@ type Policy struct {
 	Dictionaries map[string]*Dictionary
 }
 
+// RecoveredSuffix names a table's recovered table (DECISIONS.md D35 (3),
+// FORMAT.md §3.1): the rows `consume admit` took out of the quarantine,
+// never in the main table.
+const RecoveredSuffix = "_recovered"
+
+// RecoveredTables returns, for each served table that holds telemetry (not
+// a metadata table), its recovered table: the same scope, time and received
+// columns and signals, named {name}_recovered. A policy of these alone is
+// what a request that asks for recovered rows is checked against, so it can
+// name only recovered tables, and a request that does not ask can name
+// none of them.
+func RecoveredTables(tables []*Table) []*Table {
+	var out []*Table
+	for _, t := range tables {
+		if t.Scope == "metadata" {
+			continue
+		}
+		out = append(out, &Table{Database: t.Database, Name: t.Name + RecoveredSuffix, TimeColumn: t.TimeColumn, Scope: t.Scope,
+			Cluster: t.Cluster, Namespace: t.Namespace, ResourceID: t.ResourceID, ReceivedColumn: t.ReceivedColumn,
+			Signals: append([]string(nil), t.Signals...)})
+	}
+	return out
+}
+
 // NewPolicy parses each table's configured expressions (trusted config).
 func NewPolicy(defaultDB string, tables []*Table, maxSQL int) (*Policy, error) {
 	p := &Policy{DefaultDatabase: defaultDB, Tables: map[string]*Table{}, MaxSQLBytes: maxSQL}

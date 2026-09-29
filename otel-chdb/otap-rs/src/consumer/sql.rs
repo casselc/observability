@@ -716,6 +716,93 @@ impl<B: Bucket> ClickHouseCentral<B> {
     }
 }
 
+// ---- the recovered tables (D35 (3), `consume admit`) ---------------------------------
+
+/// A recovered table is its main table's name plus this.
+pub const RECOVERED_SUFFIX: &str = "_recovered";
+/// The columns a recovered table has beside its main table's.
+pub const RECOVERED_COLUMNS: [&str; 3] =
+    ["recovered_at DateTime64(3, 'UTC') DEFAULT now64(3)", "retired_lane LowCardinality(String) DEFAULT ''", "quarantine_ref String DEFAULT ''"];
+
+/// Where `consume admit` puts a quarantined object's rows: a recovered
+/// table, never the main one (`../../FORMAT.md` §3.1).
+#[async_trait(?Send)]
+pub trait Recover {
+    /// The recovered table of this lane kind (`{main}_recovered`).
+    fn recovered_table(&self, k: &LaneKind) -> String;
+    /// Inserts the object's rows into the recovered table, with
+    /// `retired_lane` and `quarantine_ref` (the slot's key), idempotent by
+    /// content key: nothing when the table already holds its rows. Returns
+    /// the rows the table holds for it after.
+    async fn admit(&self, k: &LaneKind, obj: &Obj, lane: &str) -> Result<u64, String>;
+}
+
+impl<B: Bucket> ClickHouseCentral<B> {
+    fn recovered_fq(&self, k: &LaneKind) -> String {
+        format!("{}{RECOVERED_SUFFIX}", self.fq(k))
+    }
+
+    /// `CREATE TABLE {main}_recovered AS {main}` (structure, engine,
+    /// partition key and projections; no materialized view reads it), plus
+    /// `RECOVERED_COLUMNS`.
+    pub async fn ensure_recovered(&self, k: &LaneKind) -> Result<(), String> {
+        self.ensure(k).await?;
+        let fq = self.recovered_fq(k);
+        let _ = self.q(&format!("CREATE TABLE IF NOT EXISTS {fq} AS {}", self.fq(k)), &[]).await?;
+        let adds: Vec<String> = RECOVERED_COLUMNS.iter().map(|c| format!("ADD COLUMN IF NOT EXISTS {c}")).collect();
+        let _ = self.q(&format!("ALTER TABLE {fq} {}", adds.join(", ")), &[]).await?;
+        Ok(())
+    }
+
+    async fn recovered_rows(&self, fq: &str, content: &str) -> Result<u64, String> {
+        let n = self.q(&format!("SELECT count() FROM {fq} WHERE content_key = {}", sq(content)), &[]).await?;
+        n.trim().parse().map_err(|e| format!("{fq} count: {e}: {n}"))
+    }
+}
+
+#[async_trait(?Send)]
+impl<B: Bucket> Recover for ClickHouseCentral<B> {
+    fn recovered_table(&self, k: &LaneKind) -> String {
+        self.recovered_fq(k)
+    }
+
+    async fn admit(&self, k: &LaneKind, obj: &Obj, lane: &str) -> Result<u64, String> {
+        if !k.counted {
+            return Err(format!("{}: not a counted table (series objects are never quarantined)", k.table));
+        }
+        self.ensure_recovered(k).await?;
+        let fq = self.recovered_fq(k);
+        let have = self.recovered_rows(&fq, &obj.content).await?;
+        if have >= obj.rows && obj.rows > 0 {
+            return Ok(have);
+        }
+        if have > 0 {
+            return Err(format!(
+                "{fq} holds {have} of {} rows of {}: a partial earlier admit; remove them (ALTER TABLE {fq} DELETE WHERE content_key = {}) and admit again",
+                obj.rows,
+                obj.content,
+                sq(&obj.content)
+            ));
+        }
+        self.s3_creds().await.map_err(|e| e.msg)?;
+        let src = self.source(k, &[obj.key.as_str()]);
+        let (lc, lv) = if self.writes_late_part(k) { (format!(", {LATE_PART_COLUMN}"), format!(", toUInt8({})", obj.late as u8)) } else { Default::default() };
+        let sql = format!(
+            "INSERT INTO {fq} ({}, content_key{lc}, recovered_at, retired_lane, quarantine_ref) SELECT {}, {}{lv}, now64(3), {}, {} FROM {src}",
+            k.cols,
+            k.select,
+            sq(&obj.content),
+            sq(lane),
+            sq(&obj.key)
+        );
+        let token = format!("admit-{}", obj.content);
+        let mut st: Vec<(&str, &str)> = ONE_BLOCK.to_vec();
+        st.extend_from_slice(&[("insert_deduplication_token", token.as_str()), ("insert_deduplicate", "1"), ("deduplicate_insert_select", "force_enable")]);
+        let _ = self.q(&sql, &st).await.map_err(|e| self.redact(&e))?;
+        self.recovered_rows(&fq, &obj.content).await
+    }
+}
+
 #[async_trait(?Send)]
 impl<B: Bucket> Central for ClickHouseCentral<B> {
     async fn ensure(&self, k: &LaneKind) -> Result<(), String> {
@@ -878,6 +965,10 @@ pub struct MemCentral {
     /// (table, content key, late).
     pub mixed_statements: Cell<u64>,
     pub by_part: RefCell<BTreeMap<(String, String, bool), u64>>,
+    /// The recovered tables (`consume admit`): (table, content key) -> rows,
+    /// and the admits applied.
+    pub recovered: RefCell<BTreeMap<(String, String), u64>>,
+    pub admits: Cell<u64>,
 }
 
 impl MemCentral {
@@ -920,6 +1011,23 @@ impl MemCentral {
             let d = recv[(i as usize) % recv.len()] / DAY_NS;
             *self.by_day.borrow_mut().entry((table.to_string(), o.content.clone(), d)).or_default() += 1;
         }
+    }
+}
+
+#[async_trait(?Send)]
+impl Recover for MemCentral {
+    fn recovered_table(&self, k: &LaneKind) -> String {
+        format!("{}{RECOVERED_SUFFIX}", k.table)
+    }
+    async fn admit(&self, k: &LaneKind, obj: &Obj, _lane: &str) -> Result<u64, String> {
+        let key = (self.recovered_table(k), obj.content.clone());
+        let mut r = self.recovered.borrow_mut();
+        let have = r.entry(key).or_insert(0);
+        if *have == 0 {
+            *have = obj.rows;
+            self.admits.set(self.admits.get() + 1);
+        }
+        Ok(*have)
     }
 }
 

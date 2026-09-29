@@ -65,10 +65,13 @@ func (l Limits) For(p *auth.Principal) central.Limits {
 
 // Server is the service.
 type Server struct {
-	Verifier  TokenVerifier
-	Mapping   *auth.Mapping
-	Audit     audit.Sink
-	Policy    *sqlscope.Policy
+	Verifier TokenVerifier
+	Mapping  *auth.Mapping
+	Audit    audit.Sink
+	Policy   *sqlscope.Policy
+	// Recovered is the policy of the recovered tables (D35 (3)): a request
+	// with "recovered": true is checked against it alone; nil: refused.
+	Recovered *sqlscope.Policy
 	Central   Querier
 	Catalog   *catalog.Catalog // nil: none configured
 	Planner   *lake.Planner    // nil: no lake
@@ -396,6 +399,13 @@ type QueryRequest struct {
 	// completeness "sample" and how much was read. For suggestion lists
 	// (HyperDX typeahead), never for a count, a chart or an alert.
 	Sample *SampleRequest `json:"sample"`
+	// Recovered asks for the recovered tables (D35 (3): rows `consume
+	// admit` took out of a quarantine, below a retired lane's bound): the
+	// statement may then name only {table}_recovered tables, and the answer
+	// is labelled source "recovered", outside complete_through (completeness
+	// "unknown"). Without it, no recovered table can be named: the two are
+	// never mixed. Not with basis, basis_from or sample.
+	Recovered bool `json:"recovered"`
 }
 
 // SampleRequest is a sample's bound: Rows (default: the service's
@@ -548,7 +558,20 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 		perf[k] = val
 	}
-	pr, err := s.Policy.Prepare(body.SQL)
+	pol := s.Policy
+	if body.Recovered {
+		switch {
+		case s.Recovered == nil:
+			deny(http.StatusBadRequest, "recovered_unavailable", "this service serves no recovered tables (central.recovered)", base)
+			return
+		case body.Basis != "" || body.BasisFrom != "" || body.Sample != nil:
+			deny(http.StatusBadRequest, "recovered_alone", "recovered rows are outside every basis and are not sampled: no basis, basis_from or sample with recovered", base)
+			return
+		}
+		pol = s.Recovered
+		base.Detail = "recovered"
+	}
+	pr, err := pol.Prepare(body.SQL)
 	if err != nil {
 		rj, _ := sqlscope.AsRejection(err)
 		deny(rejectionCode(rj.Reason), rj.Reason, rj.Detail, base)
@@ -730,6 +753,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			ans.BasisFrom, ans.BasisFromInfo = &ft, rbFrom.b.View()
 			delta = s.countDelta(r.Context(), res, limits, rq.id, comment)
 		}
+	} else if body.Recovered {
+		label = RecoveredLabel(maxLate)
 	} else {
 		label = completeness.MakeLabel("central", wm, window, s.Now(), s.Watermark.Key(), p.MayCluster, maxLate)
 		if b, ok := mintFrom(wm, ls, maxLate, s.Now()); ok && s.Bases != nil {
@@ -747,6 +772,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			ReachedBound: sum.ReadRows >= sampleBound, DataCompleteness: label.Completeness}
 		label.Completeness, label.Partial = "sample", true
 		s.Metrics.Inc("qs_samples_total", strconv.FormatBool(sample.ReachedBound))
+	} else if body.Recovered {
+		late = LateInfo{MaxLatenessS: maxLate.Seconds(), Status: "recovered"}
 	} else {
 		late = s.countLate(r.Context(), res, window, limits, rq.id, comment, maxLate)
 	}
@@ -763,11 +790,21 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			RowsRead: sum.ReadRows, ElapsedMs: outcome.ElapsedMs}}
 	outcome.Status = http.StatusOK
 	s.write(outcome)
-	s.Metrics.Inc("qs_results_total", "central", label.Completeness)
+	s.Metrics.Inc("qs_results_total", label.Source, label.Completeness)
 	if late.Rows != nil && *late.Rows > 0 {
-		s.Metrics.Inc("qs_late_results_total", "central", label.Completeness)
+		s.Metrics.Inc("qs_late_results_total", label.Source, label.Completeness)
 	}
 	s.reply(w, ep, http.StatusOK, resp)
+}
+
+// RecoveredLabel labels an answer over the recovered tables (D35 (3)):
+// source "recovered", outside complete_through (its rows were quarantined
+// below a retired lane's bound, then admitted by an operator), so
+// completeness "unknown", with the reason in the watermark's note.
+func RecoveredLabel(maxLate time.Duration) completeness.Label {
+	return completeness.Label{Source: "recovered", MaxLatenessS: maxLate.Seconds(), Completeness: "unknown", Partial: true,
+		Watermark: completeness.WmInfo{Status: "not_applicable", Note: "recovered rows (consume admit, D35) were quarantined below a retired lane's bound: " +
+			"complete_through says nothing about them, and they are not in the main tables"}}
 }
 
 // countLate counts the late rows of a statement's tables, in its window and

@@ -86,6 +86,9 @@ pub struct GcReport {
     /// Records (retired epochs, delete positions) forgotten this run.
     pub records_pruned: usize,
     pub cas_conflict: bool,
+    /// Quarantined objects below the horizon kept (D35: the quarantine's
+    /// evidence and `consume admit`'s source).
+    pub kept_quarantined: usize,
 }
 
 /// The newest mark at least `age_ms` old at `now`.
@@ -173,6 +176,10 @@ pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Res
     rep.lanes = mark.lanes.len();
     doc.marks.push(mark);
     let h = horizon(&doc.marks, now, cfg.delay_ms).cloned();
+    // Quarantined objects are never deleted (../../FORMAT.md §3.1): read
+    // after the marks, so every record written before a mark's checkpoint
+    // passed its slot is seen.
+    let keep = super::retire::quarantined_keys(b, &cfg.ctl).await?;
     let z = horizon(&doc.marks, now, cfg.zombie_ms).cloned();
     rep.horizon_age_ms = h.as_ref().map(|m| now - m.wall_ms);
     if let Some(h) = &h {
@@ -195,7 +202,10 @@ pub async fn gc_step<B: Bucket + ?Sized>(b: &B, cfg: &GcConfig, now: u64) -> Res
                     continue;
                 }
                 let keys: Vec<String> = b.list(&join(&prefix, epoch), None).await?.into_iter().map(|i| i.key).collect();
-                let (del, tombs) = doomed(&prefix, &keys, pos, retire);
+                let (mut del, tombs) = doomed(&prefix, &keys, pos, retire);
+                let before = del.len();
+                del.retain(|k| !keep.contains(k));
+                rep.kept_quarantined += before - del.len();
                 rep.kept_at_or_above_horizon += keys.len() - del.len();
                 if !cfg.dry_run {
                     let _ = b.delete(&del).await?;

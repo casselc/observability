@@ -330,7 +330,7 @@ result with its source and that source's value (completeness.qnt
 `evalWithinComplete`, `resultLabeled`, `clusterSound`). The lake's sealer
 publishes its own, by the same rule.
 
-### 3.1 Retiring a lane ([D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed): the orderly close, the operator's retirement and the quarantine built)
+### 3.1 Retiring a lane ([D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built): built)
 
 A lane that stops advancing holds its cluster's `complete_through` (and the
 fleet's) at its watermark for good, and is paged as `stale`: from S3 an idle
@@ -403,8 +403,9 @@ the checkpoint and the watermark. The alternatives, for the record:
 change and alert windows already evaluated OK were wrong, silently);
 *refuse it* (leave it unread in the lane) blocks the lane's checkpoint for
 good. Admitting a quarantined object is an operator's decision, taken
-knowing it re-opens those windows (`consume admit` would insert it and
-report the bases and windows it touches: not designed further). With the
+knowing it re-opens those windows: `consume admit` (below) puts it in a
+separate recovered table, never the main one, and reports the bases and
+windows it touches. With the
 evidence the design requires, the quarantine stays empty (the model checks
 `quarantineOnlyOnMistake`); an operator's mistake is safe in the sense
 that matters for readers (`noLateBelow`: nothing is ever ingested below a
@@ -500,6 +501,30 @@ and only once the pod has been gone longer than a request lifetime.
   The lane's holder then finds its checkpoint changed under it: its next
   write fails on the ETag, it drops the lane and takes it again after its
   own lease (one TTL of delay on that lane only).
+- **Admission** (`consume admit --ch URL --db DB [--lane L] [--dry-run]`,
+  `consumer/retire.rs` `admit`, `sql::Recover`). For each quarantined
+  object not admitted yet (of one lane, or every lane with a quarantine
+  document), it inserts the object's rows into **`{table}_recovered`**
+  (`CREATE TABLE … AS {table}`: the same columns, engine, partition key and
+  projections, no materialized view reading it; plus `recovered_at`,
+  `retired_lane`, `quarantine_ref` = the slot's key), **never the main
+  table**, idempotent by content key (nothing when the recovered table holds
+  the object's rows; a deduplication token on the statement), and marks it
+  `admitted_wall_ms`/`admitted_rows` in the quarantine document. It prints a
+  report per cluster and signal: the rows' event-time range and the hours it
+  touches (the windows evaluated without them), their `received_at` range,
+  and the **published values above it now** (fleet, cluster, cluster/signal,
+  with each document's version): the bases (D30) they fall below. The
+  consumer keeps **no history** of published values (each document holds
+  its running max), so the report says so: every basis at or above the
+  rows' lowest `received_at`, from the first publication past it until now,
+  reads without them. Nothing is re-evaluated automatically; the operator
+  re-checks the listed alert windows. The query service reads the
+  recovered tables only for a request with `"recovered": true`, labelled
+  `source: "recovered"` (`query/README.md` §2.1). **GC never deletes a
+  quarantined object** (it reads the quarantine documents after its marks,
+  so a record written before a mark's checkpoint passed the slot is seen):
+  it is the quarantine's evidence and admit's source.
 - Tests: unit and worker tests (`consumer/coord.rs`, `watermark.rs`,
   `tests.rs`), the retirement DST (`tests/dst_consumer.rs`
   `retirement_seeds`, `retirement_catches_mutants`: retireStale,
@@ -512,7 +537,10 @@ and only once the pod has been gone longer than a request lifetime.
   compared), and a scale-down in `query/integration` (the cluster's
   `complete_through` passes the removed publisher; a window after it turns
   complete; the same publisher killed stays holding, until `consume
-  retire-lane` retires it and the window turns complete there too).
+  retire-lane` retires it and the window turns complete there too; then a
+  replay below R is quarantined, `consume admit` puts it in
+  `otel_logs_recovered` only, and the service serves it only when asked,
+  labelled recovered).
 
 ## 4. Control documents
 

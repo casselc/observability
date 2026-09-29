@@ -1791,3 +1791,64 @@ async fn a_kept_volume_replayed_after_retire_lane_is_quarantined() {
         assert!(!ck.retired_now() && ck.reborn_epoch == "E00020", "reborn: the lane counts again from its birth");
     }
 }
+
+/// D35 (3): `consume admit` puts a quarantined object into the recovered
+/// table (never the main one), once (idempotent by content key), marks it
+/// admitted, reports its event window and the published values above its
+/// received_at; GC never deletes a quarantined object.
+#[tokio::test(flavor = "current_thread")]
+async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
+    assert!(e.put(&b, "logs", 0, "birth", proto::KIND_BEAT, 0, 0, false).await);
+    let r = clk.0.get() * 1_000_000 + 1_000;
+    assert!(e.put(&b, "logs", 0, "close", proto::KIND_CLOSE, 0, r, false).await);
+    let mut w = Worker::new(Config { quarantine_skew_ms: 0, ..cfg("w1") }, b.clone(), c.clone(), clk.clone());
+    steps_with_beats(&mut w, &b, &clk, 10, &mut [(&mut live, "logs")]).await;
+    assert!(w.checkpoint("c1/p0/logs").unwrap().retired_now());
+    // a replay below R, with its event-time range
+    e.restart();
+    assert!(e.put(&b, "logs", 0, "birth2", proto::KIND_BEAT, 0, 0, false).await);
+    let key = proto::slot_key(&format!("{ROOT}/c1/p0/logs"), "E00020", 1);
+    let mut m = e.meta("logs", 0, "q9", proto::KIND_DATA, r - 1, 0);
+    let _ = m.insert(proto::META_ROWS.into(), "7".into());
+    let _ = m.insert(proto::META_MIN_TIME.into(), (3 * 3_600_000_000_000u64 + 5).to_string());
+    let _ = m.insert(proto::META_MAX_TIME.into(), (5 * 3_600_000_000_000u64 - 1).to_string());
+    b.insert(&key, Bytes::from(vec![0u8; 10]), m);
+    e.epoch.get_mut(&("logs", 0)).unwrap().1 += 1;
+    steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs"), (&mut e, "logs")]).await;
+    assert_eq!((w.stats.quarantined_objects, c.count("otel_logs", "q9")), (1, 0));
+    let _ = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    // a dry run reports and writes nothing
+    let dry = super::retire::admit(&*b, &*c, CTL, Some("c1/p0/logs"), true, clk.0.get()).await.unwrap();
+    assert_eq!((dry.admitted, c.admits.get(), dry.windows[0].rows), (0, 0, 7));
+    let rep = super::retire::admit(&*b, &*c, CTL, Some("c1/p0/logs"), false, clk.0.get()).await.unwrap();
+    assert_eq!((rep.admitted, rep.already, c.admits.get()), (1, 0, 1));
+    let win = &rep.windows[0];
+    assert_eq!((win.cluster.as_str(), win.signal.as_str(), win.table.as_str(), win.objects, win.rows), ("c1", "logs", "otel_logs_recovered", 1, 7));
+    assert_eq!((win.event_from_ns, win.event_to_ns, win.hours_total, win.hours.len()), (3 * 3_600_000_000_000 + 5, 5 * 3_600_000_000_000 - 1, 2, 2));
+    assert_eq!((win.received_from_ns, win.received_to_ns), (r - 1, r - 1));
+    assert!(win.bases_now.iter().any(|x| x.scope == "c1" && x.complete_through_ns > r - 1), "{:?}", win.bases_now);
+    assert!(win.bases_now.iter().any(|x| x.scope == "fleet") && win.bases_now.iter().any(|x| x.scope == "c1/logs"));
+    assert!(rep.note.contains("no history"));
+    assert_eq!(c.recovered.borrow().get(&("otel_logs_recovered".to_string(), "q9".to_string())), Some(&7));
+    assert_eq!(c.count("otel_logs", "q9"), 0, "never the main table");
+    let (q, _) = super::retire::read(&*b, CTL, "c1/p0/logs").await.unwrap().unwrap();
+    assert!(q.objects[0].admitted_wall_ms > 0 && q.objects[0].admitted_rows == 7);
+    // again: nothing to do
+    let again = super::retire::admit(&*b, &*c, CTL, None, false, clk.0.get()).await.unwrap();
+    assert_eq!((again.admitted, again.already, c.admits.get()), (0, 1, 1));
+    assert!(super::retire::admit(&*b, &*c, CTL, Some("c1/p9/logs"), false, clk.0.get()).await.unwrap_err().contains("no quarantine"));
+    // GC deletes below its horizon, but never the quarantined object
+    let g = GcConfig { root: ROOT.into(), ctl: CTL.into(), delay_ms: 1_000, zombie_ms: 3_000, dry_run: false };
+    for _ in 0..4 {
+        let _ = gc_step(&*b, &g, clk.0.get()).await.unwrap();
+        steps_with_beats(&mut w, &b, &clk, 10, &mut [(&mut live, "logs"), (&mut e, "logs")]).await;
+    }
+    let rep = gc_step(&*b, &g, clk.0.get()).await.unwrap();
+    assert!(b.head(&key).await.unwrap().is_some(), "the quarantined object is kept");
+    assert!(b.head(&proto::slot_key(&format!("{ROOT}/c1/p0/logs"), "E00020", 0)).await.unwrap().is_none(), "the birth below it was deleted");
+    let _ = rep;
+}

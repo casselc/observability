@@ -70,7 +70,7 @@ disagreed with each other, and how each was resolved.
 | [D33](#d33-hyperdx-through-the-query-service-fully-scoped-dictionaries-labelled-samples-a-performance-settings-allow-list-cluster-on-the-rollups-the-users-token-server-side) | HyperDX through the query service, fully: the catalog's dictionaries by name with every lookup guarded per caller, `resource_kv` served, a labelled sample mode, a performance-settings allow-list in configuration, a cluster column on the key/value rollups, the user's token on user-started server-side queries, `total_rows` as 0/1 for restricted callers | **built** (2026-09-28): owner decisions of 2026-09-28; the rwproxy chain 69/69 through the service |
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
-| [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **building** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine and `consume retire-lane` built; `admit` to come (FORMAT.md §3.1, `model/retirement.qnt`) |
+| [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
 
 ---
 
@@ -3518,7 +3518,7 @@ cannot pass). Metrics objects are not split, so their tables keep the old
 key. `ClickStack`'s full DDL kept for comparison (`hyperdx/sql/clickstack_full_*`)
 and the historical `entities/sql/generated/*` keep the old key.
 
-### D35. Dead-lane retirement: a proof of empty custody, then quarantine below the bound (designed)
+### D35. Dead-lane retirement: a proof of empty custody, then quarantine below the bound (built)
 
 **Owner decisions, 2026-09-29:** build it. (1) The orderly close first, in both
 edges and the consumer; (2) operator retirement (`consume retire-lane`) with
@@ -3529,7 +3529,7 @@ labelled *recovered* table that queries include explicitly, and the command
 reports the bases and alert windows the data would have touched (the basis
 guarantee, D30, stays intact).
 
-**Status:** **building** (2026-09-29). Built: (1) the orderly close in
+**Status:** **built** (2026-09-29). Built: (1) the orderly close in
 both edges (Rust: `patches/0006` extended with the buffer's drained flag
 and NACK count; Go: `edge.Close` at the exporter's last shutdown) and the
 consumer's retirement by it, +inf in every minimum, the rebirth, and the
@@ -3538,7 +3538,14 @@ quarantine with its document, metric and page ([FORMAT.md](FORMAT.md)
 attestation (`--volume-deleted` and `--evidence`, both recorded in the
 checkpoint and in `{ctl}/retired/…`), (b) and (c) are enforced from the
 lane's objects and checkpoint, then the open epochs are tombstoned and the
-checkpoint records R = now. To come: (3) `consume admit`.
+checkpoint records R = now; (3) `consume admit`: quarantined objects into
+`{table}_recovered` only (same schema plus `recovered_at`, `retired_lane`,
+`quarantine_ref`), idempotent by content key, with the report of the event
+windows and the published values above the rows (no history is kept: the
+current values, said so); the query service serves the recovered tables
+only to a request with `"recovered": true`, labelled `source:
+"recovered"`; GC keeps quarantined objects. Alerts are not re-evaluated
+automatically: the operator re-checks the reported windows.
 Designed 2026-09-28 (owner decision of 2026-09-28: "design it before any
 per-node publisher layout"). Model: [`model/retirement.qnt`](model/retirement.qnt),
 `model/retirement_model.sh` (nightly). **Found building it:** an earlier
@@ -3548,6 +3555,24 @@ ingested (a spurious page, not a loss). The model now has the mutant
 (`closeUnsealed`, `SEAL_OLDER`), and the consumer seals every earlier
 epoch (a tombstone, or its own close) before a close retires the lane, and
 passes an object below R whose content central already holds as a copy.
+
+**Choices made building it** (each in FORMAT.md §3.1; the owner may
+revisit): a retired lane's `lane_wm` stays a number (its signal's value)
+and the cluster document gains `retired: {lane: R}`, so older readers keep
+parsing; the quarantine bound for a later epoch is R − `--quarantine-skew`
+(5 s: another node's clock), R itself in the retired epoch; `metrics_series`
+objects are never quarantined (definitions no answer counts, idempotent);
+an object below R that central already holds passes as a copy (a
+restarted edge replaying what it committed before its close: measured, a
+Quiver restart after a close quarantines nothing); `retire-lane` writes the
+checkpoint by CAS, so the lane's holder drops the lane once and retakes it
+after a lease TTL; `retire-lane` also tombstones every open epoch (a second
+defense beside the zombie wait); GC keeps every quarantined object (its
+evidence, admit's source), admitted or not; the consumer keeps no history
+of published values, so `admit` reports the current ones and says so
+(a history, e.g. one object per watermark version, would let it name the
+exact bases: not built); the edges' shutdown grace (45 s in `deploy/base`)
+is unchanged: a drain past it means no close, which is safe.
 
 **Problem.** D29's limit 4: a lane that stops advancing holds its
 cluster's (and the fleet's) `complete_through` at its watermark for good,

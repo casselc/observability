@@ -385,6 +385,7 @@ func TestIntegration(t *testing.T) {
 	}
 	defer sink.Close()
 	cfg := &app.Config{LakeEnabled: true}
+	cfg.Central.Recovered = true // D35 (3): {table}_recovered, only when a request asks
 	cfg.OIDC = auth.OIDCConfig{Issuer: is.URL, Audience: "otel-query"}
 	cfg.Claims = auth.Mapping{ClustersClaim: "clusters", NamespacesClaim: "namespaces", RolesClaim: "roles", GroupsClaim: "groups",
 		Groups: map[string]auth.Grant{"sre": {Clusters: []string{"*"}, Namespaces: []string{"*"}, Roles: []string{"query", "plan"}},
@@ -897,6 +898,101 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("qe after retire-lane: %d %v", code, out)
 		}
 		t.Logf("qe after retire-lane: complete_through %v, %v", out["complete_through"], out["completeness"])
+
+		// D35 (3): the operator was wrong (the model's opMistake): a kept
+		// volume replays one of pub-1's requests with its original
+		// received_at, below R, in a new epoch (here a copy of a committed
+		// logs object under a new content key, then a close). The consumer
+		// quarantines it; `consume admit` puts it in otel_logs_recovered,
+		// never otel_logs, and reports the windows and bases; the service
+		// serves it only when asked, labelled recovered.
+		var ck struct {
+			R     uint64 `json:"retired_ns"`
+			Epoch string `json:"retired_epoch"`
+		}
+		if !r.ctl("ckpt/qe/pub-1/logs.json", &ck) || ck.R == 0 {
+			t.Fatalf("qe/pub-1/logs checkpoint: %+v", ck)
+		}
+		ctx := context.Background()
+		pfx := r.run + "/qe/pub-1/logs/"
+		lo, err := r.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: &r.bucket, Prefix: &pfx})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var src string
+		var meta map[string]string
+		for _, o := range lo.Contents {
+			h, err := r.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &r.bucket, Key: o.Key})
+			if err == nil && h.Metadata["oscope-kind"] == "data" {
+				src, meta = *o.Key, h.Metadata
+				break
+			}
+		}
+		if src == "" {
+			t.Fatal("no data object of qe/pub-1/logs")
+		}
+		reborn := time.Now().UTC().Format("20060102T150405.000Z") + "-0000beef"
+		received := ck.R - uint64(time.Hour)
+		meta["oscope-epoch"], meta["oscope-seq"], meta["oscope-content"] = reborn, "0", "admit-it-"+reborn
+		meta["oscope-received"], meta["oscope-low"] = fmt.Sprint(received), "0"
+		dst := pfx + reborn + "/00000000000000000000.parquet"
+		if _, err := r.s3.CopyObject(ctx, &s3.CopyObjectInput{Bucket: &r.bucket, Key: &dst, CopySource: aws.String(r.bucket + "/" + src),
+			Metadata: meta, MetadataDirective: s3types.MetadataDirectiveReplace}); err != nil {
+			t.Fatal(err)
+		}
+		closeKey := pfx + reborn + "/00000000000000000001.parquet"
+		if _, err := r.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: &r.bucket, Key: &closeKey, Body: bytes.NewReader(nil),
+			Metadata: map[string]string{"oscope-kind": "close", "oscope-epoch": reborn, "oscope-seq": "1", "oscope-content": "close-it",
+				"oscope-low": fmt.Sprint(time.Now().UnixNano()), "oscope-rows": "0"}}); err != nil {
+			t.Fatal(err)
+		}
+		before := r.sql("SELECT count() FROM " + r.db + ".otel_logs")
+		r.consume(bin, "run", "--ch", r.ch, "--db", r.db, "--exit-after-idle", "8s", "--poll", "300ms", "--full-list", "1s")
+		var q struct {
+			Objects []struct {
+				Content string `json:"content"`
+				Rows    uint64 `json:"rows"`
+			} `json:"objects"`
+		}
+		if !r.ctl("quarantine/qe/pub-1/logs.json", &q) || len(q.Objects) != 1 || q.Objects[0].Content != meta["oscope-content"] {
+			t.Fatalf("quarantine: %+v", q)
+		}
+		if after := r.sql("SELECT count() FROM " + r.db + ".otel_logs"); after != before {
+			t.Fatalf("otel_logs %s -> %s: a quarantined object was ingested", before, after)
+		}
+		out2, err := r.consumeOut(bin, "admit", "--lane", "qe/pub-1/logs", "--ch", r.ch, "--db", r.db)
+		if err != nil {
+			t.Fatalf("admit: %v\n%s", err, out2)
+		}
+		t.Logf("admit: %s", lastLines(out2, 2))
+		rows := fmt.Sprint(q.Objects[0].Rows)
+		if got := r.sql("SELECT count() FROM " + r.db + ".otel_logs_recovered WHERE retired_lane = 'qe/pub-1/logs'"); got != rows {
+			t.Fatalf("otel_logs_recovered holds %s rows, want %s", got, rows)
+		}
+		if after := r.sql("SELECT count() FROM " + r.db + ".otel_logs"); after != before {
+			t.Fatalf("admit touched otel_logs: %s -> %s", before, after)
+		}
+		if !strings.Contains(out2, `"bases_now"`) || !strings.Contains(out2, "no history") {
+			t.Fatalf("the report: %s", out2)
+		}
+		if out3, err := r.consumeOut(bin, "admit", "--lane", "qe/pub-1/logs", "--ch", r.ch, "--db", r.db); err != nil || !strings.Contains(out3, `"already": 1`) {
+			t.Fatalf("admit again: %v %s", err, out3)
+		}
+		if got := r.sql("SELECT count() FROM " + r.db + ".otel_logs_recovered"); got != rows {
+			t.Fatalf("admit twice: %s rows", got)
+		}
+		r.sql(fmt.Sprintf("GRANT SELECT ON %s.otel_logs_recovered TO %s", r.db, r.ro))
+		qeTok := tok(jwt.MapClaims{"clusters": "qe", "namespaces": "*", "roles": "query"})
+		code, out = c.post("/v1/query", qeTok, map[string]any{"sql": "SELECT count() FROM otel_logs_recovered", "recovered": true})
+		if code != 200 || out["source"] != "recovered" || out["completeness"] != "unknown" {
+			t.Fatalf("recovered query: %d %v", code, out)
+		}
+		if n := fmt.Sprint(out["result"].(map[string]any)["data"].([]any)[0].(map[string]any)["count()"]); n != rows {
+			t.Fatalf("recovered rows served: %s, want %s", n, rows)
+		}
+		if code, out = c.post("/v1/query", qeTok, map[string]any{"sql": "SELECT count() FROM otel_logs_recovered"}); code != 403 {
+			t.Fatalf("a recovered table without the flag: %d %v", code, out)
+		}
 	})
 
 	t.Run("audit", func(t *testing.T) {

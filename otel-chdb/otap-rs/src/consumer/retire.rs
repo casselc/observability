@@ -6,6 +6,9 @@
 //!
 //! - **Retirement by an orderly close** is the worker's (`worker.rs`
 //!   `advance`, `CkptDoc::close_proof`).
+//! - **`consume admit`** (`admit`): the quarantined objects into the
+//!   recovered tables (`sql::Recover`, `{table}_recovered`), never the main
+//!   ones, with a report of the windows and published values they fall in.
 //! - **Quarantine.** An object of a retired lane received below the bound R
 //!   (`CkptDoc::quarantines`) that central does not already hold is never
 //!   inserted: it is recorded in `{ctl}/quarantine/{lane}.json` (slot,
@@ -336,4 +339,220 @@ pub async fn retire_lane<B: Bucket + ?Sized>(
     let key = retired_record_key(&cfg.ctl, lane_id, now_ms);
     let _ = b.put(&key, Bytes::from(serde_json::to_vec_pretty(&rec).expect("json")), Cond::Create, &BTreeMap::new()).await;
     Ok(rec)
+}
+
+// ---- consume admit: quarantined objects into the recovered tables ------------------------
+
+/// Every object key listed in a quarantine document: GC keeps them (they
+/// are the quarantine's evidence and `consume admit`'s source).
+pub async fn quarantined_keys<B: Bucket + ?Sized>(b: &B, ctl: &str) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut out = std::collections::BTreeSet::new();
+    for (_, doc) in quarantine_docs(b, ctl, None).await? {
+        out.extend(doc.objects.into_iter().map(|q| q.key));
+    }
+    Ok(out)
+}
+
+/// The quarantine documents (one lane's, or every lane's): (lane, doc).
+pub async fn quarantine_docs<B: Bucket + ?Sized>(b: &B, ctl: &str, lane: Option<&str>) -> Result<Vec<(String, QuarantineDoc)>, String> {
+    let lanes: Vec<String> = match lane {
+        Some(l) => vec![l.to_string()],
+        None => {
+            let prefix = quarantine_prefix(ctl);
+            b.list(&prefix, None)
+                .await?
+                .into_iter()
+                .filter_map(|it| it.key.strip_prefix(&format!("{prefix}/")).and_then(|k| k.strip_suffix(".json")).map(str::to_string))
+                .collect()
+        }
+    };
+    let mut out = Vec::new();
+    for l in lanes {
+        if let Some((d, _)) = read(b, ctl, &l).await? {
+            out.push((l, d));
+        }
+    }
+    Ok(out)
+}
+
+/// One (cluster, signal)'s share of an admit report.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdmitWindow {
+    pub cluster: String,
+    pub signal: String,
+    /// The recovered table the rows went to (or would, with --dry-run).
+    pub table: String,
+    pub objects: u64,
+    pub rows: u64,
+    /// The rows' event-time range (ns; the objects' `oscope-min-time` /
+    /// `oscope-max-time`): alert and query windows over it were evaluated
+    /// without these rows.
+    pub event_from_ns: u64,
+    pub event_to_ns: u64,
+    /// The hours (UTC, Unix s) that range touches, at most 48 listed.
+    pub hours: Vec<u64>,
+    pub hours_total: u64,
+    /// Their received_at range (ns).
+    pub received_from_ns: u64,
+    pub received_to_ns: u64,
+    /// The published `complete_through` values above the lowest of those
+    /// received_at: the bases (D30) they fall below. Only the current
+    /// values: the consumer keeps no history of what it published.
+    pub bases_now: Vec<AdmitBasis>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdmitBasis {
+    /// `fleet`, `cluster`, `cluster/signal`.
+    pub scope: String,
+    pub complete_through_ns: u64,
+    /// The watermark document's version (+1 per write) and wall time.
+    pub version: u64,
+    pub wall_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdmitReport {
+    pub dry_run: bool,
+    /// Objects admitted now, already admitted before, and gone from S3.
+    pub admitted: u64,
+    pub already: u64,
+    pub missing: Vec<String>,
+    pub windows: Vec<AdmitWindow>,
+    pub note: String,
+}
+
+/// `consume admit` (D35 (3), `../../FORMAT.md` §3.1): puts the quarantined
+/// objects of one lane (or every lane) into the recovered tables (`r`),
+/// never the main ones, idempotent by content key; marks each admitted in
+/// its quarantine document; and reports, per cluster and signal, the event
+/// windows the rows fall in and the published values above their
+/// received_at. With `dry_run`, the report alone.
+pub async fn admit<B: Bucket + ?Sized, R: super::sql::Recover + ?Sized>(
+    b: &B,
+    r: &R,
+    ctl: &str,
+    lane: Option<&str>,
+    dry_run: bool,
+    now_ms: u64,
+) -> Result<AdmitReport, String> {
+    use otap_s3pq::proto;
+    let mut rep = AdmitReport { dry_run, ..Default::default() };
+    let mut windows: BTreeMap<(String, String), AdmitWindow> = BTreeMap::new();
+    let docs = quarantine_docs(b, ctl, lane).await?;
+    if let (Some(l), true) = (lane, docs.is_empty()) {
+        return Err(format!("{l}: no quarantine document ({})", quarantine_key(ctl, l)));
+    }
+    for (lane_id, doc) in docs {
+        let (cluster, rest) = lane_id.split_once('/').unwrap_or(("", &lane_id));
+        let signal = rest.rsplit('/').next().unwrap_or(rest).to_string();
+        let Some(k) = super::sql::LaneKind::for_signal(&signal) else { continue };
+        let mut done: BTreeMap<(String, u64), u64> = BTreeMap::new();
+        for q in &doc.objects {
+            if q.admitted_wall_ms > 0 {
+                rep.already += 1;
+                continue;
+            }
+            let Some(meta) = b.head(&q.key).await? else {
+                rep.missing.push(q.key.clone());
+                continue;
+            };
+            let num = |key: &str| meta.get(key).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+            let obj = Obj {
+                lane: lane_id.clone(),
+                epoch: q.epoch.clone(),
+                seq: q.seq,
+                key: q.key.clone(),
+                size: 0,
+                content: q.content.clone(),
+                rows: q.rows,
+                received_ns: q.received_ns,
+                seen_ms: 0,
+                announce: 0,
+                late: super::plan::is_late_part(&meta),
+            };
+            let rows = if dry_run { q.rows } else { r.admit(&k, &obj, &lane_id).await? };
+            if !dry_run {
+                let _ = done.insert((q.epoch.clone(), q.seq), rows);
+                rep.admitted += 1;
+            }
+            let w = windows.entry((cluster.to_string(), signal.clone())).or_insert_with(|| AdmitWindow {
+                cluster: cluster.to_string(),
+                signal: signal.clone(),
+                table: r.recovered_table(&k),
+                event_from_ns: u64::MAX,
+                received_from_ns: u64::MAX,
+                ..Default::default()
+            });
+            w.objects += 1;
+            w.rows += rows;
+            w.event_from_ns = w.event_from_ns.min(num(proto::META_MIN_TIME));
+            w.event_to_ns = w.event_to_ns.max(num(proto::META_MAX_TIME));
+            w.received_from_ns = w.received_from_ns.min(q.received_ns);
+            w.received_to_ns = w.received_to_ns.max(q.received_ns);
+        }
+        if !done.is_empty() {
+            mark_admitted(b, ctl, &lane_id, &done, now_ms).await?;
+        }
+    }
+    // What the rows would have changed: the windows, and the values published above them.
+    let fleet: Option<super::watermark::WmDoc> = get_doc(b, &super::watermark::wm_key(ctl)).await?;
+    for ((cluster, signal), mut w) in windows {
+        let hour = 3_600_000_000_000u64;
+        if w.event_to_ns >= w.event_from_ns {
+            let (h0, h1) = (w.event_from_ns / hour, w.event_to_ns / hour);
+            w.hours_total = h1 - h0 + 1;
+            w.hours = (h0..=h1).take(48).map(|h| h * 3_600).collect();
+        }
+        let above = |v: u64| v > w.received_from_ns;
+        if let Some(f) = &fleet {
+            if above(f.complete_through_ns) {
+                w.bases_now.push(AdmitBasis { scope: "fleet".into(), complete_through_ns: f.complete_through_ns, version: f.version, wall_ms: f.wall_ms });
+            }
+        }
+        if let Some(c) = get_doc::<_, super::watermark::ClusterWmDoc>(b, &super::watermark::cluster_wm_key(ctl, &cluster)).await? {
+            for (scope, v) in [(cluster.clone(), c.complete_through_ns), (format!("{cluster}/{signal}"), c.signals.get(&signal).copied().unwrap_or(0))] {
+                if above(v) {
+                    w.bases_now.push(AdmitBasis { scope, complete_through_ns: v, version: c.version, wall_ms: c.wall_ms });
+                }
+            }
+        }
+        rep.windows.push(w);
+    }
+    rep.note = "The consumer keeps no history of the complete_through values it published (each document holds its running max): \
+        every basis issued for these scopes at or above the rows' lowest received_at, from the first publication past it until now \
+        (the current values listed), reads without them. Alert windows over the listed event times were evaluated without these rows: \
+        re-check them by hand; nothing is re-evaluated automatically. The rows are only in the recovered tables, read only by a query \
+        that asks for them (the query service's \"recovered\": true), never mixed into the main tables."
+        .into();
+    Ok(rep)
+}
+
+async fn get_doc<B: Bucket + ?Sized, D: serde::de::DeserializeOwned>(b: &B, key: &str) -> Result<Option<D>, String> {
+    match b.get(key).await? {
+        Some((body, _)) => serde_json::from_slice(&body).map(Some).map_err(|e| format!("{key}: {e}")),
+        None => Ok(None),
+    }
+}
+
+/// Marks slots admitted in a lane's quarantine document (CAS).
+async fn mark_admitted<B: Bucket + ?Sized>(b: &B, ctl: &str, lane: &str, done: &BTreeMap<(String, u64), u64>, now_ms: u64) -> Result<(), String> {
+    let key = quarantine_key(ctl, lane);
+    for _ in 0..4 {
+        let Some((mut doc, etag)) = read(b, ctl, lane).await? else { return Err(format!("{key}: gone")) };
+        for q in doc.objects.iter_mut() {
+            if let Some(rows) = done.get(&(q.epoch.clone(), q.seq)) {
+                if q.admitted_wall_ms == 0 {
+                    q.admitted_wall_ms = now_ms;
+                    q.admitted_rows = *rows;
+                }
+            }
+        }
+        doc.version += 1;
+        match b.put(&key, Bytes::from(serde_json::to_vec_pretty(&doc).expect("json")), Cond::IfMatch(&etag), &BTreeMap::new()).await {
+            Put::Ok(_) => return Ok(()),
+            Put::Conflict | Put::Unknown(_) => continue,
+        }
+    }
+    Err(format!("{key}: no CAS won in 4 tries (the rows are in the recovered table; admit again to mark them)"))
 }

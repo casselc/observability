@@ -47,6 +47,11 @@ type Config struct {
 		Dictionaries []*sqlscope.Dictionary `json:"dictionaries"`
 		// PerformanceSettings: what a caller may set per statement (D33).
 		PerformanceSettings central.SettingsPolicy `json:"performance_settings"`
+		// Recovered: serve each table's {name}_recovered (D35 (3): rows
+		// `consume admit` took out of a quarantine) to a request that asks
+		// for them ("recovered": true), and only to it; its answer says
+		// source "recovered". The read-only user needs SELECT on them.
+		Recovered bool `json:"recovered"`
 	} `json:"central"`
 	// Sample bounds labelled samples (D33): default_rows when a request
 	// names none, max_rows at most (0: samples refused).
@@ -240,6 +245,15 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	if err := policy.SetDictionaries(c.Central.Dictionaries); err != nil {
 		return nil, fmt.Errorf("central.dictionaries: %w", err)
 	}
+	var recovered *sqlscope.Policy
+	if c.Central.Recovered {
+		if recovered, err = sqlscope.NewPolicy(c.Central.Database, sqlscope.RecoveredTables(c.Central.Tables), c.Central.MaxSQLBytes); err != nil {
+			return nil, fmt.Errorf("central.recovered: %w", err)
+		}
+		if err := recovered.SetDictionaries(c.Central.Dictionaries); err != nil {
+			return nil, fmt.Errorf("central.recovered: %w", err)
+		}
+	}
 	ch := central.New(c.Central.Config)
 	cat, err := catalog.New(c.Catalog, ch)
 	if err != nil {
@@ -268,7 +282,7 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	if err != nil {
 		return nil, err
 	}
-	s = &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Central: ch, Catalog: cat, Bases: bases,
+	s = &server.Server{Verifier: verifier, Mapping: &c.Claims, Audit: sink, Policy: policy, Recovered: recovered, Central: ch, Catalog: cat, Bases: bases,
 		Retention: time.Duration(c.Basis.RetentionS) * time.Second, BasisSkew: time.Duration(c.Basis.SkewS) * time.Second,
 		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes,
 		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate,

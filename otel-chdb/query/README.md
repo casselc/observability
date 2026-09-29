@@ -55,7 +55,8 @@ in `QS_CH_PASSWORD` (or the variable `central.password_env` names),
 `QS_S3_KEY` / `QS_S3_SECRET` (otherwise the AWS SDK's default chain: web
 identity, instance role, `AWS_*`), `QS_LAKE_ROOT`, `QS_LAKE_CTL`,
 `QS_CATALOG_DB`, `QS_LAKE_ENABLED`, and the completeness policy
-`QS_MAX_LATENESS_S` (`watermark.max_lateness_s`, default 60) and
+`central.recovered` (default false: serve `{table}_recovered` to requests
+with `"recovered": true`, D35, §2.1), `QS_MAX_LATENESS_S` (`watermark.max_lateness_s`, default 60) and
 `QS_COUNT_LATE` (`watermark.count_late`, default true), §2.1, and the basis
 keys `QS_BASIS_KEYS` (`kid:base64,…`, at least 32 bytes each, the same on
 every replica; `basis.keys_env` names another variable) and
@@ -171,6 +172,23 @@ settings applied (`settings`).
 `reached_bound` is `rows_read ≥ max_rows_to_read` (ClickHouse checks per
 block, so it can read past it); `data_completeness` is what the rows' label
 would have been. A sample that read everything is still a sample.
+
+`recovered` is optional (D35 (3), FORMAT.md §3.1): **the recovered
+tables**, the rows `consume admit` took out of a quarantine (objects of a
+retired lane received below its bound, which the consumer never ingests).
+Served only with `"recovered": true` and `central.recovered: true` in the
+configuration (else **400 `recovered_unavailable`**); the statement may
+then name only `{table}_recovered` tables (a main table is **403
+`table_not_allowed`**), and without the flag no recovered table can be
+named: the two are never mixed. Scope, window and filters apply as to the
+main table. The answer says **`source: "recovered"`**, `completeness:
+"unknown"`, `partial: true`, no `complete_through`, `watermark.status:
+"not_applicable"` with the reason in `watermark.note`, `late.status:
+"recovered"`; no basis is minted. With `basis`, `basis_from` or `sample`
+it is **400 `recovered_alone`**. The read-only user needs `SELECT` on the
+recovered tables (they appear when `consume admit` first runs). The alert
+evaluator never reads them: nothing is re-evaluated automatically; the
+operator re-checks the windows `consume admit` reports.
 
 ```json
 {"request_id": "5c0f…",
@@ -919,7 +937,18 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> go test ./integration -v
   objects, each GET 200 with the planned size and a Parquet header, HEAD
   with the same URL 403; `qa` asking for `qb` is 403, `qa/shop` is 403; the
   fleet plans both clusters; 42 audit lines. Everything is named `qs-…` /
-  `qs_…` and removed. Nightly in CI (`query-integration`). **The basis**
+  `qs_…` and removed. Nightly in CI (`query-integration`). **Scale-down
+  and retirement** (D35, 2026-09-29, 114 s): clusters `qd` and `qe`, two
+  publishers each; `qd/pub-1` stopped in order (its close), `qe/pub-1`
+  killed: `qd`'s document names pub-1's seven lanes `retired`, its
+  `complete_through` passes the scale-down and a window ending after it is
+  `complete`; `qe` is held by the killed lanes (`partial`) until `consume
+  retire-lane` (refused without `--volume-deleted`) retires them, then
+  `complete`; a replay below R (a copied object under a new content key in a
+  later epoch) is quarantined, not ingested; `consume admit` puts its 3
+  rows in `otel_logs_recovered` only (a second admit: `already: 1`), and the
+  service serves them only with `"recovered": true`, `source: "recovered"`,
+  `completeness: "unknown"` (403 without the flag). **The basis**
 (D30, 2026-09-28, 115 s in all): `qa`'s count over a closed window at
 `latest` (5 rows, `complete`) and its plan; a late row into the same window
 and current rows through both real edges, the consumer and the watermark;

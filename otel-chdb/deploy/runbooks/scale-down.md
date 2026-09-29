@@ -133,8 +133,32 @@ rows, `received_at`). Its request was acknowledged by a publisher whose
 custody the retirement said was empty: a close committed with custody left
 (a bug: report it with the edge's log), or an operator's retirement of a
 lane whose volume was kept after all. Nothing a reader relies on has
-changed (it is below published values and not in the main tables).
-Admitting it is a separate decision (`consume admit`, to come, D35 (3)).
+changed (it is below published values and not in the main tables). GC
+keeps the object.
+
+**Admitting it** is a separate decision. Its rows go to a **recovered
+table**, never the main one, and what they would have changed is reported:
+
+```
+consume admit --s3 … --ch URL --db DB --lane {cluster}/{producer}/{signal} --dry-run   # the report alone
+consume admit --s3 … --ch URL --db DB --lane {cluster}/{producer}/{signal}
+```
+
+It inserts each quarantined object not admitted yet into
+`{table}_recovered` (same columns, plus `recovered_at`, `retired_lane`,
+`quarantine_ref`), idempotently, marks it admitted in the quarantine
+document, and prints per cluster and signal the rows' event-time range and
+hours, their `received_at`, and the published `complete_through` values
+above them now (no history is kept: every basis at or above their
+`received_at` issued since reads without them). Then:
+
+- re-check by hand the alert windows over those event times (nothing is
+  re-evaluated automatically);
+- a reader who wants the rows asks the query service for them explicitly
+  (`"recovered": true`, `central.recovered: true` in its configuration,
+  `SELECT` granted on the recovered tables to its read-only user); its
+  answers say `source: "recovered"` and are never mixed with the main
+  tables.
 
 ## Rule 2: an unmounted buffer volume is an alert
 

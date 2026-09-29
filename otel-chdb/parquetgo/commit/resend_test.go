@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // A store that fails every PUT, whose HEADs find the slot free, or a caller
@@ -14,6 +16,7 @@ import (
 // the slot: the next call commits there. The Rust runner's
 // `a_store_that_fails_every_put_is_not_resent_forever`.
 func TestAppendResendLimit(t *testing.T) {
+	tracetag.Covers(t, "ML", "CAST-39", "H-1", "H-7", "R-S1", "R-S5")
 	s := NewMemStore()
 	l := lane(s)
 	for range 3 * MaxResends {

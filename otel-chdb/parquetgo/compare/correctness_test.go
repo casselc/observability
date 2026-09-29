@@ -19,6 +19,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"github.com/casselc/observability/otel-chdb/testgate"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // The chdb exporter's plain-typed Parquet structure (chdbexporter/schema.go
@@ -98,6 +100,7 @@ type dataset struct {
 //
 // Needs CHDB_LIB_PATH, CHDB_TEST_S3(_KEY/_SECRET) and CHDB_TEST_CLICKHOUSE.
 func TestSameRowsAsChdb(t *testing.T) {
+	tracetag.Covers(t, "D", "CAST-46", "H-2")
 	s3, ok := S3FromEnv()
 	if os.Getenv("CHDB_LIB_PATH") == "" {
 		t.Skip("needs CHDB_LIB_PATH (libchdb; the chdb job)")

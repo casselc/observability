@@ -7,6 +7,8 @@ import (
 
 	chp "github.com/AfterShip/clickhouse-sql-parser/parser"
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func metaPolicy(t testing.TB) *Policy {
@@ -104,6 +106,7 @@ func TestMetadataConfig(t *testing.T) {
 // passes, the text ClickHouse receives names a metadata table only as the
 // FROM of its exact projection.
 func TestMetadataProjectedProperty(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-32", "H-6", "R-S8", "SEC-4")
 	p := metaPolicy(t)
 	rapid.Check(t, func(t *rapid.T) {
 		tbl := rapid.SampledFrom([]string{"system.tables", "system.columns", "system.settings", "system.databases", "otel_logs"}).Draw(t, "t")
@@ -143,6 +146,7 @@ func TestMetadataProjectedProperty(t *testing.T) {
 // TestCheckProjectedRefuses: a statement text that reads a metadata table
 // directly (as a rewrite that missed a place would produce) is refused.
 func TestCheckProjectedRefuses(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-32", "H-6", "R-S8")
 	p := metaPolicy(t)
 	for _, q := range []string{"SELECT * FROM system.tables", "SELECT name FROM (SELECT name, uuid FROM system.tables)"} {
 		st, _ := chp.NewParser(q).ParseStmts()

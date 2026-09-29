@@ -18,6 +18,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/lane"
 
 	"github.com/casselc/observability/otel-chdb/testgate"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // An entity controller may write any key under its own cluster's prefix
@@ -31,6 +33,7 @@ import (
 // lane is ingested whatever c1's holds. Runs against ClickHouse and the
 // local S3 like TestGapMarksVersionsUncertain.
 func TestHostileKeysAreData(t *testing.T) {
+	tracetag.Covers(t, "PH,IT", "CAST-24", "H-6", "H-3", "H-5", "R-S5", "R-S7", "SEC-1", "UCA-8")
 	chURL := env("ENT_CH", "http://127.0.0.1:18123")
 	s3URL := env("ENT_S3", "http://127.0.0.1:18333")
 	c := ch.New(chURL)
@@ -116,6 +119,7 @@ func TestHostileKeysAreData(t *testing.T) {
 // A gap record's times are read as times, never as SQL: one that does not
 // parse is skipped, not spliced.
 func TestGapTimesAreParsed(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-24", "H-6", "H-5", "R-S5")
 	for _, s := range []string{"2026-09-27 12:00:00.000", "2026-09-27 12:00:00.000') OR 1 OR ('", "", "x"} {
 		_, err := gapTime(s)
 		if (err == nil) != (s == "2026-09-27 12:00:00.000") {

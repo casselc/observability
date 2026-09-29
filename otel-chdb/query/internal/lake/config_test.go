@@ -1,12 +1,17 @@
 package lake
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
+)
 
 // A URL lifetime at or below the re-plan margin made every plan stale as it
 // was issued (replan_after = signed_at + ttl − margin ≤ signed_at): a client
 // following X8 re-plans forever and never reads. The margin is cut to half
 // the lifetime.
 func TestReplanMarginBelowTTL(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-25", "R-S1", "R-S2")
 	for _, c := range []struct{ ttl, margin, want int }{
 		{60, 0, 30},    // the default margin (60 s) with the shortest TTL
 		{60, 60, 30},   // equal

@@ -1,0 +1,55 @@
+# Known gaps: IDs, required cells and tagged tests with no passing record that the traceability
+# job reports but does not fail on (ci/trace/trace.py check; VERIFICATION.md "Traceability").
+#   ID | owner | reason
+# ID is a CAST row (CAST-n), a required cell of VERIFICATION.md §3 (H-n:TECHNIQUE, as the report
+# names it), or test:<function> for a tagged test that may legitimately not pass in a job.
+# Policy: every line names who closes it and why it is open. A line whose item gains a passing
+# record is reported as stale; remove it in the same change. Adding a line needs the same review
+# as weakening a test: it turns a failure into a report.
+#
+# CAST rows without a regression test (VERIFICATION.md §6 lists #6, #11, #35, #36, #49), or whose
+# control is a process mechanism rather than a test.
+CAST-6 | coordinator | no automated test: a lagging replica needs replicated central, which no job starts (VERIFICATION.md §7 P5; manual replicated soak only)
+CAST-11 | coordinator | no test: no lint of shipped configs for static credentials (VERIFICATION.md §7 P9)
+CAST-12 | coordinator | process mechanism (G), not a test: separate target dirs per checkout, build provenance in results
+CAST-22 | coordinator | convention (G), not a test: scripts purge only their own run prefix; nothing checks a script never deletes a bucket
+CAST-27 | coordinator | process mechanism (G), not a test: worktrees and the git diff FETCH_HEAD --stat rule (AGENT-RULES)
+CAST-28 | coordinator | process mechanism (G): the verification gate; the fork patches' jest suites run under it by hand, in no workflow
+CAST-29 | coordinator | the regression is a jest test in the HyperDX fork patch (otel-chdb/hyperdx/patches); no workflow runs the fork's jest, so no record
+CAST-33 | coordinator | the regression is the Mosaic Playwright e2e (nightly lakeui-mosaic-e2e); Playwright has no trace helper yet (node:test only)
+CAST-35 | owner | not fixed in code by design (a 429 is a failed evaluation); no test that the configured limit covers the evaluator's peak; the production value is the owner's to set
+CAST-36 | coordinator | no test: needs a property that a limits-only group never changes scope (VERIFICATION.md §7 P9)
+CAST-38 | coordinator | process mechanism (G), not a test: the heavy-job lock with a disk check
+CAST-41 | coordinator | process mechanism (G), not a test: the verification gate
+CAST-49 | coordinator | design near miss; the score resolver is not built (D36 phase 1 exit criterion, VERIFICATION.md §4)
+CAST-51 | coordinator | process (G), not a test: done only when the latest ci.yml run at or after the commits is green
+CAST-55 | coordinator | workflow configuration (G): the nightly concurrency group includes the job selection; no test of the workflow itself
+#
+# Required cells (VERIFICATION.md §3) with no tagged test in this first slice, which tags only CAST
+# regressions. Status and evidence as the plan records them; ❌/partial cells are real gaps.
+H-1:FI | coordinator | not built or not run — plan: partial edge commit on real S3: faults.sh (N faults-soak: lost answers, crash + restart); ambig_s3.rs (apply-then-error, #15's shape) is in no; ❌ durable buffer ack (UCA-1): only process SIGKILL (faults.sh scenario 4) and upstream unit tests (N upstream-patches); no fsync-loss or pow
+H-1:M | coordinator | evidence exists, not yet tagged — plan: ✅ commit + consumer + GC: s3Inline.qnt, s3InlineConsumer.qnt (gcReopens, observeAtRequest, own412IsTakeover), retirement.qnt (6 mutants ; partial retention (UCA-15, LS-10): retention.qnt (retentionShort, cutDuringOutage, capSized) is in open_models.sh, which no workflow runs
+H-1:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ Rust lane, consumer, GC: mbt_s3inline (mutants retry_new_key, no_halt, no_check_central), mbt_s3inline_consumer (gc::doomed = model's s; ✅ Go lane: parquetgo/modelcheck TestLaneConformsToS3Inline, TestLaneMutantsCaught; N model
+H-1:MN | coordinator | evidence exists, not yet tagged — plan: ✅ commit + consumer + GC: s3Inline.qnt, s3InlineConsumer.qnt (gcReopens, observeAtRequest, own412IsTakeover), retirement.qnt (6 mutants 
+H-2:CC | coordinator | evidence exists, not yet tagged — plan: ✅ S3 conditional writes: hegel_race (mutant racy_conditional), N; s3cas races, PR
+H-2:FI | coordinator | not built or not run — plan: partial consumer on real ClickHouse: faults.sh, consumer_soak.sh (N faults-soak); refused_credentials_are_unsettled_and_redacted (real CH + S3, PR)
+H-2:K | coordinator | evidence exists, not yet tagged — plan: ✅ lease window, check range: 18 harnesses + 4 mutant harnesses (VERIFY.md); N kani
+H-2:M | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: s3InlineConsumer.qnt + Compact; mutants errorSettles, releaseInFlight, keeperOverrun, noHorizon, restamp, obse; partial completeness (LS-6..8, #21): completeness.qnt in open_models.sh: no workflow runs it
+H-2:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: mbt_s3inline_consumer (designSlow found #20); N rust-mbt; partial watermark / label: not trace-connected. Mirrored by complete_through_is_sound_and_advances + complete_through_mutants_break_sound
+H-2:MN | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: s3InlineConsumer.qnt + Compact; mutants errorSettles, releaseInFlight, keeperOverrun, noHorizon, restamp, obse
+H-2:SM | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: hegel_dst; hegel_dst_finds_mutants (8 planted incl. #13–15); PR 100 cases, N 3,000
+H-3:FZ | coordinator | not built or not run — plan: partial aggregator keys and bodies (#24, SEC-1): TestHostileKeysAreData (IT), TestClusterFilterRejectsForeignRecords; no fuzz of the NDJSON / key parser
+H-3:M | coordinator | evidence exists, not yet tagged — plan: ✅ bitemporal catalog: bitemporalCatalog.qnt, 7 mutants, scripted runs; N model; partial announcement lane, grace window (LS-5): entityCatalog.qnt in open_models.sh: no workflow runs it; not connected
+H-3:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ resolver: entities/bitemp TestModelTraces on fresh traces; N model
+H-3:MS | coordinator | evidence exists, not yet tagged — plan: ✅ bitemporal catalog: bitemporalCatalog.qnt, 7 mutants, scripted runs; N model
+H-4:MBT | coordinator | not built or not run — plan: ❌ evaluator: the model is not connected: late.go cites it, and the Go simulation restates its properties by hand
+H-4:MN | coordinator | evidence exists, not yet tagged — plan: ✅ evaluator: alertEvaluator.qnt (evalPastCt, ackOnNoAnswer, blindWrite, lateDouble, lateResolves); N model
+H-5:D | coordinator | evidence exists, not yet tagged — plan: ✅ adapter vs ClickHouse: 799 captured statements replayed and compared (N)
+H-5:G | coordinator | evidence exists, not yet tagged — plan: ✅ HyperDX banner (patches): the verification gate (#41): jest 39 suites; the adapter integration test (N hdxadapter-integration)
+H-5:M | coordinator | not built or not run — plan: partial "lake result labelled with central's watermark": a completeness.qnt mutant, in no workflow
+H-5:P | coordinator | evidence exists, not yet tagged — plan: ✅ lake UI completeness math, re-plan: lakeui node:test + fast-check; PR
+H-6:D | coordinator | evidence exists, not yet tagged — plan: ✅ adapter decoder vs ClickHouse: the live differential caught two decoder differences before commit (STPA after #29)
+H-6:FZ | coordinator | not built or not run — plan: ❌ sqlscope parser, hdxadapter decoder, rwproxy, basis token decode: no fuzz targets anywhere. These are the parsers facing less-trusted text
+H-7:FI | coordinator | not built or not run — plan: partial buffer volume full (E3b, LS-9): deploy/scripts/diskfull.sh (manual); a measured result, not a CI check
+H-7:G | coordinator | evidence exists, not yet tagged — plan: ✅ (mechanism) shared disk and CPU (#38): heavy-job flock with a disk check inside it (AGENT-RULES); a mechanism, not a test
+H-7:P | coordinator | not built or not run — plan: partial per-caller limits (SEC-5, R-S9): limits exist and are unit-tested; no property over concurrent callers; #35 shows limits are set independently

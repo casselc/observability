@@ -11,6 +11,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // flakyHead fails the HEAD of some keys (the planner then cannot date them).
@@ -42,6 +44,7 @@ func (f *flakyHead) Head(ctx context.Context, k string) (map[string]string, erro
 //     objects_hash do not change when data arrives (a later arrival never
 //     takes the HEAD budget of an object the earlier plan dated).
 func TestPlanTailProperty(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-54", "H-4", "R-S1", "R-S2")
 	rapid.Check(t, func(rt *rapid.T) {
 		m := store.NewMem()
 		st := &flakyHead{Mem: m, fail: map[string]bool{}}

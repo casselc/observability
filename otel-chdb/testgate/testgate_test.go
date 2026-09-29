@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func TestRequiredIn(t *testing.T) {
@@ -48,6 +50,7 @@ func run(spec, svc, why string) (r rec) {
 }
 
 func TestGateFailsExactlyWhenRequired(t *testing.T) {
+	tracetag.Covers(t, "G", "CAST-43", "CAST-46")
 	r := run("clickhouse,s3", "s3", "no S3 at http://x/b")
 	if r.skip != "" || !strings.HasPrefix(r.fatal, "no S3 at http://x/b: service s3 is required here (OSCOPE_REQUIRE_SERVICES=clickhouse,s3)") {
 		t.Fatalf("required: want a failure, got %+v", r)

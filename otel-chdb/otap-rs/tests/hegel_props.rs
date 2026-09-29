@@ -179,6 +179,7 @@ fn prop_advance_to_stops_at_the_first_undone(tc: TestCase) {
 /// `RetireStale` mutant makes one).
 #[hegel::test]
 fn prop_close_proof_needs_every_epoch_sealed(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("P", &["CAST-47", "H-4"]);
     use consumer::coord::{CkptDoc, CloseProof, epoch_key};
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let mut c = CkptDoc::new("l");
@@ -455,6 +456,7 @@ fn hostile_text(tc: &TestCase, max: usize) -> String {
 /// exactly one literal, whatever it contains.
 #[hegel::test]
 fn prop_statements_keep_every_value_one_literal(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-7", "H-1", "SEC-7"]);
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
     let objs: Vec<Obj> = (0..n)
         .map(|i| {
@@ -548,8 +550,9 @@ fn blank(sql: &str) -> String {
 /// Opt-in (`HEGEL_CH=1`; `OTAPRS_CH`, default http://127.0.0.1:18123).
 #[hegel::test]
 fn prop_sql_on_clickhouse(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-7", "H-1", "SEC-7"]);
     if std::env::var_os("HEGEL_CH").is_none() {
-        return;
+        return otap_s3pq::oscope_trace::skipped();
     }
     static RT: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
     let rt = RT.get_or_init(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap());
@@ -825,6 +828,7 @@ fn encode_one(enc: &mut Encoder, sig: Signal, b: &[u8], env: &Envelope) -> (Stri
 /// a request must be deterministic, or a retry is a new content key).
 #[hegel::test]
 fn prop_objects_depend_on_the_request_only(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("D", &["CAST-10", "H-2"]);
     let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(4));
     let reqs: Vec<Req> = (0..n).map(|_| Req::draw(&tc, false)).collect();
     let o = opts(&tc);
@@ -930,6 +934,7 @@ fn one_log(r: LogRecord) -> Vec<u8> {
 /// `[0.0]`.
 #[test]
 fn regression_otap_nested_half_float() {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-19", "H-2"]);
     for (d, want) in [(0.0, "[0,7]"), (-0.0, "[-0,7]"), (1.5, "[1.5,7]"), (65504.0, "[65504,7]"), (5.960464477539063e-8, "[5.960464477539063e-8,7]"), (0.1, "[0.1,7]"), (f64::NAN, ""), (f64::NEG_INFINITY, "")] {
         let arr = Value::ArrayValue(ArrayValue { values: vec![AnyValue { value: Some(Value::DoubleValue(d)) }, AnyValue { value: Some(Value::IntValue(7)) }] });
         let b = one_log(LogRecord { attributes: vec![KeyValue { key: "a".into(), value: Some(AnyValue { value: Some(arr) }) }], ..Default::default() });
@@ -962,6 +967,7 @@ const LOG_ATTRS: usize = 14;
 /// -0.0 into 0.0.
 #[test]
 fn regression_otap_zero_values() {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-18", "H-2"]);
     for (v, want) in [(Value::IntValue(0), "0"), (Value::DoubleValue(0.0), "0"), (Value::DoubleValue(-0.0), "-0"), (Value::BoolValue(false), "false"), (Value::StringValue(String::new()), "")] {
         let b = one_log(LogRecord {
             body: Some(AnyValue { value: Some(v.clone()) }),
@@ -984,6 +990,7 @@ fn regression_otap_zero_values() {
 /// `prop_otap_rows_match_otlp_…`, shrunk to one span, start 0, end 1.
 #[test]
 fn regression_otap_duration_with_a_zero_time() {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-17", "H-2"]);
     for (start, end) in [(0u64, 1u64), (5, 0), (0, 0), (u64::MAX, 3), (1_700_000_000_000_000_000, 1_700_000_000_000_001_000)] {
         let t = TracesData {
             resource_spans: vec![ResourceSpans {
@@ -1153,6 +1160,7 @@ fn check_service(row: usize, got: &[u8], res: &Option<Resource>) {
 /// 64 bytes, for values up to 1 MiB.
 #[hegel::test]
 fn prop_statistics_stay_small_with_huge_values(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-9", "H-7"]);
     let r = Req::draw(&tc, true);
     let (sig, b) = (r.signal(), r.bytes());
     let e = env(&tc);

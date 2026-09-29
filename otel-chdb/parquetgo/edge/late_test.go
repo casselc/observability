@@ -16,6 +16,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 const lateT = uint64(1_790_000_000_000_000_000)
@@ -151,6 +153,7 @@ func byPart(t *testing.T, ps []latePart) (bulk, late latePart) {
 // with its own honest range and content key, row_ordinal 0..n-1 in each,
 // received_at unchanged; a retry sends nothing.
 func TestLateSplitTraces(t *testing.T) {
+	tracetag.Covers(t, "D", "CAST-40", "H-2", "R-S1")
 	B := 15 * time.Minute
 	st := commit.NewMemStore()
 	e := lateEdge(t, st, B)

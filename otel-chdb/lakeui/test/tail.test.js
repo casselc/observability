@@ -3,6 +3,7 @@
 // draws its rows incomplete whatever their time, keeps the basis part's
 // answers keyed on the basis and never the tail's.
 import { test } from 'node:test'
+import { covers } from './trace.js'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { parquetMetadata, parquetReadObjects } from 'hyparquet'
@@ -244,7 +245,8 @@ test('"latest" that cannot be issued (no watermark): planned unpinned and said s
     e => e.reason === 'cluster_not_in_scope')
 })
 
-test('property: however objects split between the basis part and a growing tail, every row is counted once, the tail\'s incomplete, and the basis count never moves', async () => {
+test('property: however objects split between the basis part and a growing tail, every row is counted once, the tail\'s incomplete, and the basis count never moves', async (t) => {
+  covers(t, 'P2C', 'CAST-54', 'H-4', 'R-S1', 'R-S2')
   await fc.assert(fc.asyncProperty(
     fc.array(fc.boolean(), { minLength: 1, maxLength: 5 }), fc.integer({ min: 0, max: 3 }), fc.integer({ min: 0, max: 3 }),
     async (inBasis, tail0, more) => {

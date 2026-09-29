@@ -18,6 +18,8 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func traces(n int, seed int) ptrace.Traces {
@@ -280,6 +282,7 @@ func TestHaltOnTombstone(t *testing.T) {
 // the edge's clock: a replay by a later incarnation, days later, carries the
 // original's value into every object and row; the content key is unchanged.
 func TestReplayKeepsReceived(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-1", "H-2", "UCA-2", "LS-1")
 	const t0 = uint64(1_780_000_000_000_000_001)
 	st := commit.NewMemStore()
 	var n atomic.Int64

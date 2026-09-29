@@ -68,6 +68,7 @@ fn sim_self_test() {
 /// The fleet over many seeds (`DST_SEEDS`, `DST_SEED_BASE`, `DST_SEED`).
 #[test]
 fn fleet_seeds() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-23", "H-1", "H-2", "UCA-4"]);
     let seeds = sim::seeds(40);
     let t0 = std::time::Instant::now();
     let out = sim::sweep("fleet_seeds", "dst_consumer", &seeds, |seed, keep| sim::run(seed, wall0(seed), keep, fleet));
@@ -83,6 +84,7 @@ fn fleet_seeds() {
 /// from its holder (`worker.rs` `heartbeat_and_leases`).
 #[test]
 fn a_slow_discovery_round_does_not_backdate_lease_observations() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-13", "H-2", "UCA-4", "LS-4"]);
     let o = sim::run(7, wall0(7), true, |sim| async move {
         let mut p = Profile::calm(2, 1, 40_000);
         p.slow_list = Some((1, 20_000, 15_000));
@@ -106,6 +108,7 @@ fn a_slow_discovery_round_does_not_backdate_lease_observations() {
 /// due (`worker.rs` `step`, `scan_inner`).
 #[test]
 fn a_backlog_longer_than_the_lease_window_is_still_ingested() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["CAST-14", "H-2", "H-7", "L-1"]);
     let o = sim::run(11, wall0(11), true, |sim| async move {
         let mut p = Profile::calm(1, 3, 40_000);
         p.lat_ms = 60;
@@ -127,6 +130,7 @@ fn a_backlog_longer_than_the_lease_window_is_still_ingested() {
 /// (`sameLane`). Announcements now carry a loud fence (sql.rs `FENCED`).
 #[test]
 fn a_server_fenced_announcement_is_not_taken_for_landed() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-42", "H-2", "H-3", "LS-5"]);
     let o = sim::run(1950, wall0(1950), false, |sim| async move {
         NO_LATE.with(|c| c.set(true));
         fleet(sim).await
@@ -230,6 +234,7 @@ fn retirement_seeds() {
 /// the quarantine, which some seed shows.
 #[test]
 fn retirement_operator_mistake_is_safe() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-44", "H-4", "R-S1"]);
     let n = std::env::var("DST_RETIRE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(300u64);
     let k = retire::Knobs { op: retire::OpMode::Mistake, ..retire::Knobs::design() };
     let (mut quarantined, mut kept) = (0, 0);
@@ -250,6 +255,7 @@ fn retirement_operator_mistake_is_safe() {
 /// zombie landing within its lifetime).
 #[test]
 fn retirement_catches_mutants() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["CAST-47", "H-1", "H-4"]);
     let n = std::env::var("DST_RETIRE_MUTANT_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(600u64);
     let d = retire::Knobs::design();
     let mistake = retire::Knobs { op: retire::OpMode::Mistake, ..d };

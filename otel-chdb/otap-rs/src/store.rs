@@ -674,6 +674,7 @@ mod tests {
     /// `runner::append` keeps unresolved.
     #[tokio::test(flavor = "current_thread")]
     async fn a_403_on_head_is_an_error_not_a_free_slot() {
+        let _trace = crate::oscope_trace::covers("FI", &["CAST-30", "R-S5"]);
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = l.local_addr().unwrap().port();

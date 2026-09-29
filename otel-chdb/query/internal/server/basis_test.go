@@ -21,6 +21,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
 	"github.com/golang-jwt/jwt/v5"
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // bfix is a service over rowsCH (which applies the filters it is given)
@@ -123,6 +125,7 @@ type pinned struct {
 // watermark moving), and it holds exactly the rows received before the
 // basis's bound of their cluster.
 func TestBasisSameAnswerWhileDataArrives(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-34", "H-2", "H-4", "R-S1")
 	f := newBasisFixture(t)
 	fleet := f.token(fleetClaims)
 	rapid.Check(t, func(rt *rapid.T) {

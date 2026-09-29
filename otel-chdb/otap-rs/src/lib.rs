@@ -18,6 +18,7 @@
 //! - `resource`: resource_id (the entity catalog's content address) and the announcement cache
 //! - `central`: the ClickHouse side of the consumer
 //! - `testgate`: service-gated tests skip, or fail where `OSCOPE_REQUIRE_SERVICES` names the service
+//! - `oscope_trace`: runtime traceability tags (`OSCOPE_TRACE_OUT`): which hazards a test verifies, and its outcome
 
 pub mod batch;
 pub mod central;
@@ -30,6 +31,7 @@ pub mod flatten;
 pub mod late;
 pub mod gosort;
 pub mod metrics;
+pub mod oscope_trace;
 pub mod proto;
 pub mod render;
 pub mod resource;

@@ -890,6 +890,7 @@ mod tests {
 
     #[test]
     fn received_at_is_the_custody_time_when_the_buffer_has_one() {
+        let _trace = crate::oscope_trace::covers("P2C", &["CAST-1", "H-2", "UCA-2", "LS-1"]);
         let at = SystemTime::UNIX_EPOCH + Duration::from_nanos(1_700_000_000_123_456_789);
         // A replay days later reports the WAL write, not the redelivery.
         assert_eq!(received_ns(Some(at), || 1_800_000_000_000_000_000), 1_700_000_000_123_456_789);

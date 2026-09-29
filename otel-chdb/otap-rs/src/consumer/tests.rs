@@ -186,6 +186,7 @@ async fn ingests_in_order_skips_copies_and_closes_dead_epochs() {
 /// lease expired (TTL + margin).
 #[tokio::test(flavor = "current_thread")]
 async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-15", "H-2", "L-1"]);
     let (b, c, clk) = setup();
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), own_conflict_every: 2, ..Default::default() };
     let mut e = Edge::new("c1/p1", "traces");
@@ -215,6 +216,7 @@ async fn a_412_for_our_own_lease_or_checkpoint_write_keeps_the_lane() {
 /// MBT's `designSlow`, seed 0x29e8aebd).
 #[tokio::test(flavor = "current_thread")]
 async fn a_lost_lease_or_checkpoint_write_keeps_the_lane() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-20", "H-2", "L-1"]);
     let (b, c, clk) = setup();
     *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), drop_every: 3, ..Default::default() };
     let mut e = Edge::new("c1/p1", "traces");
@@ -388,6 +390,7 @@ async fn partial_statements_and_lost_answers_are_repaired_by_the_verify() {
 /// takes it when it is its own (same lease epoch, a later version).
 #[tokio::test(flavor = "current_thread")]
 async fn a_checkpoint_write_landing_late_is_taken_back() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "H-2"]);
     let (b, c, clk) = setup();
     let lane = "c1/p1/traces";
     let key = format!("{CTL}/ckpt/{lane}.json");
@@ -929,6 +932,7 @@ async fn an_unanswered_statement_is_waited_out() {
 /// first statement lands too.
 #[tokio::test(flavor = "current_thread")]
 async fn an_error_answer_whose_commit_is_still_resolving_is_waited_out() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-2", "H-2", "UCA-5", "LS-2"]);
     for mutant in [false, true] {
         let (b, c, clk) = setup();
         c.late_error_every.set(1);
@@ -1481,6 +1485,7 @@ async fn a_stalled_cluster_holds_only_its_own_watermark() {
 /// The mutants the model rejects are caught here as well.
 #[tokio::test(flavor = "current_thread")]
 async fn complete_through_mutants_break_soundness() {
+    let _trace = otap_s3pq::oscope_trace::covers("MU", &["CAST-21", "H-2", "H-4"]);
     for mode in [LowMode::OwnReceived, LowMode::NoBirth, LowMode::WmIgnoresPending] {
         let mut broken = 0;
         for seed in 1..=20u64 {
@@ -1846,6 +1851,7 @@ async fn a_kept_volume_replayed_after_retire_lane_is_quarantined() {
 /// received_at; GC never deletes a quarantined object.
 #[tokio::test(flavor = "current_thread")]
 async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-48", "H-1", "UCA-6"]);
     let (b, c, clk) = setup();
     let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
     let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);

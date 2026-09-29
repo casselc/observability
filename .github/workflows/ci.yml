@@ -28,6 +28,9 @@ env:
   NODE_VERSION: "22"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # Every tagged test appends a record here when it finishes (ci/README.md, "Traceability");
+  # each job uploads the file as trace-<job>, and the traceability job joins them.
+  OSCOPE_TRACE_OUT: ${{ github.workspace }}/_trace/records.jsonl
 
 jobs:
   go-vet:
@@ -52,6 +55,14 @@ jobs:
         run: ci/iam-lint.sh
       - name: IAM policies compiled from the Cedar grants (D38)
         run: ci/iam-lint.sh otel-chdb/grants/examples/out/iam
+      - name: Traceability record (the IAM lint is CAST row 30's control)
+        run: python3 ci/trace/trace.py record --test ci/iam-lint.sh --technique G --ids CAST-30,H-6,R-S7,SEC-2
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-go-vet
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   go-test:
     name: go test (fast modules, -race)
@@ -92,6 +103,12 @@ jobs:
           name: go-test-logs
           path: ${{ runner.temp }}/go-logs
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-go-test
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The lake UI's plain modules (planner client, range reader, completeness,
   # re-plan state machine, queries over edge Parquet fixtures), with their
@@ -113,6 +130,12 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run vendor:check
       - run: npm test
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-lakeui
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The Mosaic spike beside the lake UI (research/mosaic.md): its columns,
   # Arrow and completeness-layer tests import lakeui's modules, so both
@@ -134,6 +157,12 @@ jobs:
         working-directory: otel-chdb/lakeui
       - run: npm ci --ignore-scripts --no-audit --no-fund && npm test
         working-directory: otel-chdb/lakeui/mosaic
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-lakeui-mosaic
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # otap-rs. This job owns the cargo cache (clippy's and the tests' release
   # artifacts); the nightly Rust jobs only restore it.
@@ -189,6 +218,8 @@ jobs:
       - run: grep -Ev '^(#|$)' ../../ci/test.env >> "$GITHUB_ENV"
       - name: clippy (with the allow-list in ci/clippy.sh)
         run: ../../ci/clippy.sh
+      - name: Traceability record (clippy -D warnings is CAST row 8's control)
+        run: python3 ../../ci/trace/trace.py record --test ci/clippy.sh --technique G --ids CAST-8,H-1
       - name: Unit tests (lib and bins; the consumer's ClickHouse / S3 tests use the services)
         run: cargo test --release --locked --lib --bins
       - name: Datasets (otlpgen; the Go prototype's layout-B objects)
@@ -214,4 +245,39 @@ jobs:
           name: rust-logs
           path: ${{ runner.temp }}/rust-logs
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-rust
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
+  # Requirements-to-test traceability from runtime evidence (ci/README.md, "Traceability"):
+  # joins every job's trace records with the STPA catalogue and VERIFICATION.md's required
+  # cells, and fails on a failed, skipped-only or unrun tagged test, an unknown ID or
+  # technique, or a CAST row or required cell with no passing record that
+  # ci/trace/known-gaps.txt does not list. Runs even when a test job failed, so the report
+  # says which evidence is missing.
+  traceability:
+    name: traceability (tagged tests ran and passed at this commit)
+    needs: [go-vet, go-test, lakeui, lakeui-mosaic, rust]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: trace-*
+          path: ${{ runner.temp }}/trace
+      - name: trace.py check
+        run: |
+          python3 ci/trace/trace.py check --workflow ci --jobs go-vet,go-test,lakeui,lakeui-mosaic,rust \
+            --records "$RUNNER_TEMP/trace" --report "$RUNNER_TEMP/TRACEABILITY.md" --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: traceability-report
+          path: ${{ runner.temp }}/TRACEABILITY.md
+          if-no-files-found: warn
 

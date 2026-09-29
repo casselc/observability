@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { covers } from './trace.js'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
 import { bannerText, bucketState, buckets, incompleteStart, resultState, rowState, segments } from '../src/completeness.js'
@@ -37,7 +38,8 @@ test('examples: complete, partial, unknown', () => {
 // CAST row 26: complete_through is receive (custody) time; the window is
 // event time. A row with event time 950 received at 1050 is not in central
 // while complete_through is 1000, so [0, 1000) must not be drawn settled.
-test('max_lateness: event time settles complete_through − max_lateness', () => {
+test('max_lateness: event time settles complete_through − max_lateness', (t) => {
+  covers(t, 'P2C', 'CAST-26', 'H-4', 'R-S1', 'R-S2', 'R-S3')
   const late = L({ state: 'partial', completeThroughNs: 1000n, incompleteFromNs: 900n, maxLatenessNs: 100n })
   assert.equal(incompleteStart(late), 900n)
   assert.equal(rowState(late, 950n), 'incomplete')
@@ -73,7 +75,8 @@ const lateLabel = fc.record({
   return { state, fromNs: r.fromNs, toNs, completeThroughNs: r.ct, incompleteFromNs: inc, maxLatenessNs: r.ml, startComplete: true, watermarkStatus: 'ok' }
 })
 
-test('property: nothing at or after complete_through − max_lateness is drawn complete, whatever the label says', () => {
+test('property: nothing at or after complete_through − max_lateness is drawn complete, whatever the label says', (t) => {
+  covers(t, 'P2C', 'CAST-26', 'H-4', 'R-S1', 'R-S2')
   fc.assert(fc.property(lateLabel, l => {
     const segs = segments(l)
     for (const s of segs) {

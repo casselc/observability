@@ -7,9 +7,12 @@ import (
 
 	"github.com/parquet-go/parquet-go"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func TestTruncateStatistics(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-9", "H-7")
 	td := ptrace.NewTraces()
 	ss := td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty()
 	for i, v := range []string{strings.Repeat("\xff", 100) + "z", strings.Repeat("b", 1<<20), "a"} {

@@ -327,6 +327,7 @@ mod tests {
     /// integration run).
     #[tokio::test(flavor = "current_thread")]
     async fn a_store_that_fails_every_put_is_not_resent_forever() {
+        let _trace = crate::oscope_trace::covers("ML", &["CAST-39", "H-1", "H-7", "R-S1", "R-S5"]);
         let st = Stats::default();
         let mut c = EncodedCache::default();
         let mut l = Lane::new("E".into());

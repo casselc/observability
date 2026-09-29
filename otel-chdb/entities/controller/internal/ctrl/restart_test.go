@@ -11,6 +11,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/casselc/observability/otel-chdb/entities/controller/internal/lane"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // A controller that follows an earlier incarnation (Config.Since, from
@@ -26,6 +28,7 @@ import (
 // first-ever start (Since = 0) is unchanged. The window [Since, first sync]
 // is written as a restart gap record.
 func TestRestartDatesFromThePreviousIncarnation(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-37", "H-3", "H-5")
 	now := time.Now()
 	since := lane.FromTime(now.Add(-10 * time.Minute))
 	oldCreated, newCreated := now.Add(-time.Hour).Truncate(time.Second), now.Add(-time.Minute).Truncate(time.Second)

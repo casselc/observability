@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func okState(ctNs int64, now time.Time) State {
@@ -18,6 +20,7 @@ func okState(ctNs int64, now time.Time) State {
 // window must not be labelled complete until complete_through passes its
 // end + max_lateness.
 func TestLateRowNotComplete(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-26", "H-2", "H-4", "R-S1", "R-S3", "UCA-10")
 	now := t0
 	w := &Window{FromNs: t0.Add(-10 * time.Minute).UnixNano(), ToNs: t0.Add(-5 * time.Minute).UnixNano()}
 	// the late row: event time a second before the window's end, received
@@ -86,6 +89,7 @@ func TestSettledNsSaturates(t *testing.T) {
 //     incomplete_from;
 //   - the label's incomplete_from lies inside the window.
 func TestCompleteMeansAllRowsWithinLateness(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-26", "H-2", "H-4", "R-S1", "R-S3", "UCA-10")
 	rapid.Check(t, func(t *rapid.T) {
 		sec := int64(time.Second)
 		L := time.Duration(rapid.Int64Range(0, 120).Draw(t, "lateness_s")) * time.Second

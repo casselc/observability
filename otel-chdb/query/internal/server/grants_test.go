@@ -7,6 +7,8 @@ import (
 
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // D38 / CAST 52, end to end: grants held together are the union of their
@@ -14,6 +16,7 @@ import (
 // is given, so the counts are what ClickHouse would read.
 
 func TestQueryGrantsAreUnionNotProduct(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-52", "H-6", "H-E3", "R-E8")
 	f := newBasisFixture(t)
 	f.srv.Mapping.Groups["devtools-alice"] = auth.Grant{Clusters: []string{"devtools"}, Namespaces: []string{"dev-alice"}, Roles: []string{"query"}}
 	f.srv.Mapping.Groups["shop"] = auth.Grant{Clusters: []string{"prod-a"}, Namespaces: []string{"shop"}, Roles: []string{"query"}}
@@ -57,6 +60,7 @@ func TestQueryGrantsAreUnionNotProduct(t *testing.T) {
 }
 
 func TestPlanUsesOnlyWholeClusterPlanGrants(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-52", "H-6", "H-E3", "R-E8", "R-G2")
 	f := newFixture(t)
 	f.srv.Mapping.Groups["a-plan"] = auth.Grant{Clusters: []string{"prod-a"}, Namespaces: []string{"*"}, Roles: []string{"plan"}}
 	f.srv.Mapping.Groups["b-query"] = auth.Grant{Clusters: []string{"prod-b"}, Namespaces: []string{"*"}, Roles: []string{"query"}}

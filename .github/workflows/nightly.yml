@@ -40,6 +40,9 @@ env:
   NODE_VERSION: "22"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # Every tagged test appends a record here when it finishes (ci/README.md, "Traceability");
+  # each job uploads the file as trace-<job>, and the traceability job joins them.
+  OSCOPE_TRACE_OUT: ${{ github.workspace }}/_trace/records.jsonl
   # quint's node process holds every generated trace: 3.5-4.3 GB for the
   # 300-1000-trace mbt instances. Node's default heap limit on the 8 GB
   # runners is ~2 GB ("JavaScript heap out of memory", which quint-connect
@@ -182,6 +185,9 @@ jobs:
         if: fromJSON(needs.plan.outputs.run).conformance
         working-directory: otel-chdb/conformance
         run: python3 -m unittest -v compare_test
+      - name: Traceability record (compare_test.py is CAST row 45's regression check)
+        if: fromJSON(needs.plan.outputs.run).conformance
+        run: python3 ci/trace/trace.py record --test conformance/compare_test.py --technique D --ids CAST-45,H-2
       - uses: actions/download-artifact@v8
         with:
           name: bin
@@ -246,6 +252,12 @@ jobs:
           name: conformance
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-conformance
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The query service against the real pipeline: the Go edge publishes two
   # clusters, the Rust consumer ingests them and publishes complete_through,
@@ -284,6 +296,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-query-integration
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The query service's KMS basis signer against moto server's KMS
   # (DECISIONS D30 amendment 2026-09-28): startup check, two replicas,
@@ -310,6 +328,12 @@ jobs:
         run: pipx install 'moto[server]==5.2.3'
       - name: ci/kms-emulator.sh
         run: ci/kms-emulator.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-query-kms-emulator
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The HyperDX adapter (otel-chdb/query/integration/hdxadapter): HyperDX
   # 2.39.1's 799 captured statements through the adapter and the query service
@@ -354,6 +378,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-hdxadapter-integration
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The lake UI in Chromium (otel-chdb/lakeui/e2e): the Go edge (two
   # clusters) -> SeaweedFS -> the Rust consumer -> ClickHouse, the query
@@ -414,6 +444,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-lakeui-e2e
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The Mosaic spike (otel-chdb/lakeui/mosaic, research/mosaic.md) on the
   # same rig with LUI_RICH_SPANS: range reads vs DuckDB reading the URLs,
@@ -477,6 +513,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-lakeui-mosaic-e2e
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The alert evaluator against the real pipeline and the query service
   # (built from otel-chdb/query): rules fire and resolve, a stalled lane
@@ -516,6 +558,12 @@ jobs:
       - name: Service logs
         if: failure()
         run: ci/services.sh logs || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-alerts-integration
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The Rust edge under faults, then the consumer fleet under chaos (short).
   faults-soak:
@@ -578,6 +626,12 @@ jobs:
           name: faults-soak
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-faults-soak
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The credential modes against local stand-ins, and layout B against the Go
   # prototype on the fleet batches: the otap-rs integration tests the fast
@@ -659,6 +713,12 @@ jobs:
           name: rust-integration
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-rust-integration
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # Deterministic simulation of the consumer fleet (otap-rs/DST.md): new
   # seeds every night (the base follows the run number), 10,000 at level 1
@@ -718,6 +778,12 @@ jobs:
           name: dst-traces
           path: ${{ github.workspace }}/.ci/dst
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-dst
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # Property, stateful and concurrent tests with Hegel (otap-rs/HEGEL.md),
   # under hegel.toml's nightly profile: 3,000 cases per test from a fresh
@@ -795,6 +861,12 @@ jobs:
           path: otel-chdb/otap-rs/.hegel
           include-hidden-files: true
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-hegel
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The quint-connect model-based tests: quint drives the protocol and the
   # consumer through traces of ../model/*.qnt (the Rust evaluator). One test
@@ -856,6 +928,12 @@ jobs:
         env:
           QUINT_SEED: "0x5eed"
         run: cargo test --release --locked --test "${{ matrix.test }}" -- --test-threads=1 --nocapture
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-rust-mbt-${{ matrix.test }}
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The consumer models (quint, Rust evaluator) and parquetgo's model check.
   model:
@@ -891,6 +969,9 @@ jobs:
         env:
           OUT: ${{ runner.temp }}/out/consumer-model.txt
         run: mkdir -p "$RUNNER_TEMP/out" && ci/model-check.sh
+      - name: Traceability records (consumer model, ci/trace/models.txt)
+        if: always()
+        run: python3 ci/trace/trace.py model --script consumer_model --report "$RUNNER_TEMP/out/consumer-model.txt"
       - name: model/alertEvaluator.qnt (the alert evaluator, otel-chdb/alerts)
         run: mkdir -p "$RUNNER_TEMP/out" && otel-chdb/model/alert_model.sh | tee "$RUNNER_TEMP/out/alert-model.txt"
       - name: model/retirement.qnt (dead-lane retirement, FORMAT.md §3.1)
@@ -898,6 +979,9 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/out"
           SEED=$(printf '0x%x' $((RANDOM * 32768 + RANDOM))) otel-chdb/model/retirement_model.sh | tee "$RUNNER_TEMP/out/retirement-model.txt"
+      - name: Traceability records (retirement model, ci/trace/models.txt)
+        if: always()
+        run: python3 ci/trace/trace.py model --script retirement_model --report "$RUNNER_TEMP/out/retirement-model.txt"
       - name: model/bitemporalCatalog.qnt (the catalog as bitemporal events, D32) and entities/bitemp against its traces
         run: |
           set -o pipefail
@@ -912,6 +996,12 @@ jobs:
           name: model
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-model
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # Kani proofs of the consumer's lease window and check range
   # (otap-rs/VERIFY.md): every harness in otap-rs/verify, one at a time,
@@ -948,6 +1038,12 @@ jobs:
           name: kani
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-kani
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # The Go tests that load libchdb (the chdb-go fork, the chdb exporter with
   # its quint-driven property tests, parquetgo/compare's correctness run).
@@ -1002,6 +1098,12 @@ jobs:
           name: chdb
           path: ${{ runner.temp }}/out
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-chdb
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
 
   # Our otel-arrow patches' own upstream unit tests, in the upstream
   # workspace at the pinned commit (patches/0006: Quiver's custody floor and
@@ -1044,3 +1146,42 @@ jobs:
       - name: otel-arrow-dfe-core-nodes durable_buffer tests (patch 0006)
         working-directory: .ci/otel-arrow/rust/otap-dataflow
         run: cargo test --release -p otel-arrow-dfe-core-nodes --features durable-buffer durable_buffer
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-upstream-patches
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
+  # Requirements-to-test traceability for this run's selected jobs (ci/README.md,
+  # "Traceability"): as ci.yml's job, over the nightly's records. Tags whose jobs were not
+  # selected, and rows only they claim, are reported as deferred, not judged.
+  traceability:
+    name: traceability (tagged tests ran and passed at this commit)
+    needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, lakeui-e2e,
+            lakeui-mosaic-e2e, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, kani,
+            chdb, upstream-patches]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: trace-*
+          path: ${{ runner.temp }}/trace
+      - name: trace.py check (the jobs the plan selected)
+        env:
+          RUN: ${{ needs.plan.outputs.run }}
+          MBT: ${{ needs.plan.outputs.mbt }}
+        run: |
+          jobs=$(python3 -c 'import json, os; r = json.loads(os.environ["RUN"]); m = json.loads(os.environ["MBT"]); print(",".join([k for k, v in r.items() if v and k != "build"] + (["rust-mbt"] if m else [])))')
+          echo "judging: $jobs"
+          python3 ci/trace/trace.py check --workflow nightly --jobs "$jobs" \
+            --records "$RUNNER_TEMP/trace" --report "$RUNNER_TEMP/TRACEABILITY.md" --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: traceability-report
+          path: ${{ runner.temp }}/TRACEABILITY.md
+          if-no-files-found: warn

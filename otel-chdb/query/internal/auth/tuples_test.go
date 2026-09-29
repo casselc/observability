@@ -10,6 +10,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // D38 / CAST 52: a principal's effective scope for a role is the union of
@@ -133,6 +135,7 @@ func mapping(sc scenario) auth.Mapping {
 // what one of its grants gives; the lake's whole-cluster view admits a
 // cluster only through a grant of every namespace in it.
 func TestEffectiveScopeIsUnionOfTuples(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-52", "H-6", "H-E3", "H-G1", "R-E8", "R-G1")
 	rapid.Check(t, func(t *rapid.T) {
 		sc := drawScenario(t)
 		m := mapping(sc)

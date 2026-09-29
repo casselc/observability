@@ -920,6 +920,7 @@ mod tests {
     /// own passed close).
     #[test]
     fn a_close_proves_empty_custody_only_when_everything_is_sealed() {
+        let _trace = otap_s3pq::oscope_trace::covers("MS", &["CAST-47", "H-4"]);
         let listed = |xs: &[(&str, u64)]| xs.iter().map(|(e, m)| (e.to_string(), *m)).collect::<BTreeMap<String, u64>>();
         let mut c = CkptDoc::new("l");
         c.advance("E1", 3);

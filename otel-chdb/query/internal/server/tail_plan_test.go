@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 func tailKeys(out map[string]any) map[string]map[string]any {
@@ -23,6 +25,7 @@ func tailKeys(out map[string]any) map[string]map[string]any {
 // that cannot be dated goes to the tail with a footer check, never into the
 // basis part.
 func TestPlanTail(t *testing.T) {
+	tracetag.Covers(t, "P2C", "CAST-54", "H-4", "R-S1", "R-S2")
 	f := newBasisFixture(t)
 	fleet := f.token(fleetClaims)
 	a1 := key("prod-a", "pub-0", "logs", 1)

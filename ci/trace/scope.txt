@@ -1,0 +1,27 @@
+# Which workflow jobs run the tests in each file (ci/trace/trace.py check).
+#   path-glob   workflow:job ...
+# First match wins. A tag in a file no line matches fails the check, so a new tagged
+# directory must be placed here. The traceability job of a run expects a passing record
+# for every tag whose jobs include one the run ran (the nightly: the selected jobs).
+# Tags in ci/trace/models.txt and `trace.py record` workflow steps name their job themselves.
+
+# Go (ci/go-modules.sh test fast, in ci.yml's go-test)
+otel-chdb/parquetgo/compare/*          nightly:chdb
+otel-chdb/parquetgo/modelcheck/*       nightly:model
+otel-chdb/testgate/*                   ci:go-test
+otel-chdb/parquetgo/*                  ci:go-test
+otel-chdb/otap/*                       ci:go-test
+otel-chdb/entities/*                   ci:go-test
+otel-chdb/query/internal/*             ci:go-test
+otel-chdb/alerts/internal/*            ci:go-test
+otel-chdb/s3cas/*                      ci:go-test
+
+# Rust (ci.yml rust: --lib --bins, then the named test targets; the nightly repeats some at scale)
+otel-chdb/otap-rs/src/*                ci:rust
+otel-chdb/otap-rs/tests/dst_consumer.rs  ci:rust nightly:dst
+otel-chdb/otap-rs/tests/dst_net.rs       ci:rust nightly:dst
+otel-chdb/otap-rs/tests/hegel_props.rs   ci:rust nightly:hegel
+otel-chdb/otap-rs/tests/hegel_dst.rs     ci:rust nightly:hegel
+
+# Node (ci.yml lakeui: npm test, with test/trace-reporter.js)
+otel-chdb/lakeui/test/*                ci:lakeui

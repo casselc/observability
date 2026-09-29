@@ -58,6 +58,7 @@ fn gate(spec: Option<&str>, service: &str, why: &dyn Display) {
         panic!("{why}: service {service} is required here ({ENV}={}), so this test fails instead of skipping", spec.unwrap_or(""));
     }
     eprintln!("{why}: skipped (service {service}; {ENV} does not require it)");
+    crate::oscope_trace::skipped();
 }
 
 #[cfg(test)]
@@ -87,6 +88,7 @@ mod tests {
 
     #[test]
     fn a_required_service_fails_and_an_optional_one_skips() {
+        let _trace = crate::oscope_trace::covers("G", &["CAST-43", "CAST-46"]);
         let r = std::panic::catch_unwind(|| gate(Some("clickhouse,s3"), "s3", &"no S3 at http://x/b"));
         let m = *r.expect_err("required: a failure").downcast::<String>().unwrap();
         assert!(m.starts_with("no S3 at http://x/b: service s3 is required here (OSCOPE_REQUIRE_SERVICES=clickhouse,s3)"), "{m}");

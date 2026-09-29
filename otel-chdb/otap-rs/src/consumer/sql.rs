@@ -1167,6 +1167,7 @@ mod tests {
 
     #[test]
     fn every_query_pins_the_overflow_modes_to_throw() {
+        let _trace = otap_s3pq::oscope_trace::covers("PH", &["CAST-16", "H-2"]);
         let st = no_partial_results(&[("read_overflow_mode", "break"), ("max_rows_to_read", "10"), ("optimize_use_projections", "1")]);
         assert!(st.contains(&("read_overflow_mode", "throw")) && !st.contains(&("read_overflow_mode", "break")), "{st:?}");
         assert!(st.contains(&("max_rows_to_read", "10")) && st.contains(&("optimize_use_projections", "1")));
@@ -1182,6 +1183,7 @@ mod tests {
     /// it fails. Skipped without a ClickHouse that allows CREATE USER.
     #[tokio::test(flavor = "current_thread")]
     async fn a_profile_with_break_modes_cannot_shorten_the_count_check() {
+        let _trace = otap_s3pq::oscope_trace::covers("IT", &["CAST-16", "H-2"]);
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         let admin = otap_s3pq::central::ClickHouse::new(&url);
         if admin.query("SELECT 1", &[]).await.is_err() {
@@ -1690,6 +1692,7 @@ mod tests {
     /// D18 names, which `run_insert` adds in that mode.
     #[tokio::test(flavor = "current_thread")]
     async fn refused_credentials_are_unsettled_and_redacted() {
+        let _trace = otap_s3pq::oscope_trace::covers("IT", &["CAST-31", "H-6"]);
         use crate::consumer::bucket::{Bucket, Cond, Put, S3Bucket};
         let url = std::env::var("OTAPRS_CH").unwrap_or_else(|_| "http://127.0.0.1:18123".into());
         if ClickHouse::new(&url).query("SELECT 1", &[]).await.is_err() {

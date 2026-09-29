@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // A missing key answers 404 only to a caller with s3:ListBucket; without it
@@ -19,6 +21,7 @@ import (
 // a slot that holds data, so it stays an error (AMBIGUITY S5) and the slot
 // unresolved, never resent into.
 func TestHeadOnlyA404IsFree(t *testing.T) {
+	tracetag.Covers(t, "FI", "CAST-30", "R-S5")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/listable"):

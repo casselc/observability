@@ -8,6 +8,8 @@ import (
 
 	chp "github.com/AfterShip/clickhouse-sql-parser/parser"
 	"pgregory.net/rapid"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // D38 / CAST 52: a scope of explicit (cluster, namespace) pairs is their
@@ -140,6 +142,7 @@ func filterAllows(t fataler, p *Policy, s Scope) (func(c, n string) bool, error)
 // TestPairScopeIsUnionNeverProduct: over random pair sets, the filter
 // ClickHouse would receive admits exactly the union's rows.
 func TestPairScopeIsUnionNeverProduct(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-52", "H-6", "H-E3", "R-E8", "R-S8")
 	p := pairsPolicy(t)
 	rapid.Check(t, func(t *rapid.T) {
 		pairs := drawPairs(t)
@@ -351,6 +354,7 @@ func TestScopeKeyDistinguishesPairs(t *testing.T) {
 // (A regression of the first pairs commit: the product fallback read "*" as
 // a wildcard and trimmed "a " to "a"; TestScopeValueProperty caught it.)
 func TestLiteralStarAndSpacesAreNotNames(t *testing.T) {
+	tracetag.Covers(t, "PH", "CAST-53", "H-6", "H-G1")
 	p := testPolicy(t)
 	for _, s := range []Scope{
 		{Clusters: []string{"*"}, AllNamespaces: true},

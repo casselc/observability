@@ -5,7 +5,7 @@
   "type": "module",
   "description": "The lake-first UI, first slice: /v1/plan, hyparquet range reads, completeness on every view",
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./test/trace-reporter.js --test-reporter-destination=stderr test/*.test.js",
     "vendor": "node scripts/vendor.mjs",
     "vendor:check": "node scripts/vendor.mjs --check",
     "e2e": "playwright test -c e2e/playwright.config.mjs"

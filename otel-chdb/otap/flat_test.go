@@ -10,6 +10,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/chdbexporter/testgen"
 	"github.com/casselc/observability/otel-chdb/parquetgo"
 	pb "github.com/open-telemetry/otel-arrow/go/api/experimental/arrow/v1"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // Regression: parquetgo's traces and logs schemas gained resource_id and
@@ -18,6 +20,7 @@ import (
 // resource columns hold parquetgo's ids (CoveredOf), the envelope the
 // producer and row ordinals.
 func TestFlattenResourceAndEnvelope(t *testing.T) {
+	tracetag.Covers(t, "D", "CAST-46", "H-2")
 	td, ld := testgen.Traces(300), testgen.Logs(300)
 	tb, err := EncodeTraces(td)
 	if err != nil {

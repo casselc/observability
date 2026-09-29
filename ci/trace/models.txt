@@ -1,0 +1,17 @@
+# Quint model checks as traceability records (ci/trace/trace.py model).
+#   jobs | script | name | regex over the script's report lines | technique | ids
+# After a script runs, `trace.py model --script <script> --report <its report>` writes one record
+# per entry: passed when every matching line has the result it expects (`sim ... X (expect X)`,
+# `runs ... passed N>0 failed 0`), skipped when a random simulation did not reach an expected
+# violation (an unknown), failed otherwise. No matching line, no record: the check reports it unrun.
+# The deterministic scripted runs (*BreaksTest) are the evidence for a mutant; random `sim` mutant
+# lines are not listed, since a miss there is not a failure (ci/model-check.sh warns).
+nightly:model | consumer_model | errorSettlesBreaksTest | ^runs +errorSettles +errorSettlesBreaksTest  | MS | CAST-2 H-2 UCA-5 LS-2
+nightly:model | consumer_model | releaseInFlightBreaksTest | ^runs +releaseInFlight +releaseInFlightBreaksTest  | MS | CAST-3 H-2 UCA-5
+nightly:model | consumer_model | gcReopensBreaksTest | ^runs +gcReopens +gcReopensBreaksTest  | MS | CAST-4 H-1 UCA-6 LS-3
+nightly:model | consumer_model | keeperOverrunBreaksTest | ^runs +keeperOverrun +keeperOverrunBreaksTest  | MS | CAST-5 H-2
+nightly:model | consumer_model | restampBreaksTest | ^runs +restamp +restampBreaksTest  | MS | CAST-1 H-2 UCA-2 LS-1
+nightly:model | consumer_model | noHorizonBreaksTest | ^runs +noHorizon +noHorizonBreaksTest  | MS | CAST-1 H-2 UCA-2 LS-1
+nightly:model | retirement_model | closeZombieBreaksTest | ^runs +closeUnsealed +closeZombieBreaksTest  | MS | CAST-47 H-4
+nightly:model | retirement_model | opMistakeQuarantinesTest | ^runs +opMistake +opMistakeQuarantinesTest  | MS | CAST-44 H-4 R-S1
+nightly:model | retirement_model | opMistake stable | ^sim +opMistake +stable  | M | CAST-44 H-4 R-S1

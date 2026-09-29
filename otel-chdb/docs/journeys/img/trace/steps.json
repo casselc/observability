@@ -1,0 +1,26 @@
+{
+ "journey": "trace",
+ "title": "Find a trace",
+ "steps": [
+  {
+   "step": 1,
+   "file": "trace/01-no-index.png",
+   "caption": "Without the index: every object in the window is read"
+  },
+  {
+   "step": 2,
+   "file": "trace/02-index.png",
+   "caption": "With the lake index: the same spans, the other objects ruled out"
+  },
+  {
+   "step": 3,
+   "file": "trace/03-scan.png",
+   "caption": "A text search: one object not indexed yet, so it is read whole, not skipped"
+  },
+  {
+   "step": 4,
+   "file": "trace/04-indexed.png",
+   "caption": "After the indexer runs: every object indexed, the same count"
+  }
+ ]
+}

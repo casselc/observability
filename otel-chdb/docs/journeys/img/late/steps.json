@@ -1,0 +1,21 @@
+{
+ "journey": "late",
+ "title": "Late data",
+ "steps": [
+  {
+   "step": 1,
+   "file": "late/01-held.png",
+   "caption": "Hold the basis: the old bucket is settled; the basis part comes from what was kept"
+  },
+  {
+   "step": 2,
+   "file": "late/02-arrived.png",
+   "caption": "Late rows arrive: the basis part is unchanged, the tail grows, the old bucket turns incomplete"
+  },
+  {
+   "step": 3,
+   "file": "late/03-zoom.png",
+   "caption": "Zoomed in: rows of the basis are complete, the late rows beside them are not"
+  }
+ ]
+}

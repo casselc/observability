@@ -1,0 +1,21 @@
+{
+ "journey": "scope",
+ "title": "Not your cluster",
+ "steps": [
+  {
+   "step": 1,
+   "file": "scope/01-refused.png",
+   "caption": "alice (cluster lui-a) asks for lui-b: refused, with the reason"
+  },
+  {
+   "step": 2,
+   "file": "scope/02-namespace.png",
+   "caption": "shop (namespace shop only): raw objects hold every namespace, so refused"
+  },
+  {
+   "step": 3,
+   "file": "scope/03-fleet.png",
+   "caption": "sre (fleet, by group) asks for lui-b: answered, equal to ClickHouse"
+  }
+ ]
+}

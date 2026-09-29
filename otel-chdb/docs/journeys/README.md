@@ -80,8 +80,9 @@ one object of the three the window holds.
 
 1. **Without the index** — the waterfall and the stats line: 3 objects
    planned, the bytes fetched · spans = ClickHouse's count for the id.
-2. **With the index** — the same waterfall; stats: "1 narrowed, 2 ruled
-   out", fewer bytes, fewer range GETs · same spans; index pruned > 0;
+2. **With the index** — the same waterfall; stats: "1 narrowed, 1 not
+   indexed (read whole), 2 ruled out" (the unindexed one is the tail's span
+   object), fewer bytes, fewer range GETs · same spans; index pruned > 0;
    bytes fetched strictly fewer; the page's byte count = the pass-through's.
 3. **A text search the index has not caught up with** — a word from one
    batch: the late object is read whole ("not indexed"), never skipped · count
@@ -173,7 +174,17 @@ range reader into DuckDB-WASM and draws four cross-filtered charts.
 
 ## Regenerating
 
-The pictures are outputs, never edited by hand. To refresh them:
+The pictures are outputs, never edited by hand. The committed ones are
+the `journeys` artifact of nightly run
+[18](https://github.com/casselc/observability/actions/runs/36545540422) (`render.sh` on the CI runner at
+`e27d67a`, the commit before the one that added them): on the development machine the shared
+SeaweedFS was read-only (the disk under its 1 % `minFreeSpace`), so no rig
+could start there. Either way of refreshing them is the same script.
+**Sizes** (PNG as 8-bit palette images, GIFs 900 px wide, 2.5 s a step):
+2.14 MB in all: 22 PNGs, 634 KB (4–52 KB each); six GIFs, 1.50 MB
+(`complete.gif` 535 KB with five steps, the others 132–276 KB).
+
+To refresh them locally:
 
 ```
 cd otel-chdb/lakeui && npm ci
@@ -188,4 +199,5 @@ step's PNG under `img/<journey>/`, re-encodes them as palette PNGs and builds
 `img/<journey>.gif` (ffmpeg). A journey whose assertions fail writes no
 pictures for the failing step and fails the script. The nightly `journeys`
 job runs the same script and uploads the pictures as an artifact; it does
-not commit them.
+not commit them. To take the pictures from a run instead, unpack its
+`journeys` artifact's `journeys-img/` over `img/`.

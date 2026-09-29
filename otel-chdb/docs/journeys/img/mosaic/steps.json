@@ -1,0 +1,21 @@
+{
+ "journey": "mosaic",
+ "title": "Cross-filter (Mosaic spike)",
+ "steps": [
+  {
+   "step": 1,
+   "file": "mosaic/01-loaded.png",
+   "caption": "Four cross-filtered charts; the tail hatched on each"
+  },
+  {
+   "step": 2,
+   "file": "mosaic/02-brushed.png",
+   "caption": "Brush a time range: the other charts follow, each total exact"
+  },
+  {
+   "step": 3,
+   "file": "mosaic/03-pod.png",
+   "caption": "Click a pod: spans filtered by time and pod, still exact"
+  }
+ ]
+}

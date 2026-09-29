@@ -1,0 +1,21 @@
+{
+ "journey": "expiry",
+ "title": "Links expire",
+ "steps": [
+  {
+   "step": 1,
+   "file": "expiry/01-planned.png",
+   "caption": "A plan: every object read with a URL that lives 60 s"
+  },
+  {
+   "step": 2,
+   "file": "expiry/02-replanned.png",
+   "caption": "Held past expiry: the store answers 403, the page re-plans, same count"
+  },
+  {
+   "step": 3,
+   "file": "expiry/03-failed.png",
+   "caption": "The store stays unreachable: 3 re-plans, then \"not read\", never a number"
+  }
+ ]
+}

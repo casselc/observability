@@ -1,0 +1,31 @@
+{
+ "journey": "complete",
+ "title": "Is this data complete?",
+ "steps": [
+  {
+   "step": 1,
+   "file": "complete/01-signed-in.png",
+   "caption": "Signed in: the token names cluster lui-a"
+  },
+  {
+   "step": 2,
+   "file": "complete/02-partial.png",
+   "caption": "A window to now: settled buckets solid, the tail hatched"
+  },
+  {
+   "step": 3,
+   "file": "complete/03-rows.png",
+   "caption": "The newest rows arrived after the basis: each says incomplete"
+  },
+  {
+   "step": 4,
+   "file": "complete/04-complete.png",
+   "caption": "Close the window at settled-through: complete, equal to ClickHouse"
+  },
+  {
+   "step": 5,
+   "file": "complete/05-unknown.png",
+   "caption": "No watermark: the service cannot tell, so nothing is drawn as settled"
+  }
+ ]
+}

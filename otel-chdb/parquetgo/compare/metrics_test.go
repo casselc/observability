@@ -311,27 +311,32 @@ func indexOf(s []string, v string) int {
 	return -1
 }
 
-// normalizedFFFD wraps the attribute map columns of a column list so that
-// the one known difference between the edge and the contrib exporter
-// compares equal: in a map or slice attribute value (JSON text), an invalid
-// UTF-8 byte is the escape for U+FFFD in the edge's rendering, pinned to
-// Go 1.26's encoding/json (../attrjson.go, the bytes the Rust edge
-// writes), and a raw U+FFFD in the exporter's when it is built with
-// Go >= 1.27 (encoding/json on the json/v2 engine). Everything else in
-// those values, and every other column, still compares byte for byte.
+// normalizedFFFD wraps the attribute columns of a column list (and a log's
+// Body) so that the one known difference between the edge and the
+// exporters it is compared with (the contrib clickhouseexporter, the chdb
+// exporter) compares equal: in a map or slice attribute value (JSON
+// text), an invalid UTF-8 byte is the escape for U+FFFD in the edge's
+// rendering, pinned to Go 1.26's encoding/json (../attrjson.go, the bytes
+// the Rust edge writes), and a raw U+FFFD in the exporters' AsString when
+// they are built with Go >= 1.27 (encoding/json on the json/v2 engine).
+// The two are the same JSON value. Everything else in those values, and
+// every other column, still compares byte for byte (in the nasty datasets
+// every differing value differs only so: 133 of them, 2026-09-29).
 func normalizedFFFD(cols string) string {
 	esc := "'" + `\\` + "u" + "fffd'" // SQL literal: backslash, u, fffd
 	raw := `'\xEF\xBF\xBD'`
-	norm := func(m string) string {
-		return "mapApply((k, v) -> (k, replaceAll(v, " + esc + ", " + raw + ")), " + m + ")"
-	}
+	str := func(v string) string { return "replaceAll(" + v + ", " + esc + ", " + raw + ")" }
+	norm := func(m string) string { return "mapApply((k, v) -> (k, " + str("v") + "), " + m + ")" }
 	parts := strings.Split(cols, ", ")
 	for i, c := range parts {
+		name := strings.Trim(c, "`")
 		switch {
-		case c == "`Exemplars.FilteredAttributes`":
+		case strings.Contains(name, ".") && strings.HasSuffix(name, "Attributes"): // Array(Map): Events., Links., Exemplars.
 			parts[i] = "arrayMap(m -> " + norm("m") + ", " + c + ")"
-		case strings.HasSuffix(c, "Attributes`"):
+		case strings.HasSuffix(name, "Attributes"):
 			parts[i] = norm(c)
+		case name == "Body":
+			parts[i] = str(c)
 		}
 	}
 	return strings.Join(parts, ", ")

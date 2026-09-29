@@ -202,8 +202,13 @@ func TestSameRowsAsChdb(t *testing.T) {
 			return fmt.Sprintf("s3('%s/%s/cmp/%s/v1/cmp/%s/*/%s.parquet', '%s', '%s', 'Parquet'%s)",
 				base, impl, sig.name, run, batch, s3.Key, s3.Secret, st)
 		}
+		// The rows compared modulo the one known rendering difference
+		// (normalizedFFFD, metrics_test.go): the chdb exporter renders map
+		// attributes with the toolchain's encoding/json, the edge with Go
+		// 1.26's bytes (../attrjson.go).
+		cmpCols := normalizedFFFD(sig.cols)
 		sum := func(from string) string {
-			return ch(t, fmt.Sprintf("SELECT count(), sum(cityHash64(%s)) FROM %s SETTINGS use_query_condition_cache = 0", sig.cols, from))
+			return ch(t, fmt.Sprintf("SELECT count(), sum(cityHash64(%s)) FROM %s SETTINGS use_query_condition_cache = 0", cmpCols, from))
 		}
 		want := sum(src("chdb", true, "*"))
 		t.Logf("%s chdb: %s", sig.name, want)
@@ -231,7 +236,7 @@ func TestSameRowsAsChdb(t *testing.T) {
 			for _, b := range []string{"00000000000000000001", "00000000000000000002"} {
 				for _, dir := range [][2]string{{engine, "chdb"}, {"chdb", engine}} {
 					q := fmt.Sprintf("SELECT count() FROM (SELECT %[1]s FROM %[2]s EXCEPT SELECT %[1]s FROM %[3]s)",
-						sig.cols, src(dir[0], true, b), src(dir[1], true, b))
+						cmpCols, src(dir[0], true, b), src(dir[1], true, b))
 					if n := ch(t, q); n != "0" {
 						t.Errorf("%s batch %s: %s rows in %s not in %s", sig.name, b, n, dir[0], dir[1])
 					}

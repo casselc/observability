@@ -149,10 +149,8 @@ fn normalize(p: &str) -> String {
 fn commit() -> String {
     static C: OnceLock<String> = OnceLock::new();
     C.get_or_init(|| {
-        if let Ok(s) = std::env::var("GITHUB_SHA") {
-            if !s.is_empty() {
-                return s;
-            }
+        if let Some(s) = std::env::var("GITHUB_SHA").ok().filter(|s| !s.is_empty()) {
+            return s;
         }
         std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
@@ -168,10 +166,8 @@ fn commit() -> String {
 /// One line, one `write` on an `O_APPEND` file: records from parallel test
 /// binaries do not interleave.
 fn append(path: &str, line: &str) -> std::io::Result<()> {
-    if let Some(dir) = std::path::Path::new(path).parent() {
-        if !dir.as_os_str().is_empty() {
-            std::fs::create_dir_all(dir)?;
-        }
+    if let Some(dir) = std::path::Path::new(path).parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
     }
     let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
     f.write_all(format!("{line}\n").as_bytes())

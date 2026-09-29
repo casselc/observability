@@ -49,7 +49,9 @@ pub fn required(service: &str) -> bool {
 /// or panic if this run requires it. `why` says what was missing.
 #[track_caller]
 pub fn skip(service: &str, why: impl Display) {
-    gate(std::env::var(ENV).ok().as_deref(), service, &why)
+    gate(std::env::var(ENV).ok().as_deref(), service, &why);
+    // Not required here, so skipped: a traceability tag records it as such, not as a pass.
+    crate::oscope_trace::skipped();
 }
 
 #[track_caller]
@@ -58,7 +60,6 @@ fn gate(spec: Option<&str>, service: &str, why: &dyn Display) {
         panic!("{why}: service {service} is required here ({ENV}={}), so this test fails instead of skipping", spec.unwrap_or(""));
     }
     eprintln!("{why}: skipped (service {service}; {ENV} does not require it)");
-    crate::oscope_trace::skipped();
 }
 
 #[cfg(test)]

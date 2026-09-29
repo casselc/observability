@@ -308,16 +308,18 @@ func TestRuleTextIDsSurviveReordering(t *testing.T) {
 	}
 }
 
-// The overview's compartment strips are read in the PRD, whose column is 672 px wide: every
-// strip label lands at 10.5 px or more at the widget's displayed scale.
-func TestOverviewStripLabelsLegibleInThePRD(t *testing.T) {
+// The overviews are read in the PRD, whose column is 672 px wide: every text of every
+// overview (names, descriptions, edge labels, strips, key) lands at 10.5 px or more at the
+// widget's displayed scale. A text without a fontSize takes the svg's (13).
+func TestOverviewTextLegibleInThePRD(t *testing.T) {
 	p, err := Load(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	strip := regexp.MustCompile(`data-claude-text-id='[^']*-(?:ca|pm)(?:-n|-[a-z0-9-]+)?'[^>]*fontSize='([0-9.]+)'`)
+	textTag := regexp.MustCompile(`<text ([^>]*)>([^<]*)<`)
+	size := regexp.MustCompile(`fontSize='([0-9.]+)'`)
 	for _, v := range p.Views {
-		if v.Type != "control-structure" || v.Internals == "" {
+		if v.Type != "control-structure" {
 			continue
 		}
 		L := p.Place(v)
@@ -325,17 +327,22 @@ func TestOverviewStripLabelsLegibleInThePRD(t *testing.T) {
 		if scale > 1 {
 			scale = 1
 		}
-		found := 0
-		for _, m := range strip.FindAllStringSubmatch(L.PRD(), -1) {
-			var fs float64
-			fmt.Sscan(m[1], &fs)
-			found++
+		texts, strips := 0, 0
+		for _, m := range textTag.FindAllStringSubmatch(L.PRD(), -1) {
+			fs := 13.0
+			if g := size.FindStringSubmatch(m[1]); g != nil {
+				fmt.Sscan(g[1], &fs)
+			}
+			texts++
+			if strings.Contains(m[1], "-ca") || strings.Contains(m[1], "-pm") {
+				strips++
+			}
 			if fs*scale < 10.5 {
-				t.Errorf("%s: a strip label at %.1f px authored shows at %.1f px (width %d)", v.Name, fs, fs*scale, L.W)
+				t.Errorf("%s: %q at %.1f px authored shows at %.1f px (width %d)", v.Name, m[2], fs, fs*scale, L.W)
 			}
 		}
-		if found == 0 {
-			t.Errorf("%s: no strip labels found", v.Name)
+		if texts == 0 || (v.Internals != "" && strips == 0) {
+			t.Errorf("%s: %d texts, %d strip labels found", v.Name, texts, strips)
 		}
 	}
 }

@@ -74,7 +74,7 @@ func wrap(s string, width int) []string {
 	if s == "" {
 		return nil
 	}
-	max := int(float64(width-24) / charW)
+	max := int(float64(width-24) / ovCharW)
 	var lines []string
 	cur := ""
 	for _, seg := range strings.Split(s, "; ") {
@@ -106,6 +106,15 @@ func wrap(s string, width int) []string {
 }
 
 func textW(s string) int { return int(float64(len([]rune(s)))*charW + 0.5) }
+
+// The overview's quiet type (edge labels, box descriptions, the key) is read in the PRD, where a
+// 760-wide widget shows at about 0.88 of its size: 12 lands at 10.6 px, above the PRD's 10.5.
+const (
+	ovFont  = "12"
+	ovCharW = 6.5 // average advance of the 12 px quiet type
+)
+
+func ovTextW(s string) int { return int(float64(len([]rune(s)))*ovCharW + 0.5) }
 
 // Place lays a control-structure view out.
 func (p *Project) Place(v *View) *Layout {
@@ -341,7 +350,7 @@ func (L *Layout) route() {
 					}
 				}
 				// A left label that would leave the canvas joins the right one: "control; feedback".
-				if n == 2 && es[0].LabelX-textW(es[0].Text) < 4 {
+				if n == 2 && es[0].LabelX-ovTextW(es[0].Text) < 4 {
 					// No room on the left (the canvas edge): both labels on the right, stacked,
 					// control above feedback.
 					es[0].LabelX, es[0].Anchor = es[1].LabelX, "start"
@@ -421,7 +430,7 @@ func (L *Layout) spreadLabels() {
 	type rect struct{ x1, y1, x2, y2 int }
 	var placed []rect
 	box := func(e *Edge, dy int) rect {
-		w := textW(e.Text)
+		w := ovTextW(e.Text)
 		x1 := e.LabelX
 		switch e.Anchor {
 		case "end":
@@ -580,7 +589,7 @@ func (L *Layout) routeOne(e *Edge, port func(*Box) int, lane *int) {
 			}
 		}
 	}
-	if bestRun >= textW(e.Text)+24 {
+	if bestRun >= ovTextW(e.Text)+24 {
 		e.LabelX, e.LabelY, e.Anchor = runX+12, runY-6, "start"
 		return
 	}

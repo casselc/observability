@@ -34,28 +34,28 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <path d="M388 432V376" marker-end="url(#arrow)"/>
     <path d="M626 432V376" marker-end="url(#arrow)"/>
   </g>
-  <text x="118" y="236" font-size="11.5" class="f-quiet">access, routing</text>
-  <text x="20" y="408" font-size="11.5" class="f-quiet">retention</text>
-  <text x="102" y="564" text-anchor="end" font-size="11.5" class="f-quiet">SQL</text>
-  <text x="158" y="564" font-size="11.5" class="f-quiet">rows, status</text>
-  <text x="340" y="564" text-anchor="end" font-size="11.5" class="f-quiet">plans, reads</text>
-  <text x="396" y="564" font-size="11.5" class="f-quiet">rows</text>
-  <text x="578" y="564" text-anchor="end" font-size="11.5" class="f-quiet">lookups</text>
-  <text x="634" y="564" font-size="11.5" class="f-quiet">entities</text>
-  <text x="340" y="236" text-anchor="end" font-size="11.5" class="f-quiet">queries, snapshot</text>
-  <text x="396" y="236" font-size="11.5" class="f-quiet">results, freshness</text>
-  <text x="578" y="222" text-anchor="end" font-size="11.5" class="f-quiet">acks, rules, silence</text>
-  <text x="634" y="236" font-size="11.5" class="f-quiet">pages</text>
-  <text x="340" y="408" text-anchor="end" font-size="11.5" class="f-quiet">requests</text>
-  <text x="396" y="408" font-size="11.5" class="f-quiet">complete-through</text>
-  <text x="578" y="408" text-anchor="end" font-size="11.5" class="f-quiet">evaluate</text>
-  <text x="634" y="408" font-size="11.5" class="f-quiet">values</text>
+  <text x="118" y="236" font-size="12" class="f-quiet">access, routing</text>
+  <text x="20" y="408" font-size="12" class="f-quiet">retention</text>
+  <text x="102" y="564" text-anchor="end" font-size="12" class="f-quiet">SQL</text>
+  <text x="158" y="564" font-size="12" class="f-quiet">rows, status</text>
+  <text x="340" y="564" text-anchor="end" font-size="12" class="f-quiet">plans, reads</text>
+  <text x="396" y="564" font-size="12" class="f-quiet">rows</text>
+  <text x="578" y="564" text-anchor="end" font-size="12" class="f-quiet">lookups</text>
+  <text x="634" y="564" font-size="12" class="f-quiet">entities</text>
+  <text x="340" y="236" text-anchor="end" font-size="12" class="f-quiet">queries, snapshot</text>
+  <text x="396" y="236" font-size="12" class="f-quiet">results, freshness</text>
+  <text x="578" y="222" text-anchor="end" font-size="12" class="f-quiet">acks, rules, silence</text>
+  <text x="634" y="236" font-size="12" class="f-quiet">pages</text>
+  <text x="340" y="408" text-anchor="end" font-size="12" class="f-quiet">requests</text>
+  <text x="396" y="408" font-size="12" class="f-quiet">complete-through</text>
+  <text x="578" y="408" text-anchor="end" font-size="12" class="f-quiet">evaluate</text>
+  <text x="634" y="408" font-size="12" class="f-quiet">values</text>
   <g>
     <rect x="24" y="72" width="212" height="132" rx="8" fill-opacity="0.12" stroke-width="2" class="f-accent s-accent"/>
     <text x="36" y="96" font-weight="600" class="f-ink">Platform operators</text>
-    <text x="36" y="116" font-size="11.5" class="f-ink">configuration, budgets</text>
-    <text x="36" y="132" font-size="11.5" class="f-ink">retention, access</text>
-    <text x="36" y="148" font-size="11.5" class="f-ink">deploy and scale</text>
+    <text x="36" y="116" font-size="12" class="f-ink">configuration, budgets</text>
+    <text x="36" y="132" font-size="12" class="f-ink">retention, access</text>
+    <text x="36" y="148" font-size="12" class="f-ink">deploy and scale</text>
     <rect x="29" y="160" width="99" height="39" rx="5" class="f-tint"/>
     <rect x="132" y="160" width="99" height="39" rx="5" class="f-tint"/>
     <text x="35" y="184" font-size="12" class="f-ink">4 rules</text>
@@ -64,8 +64,8 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <g>
     <rect x="262" y="72" width="450" height="132" rx="8" fill-opacity="0.12" stroke-width="2" class="f-accent s-accent"/>
     <text x="274" y="96" font-weight="600" class="f-ink">On-call engineers</text>
-    <text x="274" y="116" font-size="11.5" class="f-ink">choose scope, time range and snapshot; write alert rules</text>
-    <text x="274" y="132" font-size="11.5" class="f-ink">ack, silence, escalate</text>
+    <text x="274" y="116" font-size="12" class="f-ink">choose scope, time range and snapshot; write alert rules</text>
+    <text x="274" y="132" font-size="12" class="f-ink">ack, silence, escalate</text>
     <rect x="267" y="160" width="218" height="39" rx="5" class="f-tint"/>
     <rect x="489" y="160" width="218" height="39" rx="5" class="f-tint"/>
     <text x="273" y="176" font-size="12" font-weight="600" class="f-quiet">ALGORITHM</text>
@@ -76,8 +76,8 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <g>
     <rect x="262" y="260" width="212" height="116" rx="8" stroke-width="1.25" class="f-none s-edge"/>
     <text x="274" y="284" font-weight="600" class="f-ink">Telemetry UI</text>
-    <text x="274" y="304" font-size="11.5" class="f-quiet">results with source and mode</text>
-    <text x="274" y="320" font-size="11.5" class="f-quiet">scope bar, snapshot picker</text>
+    <text x="274" y="304" font-size="12" class="f-quiet">results with source and mode</text>
+    <text x="274" y="320" font-size="12" class="f-quiet">scope bar, snapshot picker</text>
     <rect x="267" y="332" width="99" height="39" rx="5" class="f-tint"/>
     <rect x="370" y="332" width="99" height="39" rx="5" class="f-tint"/>
     <text x="273" y="356" font-size="12" class="f-ink">1 rule</text>
@@ -86,8 +86,8 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <g>
     <rect x="500" y="260" width="212" height="116" rx="8" stroke-width="1.25" class="f-none s-edge"/>
     <text x="512" y="284" font-weight="600" class="f-ink">Alerting engine</text>
-    <text x="512" y="304" font-size="11.5" class="f-quiet">evaluates complete windows</text>
-    <text x="512" y="320" font-size="11.5" class="f-quiet">pages on-call</text>
+    <text x="512" y="304" font-size="12" class="f-quiet">evaluates complete windows</text>
+    <text x="512" y="320" font-size="12" class="f-quiet">pages on-call</text>
     <rect x="505" y="332" width="99" height="39" rx="5" class="f-tint"/>
     <rect x="608" y="332" width="99" height="39" rx="5" class="f-tint"/>
     <text x="511" y="356" font-size="12" class="f-ink">1 rule</text>
@@ -96,7 +96,7 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   <g>
     <rect x="24" y="432" width="688" height="100" rx="8" stroke-width="1.25" class="f-none s-edge"/>
     <text x="36" y="456" font-weight="600" class="f-ink">Query service</text>
-    <text x="36" y="474" font-size="11.5" class="f-quiet">resolves entities; routes to central or the lake; returns a complete-through time with every result</text>
+    <text x="36" y="474" font-size="12" class="f-quiet">resolves entities; routes to central or the lake; returns a complete-through time with every result</text>
     <rect x="29" y="488" width="337" height="39" rx="5" class="f-tint"/>
     <rect x="370" y="488" width="337" height="39" rx="5" class="f-tint"/>
     <text x="35" y="504" font-size="12" font-weight="600" class="f-quiet">ALGORITHM</text>
@@ -118,17 +118,17 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
   </g>
   <g>
     <rect x="24" y="648" width="24" height="16" rx="4" fill-opacity="0.12" stroke-width="2" class="f-accent s-accent"/>
-    <text x="56" y="660" font-size="11.5" class="f-quiet">people</text>
-    <line x1="129" x2="161" y1="656" y2="656" stroke-width="1.25" class="s-edge"/>
-    <text x="169" y="660" font-size="11.5" class="f-quiet">control action</text>
-    <line x1="292" x2="324" y1="656" y2="656" stroke-width="1.25" stroke-dasharray="5 4" class="s-edge"/>
-    <text x="332" y="660" font-size="11.5" class="f-quiet">feedback</text>
-    <rect x="418" y="648" width="24" height="16" rx="4" stroke-width="1.25" class="f-tint s-edge"/>
-    <text x="450" y="660" font-size="11.5" class="f-quiet">controlled process (store)</text>
+    <text x="56" y="660" font-size="12" class="f-quiet">people</text>
+    <line x1="131" x2="163" y1="656" y2="656" stroke-width="1.25" class="s-edge"/>
+    <text x="171" y="660" font-size="12" class="f-quiet">control action</text>
+    <line x1="298" x2="330" y1="656" y2="656" stroke-width="1.25" stroke-dasharray="5 4" class="s-edge"/>
+    <text x="338" y="660" font-size="12" class="f-quiet">feedback</text>
+    <rect x="426" y="648" width="24" height="16" rx="4" stroke-width="1.25" class="f-tint s-edge"/>
+    <text x="458" y="660" font-size="12" class="f-quiet">controlled process (store)</text>
     <g>
       <rect x="24" y="670" width="11" height="16" rx="3" class="f-tint"/>
       <rect x="37" y="670" width="11" height="16" rx="3" class="f-tint"/>
     </g>
-    <text x="56" y="682" font-size="11.5" class="f-quiet">control algorithm | process model (a detail diagram per controller)</text>
+    <text x="56" y="682" font-size="12" class="f-quiet">control algorithm | process model (a detail diagram per controller)</text>
   </g>
 </svg>

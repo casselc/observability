@@ -191,7 +191,7 @@ func (L *Layout) diagram(markerID string) *el {
 		if e.Anchor != "start" {
 			t.attrs = append(t.attrs, attr{"text-anchor", e.Anchor})
 		}
-		t.attrs = append(t.attrs, attr{"font-size", "11.5"}, attr{"fill", "@quiet"})
+		t.attrs = append(t.attrs, attr{"font-size", ovFont}, attr{"fill", "@quiet"})
 		t.text, t.textID = e.Text, "lbl-"+pathID(e.Entries[0])
 		labels = append(labels, t)
 	}
@@ -225,7 +225,7 @@ func (L *Layout) diagram(markerID string) *el {
 			if b.Human {
 				colour = "@ink"
 			}
-			t := mk("text", "x", itoa(b.X+12), "y", itoa(y), "font-size", "11.5", "fill", colour)
+			t := mk("text", "x", itoa(b.X+12), "y", itoa(y), "font-size", ovFont, "fill", colour)
 			t.text, t.textID = line, tid(b.Rec, fmt.Sprintf("l%d", i+1))
 			g.add(t)
 		}
@@ -239,15 +239,15 @@ func (L *Layout) diagram(markerID string) *el {
 	x, ky := 24, L.KeyY
 	lines := 1
 	item := func(sym func(x, y int) *el, symW int, label, id string) {
-		if w := symW + 8 + textW(label); x > 24 && x+w > L.W-24 {
+		if w := symW + 8 + ovTextW(label); x > 24 && x+w > L.W-24 {
 			x, ky = 24, ky+22
 			lines++
 		}
 		key.add(sym(x, ky))
-		t := mk("text", "x", itoa(x+symW+8), "y", itoa(ky+4), "font-size", "11.5", "fill", "@quiet")
+		t := mk("text", "x", itoa(x+symW+8), "y", itoa(ky+4), "font-size", ovFont, "fill", "@quiet")
 		t.text, t.textID = label, id
 		key.add(t)
-		x = x + symW + 8 + textW(label) + 36
+		x = x + symW + 8 + ovTextW(label) + 36
 	}
 	if L.HasHuman {
 		item(func(x, ky int) *el {

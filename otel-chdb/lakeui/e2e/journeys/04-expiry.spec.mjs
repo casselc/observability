@@ -12,6 +12,15 @@ const retimed = (body, replanAfterMs, expiresAtMs) => body
   .replace(/"expires_at":"[^"]+"/, `"expires_at":"${new Date(expiresAtMs).toISOString()}"`)
   .replace(/"replan_after":"[^"]+"/, `"replan_after":"${new Date(replanAfterMs).toISOString()}"`)
 
+// The read log sits below the chart and the rows; the pictures of steps 1-2
+// are about the banner and the log, so the two are hidden for the shot.
+const withoutResult = async (page, shoot) => {
+  await page.evaluate(() => { for (const id of ['chart', 'table']) document.getElementById(id).style.display = 'none' })
+  try { await shoot() } finally {
+    await page.evaluate(() => { for (const id of ['chart', 'table']) document.getElementById(id).style.display = '' })
+  }
+}
+
 test('Links expire', {
   tag: ['@AMBIGUITY-X8', '@D24', '@D30', '@R-S2', '@H-2'],
   annotation: [
@@ -44,7 +53,7 @@ test('Links expire', {
     expect(/"expires_at":"[^"]+"/.test(answers[0])).toBe(true)
     await page.locator('#events').evaluate(d => { d.open = true })
     await expect(page.locator('#event-log')).toContainText('plan')
-    await j.step(page, 'planned', 'A plan: every object read with a URL that lives 60 s', { region: ['#banner', '#stats', '#events'], maxHeight: 420 })
+    await withoutResult(page, () => j.step(page, 'planned', 'A plan: every object read with a URL that lives 60 s', { region: ['#banner', '#stats', '#events'], maxHeight: 560 }))
   })
 
   await test.step('2. the same plan held past its URLs\' lifetime: 403, re-plan, the same answer', async () => {
@@ -76,8 +85,8 @@ test('Links expire', {
     await page.locator('#events').evaluate(d => { d.open = true })
     await expect(page.locator('#event-log')).toContainText('read_error')
     await expect(page.locator('#event-log')).toContainText('replan')
-    await j.step(page, 'replanned', 'Held past expiry: the store answers 403, the page re-plans, same count', {
-      region: ['#banner', '#stats', '#events'], maxHeight: 420, marks: ['[data-testid="count"]'] })
+    await withoutResult(page, () => j.step(page, 'replanned', 'Held past expiry: the store answers 403, the page re-plans, same count', {
+      region: ['#banner', '#stats', '#events'], maxHeight: 560, marks: ['[data-testid="count"]'] }))
   })
 
   await test.step('3. the store stays unreachable: bounded re-plans, then the objects it lacks, no result', async () => {

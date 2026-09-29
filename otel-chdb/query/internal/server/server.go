@@ -118,6 +118,8 @@ func (s *Server) Init() {
 	m.Counter("qs_denials_total", "Requests refused (401, 403, 400 on policy, 429), by endpoint and reason.", "endpoint", "reason")
 	m.Counter("qs_planned_objects_total", "Objects returned in plans, each with a presigned URL.")
 	m.Counter("qs_planned_bytes_total", "Bytes of the objects returned in plans.")
+	m.Counter("qs_plan_tail_objects_total", "Objects planned in a plan's tail (received at or after its basis; incomplete, never cached).")
+	m.Counter("qs_plan_tail_unplaced_total", "Tail objects the planner could not date against the basis (basis_check: the reader's footer decides).")
 	m.Counter("qs_plan_mismatched_objects_total", "Objects under one cluster's prefix whose metadata names another (never planned).")
 	m.Counter("qs_plan_index_objects_total", "Objects of filtered plans by index outcome: hit (narrowed to row groups), scan (not indexed or index unreadable), pruned (ruled out, not planned).", "outcome")
 	m.Counter("qs_plan_index_errors_total", "Index segments a filtered plan could not use (unreadable, corrupt, over budget): their objects were scanned.")
@@ -919,6 +921,9 @@ type PlanRequest struct {
 	// received before the basis's bound of their cluster, and re-planning
 	// at the same basis lists the same objects.
 	Basis string `json:"basis"`
+	// Tail (with a basis): also plan the objects received at or after it
+	// (tail_objects: incomplete, never cached; D30 amendment "the tail").
+	Tail bool `json:"tail"`
 }
 
 // PlanResponse is its answer.
@@ -962,7 +967,11 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		deny(http.StatusBadRequest, "bad_window", "from and to are required: RFC 3339 or integer ns")
 		return
 	}
-	preq := lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters, TraceID: body.TraceID, Terms: body.Terms}
+	if body.Tail && body.Basis == "" {
+		deny(http.StatusBadRequest, "tail_needs_basis", "tail is what was received at or after a basis: ask with basis (\"latest\" or a token)")
+		return
+	}
+	preq := lake.Request{Signal: body.Signal, FromNs: from, ToNs: to, Clusters: body.Clusters, TraceID: body.TraceID, Terms: body.Terms, Tail: body.Tail}
 	var rb *resolvedBasis
 	if body.Basis != "" {
 		if !lake.Signals[body.Signal] {
@@ -1024,18 +1033,26 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 	allow := base
 	allow.Decision, allow.Objects, allow.Bytes, allow.ObjectsHash, allow.ExpiresAt = "allow", len(plan.Objects), plan.TotalBytes, plan.ObjectsHash, plan.ExpiresAt
 	allow.Clusters = plan.Clusters
-	for i, o := range plan.Objects {
-		if i >= AuditKeys {
+	for _, o := range append(plan.Objects[:len(plan.Objects):len(plan.Objects)], plan.TailObjects...) {
+		if len(allow.Keys) >= AuditKeys {
 			break
 		}
 		allow.Keys = append(allow.Keys, o.Key)
+	}
+	if t := plan.Tail; t != nil {
+		allow.TailObjects, allow.TailBytes, allow.TailObjectsHash = t.Objects, t.Bytes, t.ObjectsHash
 	}
 	if !s.write(allow) {
 		s.fail(w, ep, rq.id, http.StatusServiceUnavailable, "audit_unavailable", "the decision could not be recorded, so no URL was issued")
 		return
 	}
-	s.Metrics.Add("qs_planned_objects_total", float64(len(plan.Objects)))
+	s.Metrics.Add("qs_planned_objects_total", float64(len(plan.Objects)+len(plan.TailObjects)))
 	s.Metrics.Add("qs_planned_bytes_total", float64(plan.TotalBytes))
+	if t := plan.Tail; t != nil {
+		s.Metrics.Add("qs_planned_bytes_total", float64(t.Bytes))
+		s.Metrics.Add("qs_plan_tail_objects_total", float64(t.Objects))
+		s.Metrics.Add("qs_plan_tail_unplaced_total", float64(t.Unplaced))
+	}
 	s.Metrics.Add("qs_plan_mismatched_objects_total", float64(plan.Mismatched))
 	if ix := plan.Index; ix != nil {
 		s.Metrics.Add("qs_plan_index_objects_total", float64(ix.Covered-ix.Pruned), "hit")
@@ -1045,7 +1062,7 @@ func (s *Server) handlePlan(w http.ResponseWriter, r *http.Request) {
 		s.Metrics.Add("qs_plan_index_bytes_total", float64(ix.Bytes))
 	}
 	s.Metrics.Inc("qs_results_total", "lake", plan.Completeness)
-	if plan.LateObjects > 0 {
+	if plan.LateObjects > 0 || (plan.Tail != nil && plan.Tail.LateObjects > 0) {
 		s.Metrics.Inc("qs_late_results_total", "lake", plan.Completeness)
 	}
 	s.reply(w, ep, http.StatusOK, PlanResponse{RequestID: rq.id, Plan: plan})

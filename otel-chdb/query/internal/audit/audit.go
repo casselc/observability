@@ -51,6 +51,11 @@ type Record struct {
 	ObjectsHash string   `json:"objects_hash,omitempty"` // sha256 of the planned keys, in order
 	Keys        []string `json:"keys,omitempty"`         // the first keys planned
 	ExpiresAt   string   `json:"expires_at,omitempty"`
+	// a plan with tail: its tail objects (URLs issued too), their bytes and
+	// the hash of their keys; Keys lists basis keys first, then tail keys
+	TailObjects     int    `json:"tail_objects,omitempty"`
+	TailBytes       int64  `json:"tail_bytes,omitempty"`
+	TailObjectsHash string `json:"tail_objects_hash,omitempty"`
 
 	// outcome
 	Status    int     `json:"status,omitempty"`

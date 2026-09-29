@@ -164,6 +164,10 @@ type Request struct {
 	// their cluster, and is refused (basis_expired) when GC may have
 	// deleted some of them.
 	Basis *basis.Basis `json:"-"`
+	// Tail (D30 amendment "the tail", AMBIGUITY.md #10 (b)): with a basis,
+	// also plan the objects received at or after its bound (TailObjects),
+	// labelled incomplete and never cached; objects stays the basis part.
+	Tail bool `json:"-"`
 }
 
 // Denied is a refusal on scope (HTTP 403).
@@ -223,6 +227,47 @@ type Object struct {
 	// ReceivedBeforeNs (FORMAT.md §2: data objects repeat it there).
 	BasisCheck       bool    `json:"basis_check,omitempty"`
 	ReceivedBeforeNs *uint64 `json:"received_before_ns,omitempty"`
+	// Tail: the object is in tail_objects (a plan asked with tail): received
+	// at or after the basis's bound, or not placeable against it here (then
+	// with BasisCheck: its footer places it). Never part of the basis part,
+	// never cached.
+	Tail bool `json:"tail,omitempty"`
+}
+
+// TailReport labels a plan's tail (Request.Tail): the objects received at
+// or after the basis's bound of their cluster, up to the LIST at listed_at.
+// Its completeness is always "incomplete": more may arrive, and nothing in
+// it is settled; it is not part of the basis, objects_hash does not cover
+// it, and it must never be cached (a re-plan lists a newer tail).
+type TailReport struct {
+	Completeness string `json:"completeness"` // "incomplete"
+	Cache        string `json:"cache"`        // "never"
+	Objects      int    `json:"objects"`
+	Bytes        int64  `json:"bytes"`
+	// ReceivedFrom: per cluster, the tail holds rows received at or after
+	// this bound (the basis's); ReceivedThrough: up to the LIST (listed_at).
+	ReceivedFrom    []TailBound `json:"received_from"`
+	ReceivedThrough string      `json:"received_through"`
+	// the event-time extent of the refined tail objects (null: none refined)
+	MinTimeNs *int64 `json:"min_time_ns"`
+	MaxTimeNs *int64 `json:"max_time_ns"`
+	Rows      int64  `json:"rows"` // over refined tail objects
+	Unrefined int    `json:"unrefined"`
+	// Unplaced: objects the planner could not date against the bound (no
+	// custody time read, LastModified too close to it); they are in the
+	// tail with basis_check, never in the basis part: a reader may move one
+	// into the basis only by its footer's oscope-received.
+	Unplaced    int    `json:"unplaced"`
+	LateObjects int    `json:"late_objects"`
+	ObjectsHash string `json:"objects_hash"` // over the tail's keys (audit only: not a cache key)
+	Note        string `json:"note"`
+}
+
+// TailBound is one cluster's lower custody bound for the tail.
+type TailBound struct {
+	Cluster        string `json:"cluster"`
+	ReceivedFromNs uint64 `json:"received_from_ns"`
+	ReceivedFrom   string `json:"received_from"`
 }
 
 // Plan is the answer.
@@ -267,6 +312,12 @@ type Plan struct {
 	// planned with basis_check.
 	AfterBasis      int `json:"after_basis,omitempty"`
 	BasisUnverified int `json:"basis_unverified,omitempty"`
+	// TailObjects and Tail: set when the plan was asked with tail (then
+	// after_basis is 0: nothing received after the basis is left out, it
+	// is here). objects_hash, total_bytes, late_objects and unrefined
+	// describe the basis part only.
+	TailObjects []Object    `json:"tail_objects,omitempty"`
+	Tail        *TailReport `json:"tail,omitempty"`
 	// State and WmScope are the watermark the label was made with (the
 	// service mints the answer's basis from them).
 	State   completeness.State `json:"-"`
@@ -287,6 +338,12 @@ var BasisRules = []string{
 	"An object marked basis_check could not be dated here: read its Parquet footer first and drop it, unread, unless its oscope-received key-value is below received_before_ns (a missing key is an error, never a keep).",
 }
 
+// TailRules are added to a plan asked with tail.
+var TailRules = []string{
+	"tail_objects are the tail: objects received at or after the basis's bound of their cluster, up to listed_at. Their rows are incomplete whatever their event time (more may arrive); they are not part of the basis, objects_hash does not cover them, and neither they nor anything computed from them may be cached: re-plan for a newer tail.",
+	"A tail object marked basis_check could not be dated here: its footer's oscope-received decides; below received_before_ns it belongs to the basis part (and may be kept with it), otherwise to the tail; a missing key is an error.",
+}
+
 var (
 	epochRE = regexp.MustCompile(`^\d{8}T\d{6}\.\d{3}Z-[0-9a-f]{8}$`)
 	seqRE   = regexp.MustCompile(`^(\d{20})\.parquet$`)
@@ -302,6 +359,9 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	}
 	if req.ToNs-req.FromNs > int64(p.cfg.MaxWindowS)*1e9 {
 		return nil, &BadRequest{"window_too_long", fmt.Sprintf("a plan covers at most %d s; use /v1/query for longer ranges", p.cfg.MaxWindowS)}
+	}
+	if req.Tail && req.Basis == nil {
+		return nil, &BadRequest{"tail_needs_basis", "tail is what was received at or after a basis: ask with basis (\"latest\" or a token)"}
 	}
 	if err := p.checkFilter(&req); err != nil {
 		return nil, err
@@ -344,6 +404,9 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		obj                   store.Object
 		cluster, producer, ep string
 		seq                   uint64
+		// after: written too long after the basis was issued to hold
+		// anything below it (planned only with tail, in the tail)
+		after bool
 	}
 	var cands []cand
 	oldest := map[string]time.Time{} // lane -> oldest remaining object's LastModified
@@ -381,12 +444,13 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 				if o.Size == 0 || o.LastModified.Before(lowLM) {
 					continue // heartbeats and tombstones are empty; old objects hold nothing of the window
 				}
-				if b != nil && o.LastModified.After(afterIssue) {
+				after := b != nil && o.LastModified.After(afterIssue)
+				if after && !req.Tail {
 					afterBasis++
 					continue
 				}
 				seq, _ := strconv.ParseUint(m[1], 10, 64)
-				cands = append(cands, cand{obj: o, cluster: cl, producer: prod, ep: ep, seq: seq})
+				cands = append(cands, cand{obj: o, cluster: cl, producer: prod, ep: ep, seq: seq, after: after})
 			}
 		}
 	}
@@ -394,11 +458,36 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		return nil, &TooLarge{Objects: len(cands), Max: p.cfg.MaxObjects}
 	}
 	sort.Slice(cands, func(i, j int) bool { return cands[i].obj.Key < cands[j].obj.Key })
+	// The HEAD budget goes to the oldest objects first (LastModified, then
+	// key), and with tail to the objects that may be in the basis before
+	// those written after it: an object written later (a later arrival, the
+	// tail) never takes the HEAD of one an earlier plan at the same basis
+	// dated, so the basis part does not depend on what arrived since.
+	headed := make([]bool, len(cands))
+	{
+		order := make([]int, len(cands))
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool {
+			x, y := cands[order[a]], cands[order[b]]
+			if x.after != y.after {
+				return !x.after
+			}
+			if !x.obj.LastModified.Equal(y.obj.LastModified) {
+				return x.obj.LastModified.Before(y.obj.LastModified)
+			}
+			return x.obj.Key < y.obj.Key
+		})
+		for rank, i := range order {
+			headed[i] = rank < p.cfg.MaxHeads
+		}
+	}
 
 	// refine by HEAD: kind, the rows' event-time range, the cluster
 	type refined struct {
 		keep, ok, mismatch bool
-		basisCheck         bool
+		basisCheck, tail   bool
 		minT, maxT, rows   int64
 		recv               *int64
 		part               string
@@ -407,7 +496,7 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 	sem := make(chan struct{}, p.cfg.HeadConcurrency)
 	var wg sync.WaitGroup
 	for i := range cands {
-		if i >= p.cfg.MaxHeads {
+		if !headed[i] {
 			res[i] = refined{keep: true}
 			continue
 		}
@@ -456,16 +545,27 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		}
 		cb, _ := b.C(c.cluster)
 		switch {
+		case c.after:
+			// with tail only: written too long after the issue (above)
+			res[i].tail = true
 		case res[i].recv != nil:
-			// custody time known: below the bound or out
+			// custody time known: below the bound, or out (with tail: the tail)
 			if *res[i].recv < 0 || uint64(*res[i].recv) >= cb {
-				res[i].keep = false
-				afterBasis++
+				if req.Tail {
+					res[i].tail = true
+				} else {
+					res[i].keep = false
+					afterBasis++
+				}
 			}
 		case c.obj.LastModified.Add(skew).UnixNano() < int64(min(cb, math.MaxInt64)):
 			// received_at <= its PUT (edge clock) <= LastModified + skew < C
 		default:
+			// not placeable here: its footer decides. With tail it goes to
+			// the tail, never into the basis part (the reader may move it
+			// there by its footer, never the planner by a guess)
 			res[i].basisCheck = true
+			res[i].tail = req.Tail
 		}
 	}
 	for i, c := range cands {
@@ -491,7 +591,18 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		Index:        idxRep,
 	}
 	maxLate := p.wm.MaxLateness()
-	h := sha256.New()
+	h, th := sha256.New(), sha256.New()
+	var tail *TailReport
+	if req.Tail {
+		tail = &TailReport{Completeness: "incomplete", Cache: "never", ReceivedThrough: plan.ListedAt,
+			Note: "received at or after the basis's bound, up to listed_at: incomplete whatever the event time, not part of the basis, never cached"}
+		for _, c := range clusters {
+			cb, _ := b.C(c)
+			tail.ReceivedFrom = append(tail.ReceivedFrom, TailBound{Cluster: c, ReceivedFromNs: cb,
+				ReceivedFrom: time.Unix(0, int64(min(cb, math.MaxInt64))).UTC().Format(time.RFC3339Nano)})
+		}
+		plan.TailObjects = []Object{}
+	}
 	for i, c := range cands {
 		r := res[i]
 		if r.mismatch {
@@ -505,27 +616,23 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		if filtered && ir.Status == lakeidx.None {
 			continue // the index rules it out
 		}
-		if len(plan.Objects) >= p.cfg.MaxObjects {
-			return nil, &TooLarge{Objects: len(plan.Objects) + 1, Max: p.cfg.MaxObjects}
+		if len(plan.Objects)+len(plan.TailObjects) >= p.cfg.MaxObjects {
+			return nil, &TooLarge{Objects: len(plan.Objects) + len(plan.TailObjects) + 1, Max: p.cfg.MaxObjects}
 		}
 		u, err := p.store.Presign(ctx, c.obj.Key, ttl)
 		if err != nil {
 			return nil, err
 		}
 		o := Object{URL: u, Size: c.obj.Size, Key: c.obj.Key, Cluster: c.cluster, Producer: c.producer, Epoch: c.ep, Seq: c.seq,
-			LastModified: c.obj.LastModified.UTC().Format(time.RFC3339Nano), Refined: r.ok}
+			LastModified: c.obj.LastModified.UTC().Format(time.RFC3339Nano), Refined: r.ok, Tail: r.tail}
 		if r.ok {
 			minT, maxT, rows := r.minT, r.maxT, r.rows
 			o.MinTimeNs, o.MaxTimeNs, o.Rows, o.Part = &minT, &maxT, &rows, r.part
 			if r.recv != nil {
 				o.ReceivedNs = r.recv
 				// received − min_time > max_lateness, without overflow
-				if o.Late = *r.recv > minT && uint64(*r.recv-minT) > uint64(maxLate); o.Late {
-					plan.LateObjects++
-				}
+				o.Late = *r.recv > minT && uint64(*r.recv-minT) > uint64(maxLate)
 			}
-		} else {
-			plan.Unrefined++
 		}
 		if filtered {
 			o.Index, o.RowGroups = ir.Status, ir.RowGroups
@@ -533,6 +640,41 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		if r.basisCheck {
 			cb, _ := b.C(c.cluster)
 			o.BasisCheck, o.ReceivedBeforeNs = true, &cb
+		}
+		if r.tail {
+			plan.TailObjects = append(plan.TailObjects, o)
+			tail.Objects++
+			tail.Bytes += o.Size
+			if o.Late {
+				tail.LateObjects++
+			}
+			if o.BasisCheck {
+				tail.Unplaced++
+			}
+			if r.ok {
+				tail.Rows += r.rows
+				if tail.MinTimeNs == nil || r.minT < *tail.MinTimeNs {
+					v := r.minT
+					tail.MinTimeNs = &v
+				}
+				if tail.MaxTimeNs == nil || r.maxT > *tail.MaxTimeNs {
+					v := r.maxT
+					tail.MaxTimeNs = &v
+				}
+			} else {
+				tail.Unrefined++
+			}
+			th.Write([]byte(c.obj.Key))
+			th.Write([]byte{0})
+			continue
+		}
+		if o.Late {
+			plan.LateObjects++
+		}
+		if !r.ok {
+			plan.Unrefined++
+		}
+		if o.BasisCheck {
 			plan.BasisUnverified++
 		}
 		plan.Objects = append(plan.Objects, o)
@@ -540,13 +682,21 @@ func (p *Planner) Plan(ctx context.Context, pr *auth.Principal, req Request) (*P
 		h.Write([]byte(c.obj.Key))
 		h.Write([]byte{0})
 	}
+	// the basis part only: a cache keyed on the basis may check it (CAST 33)
 	plan.ObjectsHash = hex.EncodeToString(h.Sum(nil))
+	if tail != nil {
+		tail.ObjectsHash = hex.EncodeToString(th.Sum(nil))
+		plan.Tail = tail
+	}
 	w := &completeness.Window{FromNs: req.FromNs, ToNs: req.ToNs}
 	plan.State, plan.WmScope, plan.AfterBasis = wmState, wmScope, afterBasis
 	if b != nil {
 		// at the basis: its bound is complete_through, its policy the bridge
 		plan.Label = completeness.LabelAt("lake", wmState, b.MinFor(clusters), w, p.now(), p.wm.Key(), pr.MayCluster, time.Duration(b.MaxLatenessNs))
 		plan.Rules = append(append([]string{}, Rules[:len(Rules)-1]...), BasisRules...)
+		if req.Tail {
+			plan.Rules = append(plan.Rules, TailRules...)
+		}
 	} else {
 		plan.Label = completeness.MakeLabel("lake", wmState, w, p.now(), p.wm.Key(), pr.MayCluster, maxLate)
 	}

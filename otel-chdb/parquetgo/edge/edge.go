@@ -352,20 +352,64 @@ func (e *Edge) IdleFor(ns string) time.Duration {
 // with oscope-kind beat and oscope-low, by the same create-only slot
 // protocol as data (../../FORMAT.md §2).
 func (e *Edge) Beat(ctx context.Context, ns string) error {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	content := "beat-" + hex.EncodeToString(b[:])
-	_, err := e.lanes[ns][0].Append(ctx, content, func(commit.Ref) (commit.Object, error) {
-		return commit.Object{ContentType: "application/octet-stream", Meta: map[string]string{
-			commit.MetaKind: commit.KindBeat, commit.MetaFormat: strconv.Itoa(commit.FormatVersion),
-			commit.MetaCluster: e.cfg.Cluster, commit.MetaProducer: e.cfg.ProducerID, commit.MetaSignal: ns,
-			commit.MetaRows: "0", commit.MetaLow: strconv.FormatUint(e.low(), 10),
-		}}, nil
-	})
+	_, err := e.emptySlot(ctx, e.lanes[ns][0], ns, commit.KindBeat, e.low())
 	if err == nil {
 		e.touch(ns)
 	}
 	return err
+}
+
+// emptySlot commits a zero-byte slot of kind (a heartbeat or a close) with
+// oscope-low = low into lane l of namespace ns.
+func (e *Edge) emptySlot(ctx context.Context, l *commit.Lane, ns, kind string, low uint64) (commit.Ref, error) {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	content := kind + "-" + hex.EncodeToString(b[:])
+	return l.Append(ctx, content, func(commit.Ref) (commit.Object, error) {
+		return commit.Object{ContentType: "application/octet-stream", Meta: map[string]string{
+			commit.MetaKind: kind, commit.MetaFormat: strconv.Itoa(commit.FormatVersion),
+			commit.MetaCluster: e.cfg.Cluster, commit.MetaProducer: e.cfg.ProducerID, commit.MetaSignal: ns,
+			commit.MetaRows: "0", commit.MetaLow: strconv.FormatUint(low, 10),
+		}}, nil
+	})
+}
+
+// Close commits the orderly close (../../FORMAT.md §3.1, DECISIONS.md D35):
+// one oscope-kind close slot in every lane of every registered namespace
+// that has an epoch (a lane never written has none), oscope-low = now. The
+// caller must know the custody is empty (every request committed and seen
+// committed, nothing will enter it) and that no other Append runs: a close
+// with custody left is unsound (the model's closeUndrained). It returns how
+// many lanes it closed and the errors of the others (they stay open: safe).
+func (e *Edge) Close(ctx context.Context) (int, error) {
+	low := e.now()
+	var (
+		mu   sync.Mutex
+		wg   sync.WaitGroup
+		n    int
+		errs []error
+	)
+	for _, ns := range e.Registered() {
+		for _, l := range e.lanes[ns] {
+			if l.Epoch() == "" {
+				continue
+			}
+			wg.Add(1)
+			go func(ns string, l *commit.Lane) {
+				defer wg.Done()
+				_, err := e.emptySlot(ctx, l, ns, commit.KindClose, low)
+				mu.Lock()
+				defer mu.Unlock()
+				if err != nil {
+					errs = append(errs, fmt.Errorf("close %s: %w", ns, err))
+				} else {
+					n++
+				}
+			}(ns, l)
+		}
+	}
+	wg.Wait()
+	return n, errors.Join(errs...)
 }
 
 // description is an object's S3 metadata (the lane adds kind, epoch, seq,

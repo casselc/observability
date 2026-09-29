@@ -133,6 +133,11 @@ pub struct Config {
     /// is ingested twice: `consume horizon-audit` reports such copies
     /// (`audit.rs`). Default 3 days (`DEFAULT_HORIZON_MS`).
     pub horizon_ms: Option<u64>,
+    /// A retired lane's quarantine bound for objects of a later epoch is
+    /// R minus this (ms): a later incarnation may run on a node whose clock
+    /// is behind the closer's (`../../FORMAT.md` §3.1). The edges' clock
+    /// skew, as the watermark's `--wm-skew`.
+    pub quarantine_skew_ms: u64,
 }
 
 /// The default copy horizon of the count check (`--check-horizon`): 3 days.
@@ -192,6 +197,7 @@ impl Config {
             linger_ms: 0,
             balance: Balance::default(),
             horizon_ms: Some(DEFAULT_HORIZON_MS),
+            quarantine_skew_ms: 5_000,
         }
     }
 }
@@ -264,6 +270,17 @@ pub struct Stats {
     pub range_guard_failures: u64,
     /// Heartbeat reads (the other workers' loads).
     pub load_reads: u64,
+    /// Retirement (`../../FORMAT.md` §3.1): lanes this worker retired by
+    /// their publisher's close, retired lanes it saw reborn (a later epoch),
+    /// objects it quarantined (below a retired lane's R, not in central),
+    /// objects below R it found already in central (copies: passed), and
+    /// quarantine document writes that failed (the slots wait).
+    pub lanes_retired: u64,
+    pub lanes_reborn: u64,
+    pub quarantined_objects: u64,
+    pub quarantined_rows: u64,
+    pub below_copies: u64,
+    pub quarantine_errors: u64,
     /// Receive (edge) to insert returned, ms.
     #[serde(skip)]
     pub visible_ms: Vec<f64>,
@@ -300,6 +317,11 @@ struct LaneState {
     /// The watermark the last full listing computed (ns, wall ms), for the
     /// next checkpoint write.
     pending_wm: Option<(u64, u64)>,
+    /// This step's full listing: the highest slot listed per epoch (for the
+    /// close proof, `CkptDoc::close_proof`).
+    full_listed: Option<BTreeMap<String, u64>>,
+    /// A later epoch than the retired one, seen by a listing (a rebirth).
+    pending_reborn: Option<String>,
 }
 
 impl LaneState {
@@ -322,6 +344,8 @@ impl LaneState {
             taken_at: now,
             load,
             pending_wm: None,
+            full_listed: None,
+            pending_reborn: None,
         }
     }
 }
@@ -373,6 +397,11 @@ pub struct Worker<B: Bucket, C: Central, K: Clock> {
     /// When the worker next has something to do (a linger ending, a lane's
     /// backoff ending): the caller may sleep until then instead of a whole poll.
     wake_at: Option<u64>,
+    /// This step's objects below a retired lane's bound (quarantine
+    /// candidates), and those the ingest found absent from central: they are
+    /// recorded in `{ctl}/quarantine/{lane}.json`, never inserted.
+    below: HashSet<SlotId>,
+    quarantined: Vec<Obj>,
 }
 
 fn log(cfg: &Config, msg: &str) {
@@ -410,6 +439,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             last_loads: None,
             unheld_since: HashMap::new(),
             wake_at: None,
+            below: HashSet::new(),
+            quarantined: Vec::new(),
         }
     }
 
@@ -448,6 +479,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     pub async fn step(&mut self) -> bool {
         self.stats.steps += 1;
         self.wake_at = None;
+        self.below.clear();
+        self.quarantined.clear();
         self.maintain().await;
         let now = self.clock.mono();
         if self.last_discover.is_none_or(|t| now >= t + self.cfg.discover_ms) {
@@ -1103,12 +1136,22 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         w.tomb = Some(*seq);
                         break;
                     }
-                    Found::Beat { .. } => {
+                    Found::Beat { .. } | Found::Close { .. } => {
                         w.data.push(*seq);
                         w.beats.push(*seq);
                     }
                     Found::Data { content, rows, received_ns, announce, late, .. } => {
                         w.data.push(*seq);
+                        // A retired lane's object below its bound: a
+                        // quarantine candidate (../../FORMAT.md §3.1). The
+                        // series table holds definitions no answer counts,
+                        // idempotent by series: never quarantined.
+                        if cfg.timing.mutation != Mutation::IngestBelow
+                            && LaneKind::for_signal(&ls.lane.signal).is_some_and(|k| k.counted)
+                            && ls.ckpt.quarantines(&e, received_ns, cfg.quarantine_skew_ms.saturating_mul(1_000_000))
+                        {
+                            let _ = self.below.insert((id.to_string(), e.clone(), *seq));
+                        }
                         objs.push(Obj {
                             announce,
                             late,
@@ -1153,7 +1196,13 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // The lane's watermark, from a listing of the whole lane
         // (../../FORMAT.md §3): the max low passed before this LIST, capped
         // by every request the LIST shows above the checkpoint.
+        // A retired lane with a later epoch listed: a new incarnation's
+        // birth; it counts again from there.
+        if cfg.timing.mutation != Mutation::StaysRetired {
+            ls.pending_reborn = ls.ckpt.rebirth(ls.known.iter());
+        }
         if full {
+            ls.full_listed = Some(listed.iter().map(|(e, v)| (e.clone(), v.iter().map(|l| l.0).max().unwrap_or(0))).collect());
             let pending: Vec<Vec<Option<Found>>> = ls
                 .known
                 .iter()
@@ -1250,6 +1299,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
                 continue;
             }
+            // Below a retired lane's bound (../../FORMAT.md §3.1): never
+            // inserted. A content key any of whose slots is below goes
+            // this way with all of them.
+            let below_contents: HashSet<String> = list
+                .iter()
+                .filter(|o| self.below.contains(&(o.lane.clone(), o.epoch.clone(), o.seq)))
+                .map(|o| o.content.clone())
+                .collect();
+            let (below, list): (Vec<Obj>, Vec<Obj>) = list.into_iter().partition(|o| below_contents.contains(&o.content));
+            if !below.is_empty() {
+                self.settle_below(&k, below, &mut done).await;
+            }
             // Announcements before rows: an object's announcements must
             // have landed before any row of its lane goes in this round.
             let list = if k.announce { self.announce_first(&k, list).await } else { list };
@@ -1314,6 +1375,34 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             }
         }
         done
+    }
+
+    /// Objects below a retired lane's bound: a copy of what central already
+    /// holds (every row of its content key) is passed like any copy; the
+    /// rest are quarantined (`self.quarantined`, recorded by `advance`
+    /// before the checkpoint passes them), never inserted.
+    async fn settle_below(&mut self, k: &LaneKind, below: Vec<Obj>, done: &mut HashSet<SlotId>) {
+        let mut contents: Vec<&str> = below.iter().map(|o| o.content.as_str()).collect();
+        contents.sort_unstable();
+        contents.dedup();
+        let range = self.check_range_of(k, &below.iter().collect::<Vec<_>>());
+        let have = match self.counts(k, &contents, range).await {
+            Ok(m) => m,
+            Err(e) => {
+                self.stats.errors += 1;
+                log(&self.cfg, &format!("check {} (below a retirement): {e}", k.signal));
+                return;
+            }
+        };
+        for o in below {
+            match plan::verdict(o.rows, have.get(&o.content).copied().unwrap_or(0)) {
+                Verdict::Present | Verdict::Over(_) => {
+                    self.stats.below_copies += 1;
+                    let _ = done.insert((o.lane.clone(), o.epoch.clone(), o.seq));
+                }
+                Verdict::Partial(_) | Verdict::Absent => self.quarantined.push(o),
+            }
+        }
     }
 
     /// Inserts the resource announcements these objects carry (`oscope-announce`
@@ -1663,6 +1752,35 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // Compaction, after a full listing: needs gc.json's retired epochs.
         let compact = self.held.get(id).is_some_and(|l| l.compact_due);
         let retired = if compact { self.retired(id).await } else { None };
+        // Quarantined objects of this lane: recorded before the checkpoint
+        // passes their slots (../../FORMAT.md §3.1).
+        let q: Vec<Obj> = self.quarantined.iter().filter(|o| o.lane == id).cloned().collect();
+        let mut quarantined: HashSet<SlotId> = HashSet::new();
+        if !q.is_empty() {
+            self.quarantined.retain(|o| o.lane != id);
+            let r = self.held.get(id).map_or(0, |l| l.ckpt.retired_ns);
+            match super::retire::record(&*self.bucket, &self.cfg.ctl, id, r, &q, self.clock.wall()).await {
+                Ok(n) => {
+                    self.stats.quarantined_objects += n as u64;
+                    self.stats.quarantined_rows += q.iter().map(|o| o.rows).sum::<u64>();
+                    for o in &q {
+                        let _ = quarantined.insert((o.lane.clone(), o.epoch.clone(), o.seq));
+                        log(
+                            &self.cfg,
+                            &format!("QUARANTINED {id}/{}/{} ({} rows, received {} < retired {r}): not ingested; see consume admit", o.epoch, o.seq, o.rows, o.received_ns),
+                        );
+                    }
+                }
+                Err(e) => {
+                    self.stats.quarantine_errors += 1;
+                    log(&self.cfg, &format!("quarantine {id}: {e}; its slots wait"));
+                }
+            }
+        }
+        let wall = self.clock.wall();
+        let mutation = self.cfg.timing.mutation;
+        let quiet_ms = self.cfg.quiet_ms;
+        let now = self.clock.mono();
         let Some(ls) = self.held.get_mut(id) else { return false };
         ls.compact_due = false;
         let mut doc = ls.ckpt.clone();
@@ -1670,22 +1788,55 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let mut closed = 0;
         for w in work.iter().filter(|w| w.lane == id) {
             let n = plan::advance_to(w.next, &w.data, |s| {
-                w.beats.contains(&s) || done.contains(&(id.to_string(), w.epoch.clone(), s))
+                let slot = (id.to_string(), w.epoch.clone(), s);
+                w.beats.contains(&s) || done.contains(&slot) || quarantined.contains(&slot)
             });
             if n > doc.next(&w.epoch) {
-                // The highest low passed (ingested and verified, or a heartbeat).
+                // The highest low passed (ingested and verified, or a
+                // heartbeat), and whether the last one passed is a close.
+                let mut close_low = 0;
                 for s in doc.next(&w.epoch)..n {
+                    close_low = 0;
                     if let Some((f, _)) = ls.heads.get(&(w.epoch.clone(), s)) {
                         doc.max_low_ns = doc.max_low_ns.max(f.low_ns());
+                        if let Found::Close { low_ns } = f {
+                            close_low = *low_ns;
+                        }
                     }
                 }
                 doc.advance(&w.epoch, n);
+                if let Some(p) = doc.epochs.get_mut(&w.epoch) {
+                    p.close_low = close_low;
+                }
                 changed = true;
             }
             if w.tomb == Some(n) && !doc.closed(&w.epoch) {
                 doc.close(&w.epoch, n);
                 closed += 1;
                 changed = true;
+            }
+        }
+        // Rebirth: a retired lane with a later epoch counts again.
+        if let Some(e) = ls.pending_reborn.take() {
+            if doc.retired_now() {
+                log(&self.cfg, &format!("lane {id} reborn: epoch {e} after its retirement in {} (R {}); it counts again", doc.retired_epoch, doc.retired_ns));
+                doc.reborn_epoch = e;
+                self.stats.lanes_reborn += 1;
+                changed = true;
+            }
+        }
+        // Retirement by the publisher's orderly close, from this step's full
+        // listing (../../FORMAT.md §3.1): the lane leaves every minimum.
+        if let Some(listed) = ls.full_listed.take() {
+            let newest_quiet = ls.known.iter().next_back().and_then(|e| ls.last_seen.get(e)).is_some_and(|t| now.saturating_sub(*t) >= quiet_ms);
+            let m = if mutation == Mutation::RetireStale && !newest_quiet { Mutation::None } else { mutation };
+            if !doc.retired_now() {
+                if let Some(p) = doc.close_proof(&listed, m, wall.saturating_mul(1_000_000)) {
+                    log(&self.cfg, &format!("lane {id} retired by its publisher's close in {} at R {}: out of complete_through's minimum until a later epoch", p.epoch, p.r_ns));
+                    doc.retire(&p.epoch, p.r_ns, "close", "", wall);
+                    self.stats.lanes_retired += 1;
+                    changed = true;
+                }
             }
         }
         if let Some((wm, at)) = ls.pending_wm.take() {
@@ -1856,7 +2007,7 @@ pub async fn tombstone<B: Bucket + ?Sized>(b: &B, prefix: &str, epoch: &str, seq
                 return match plan::found(&m) {
                     // Ours landed (answer lost), or another worker's.
                     Found::Tomb => TombResult::Closed(!conflict),
-                    Found::Data { .. } | Found::Beat { .. } => TombResult::LostToData,
+                    Found::Data { .. } | Found::Beat { .. } | Found::Close { .. } => TombResult::LostToData,
                 };
             }
             Ok(None) if conflict => return TombResult::Unresolved("412, then the HEAD found nothing".into()),

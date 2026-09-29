@@ -41,13 +41,22 @@
 //!   documents (prefix ABAC, D18), and one cluster's stalled lane holds only
 //!   its own cluster's values.
 //!
+//! **Retired lanes (D35, `../../FORMAT.md` §3.1).** A lane whose checkpoint
+//! says retired (its publisher's orderly close, or `consume retire-lane`)
+//! counts as +inf in every minimum here, until a later epoch appears: this
+//! run LISTs the lane's epochs after reading its checkpoint, and a later one
+//! (a new incarnation's birth, committed before it takes custody) puts the
+//! lane back with its checkpoint's watermark. A birth this LIST did not show
+//! was committed after `t_list`, so its requests are above the cap. The
+//! cluster document names the retired lanes with their R (`retired`).
+//!
 //! Every published value is floored by the coarser one (a lane's >= its
 //! signal's in its cluster >= its cluster's >= the fleet's): a coarser value
 //! is sound for every subset, and a sound value stays sound (ingested stays
 //! ingested), which is also why a running max is sound.
 
 use super::bucket::{Bucket, Cond, Put};
-use super::coord::{CkptDoc, Lane, join};
+use super::coord::{CkptDoc, Lane, Mutation, epoch_key, join};
 use super::sql::LaneKind;
 use super::worker::list_lane_parents;
 use bytes::Bytes;
@@ -70,11 +79,14 @@ pub struct WmConfig {
     pub per_cluster: bool,
     /// Write a cluster's document at most this often (ms; 0: every run).
     pub cluster_every_ms: u64,
+    /// A deliberate bug for the simulation (`Mutation::StaysRetired`: a
+    /// retired lane is never put back); `None` in production.
+    pub mutation: Mutation,
 }
 
 impl WmConfig {
     pub fn new(root: &str, ctl: &str) -> Self {
-        WmConfig { root: root.into(), ctl: ctl.into(), depth: 3, skew_ms: 5_000, stale_ms: 300_000, holding: 5, per_cluster: true, cluster_every_ms: 0 }
+        WmConfig { root: root.into(), ctl: ctl.into(), depth: 3, skew_ms: 5_000, stale_ms: 300_000, holding: 5, per_cluster: true, cluster_every_ms: 0, mutation: Mutation::None }
     }
 }
 
@@ -113,6 +125,9 @@ pub struct WmDoc {
     /// The value of a signal no listed lane carries (the cap; running max).
     #[serde(default)]
     pub unlisted_signals_ns: u64,
+    /// Listed lanes that are retired (+inf in every minimum, D35).
+    #[serde(default)]
+    pub retired_lanes: usize,
 }
 
 /// `{ctl}/watermark/{cluster}.json` (D29).
@@ -140,6 +155,11 @@ pub struct ClusterWmDoc {
     pub holding: Vec<LaneWm>,
     pub stale: Vec<LaneWm>,
     pub stale_after_s: u64,
+    /// The cluster's retired lanes (D35), keyed `{producer}/{signal}`: R
+    /// (ns). Such a lane is +inf in every minimum; its `lane_wm` entry is
+    /// its signal's value.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub retired: BTreeMap<String, u64>,
 }
 
 pub fn wm_key(ctl: &str) -> String {
@@ -163,10 +183,15 @@ fn cap_of(wall_ms: u64, cfg: &WmConfig) -> u64 {
     wall_ms.saturating_sub(cfg.skew_ms).saturating_mul(1_000_000)
 }
 
-/// (the minimum over `lanes` capped by `cap`, the lowest `holding` lanes, the stale ones).
+/// A retired lane's watermark in the maps here: +inf (`RETIRED`).
+pub const RETIRED: u64 = u64::MAX;
+
+/// (the minimum over `lanes` capped by `cap`, the lowest `holding` lanes,
+/// the stale ones). A retired lane (`RETIRED`) is +inf: in no minimum, never
+/// holding, never stale.
 fn summarize<'a>(lanes: impl Iterator<Item = (&'a String, &'a u64)>, cap: u64, wall_ms: u64, cfg: &WmConfig) -> (u64, Vec<LaneWm>, Vec<LaneWm>) {
     let lag = |wm: u64| (wall_ms as f64 / 1e3 - wm as f64 / 1e9).max(0.0);
-    let mut by: Vec<LaneWm> = lanes.map(|(l, w)| LaneWm { lane: l.clone(), wm_ns: *w, lag_s: lag(*w) }).collect();
+    let mut by: Vec<LaneWm> = lanes.filter(|(_, w)| **w != RETIRED).map(|(l, w)| LaneWm { lane: l.clone(), wm_ns: *w, lag_s: lag(*w) }).collect();
     let computed = by.iter().map(|l| l.wm_ns).fold(cap, u64::min);
     by.sort_by(|a, b| a.wm_ns.cmp(&b.wm_ns).then(a.lane.cmp(&b.lane)));
     let stale = by.iter().filter(|l| l.lag_s * 1e3 > cfg.stale_ms as f64).cloned().collect();
@@ -196,7 +221,8 @@ fn signals_max(prev: &BTreeMap<String, u64>, prev_unlisted: u64, prev_ct: u64, n
         .collect()
 }
 
-/// The pure part: `lanes` is every listed lane's watermark (0: none yet).
+/// The pure part: `lanes` is every listed lane's watermark (0: none yet;
+/// `RETIRED`: a retired lane).
 pub fn compute(prev: u64, lanes: &BTreeMap<String, u64>, wall_ms: u64, cfg: &WmConfig) -> WmDoc {
     compute_doc(&WmDoc { complete_through_ns: prev, ..Default::default() }, lanes, wall_ms, cfg)
 }
@@ -231,13 +257,23 @@ pub fn compute_doc(prev: &WmDoc, lanes: &BTreeMap<String, u64>, wall_ms: u64, cf
         clusters,
         signals: signals_max(&prev.signals, prev.unlisted_signals_ns, prev.complete_through_ns, per_signal(lanes.iter(), cap), ct),
         unlisted_signals_ns: prev.unlisted_signals_ns.max(ct).max(cap),
+        retired_lanes: lanes.values().filter(|w| **w == RETIRED).count(),
     }
 }
 
 /// One cluster's document: `lanes` are the cluster's lanes (full ids);
 /// `floor` is a value already sound for the cluster (the fleet document's
-/// value for it, just published).
-pub fn compute_cluster(prev: &ClusterWmDoc, cluster: &str, lanes: &BTreeMap<String, u64>, floor: u64, wall_ms: u64, cfg: &WmConfig) -> ClusterWmDoc {
+/// value for it, just published); `retired`: R of its retired lanes (full
+/// ids; their `lanes` entry is `RETIRED`).
+pub fn compute_cluster(
+    prev: &ClusterWmDoc,
+    cluster: &str,
+    lanes: &BTreeMap<String, u64>,
+    retired: &BTreeMap<String, u64>,
+    floor: u64,
+    wall_ms: u64,
+    cfg: &WmConfig,
+) -> ClusterWmDoc {
     let cap = cap_of(wall_ms, cfg);
     let (computed, holding, stale) = summarize(lanes.iter(), cap, wall_ms, cfg);
     let ct = prev.complete_through_ns.max(floor).max(computed);
@@ -247,7 +283,10 @@ pub fn compute_cluster(prev: &ClusterWmDoc, cluster: &str, lanes: &BTreeMap<Stri
         .map(|(l, w)| {
             let (_, rest, s) = split_lane(l);
             let p = prev.lane_wm.get(rest).copied().unwrap_or(0);
-            (rest.to_string(), p.max(signals[s]).max(*w))
+            // A retired lane: its signal's value (sound for it: the lane
+            // holds nothing below R, and R is below every value published).
+            let own = if *w == RETIRED { 0 } else { *w };
+            (rest.to_string(), p.max(signals[s]).max(own))
         })
         .collect();
     ClusterWmDoc {
@@ -265,12 +304,23 @@ pub fn compute_cluster(prev: &ClusterWmDoc, cluster: &str, lanes: &BTreeMap<Stri
         holding,
         stale,
         stale_after_s: cfg.stale_ms / 1000,
+        retired: lanes
+            .keys()
+            .filter_map(|l| retired.get(l).map(|r| (split_lane(l).1.to_string(), *r)))
+            .collect(),
     }
 }
 
-/// Every lane the data root shows, with its checkpoint's watermark.
+/// Every lane the data root shows, with its checkpoint's watermark
+/// (`RETIRED` for a retired lane no later epoch of which is listed), and
+/// the retired lanes' R.
 pub async fn lane_wms<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig) -> Result<BTreeMap<String, u64>, String> {
+    lane_wms_retired(b, cfg).await.map(|x| x.0)
+}
+
+pub async fn lane_wms_retired<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig) -> Result<(BTreeMap<String, u64>, BTreeMap<String, u64>), String> {
     let mut out = BTreeMap::new();
+    let mut retired = BTreeMap::new();
     for p in list_lane_parents(b, &cfg.root, cfg.depth).await? {
         let dir = if p.is_empty() { cfg.root.clone() } else { join(&cfg.root, &p) };
         for s in b.list_dirs(&dir).await? {
@@ -279,13 +329,26 @@ pub async fn lane_wms<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig) -> Result<BTree
             }
             let lane = Lane { producer: p.clone(), signal: s };
             let wm = match b.get(&lane.ckpt_key(&cfg.ctl)).await? {
-                Some((body, _)) => serde_json::from_slice::<CkptDoc>(&body).map_err(|e| format!("{}: {e}", lane.id()))?.wm_ns,
+                Some((body, _)) => {
+                    let c = serde_json::from_slice::<CkptDoc>(&body).map_err(|e| format!("{}: {e}", lane.id()))?;
+                    // Retired, and no later epoch listed (a birth this LIST
+                    // doesn't show committed after t_list): +inf.
+                    let reborn = c.retired_now()
+                        && cfg.mutation != Mutation::StaysRetired
+                        && b.list_dirs(&lane.data_prefix(&cfg.root)).await?.iter().any(|e| epoch_key(e) > epoch_key(&c.retired_epoch));
+                    if c.retired_now() && !reborn {
+                        let _ = retired.insert(lane.id(), c.retired_ns);
+                        RETIRED
+                    } else {
+                        c.wm_ns
+                    }
+                }
                 None => 0,
             };
             let _ = out.insert(lane.id(), wm);
         }
     }
-    Ok(out)
+    Ok((out, retired))
 }
 
 /// A document written by CAS with a version.
@@ -350,7 +413,7 @@ pub struct WmRun {
 /// One run: compute and publish the fleet document, then each listed
 /// cluster's. `wall_ms` is read before the LIST.
 pub async fn watermark_run<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig, wall_ms: u64) -> Result<WmRun, String> {
-    let lanes = lane_wms(b, cfg).await?;
+    let (lanes, retired) = lane_wms_retired(b, cfg).await?;
     let fleet = cas(b, &wm_key(&cfg.ctl), |prev: &WmDoc| Some(compute_doc(prev, &lanes, wall_ms, cfg))).await?;
     let mut run = WmRun { fleet, ..Default::default() };
     if !cfg.per_cluster {
@@ -372,7 +435,7 @@ pub async fn watermark_run<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig, wall_ms: u
         // per-signal and per-lane values.
         let next = |prev: &ClusterWmDoc| {
             let recent = prev.wall_ms > 0 && wall_ms < prev.wall_ms.saturating_add(cfg.cluster_every_ms);
-            (!recent).then(|| compute_cluster(prev, c, &ls, floor, wall_ms, cfg))
+            (!recent).then(|| compute_cluster(prev, c, &ls, &retired, floor, wall_ms, cfg))
         };
         match cas(b, &cluster_wm_key(&cfg.ctl, c), next).await {
             Ok(d) => run.clusters.push(d),
@@ -436,7 +499,7 @@ mod tests {
         assert_eq!(d.signals, BTreeMap::from([("logs".into(), ms(92_000)), ("traces".into(), ms(10_000))]));
         assert_eq!(d.unlisted_signals_ns, ms(95_000), "a signal with no lane: the cap");
         let lanes1: BTreeMap<String, u64> = l.iter().filter(|(k, _)| k.starts_with("c1/")).map(|(k, v)| (k.clone(), *v)).collect();
-        let c1 = compute_cluster(&ClusterWmDoc::default(), "c1", &lanes1, d.clusters["c1"], 100_000, &cfg);
+        let c1 = compute_cluster(&ClusterWmDoc::default(), "c1", &lanes1, &BTreeMap::new(), d.clusters["c1"], 100_000, &cfg);
         assert_eq!((c1.complete_through_ns, c1.lanes), (ms(90_000), 3));
         assert_eq!(c1.signals, BTreeMap::from([("logs".into(), ms(92_000)), ("traces".into(), ms(90_000))]));
         assert_eq!(c1.lane_wm["p1/logs"], ms(94_000));
@@ -448,7 +511,7 @@ mod tests {
         let d2 = compute_doc(&d, &l, 101_000, &cfg);
         assert_eq!((d2.clusters["c1"], d2.signals["traces"], d2.signals["logs"]), (ms(90_000), ms(10_000), ms(92_000)));
         let lanes1: BTreeMap<String, u64> = l.iter().filter(|(k, _)| k.starts_with("c1/")).map(|(k, v)| (k.clone(), *v)).collect();
-        let c1b = compute_cluster(&c1, "c1", &lanes1, d2.clusters["c1"], 101_000, &cfg);
+        let c1b = compute_cluster(&c1, "c1", &lanes1, &BTreeMap::new(), d2.clusters["c1"], 101_000, &cfg);
         assert_eq!((c1b.complete_through_ns, c1b.signals["traces"], c1b.lane_wm["p1/traces"]), (ms(90_000), ms(90_000), ms(90_000)));
         assert_eq!(c1b.lane_wm["p1/logs"], ms(99_000));
         // c2 recovers: the fleet moves to c1's value; c2 takes the fleet as a floor
@@ -460,6 +523,37 @@ mod tests {
         let _ = l.insert("c3/p0/metrics_series".to_string(), ms(1_000));
         let d4 = compute_doc(&d3, &l, 103_000, &cfg);
         assert_eq!((d4.clusters["c3"], d4.signals["metrics_series"]), (ms(50_000), ms(97_000)));
+    }
+
+    /// D35 (FORMAT.md §3.1): a retired lane is +inf in every minimum
+    /// (fleet, cluster, signal), never holding or stale; its cluster's
+    /// document names it with R, and its `lane_wm` is its signal's value. A
+    /// cluster whose every lane is retired follows the cap.
+    #[test]
+    fn a_retired_lane_is_in_no_minimum() {
+        let cfg = WmConfig { skew_ms: 5_000, stale_ms: 60_000, ..WmConfig::new("r", "c") };
+        let mut l = BTreeMap::new();
+        let _ = l.insert("c1/p0/traces".to_string(), ms(90_000));
+        let _ = l.insert("c1/p1/traces".to_string(), RETIRED);
+        let _ = l.insert("c1/p1/logs".to_string(), RETIRED);
+        let _ = l.insert("c2/p9/logs".to_string(), RETIRED);
+        let d = compute_doc(&WmDoc::default(), &l, 100_000, &cfg);
+        assert_eq!((d.computed_ns, d.complete_through_ns, d.retired_lanes), (ms(90_000), ms(90_000), 3));
+        assert_eq!(d.clusters, BTreeMap::from([("c1".into(), ms(90_000)), ("c2".into(), ms(95_000))]));
+        assert_eq!(d.signals, BTreeMap::from([("logs".into(), ms(95_000)), ("traces".into(), ms(90_000))]));
+        assert_eq!(d.holding.iter().map(|x| x.lane.as_str()).collect::<Vec<_>>(), vec!["c1/p0/traces"]);
+        assert!(d.stale.is_empty());
+        let lanes1: BTreeMap<String, u64> = l.iter().filter(|(k, _)| k.starts_with("c1/")).map(|(k, v)| (k.clone(), *v)).collect();
+        let r = BTreeMap::from([("c1/p1/traces".to_string(), ms(42_000)), ("c1/p1/logs".to_string(), ms(42_000)), ("c2/p9/logs".to_string(), 7)]);
+        let c1 = compute_cluster(&ClusterWmDoc::default(), "c1", &lanes1, &r, d.clusters["c1"], 100_000, &cfg);
+        assert_eq!(c1.complete_through_ns, ms(90_000));
+        assert_eq!(c1.retired, BTreeMap::from([("p1/logs".to_string(), ms(42_000)), ("p1/traces".to_string(), ms(42_000))]));
+        assert_eq!((c1.lane_wm["p1/traces"], c1.lane_wm["p1/logs"]), (ms(90_000), ms(95_000)), "a retired lane's lane_wm is its signal's value");
+        assert_eq!(c1.signals["logs"], ms(95_000), "a signal whose lanes are all retired follows the cap");
+        // no lane of the cluster counts: the cap
+        let lanes2: BTreeMap<String, u64> = l.iter().filter(|(k, _)| k.starts_with("c2/")).map(|(k, v)| (k.clone(), *v)).collect();
+        let c2 = compute_cluster(&ClusterWmDoc::default(), "c2", &lanes2, &r, d.clusters["c2"], 100_000, &cfg);
+        assert_eq!((c2.complete_through_ns, c2.retired["p9/logs"]), (ms(95_000), 7));
     }
 
     #[test]

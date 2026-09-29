@@ -49,6 +49,54 @@ hand, one ordinal at a time, only while S3 is healthy:
    which would put its rows below a published value (found by
    `model/retirement.qnt`; FORMAT.md §3.1).
 
+## The orderly close (D35, built)
+
+Since 2026-09-29 a publisher stopped in order ends each of its lanes with a
+**close** (`oscope-kind: close`, [FORMAT.md](../../FORMAT.md) §3.1), and the
+consumer then **retires** those lanes: they leave their cluster's (and the
+fleet's) `complete_through` minimum, which moves on with the publishers
+left, instead of holding at the removed one for good (paged as `stale`).
+The close is committed only when the publisher's custody is empty at
+shutdown: Rust, its Quiver buffer drained and every request committed and
+acknowledged back; Go, its sending queue drained and nothing left in its
+custody ledger. So Rule 1 still applies, and the close is its proof:
+
+- The pod reports not ready as soon as its shutdown starts (the Rust
+  engine's `ShutdownRequested`, the collector's pipeline-not-ready), before
+  its receivers stop, then drains. The drain and the close must fit in
+  `terminationGracePeriodSeconds` (45 s in `base/`; the Rust engine's own
+  drain deadline is 60 s): after Rule 1 step 2 the buffer is empty and the
+  close takes one PUT per lane. If the kubelet kills the pod first, there is
+  no close and the lane stays stale: safe, and handled as below.
+- **Check the retirement** after the scale-down: the consumer logs `lane
+  {cluster}/{producer}/{signal} retired by its publisher's close`, counts it
+  (`consumer_lane_retirements_total{event="closed"}`), and
+  `{ctl}/watermark/{cluster}.json` names the producer's lanes under
+  `retired` with R. `consumer_watermark_retired_lanes` counts them.
+- **No close** (the edge logs `close: none (…)`: custody not empty, the
+  buffer's drain unfinished, a NACK it did not see; or no log line at all:
+  killed): scale that ordinal back up (§Orphaned buffer), let it drain, and
+  scale down again. For a node and volume that are gone for good, use
+  `consume retire-lane` (to come, D35 (2)).
+- A later pod with the same ordinal (the same producer id) starts a new
+  epoch; its birth puts the lane back in the minimum (`reborn`), and
+  whatever its volume replays that was committed before the close is passed
+  as a copy. Anything below R that central does not hold is **quarantined**
+  (see §Quarantine), never ingested.
+
+## Quarantine
+
+`ConsumerQuarantinedObjects` (page, `../alerts/consumer-retirement.rules.yaml`):
+an object of a retired lane received below its R that central did not
+hold. The worker did not ingest it; it is listed in
+`{ctl}/quarantine/{cluster}/{producer}/{signal}.json` (slot, content key,
+rows, `received_at`). Its request was acknowledged by a publisher whose
+custody the retirement said was empty: a close committed with custody left
+(a bug: report it with the edge's log), or an operator's retirement of a
+lane whose volume was kept after all. Nothing a reader relies on has
+changed (it is below published values and not in the main tables).
+Admitting it is a separate decision (`consume admit`, to come, D35 (3)).
+
 ## Rule 2: an unmounted buffer volume is an alert
 
 `EdgeBufferVolumeUnmounted` (30 min, warn) and `EdgeBufferVolumeOrphaned`

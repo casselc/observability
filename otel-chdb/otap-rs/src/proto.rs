@@ -50,6 +50,11 @@ pub const KIND_DATA: &str = "data";
 pub const KIND_TOMB: &str = "tomb";
 /// A heartbeat: a zero-byte slot carrying only `oscope-low`.
 pub const KIND_BEAT: &str = "beat";
+/// An orderly close (`../FORMAT.md` §3.1, DECISIONS.md D35): the last slot
+/// of a publisher's epoch, committed at shutdown once its custody is empty
+/// (every request committed and seen committed). Zero bytes, like a
+/// heartbeat, with `oscope-low` = the (empty) custody floor, the close time.
+pub const KIND_CLOSE: &str = "close";
 /// The on-disk format these keys and metadata follow (`../FORMAT.md`).
 pub const FORMAT_VERSION: u32 = 2;
 

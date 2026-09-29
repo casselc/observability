@@ -28,7 +28,7 @@ deploy/
   collector/          ocb build of the agent/gateway collector; patches/0001 for the gateway
   images/             Dockerfiles: otap-s3pq, any ocb collector, aws_signing_helper
   edgeprobe/          the publishers' readiness probe (a wedged buffer is not ready; §Durable buffer)
-  alerts/             Prometheus rules for the buffers, the probe, the commit outcomes and the alert evaluator (../alerts)
+  alerts/             Prometheus rules for the buffers, the probe, the commit outcomes, the alert evaluator (../alerts) and retired lanes' quarantine (D35)
   scripts/            the local tests below
   results/            their outputs
 ```
@@ -352,7 +352,12 @@ reads both at its default `--depth 3`.
   connection age.
 - **Scale down** only while S3 is healthy, and keep the removed ordinal's
   PVC until it has been back once or its buffer is empty (§Routing, What
-  scaling does).
+  scaling does). A publisher stopped in order with an empty buffer ends its
+  lanes with a close, and the consumer retires them: its cluster's
+  `complete_through` moves on without it (D35; `runbooks/scale-down.md`
+  §The orderly close, which says how to check it and what to do without
+  one). A quarantined object pages (`alerts/consumer-retirement.rules.yaml`,
+  `runbooks/scale-down.md` §Quarantine).
 - **A publisher not ready, "buffer volume full"**: S3 was unreachable long
   enough to fill the volume. Restore S3, **grow the PVC** (the buffer can't
   release committed segments without room), then **restart the pod**: a

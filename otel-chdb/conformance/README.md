@@ -55,6 +55,16 @@ and lacked `cluster` (UNKNOWN_IDENTIFIER); it now groups by every column but
 `count`, and `compare_test.py` (nightly, no services) checks the query
 against the rollup DDL in `../otap-rs/sql`.
 
+**With the orderly close (D35, 2026-09-29)** [M]: both edges, stopped by
+SIGINT after the datasets, now end every lane with a close (zero bytes,
+`oscope-kind: close`, random `close-` content, `oscope-low` its close
+time); `compare.py` compares them like heartbeats (kind and metadata but
+the run's identity) and checks that each lane's last slot is the close on
+both edges. Layout B **293 PASS, 0 FAIL** (+21: 7 lanes × the close's
+metadata, its kind, and "both edges end the lane with their close");
+ClickStack metrics tables **224 PASS, 0 FAIL** (+21). The Go collector was
+rebuilt with ocb v0.161.0 for it. Both results files replaced.
+
 Also measured, not a row difference: the Go objects are **28% larger** than
 the Rust objects on these datasets (1.32 MB against 1.03 MB; traces and logs
 +26%), with the same encodings per column: parquet-go's zstd and V2 pages

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/casselc/observability/otel-chdb/parquetgo"
+	"github.com/casselc/observability/otel-chdb/parquetgo/commit"
 	"github.com/casselc/observability/otel-chdb/parquetgo/edge"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/config/configoptional"
@@ -54,6 +55,10 @@ func createDefaultConfig() component.Config {
 	}
 }
 
+// storeForTests replaces the S3 store of every edge acquired while set
+// (tests only; custody_test.go).
+var storeForTests commit.Store
+
 // One edge per exporter configuration: the traces, logs and metrics
 // pipelines of one `s3pq` share its lanes and series cache, as the Rust
 // exporter node does.
@@ -69,6 +74,7 @@ type shared struct {
 	refs int
 	reg  metric.Registration // s3pq_commit_outcomes (telemetry.go)
 	stop context.CancelFunc  // the heartbeats
+	done chan struct{}       // closed once the heartbeat loop has returned
 }
 
 // heartbeats registers every lane the edge can write (birth heartbeats,
@@ -76,7 +82,7 @@ type shared struct {
 // is taken into custody before) and then keeps each idle lane alive: a
 // heartbeat per lane that has committed nothing for Interval
 // (../../FORMAT.md §2).
-func heartbeats(ctx context.Context, e *edge.Edge, hb HeartbeatConfig, log *zap.Logger) {
+func heartbeats(ctx context.Context, e *edge.Edge, hb HeartbeatConfig, log *zap.Logger, done chan struct{}) {
 	lanes := e.Registered()
 	born := map[string]bool{}
 	until := time.Now().Add(hb.BirthTimeout)
@@ -94,6 +100,7 @@ func heartbeats(ctx context.Context, e *edge.Edge, hb HeartbeatConfig, log *zap.
 		log.Info("s3pq births", zap.Int("registered", len(born)), zap.Int("lanes", len(lanes)))
 	}
 	go func() {
+		defer close(done)
 		t := time.NewTicker(hb.Interval / 2)
 		defer t.Stop()
 		for {
@@ -124,6 +131,9 @@ func acquire(id component.ID, cfg *Config, mp metric.MeterProvider, log *zap.Log
 	edgesMu.Unlock()
 	s.once.Do(func() {
 		ec := cfg.EdgeConfig()
+		if storeForTests != nil {
+			ec.Store, ec.Prefix = storeForTests, "root"
+		}
 		ec.Custody = custodyFor(id).lowNow
 		if s.e, s.err = edge.New(ec); s.err == nil && mp != nil {
 			s.reg, s.err = registerOutcomes(mp, s.e.Stats())
@@ -131,13 +141,18 @@ func acquire(id component.ID, cfg *Config, mp metric.MeterProvider, log *zap.Log
 		if s.err == nil && cfg.Heartbeat.Interval > 0 {
 			var ctx context.Context
 			ctx, s.stop = context.WithCancel(context.Background())
-			heartbeats(ctx, s.e, cfg.Heartbeat, log)
+			s.done = make(chan struct{})
+			heartbeats(ctx, s.e, cfg.Heartbeat, log, s.done)
 		}
 	})
 	return s.e, s.err
 }
 
-func release(id component.ID, log *zap.Logger) {
+// release drops one pipeline's reference; the last one (every pipeline's
+// sending queue already shut down: exporterhelper shuts the queue before
+// this) stops the heartbeats and, if the custody is empty, commits the
+// orderly close (../../FORMAT.md §3.1, DECISIONS.md D35) within ctx.
+func release(ctx context.Context, id component.ID, log *zap.Logger) {
 	edgesMu.Lock()
 	defer edgesMu.Unlock()
 	s := edges[id]
@@ -145,6 +160,17 @@ func release(id component.ID, log *zap.Logger) {
 		return
 	}
 	if s.refs--; s.refs == 0 {
+		if s.stop != nil {
+			s.stop()
+			// A heartbeat in flight must not land after the close.
+			select {
+			case <-s.done:
+			case <-ctx.Done():
+			}
+		}
+		if s.e != nil {
+			closeEdge(ctx, s.e, custodyFor(id), s.stop != nil && s.done != nil && isClosed(s.done), log)
+		}
 		if s.e != nil {
 			st := s.e.Stats()
 			log.Info("s3pq stop",
@@ -157,11 +183,45 @@ func release(id component.ID, log *zap.Logger) {
 		if s.reg != nil {
 			_ = s.reg.Unregister()
 		}
-		if s.stop != nil {
-			s.stop()
-		}
 		delete(edges, id)
 	}
+}
+
+func isClosed(c chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
+}
+
+// closer is what closeEdge needs of the edge (a test double in factory_test.go).
+type closer interface {
+	Close(ctx context.Context) (int, error)
+}
+
+// closeEdge commits the orderly close when it may: heartbeats were on (the
+// lanes were born) and have stopped, and the custody ledger is empty (every
+// request taken was committed or refused, every queue's probe came out).
+// Otherwise, or past ctx's deadline, no close: the lanes stay stale, which
+// is safe (../../FORMAT.md §3.1).
+func closeEdge(ctx context.Context, e closer, c *custody, beatsStopped bool, log *zap.Logger) (int, bool) {
+	if !beatsStopped || !c.empty() {
+		if log != nil {
+			log.Info("s3pq close: none", zap.Bool("heartbeats_stopped", beatsStopped), zap.Bool("custody_empty", c.empty()))
+		}
+		return 0, false
+	}
+	n, err := e.Close(ctx)
+	if log != nil {
+		if err != nil {
+			log.Warn("s3pq close: some lanes not closed (they stay open: safe)", zap.Int("closed", n), zap.Error(err))
+		} else {
+			log.Info("s3pq close: custody empty, lanes closed", zap.Int("closed", n))
+		}
+	}
+	return n, err == nil
 }
 
 // exp is one pipeline's view of the shared edge.
@@ -180,9 +240,9 @@ func (x *exp) start(context.Context, component.Host) error {
 	return err
 }
 
-func (x *exp) shutdown(context.Context) error {
+func (x *exp) shutdown(ctx context.Context) error {
 	if x.e != nil {
-		release(x.id, x.log)
+		release(ctx, x.id, x.log)
 	}
 	return nil
 }

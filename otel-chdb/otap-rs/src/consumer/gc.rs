@@ -233,7 +233,7 @@ mod tests {
 
     fn m(w: u64, next: u64, closed: bool) -> Mark {
         let mut e = BTreeMap::new();
-        let _ = e.insert("E1".to_string(), EpochPos { next, closed });
+        let _ = e.insert("E1".to_string(), EpochPos { next, closed, ..Default::default() });
         let mut lanes = BTreeMap::new();
         let _ = lanes.insert("p/traces".to_string(), e);
         Mark { wall_ms: w, lanes, floors: BTreeMap::new() }
@@ -246,11 +246,11 @@ mod tests {
         assert_eq!(horizon(&marks, 300, 100).map(|m| m.wall_ms), Some(200));
         assert!(horizon(&marks, 150, 100).is_none());
         let keys: Vec<String> = (0..6).map(|s| proto::slot_key("r/p/traces", "E1", s)).collect();
-        let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true }, false);
+        let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true, ..Default::default() }, false);
         assert_eq!((d.len(), t), (2, 0), "the tombstone at 3 stays, and the slot below it until retirement");
-        let (d, _) = doomed("r/p/traces", &keys, &EpochPos { next: 1, closed: false }, false);
+        let (d, _) = doomed("r/p/traces", &keys, &EpochPos { next: 1, closed: false, ..Default::default() }, false);
         assert!(d.is_empty(), "an open epoch's newest ingested slot is kept");
-        let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true }, true);
+        let (d, t) = doomed("r/p/traces", &keys, &EpochPos { next: 3, closed: true, ..Default::default() }, true);
         assert_eq!((d.len(), t), (4, 1));
     }
 

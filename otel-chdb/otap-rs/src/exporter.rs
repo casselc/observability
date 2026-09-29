@@ -260,6 +260,8 @@ struct Shared {
     resources: crate::resource::ResourceOptions,
     /// `late_split_after` in ns (0: never split).
     late_split_ns: u64,
+    /// NACKs sent upstream (a durable buffer takes them back into custody).
+    nacks_sent: std::cell::Cell<u64>,
 }
 
 impl Shared {
@@ -284,31 +286,88 @@ impl Shared {
 /// Commits a heartbeat to the signal's first lane: a zero-byte slot with
 /// `oscope-kind: beat` and `oscope-low` (`../FORMAT.md` §2).
 async fn heartbeat(sh: Rc<Shared>, s: Signal) -> (Signal, Result<Ref, String>) {
-    let lane = sh.lanes[&(s, 0)].clone();
+    let low = sh.low_now();
+    let r = empty_slot(&sh, s, 0, proto::KIND_BEAT, low).await;
+    if r.is_ok() {
+        let _ = sh.last_commit.borrow_mut().insert(s, Instant::now());
+    }
+    (s, r)
+}
+
+/// Whether the exporter may commit its orderly close at shutdown
+/// (`../FORMAT.md` §3.1, DECISIONS.md D35): its custody is empty. Without a
+/// buffer, custody is the requests in its hands, all resolved by then;
+/// behind a durable buffer, the buffer's shutdown drain must have handed
+/// every bundle over (`patches/0006`: `custody::drained`) and handled every
+/// NACK the exporter sent (a NACK it never saw leaves a bundle in custody).
+/// Heartbeats off (no births): no close either.
+pub fn may_close(custody: Custody, heartbeats: bool, all_acked: bool, buffer_drained: bool, nacks_sent: u64, nacks_handled: u64) -> bool {
+    heartbeats
+        && all_acked
+        && match custody {
+            Custody::Exporter => true,
+            Custody::DurableBuffer => buffer_drained && nacks_sent == nacks_handled,
+        }
+}
+
+/// A zero-byte slot (a heartbeat or a close) in writer lane `i` of `s`, with
+/// `oscope-low` = `low`, by the lane's create-only slot protocol.
+async fn empty_slot(sh: &Shared, s: Signal, i: usize, kind: &str, low: u64) -> Result<Ref, String> {
+    let lane = sh.lanes[&(s, i)].clone();
     let mut g = lane.lock().await;
     let st = &mut *g;
-    let content = format!("beat-{:016x}", rand::random::<u64>());
+    let content = format!("{kind}-{:016x}", rand::random::<u64>());
     let mut encode = |_r: &Ref| {
         let mut meta = std::collections::BTreeMap::new();
         for (k, v) in [
-            (proto::META_KIND, proto::KIND_BEAT.to_string()),
+            (proto::META_KIND, kind.to_string()),
             (proto::META_FORMAT, proto::FORMAT_VERSION.to_string()),
             (proto::META_CLUSTER, sh.cluster.clone()),
             (proto::META_SIGNAL, s.name().to_string()),
             (proto::META_ROWS, "0".to_string()),
-            (proto::META_LOW, sh.low_now().to_string()),
+            (proto::META_LOW, low.to_string()),
         ] {
             let _ = meta.insert(k.to_string(), v);
         }
         Ok(runner::Encoded { body: bytes::Bytes::new(), content_type: "application/octet-stream", meta })
     };
-    let r = runner::append(&mut st.lane, &mut st.cache, &sh.store, &sh.prefixes[&s], &sh.producer, &content, &mut encode, &sh.timeouts, &sh.stats)
+    runner::append(&mut st.lane, &mut st.cache, &sh.store, &sh.prefixes[&s], &sh.producer, &content, &mut encode, &sh.timeouts, &sh.stats)
         .await
-        .map_err(|e| e.to_string());
-    if r.is_ok() {
-        let _ = sh.last_commit.borrow_mut().insert(s, Instant::now());
+        .map_err(|e| e.to_string())
+}
+
+/// The orderly close: one `oscope-kind: close` slot in every writer lane
+/// of every registered signal that has an epoch (a writer lane never
+/// written has none), with `oscope-low` = `low` (the empty custody's floor:
+/// now). Each is an ordinary create-only slot; a lane that fails is
+/// reported and left without a close (it stays stale: safe). Returns
+/// (closed, failed).
+async fn close_lanes(sh: &Shared, registered: &[Signal], low: u64) -> (usize, usize) {
+    let mut jobs = Vec::new();
+    for s in registered {
+        for i in 0..sh.lanes_per_signal {
+            let named = sh.lanes[&(*s, i)].try_lock().map_or(true, |g| !g.lane.epoch.is_empty());
+            if named {
+                jobs.push(async move { (*s, i, empty_slot(sh, *s, i, proto::KIND_CLOSE, low).await) });
+            }
+        }
     }
-    (s, r)
+    let mut out = (0, 0);
+    for (s, i, r) in futures::future::join_all(jobs).await {
+        match r {
+            Ok(r) => {
+                out.0 += 1;
+                if sh.verbose {
+                    crate::log(&format!("close {} lane {i}: {}/{}", s.name(), r.epoch, r.seq));
+                }
+            }
+            Err(e) => {
+                out.1 += 1;
+                crate::log(&format!("close {} lane {i}: {e} (the lane stays open: safe)", s.name()));
+            }
+        }
+    }
+    out
 }
 
 fn signal_of(t: SignalType) -> Signal {
@@ -595,6 +654,7 @@ impl Exporter<OtapPdata> for S3pqExporter {
             last_commit: RefCell::new(HashMap::new()),
             resources: cfg.resources.clone(),
             late_split_ns: cfg.late_split_after.as_nanos().min(u64::MAX as u128) as u64,
+            nacks_sent: std::cell::Cell::new(0),
         });
         // Heartbeats: the births first (every lane this publisher can write
         // is registered before it takes a request, up to birth_timeout),
@@ -633,7 +693,11 @@ impl Exporter<OtapPdata> for S3pqExporter {
         let finish = |d: Done, eh: &EffectHandler<OtapPdata>| {
             let (pdata, parts, _started, _rows) = d;
             let eh = eh.clone();
+            let sh = sh.clone();
             async move {
+                if !matches!(proto::request_verdict(parts.iter().map(|(_, o)| o)), Verdict::Ack) {
+                    sh.nacks_sent.set(sh.nacks_sent.get() + 1);
+                }
                 match proto::request_verdict(parts.iter().map(|(_, o)| o)) {
                     Verdict::Ack => eh.notify_ack(AckMsg::new(pdata)).await,
                     // The data can't be encoded: a client error (OTLP 400 / INVALID_ARGUMENT).
@@ -694,6 +758,45 @@ impl Exporter<OtapPdata> for S3pqExporter {
                             Ok(Some(d)) => finish(d, &effect_handler).await?,
                             _ => break,
                         }
+                    }
+                    // The orderly close (../FORMAT.md §3.1): only with the
+                    // custody empty, heartbeats settled first (a heartbeat
+                    // left in flight must not land after the close), and
+                    // within the shutdown budget; otherwise no close, and the
+                    // lanes stay stale (safe).
+                    // (Without a buffer a NACKed request is its sender's
+                    // again; behind one, may_close counts the NACKs.)
+                    let all_acked = in_flight.is_empty();
+                    while !beats.is_empty() {
+                        match tokio::time::timeout_at(until, beats.next()).await {
+                            Ok(Some(_)) => {}
+                            _ => break,
+                        }
+                    }
+                    let ok = beats.is_empty()
+                        && may_close(
+                            cfg.custody,
+                            !registered.is_empty(),
+                            all_acked,
+                            otel_arrow_dfe_otap::custody::drained(),
+                            sh.nacks_sent.get(),
+                            otel_arrow_dfe_otap::custody::nacks_handled(),
+                        );
+                    if ok {
+                        match tokio::time::timeout_at(until, close_lanes(&sh, &registered, now_ns())).await {
+                            Ok((n, 0)) => crate::log(&format!("close: {n} writer lanes closed (custody empty)")),
+                            Ok((n, f)) => crate::log(&format!("close: {n} writer lanes closed, {f} failed (those stay open)")),
+                            Err(_) => crate::log("close: the shutdown deadline passed (the lanes not closed stay open)"),
+                        }
+                    } else {
+                        crate::log(&format!(
+                            "close: none (custody {:?}, all acked {all_acked}, buffer drained {}, nacks sent {} handled {}, heartbeats settled {})",
+                            cfg.custody,
+                            otel_arrow_dfe_otap::custody::drained(),
+                            sh.nacks_sent.get(),
+                            otel_arrow_dfe_otap::custody::nacks_handled(),
+                            beats.is_empty()
+                        ));
                     }
                     let s = &sh.stats;
                     crate::log(&format!(
@@ -758,6 +861,20 @@ mod tests {
         assert_eq!(custody_low(100, Some(40), None, Custody::DurableBuffer), 0);
         // a floor published where none was configured is still honoured
         assert_eq!(custody_low(100, None, Some(60), Custody::Exporter), 60);
+    }
+
+    /// D35: the close only with the custody empty (FORMAT.md §3.1).
+    #[test]
+    fn the_close_needs_an_empty_custody() {
+        // without a buffer: every request in hand resolved
+        assert!(may_close(Custody::Exporter, true, true, false, 3, 0));
+        assert!(!may_close(Custody::Exporter, true, false, false, 0, 0), "a request still in flight");
+        assert!(!may_close(Custody::Exporter, false, true, false, 0, 0), "no heartbeats, no births: no close");
+        // behind a durable buffer: its drain handed everything over, and it saw every NACK
+        assert!(may_close(Custody::DurableBuffer, true, true, true, 2, 2));
+        assert!(!may_close(Custody::DurableBuffer, true, true, false, 0, 0), "the buffer's drain did not finish");
+        assert!(!may_close(Custody::DurableBuffer, true, true, true, 3, 2), "a NACK the buffer never handled: its bundle is still in custody");
+        assert!(!may_close(Custody::DurableBuffer, true, false, true, 0, 0));
     }
 
     #[test]

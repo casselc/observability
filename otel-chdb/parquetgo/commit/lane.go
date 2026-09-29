@@ -306,7 +306,7 @@ func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, er
 		for k, v := range obj.Meta {
 			meta[k] = v
 		}
-		if meta[MetaKind] == "" { // a heartbeat's encoder says KindBeat
+		if meta[MetaKind] == "" { // a heartbeat's or a close's encoder says so
 			meta[MetaKind] = KindData
 		}
 		meta[MetaEpoch] = here.Epoch

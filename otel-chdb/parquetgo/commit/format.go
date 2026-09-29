@@ -71,6 +71,10 @@ const (
 	KindTomb = "tomb"
 	// KindBeat is a heartbeat: a zero-byte slot carrying only oscope-low.
 	KindBeat = "beat"
+	// KindClose is an orderly close (../../FORMAT.md §3.1, DECISIONS.md
+	// D35): the last slot of a publisher's epoch, committed at shutdown
+	// once its custody is empty; zero bytes, oscope-low = the close time.
+	KindClose = "close"
 
 	// FormatVersion is the on-disk format these keys and metadata follow.
 	FormatVersion = 2

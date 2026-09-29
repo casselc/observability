@@ -15,7 +15,8 @@
       "Principal": "*",
       "Action": "s3:PutObject",
       "Resource": ["arn:aws:s3:::BUCKET/ROOT/_consumer/ckpt/*", "arn:aws:s3:::BUCKET/ROOT/_consumer/lease/*",
-                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark/*"],
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark.json", "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark/*",
+                   "arn:aws:s3:::BUCKET/ROOT/_consumer/quarantine/*"],
       "Condition": {"Null": {"s3:if-match": "true", "s3:if-none-match": "true"}}
     }
   ]

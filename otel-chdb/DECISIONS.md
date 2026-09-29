@@ -70,7 +70,7 @@ disagreed with each other, and how each was resolved.
 | [D33](#d33-hyperdx-through-the-query-service-fully-scoped-dictionaries-labelled-samples-a-performance-settings-allow-list-cluster-on-the-rollups-the-users-token-server-side) | HyperDX through the query service, fully: the catalog's dictionaries by name with every lookup guarded per caller, `resource_kv` served, a labelled sample mode, a performance-settings allow-list in configuration, a cluster column on the key/value rollups, the user's token on user-started server-side queries, `total_rows` as 0/1 for restricted callers | **built** (2026-09-28): owner decisions of 2026-09-28; the rwproxy chain 69/69 through the service |
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
-| [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **designed** (2026-09-28): FORMAT.md §3.1, `model/retirement.qnt`; not built |
+| [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **building** (2026-09-29): the orderly close (both edges), its retirement, +inf and the quarantine built; `retire-lane` and `admit` to come (FORMAT.md §3.1, `model/retirement.qnt`) |
 
 ---
 
@@ -3529,10 +3529,21 @@ labelled *recovered* table that queries include explicitly, and the command
 reports the bases and alert windows the data would have touched (the basis
 guarantee, D30, stays intact).
 
-**Status:** **designed, not built** (2026-09-28; owner decision of
-2026-09-28: "design it before any per-node publisher layout"). Design:
-[FORMAT.md](FORMAT.md) §3.1. Model: [`model/retirement.qnt`](model/retirement.qnt),
-`model/retirement_model.sh` (nightly).
+**Status:** **building** (2026-09-29). Built: (1) the orderly close in
+both edges (Rust: `patches/0006` extended with the buffer's drained flag
+and NACK count; Go: `edge.Close` at the exporter's last shutdown) and the
+consumer's retirement by it, +inf in every minimum, the rebirth, and the
+quarantine with its document, metric and page ([FORMAT.md](FORMAT.md)
+§3.1 "Built"). To come: (2) `consume retire-lane`, (3) `consume admit`.
+Designed 2026-09-28 (owner decision of 2026-09-28: "design it before any
+per-node publisher layout"). Model: [`model/retirement.qnt`](model/retirement.qnt),
+`model/retirement_model.sh` (nightly). **Found building it:** an earlier
+incarnation's zombie PUT could land after the later incarnation's close
+retired the lane, below R, and be quarantined although its request was
+ingested (a spurious page, not a loss). The model now has the mutant
+(`closeUnsealed`, `SEAL_OLDER`), and the consumer seals every earlier
+epoch (a tombstone, or its own close) before a close retires the lane, and
+passes an object below R whose content central already holds as a copy.
 
 **Problem.** D29's limit 4: a lane that stops advancing holds its
 cluster's (and the fleet's) `complete_through` at its watermark for good,

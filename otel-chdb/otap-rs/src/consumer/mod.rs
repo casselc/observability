@@ -36,6 +36,9 @@
 //!   (each lane's holder computes its own at every full listing), published
 //!   as a running max in `{ctl}/watermark.json` (`consume gc`, `consume
 //!   watermark`), with the lanes holding it back and the stale ones.
+//! - `retire`: dead-lane retirement (`../../FORMAT.md` §3.1, D35): the
+//!   quarantine document (`{ctl}/quarantine/{lane}.json`); the close proof
+//!   is `coord::CkptDoc::close_proof`, applied by the worker.
 //! - `metrics`: Prometheus text for the worker, GC and the audit, and a
 //!   minimal HTTP endpoint (`--metrics-addr`).
 //!
@@ -51,6 +54,7 @@ pub mod discovery;
 pub mod gc;
 pub mod metrics;
 pub mod plan;
+pub mod retire;
 pub mod sql;
 pub mod watermark;
 pub mod worker;

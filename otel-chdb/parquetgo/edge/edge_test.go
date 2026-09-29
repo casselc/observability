@@ -468,3 +468,37 @@ func logsOf(td ptrace.Traces) plog.Logs {
 	rl.ScopeLogs().AppendEmpty().LogRecords().AppendEmpty().Body().SetStr("b")
 	return ld
 }
+
+// D35 (../../FORMAT.md §3.1): the orderly close is one zero-byte
+// oscope-kind close slot after the last slot of every lane that has an
+// epoch, with oscope-low the close time; a lane never written gets none.
+func TestCloseSealsEveryWrittenLane(t *testing.T) {
+	st := commit.NewMemStore()
+	e := newEdge(t, st, "")
+	if err := e.PushTraces(context.Background(), traces(3, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Beat(context.Background(), "logs"); err != nil {
+		t.Fatal(err)
+	}
+	n, err := e.Close(context.Background())
+	if err != nil || n != 2 {
+		t.Fatalf("closed %d lanes (want traces and logs, the lanes with an epoch): %v", n, err)
+	}
+	for ns, seq := range map[string]uint64{"traces": 1, "logs": 1} {
+		keys := st.Keys("root/c1/p1/" + ns + "/")
+		if uint64(len(keys)) != seq+1 {
+			t.Fatalf("%s: %v", ns, keys)
+		}
+		o, _ := st.Get(keys[seq])
+		m := o.Meta
+		if m[commit.MetaKind] != commit.KindClose || len(o.Body) != 0 || m[commit.MetaLow] != "1790000000123456789" ||
+			m[commit.MetaSeq] != strconv.FormatUint(seq, 10) || !strings.HasPrefix(m[commit.MetaContent], "close-") ||
+			m[commit.MetaRows] != "0" || m[commit.MetaSignal] != ns || m[commit.MetaFormat] != "2" || m[commit.MetaCluster] != "c1" {
+			t.Fatalf("%s close: %v", ns, m)
+		}
+	}
+	if keys := st.Keys("root/c1/p1/metrics_series/"); len(keys) != 0 {
+		t.Fatalf("a lane never written was closed: %v", keys)
+	}
+}

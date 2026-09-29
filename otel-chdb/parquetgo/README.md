@@ -45,9 +45,23 @@ unicode / huge-value / enum / histogram / exemplar set) through both edges,
 then the Rust consumer: every table equal by count + hash and `EXCEPT ALL`
 both ways, the same content keys, metadata, footers and Parquet schema.
 Layout B 228 checks, ClickStack tables 187, 0 failures (272 layout-B checks
-with the late split, 2026-09-28). One known
+with the late split, 2026-09-28; 293 and 224 with the orderly closes compared,
+2026-09-29). One known
 difference, from the Rust side: span kinds outside the enum (Rust
 `Unspecified`, Go and contrib `''`).
+
+**The orderly close** (D35, 2026-09-29; `edge.Close`, `s3pqexporter`
+`closeEdge`, `../FORMAT.md` §3.1). When the last pipeline of an `s3pq`
+exporter shuts down (its retry sender and sending queue already shut down
+by exporterhelper), the heartbeats stop and, if the custody ledger is empty
+(nothing taken and not committed or refused, every queue's probe out), the
+edge commits one `oscope-kind: close` slot in every lane that has an epoch,
+`oscope-low` = now; the consumer retires the lanes once it has passed them.
+Otherwise, or past the collector's shutdown deadline, no close: the lanes
+stay stale (safe). Tests: `edge` `TestCloseSealsEveryWrittenLane`,
+`s3pqexporter` `TestCloseOnlyWithAnEmptyCustody`, `TestShutdownClosesTheLanes`;
+end to end `../otap-rs/scripts/close_e2e.sh` (EDGE=go) and the conformance
+run.
 
 **Late rows in their own object** (D31, 2026-09-28; `edge/late.go`,
 `../FORMAT.md` §2.2). A traces or logs request with rows more than

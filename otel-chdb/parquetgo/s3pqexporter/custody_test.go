@@ -11,6 +11,7 @@ import (
 	"github.com/casselc/observability/otel-chdb/parquetgo/edge"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer/consumererror"
+	"go.opentelemetry.io/collector/exporter/exportertest"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
 
@@ -124,4 +125,98 @@ func TestCustodyLedger(t *testing.T) {
 	if c.low(100) != 100 {
 		t.Fatal("the replay was not let go")
 	}
+}
+
+type fakeCloser struct{ calls int }
+
+func (f *fakeCloser) Close(context.Context) (int, error) {
+	f.calls++
+	return 7, nil
+}
+
+// D35: the exporter closes only with its custody empty (every request taken
+// committed or refused, every queue's probe out) and its heartbeats
+// stopped; otherwise no close (the lanes stay stale: safe).
+func TestCloseOnlyWithAnEmptyCustody(t *testing.T) {
+	c := custodyFor(component.MustNewIDWithName("s3pq", "closetest"))
+	c.expect("traces")
+	f := &fakeCloser{}
+	if _, ok := closeEdge(context.Background(), f, c, true, nil); ok || f.calls != 0 {
+		t.Fatal("closed before the queue's probe came out (an earlier incarnation's requests may be queued)")
+	}
+	_ = c.push(probeCtx(context.Background()), "traces", nil)
+	ctx, id := c.take(context.Background(), time.Unix(0, 40))
+	_ = ctx
+	if _, ok := closeEdge(context.Background(), f, c, true, nil); ok || f.calls != 0 {
+		t.Fatal("closed with a request in custody")
+	}
+	c.done(id)
+	if _, ok := closeEdge(context.Background(), f, c, false, nil); ok || f.calls != 0 {
+		t.Fatal("closed with heartbeats still running")
+	}
+	if n, ok := closeEdge(context.Background(), f, c, true, nil); !ok || n != 7 || f.calls != 1 {
+		t.Fatalf("custody empty: want a close, got %d %v", n, ok)
+	}
+}
+
+// End to end through the factory: two pipelines of one exporter, their
+// requests committed, shut down: the last pipeline's shutdown commits a
+// close in each lane that has an epoch, after its data and births.
+func TestShutdownClosesTheLanes(t *testing.T) {
+	st := commit.NewMemStore()
+	storeForTests = st
+	defer func() { storeForTests = nil }()
+	f := NewFactory()
+	cfg := f.CreateDefaultConfig().(*Config)
+	cfg.S3.URL = "http://127.0.0.1:1/b/root"
+	cfg.Cluster, cfg.ProducerID = "c1", "p1"
+	cfg.Heartbeat = HeartbeatConfig{Interval: time.Hour, BirthTimeout: 5 * time.Second}
+	set := exportertest.NewNopSettings(Type)
+	set.ID = component.MustNewIDWithName("s3pq", "closee2e")
+	ctx := context.Background()
+	te, err := f.CreateTraces(ctx, set, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	le, err := f.CreateLogs(ctx, set, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []component.Component{te, le} {
+		if err := c.Start(ctx, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := te.ConsumeTraces(ctx, oneSpan("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := te.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := closes(st, "root/c1/p1/"); n != 0 {
+		t.Fatalf("closed while a pipeline still runs: %d", n)
+	}
+	if err := le.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, ns := range []string{"traces", "logs", "metrics_series"} {
+		keys := st.Keys("root/c1/p1/" + ns + "/")
+		if len(keys) == 0 {
+			t.Fatalf("%s: no slots", ns)
+		}
+		o, _ := st.Get(keys[len(keys)-1])
+		if o.Meta[commit.MetaKind] != commit.KindClose {
+			t.Fatalf("%s: the last slot is %v, want the close", ns, o.Meta)
+		}
+	}
+}
+
+func closes(st *commit.MemStore, prefix string) int {
+	n := 0
+	for _, k := range st.Keys(prefix) {
+		if o, _ := st.Get(k); o.Meta[commit.MetaKind] == commit.KindClose {
+			n++
+		}
+	}
+	return n
 }

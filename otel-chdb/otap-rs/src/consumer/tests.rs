@@ -1507,3 +1507,158 @@ async fn announcements_go_in_before_their_lanes_rows() {
     assert_eq!(ws[0].stats.announce_objects, 2);
     assert_eq!(ws[0].checkpoint("c1/p1/logs").unwrap().next("E0001"), 3);
 }
+
+// ---- dead-lane retirement (FORMAT.md §3.1, DECISIONS.md D35) ------------------------------
+
+/// Steps the worker `n` times, `dt` ms apart; `beat` commits a heartbeat on
+/// each listed (edge, signal) every 10th step, with the edge's custody floor.
+async fn steps_with_beats(w: &mut W, b: &MemBucket, clk: &FakeClock, n: u64, beats: &mut [(&mut CustodyEdge, &'static str)]) {
+    for i in 0..n {
+        if i % 10 == 0 {
+            let now = clk.0.get() * 1_000_000;
+            for (e, s) in beats.iter_mut() {
+                let low = e.low(now, None);
+                assert!(e.put(b, s, 0, &format!("beat-{}-{i}", clk.0.get()), proto::KIND_BEAT, 0, low, false).await);
+            }
+        }
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+}
+
+/// D35 (1): a publisher's orderly close retires its lane once the holder
+/// has passed it, on every writer lane; until then (a close on one writer
+/// lane only, the other's epoch the newest) the lane holds its cluster. The
+/// cluster's `complete_through` then passes the removed publisher, the
+/// document names it retired with R, and the other publisher's lane still
+/// counts.
+#[tokio::test(flavor = "current_thread")]
+async fn an_orderly_close_retires_the_lane_and_its_cluster_advances() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let now_ns = |clk: &FakeClock| clk.0.get() * 1_000_000;
+    let mut gone = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
+    assert!(gone.put(&b, "logs", 0, "birth-p0", proto::KIND_BEAT, 0, 0, false).await);
+    assert!(live.put(&b, "logs", 0, "birth-p1", proto::KIND_BEAT, 0, 0, false).await);
+    // two requests on the two writer lanes, committed
+    for (l, q) in [(0u8, "q1"), (1u8, "q2")] {
+        let r = now_ns(&clk);
+        let low = gone.low(now_ns(&clk), None);
+        assert!(gone.put(&b, "logs", l, q, proto::KIND_DATA, r, low, false).await);
+    }
+    let mut w = Worker::new(cfg("w1"), b.clone(), c.clone(), clk.clone());
+    steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs")]).await;
+    // the close on writer lane 0 only: writer lane 1's epoch is the newest
+    clk.0.set(clk.0.get() + 50);
+    let r0 = now_ns(&clk);
+    assert!(gone.put(&b, "logs", 0, "close-0", proto::KIND_CLOSE, 0, gone.low(r0, None), false).await);
+    steps_with_beats(&mut w, &b, &clk, 40, &mut [(&mut live, "logs")]).await;
+    let ck = w.checkpoint("c1/p0/logs").unwrap().clone();
+    assert!(!ck.retired_now(), "a close on one writer lane, another's epoch newer and open: not retired {ck:?}");
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let d1 = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().clone();
+    assert!(d1.complete_through_ns <= r0 && d1.retired.is_empty(), "the stopped publisher holds its cluster: {d1:?}");
+    // the close on writer lane 1: retired at R = the higher close low
+    let r1 = now_ns(&clk);
+    assert!(gone.put(&b, "logs", 1, "close-1", proto::KIND_CLOSE, 0, gone.low(r1, None), false).await);
+    steps_with_beats(&mut w, &b, &clk, 40, &mut [(&mut live, "logs")]).await;
+    let ck = w.checkpoint("c1/p0/logs").unwrap().clone();
+    assert!(ck.retired_now() && ck.retired_by == "close" && ck.retired_ns == r1, "{ck:?}");
+    assert_eq!(ck.retired_epoch, "E00011");
+    assert_eq!(w.stats.lanes_retired, 1);
+    assert_eq!((c.count("otel_logs", "q1"), c.count("otel_logs", "q2")), (1, 1));
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let d1 = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().clone();
+    assert!(d1.complete_through_ns > r1, "the cluster passed the retired lane: {} <= {r1}", d1.complete_through_ns);
+    assert!(clk.0.get().saturating_sub(d1.complete_through_ns / 1_000_000) <= 5_000, "and follows the live publisher");
+    assert_eq!(d1.retired, BTreeMap::from([("p0/logs".to_string(), r1)]));
+    assert!(d1.holding.iter().all(|l| l.lane == "c1/p1/logs") && run.fleet.retired_lanes == 1, "{d1:?}");
+    assert_eq!(d1.lane_wm["p0/logs"], d1.signals["logs"]);
+}
+
+/// D35: a retired lane counts again once a later epoch appears (a new
+/// incarnation, the same producer); an object below R that central already
+/// holds (a replayed copy) is passed as a copy; one it does not hold is
+/// quarantined (recorded, never inserted, its slot passed); new requests
+/// above R are ingested.
+#[tokio::test(flavor = "current_thread")]
+async fn a_retired_lane_is_reborn_and_quarantines_below_r() {
+    let (b, c, clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let now_ns = |clk: &FakeClock| clk.0.get() * 1_000_000;
+    let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
+    assert!(e.put(&b, "logs", 0, "birth-p0", proto::KIND_BEAT, 0, 0, false).await);
+    let r_q1 = now_ns(&clk);
+    assert!(e.put(&b, "logs", 0, "q1", proto::KIND_DATA, r_q1, e.low(r_q1, None), false).await);
+    // a request received before the close, never committed: the close
+    // below is taken anyway (the operator's or the edge's mistake), and the
+    // request is replayed by the next incarnation
+    let r_q9 = now_ns(&clk) + 1;
+    let r = now_ns(&clk) + 100_000;
+    assert!(e.put(&b, "logs", 0, "close-0", proto::KIND_CLOSE, 0, r, false).await);
+    // (no clock skew between the incarnations here: the bound is R itself)
+    let mut w = Worker::new(Config { quarantine_skew_ms: 0, ..cfg("w1") }, b.clone(), c.clone(), clk.clone());
+    steps_with_beats(&mut w, &b, &clk, 30, &mut [(&mut live, "logs")]).await;
+    assert!(w.checkpoint("c1/p0/logs").unwrap().retired_now());
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    assert_eq!(run.fleet.retired_lanes, 1);
+    // the next incarnation: its birth, the replay (q1 a copy, q9 not in central), a new request
+    e.restart();
+    assert!(e.put(&b, "logs", 0, "birth-p0-2", proto::KIND_BEAT, 0, 0, false).await);
+    // a watermark run before the holder saw the birth: the lane counts again (its old watermark)
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    assert_eq!(run.fleet.retired_lanes, 0, "a later epoch listed: the lane counts again");
+    assert!(e.put(&b, "logs", 0, "q1", proto::KIND_DATA, r_q1, 0, false).await);
+    assert!(e.put(&b, "logs", 0, "q9", proto::KIND_DATA, r_q9, 0, false).await);
+    let r_q10 = now_ns(&clk) + 200_000;
+    assert!(e.put(&b, "logs", 0, "q10", proto::KIND_DATA, r_q10, r_q10, false).await);
+    steps_with_beats(&mut w, &b, &clk, 30, &mut [(&mut live, "logs"), (&mut e, "logs")]).await;
+    let ck = w.checkpoint("c1/p0/logs").unwrap().clone();
+    assert!(!ck.retired_now() && ck.reborn_epoch == "E00020" && ck.retired_ns == r, "{ck:?}");
+    assert_eq!(ck.next("E00020"), 7, "every slot passed: birth, q1, q9, q10, three heartbeats");
+    assert_eq!((c.count("otel_logs", "q1"), c.count("otel_logs", "q9"), c.count("otel_logs", "q10")), (1, 0, 1));
+    assert_eq!((w.stats.below_copies, w.stats.quarantined_objects, w.stats.lanes_reborn), (1, 1, 1), "{:?}", w.stats);
+    let (q, _) = super::retire::read(&*b, CTL, "c1/p0/logs").await.unwrap().unwrap();
+    assert_eq!(q.objects.len(), 1);
+    assert_eq!((q.objects[0].content.as_str(), q.objects[0].received_ns, q.objects[0].seq, q.retired_ns), ("q9", r_q9, 2, r));
+    assert_eq!(q.objects[0].key, proto::slot_key(&format!("{ROOT}/c1/p0/logs"), "E00020", 2));
+    let run = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let d1 = run.clusters.iter().find(|d| d.cluster == "c1").unwrap().clone();
+    assert!(d1.retired.is_empty() && d1.lane_wm["p0/logs"] > r_q10, "{d1:?}");
+}
+
+/// D35: the quarantine record comes before the checkpoint passes the slot;
+/// a record that cannot be written leaves the slot (and the lane) waiting.
+#[tokio::test(flavor = "current_thread")]
+async fn a_quarantine_that_cannot_be_recorded_holds_its_slot() {
+    let (b, c, clk) = setup();
+    let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
+    assert!(e.put(&b, "logs", 0, "birth", proto::KIND_BEAT, 0, 0, false).await);
+    let r = clk.0.get() * 1_000_000 + 1_000;
+    assert!(e.put(&b, "logs", 0, "close", proto::KIND_CLOSE, 0, r, false).await);
+    let mut w = Worker::new(Config { quarantine_skew_ms: 0, ..cfg("w1") }, b.clone(), c.clone(), clk.clone());
+    for _ in 0..10 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert!(w.checkpoint("c1/p0/logs").unwrap().retired_now());
+    e.restart();
+    assert!(e.put(&b, "logs", 0, "birth2", proto::KIND_BEAT, 0, 0, false).await);
+    assert!(e.put(&b, "logs", 0, "q9", proto::KIND_DATA, r - 1, 0, false).await);
+    *b.faults.borrow_mut() = MemFaults { matching: "quarantine/".into(), drop_every: 1, ..Default::default() };
+    for _ in 0..10 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(w.checkpoint("c1/p0/logs").unwrap().next("E00020"), 1, "the slot waits for its record");
+    assert!(w.stats.quarantine_errors > 0 && w.stats.quarantined_objects == 0);
+    *b.faults.borrow_mut() = MemFaults::default();
+    for _ in 0..5 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(w.checkpoint("c1/p0/logs").unwrap().next("E00020"), 2);
+    assert_eq!((w.stats.quarantined_objects, c.count("otel_logs", "q9")), (1, 0));
+}

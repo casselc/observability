@@ -591,7 +591,7 @@ impl ConsumerDriver {
     }
 
     fn gc_retire(&mut self, e: i64) {
-        let pos = EpochPos { next: self.ckpt.next(&ename(e)), closed: self.ckpt.closed(&ename(e)) };
+        let pos = EpochPos { next: self.ckpt.next(&ename(e)), closed: self.ckpt.closed(&ename(e)), ..Default::default() };
         assert!(pos.closed, "GC retires an epoch the checkpoint hasn't closed");
         let dir = format!("{}/{}/", self.l.prefix, ename(e));
         let keys: Vec<String> = self.l.s3.keys().filter(|k| k.starts_with(&dir)).cloned().collect();
@@ -1041,7 +1041,7 @@ impl ConsumerDriver {
         let closed = self.ckpt.closed(&ename(e));
         let dir = format!("{}/{}/", self.l.prefix, ename(e));
         let keys: Vec<String> = self.l.s3.keys().filter(|k| k.starts_with(&dir)).cloned().collect();
-        let (del, _) = consumer::gc::doomed(&self.l.prefix, &keys, &EpochPos { next: n, closed }, false);
+        let (del, _) = consumer::gc::doomed(&self.l.prefix, &keys, &EpochPos { next: n, closed, ..Default::default() }, false);
         let doomed: BTreeSet<i64> = del.iter().filter_map(|k| proto::parse_slot_key(&self.l.prefix, k)).map(|(_, s)| s as i64).collect();
         assert_eq!(doomed, doomed_m, "GC's choice of slots differs");
         for k in del {

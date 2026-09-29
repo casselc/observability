@@ -212,16 +212,20 @@ def objects(root):
     for ns in sorted(nss["rust"] & nss["go"]):
         r, g = listed["rust"][1][ns], listed["go"][1][ns]
         check(f"{ns}: same object count", len(r) == len(g), f"rust {len(r)} go {len(g)}")
+        # Both edges were stopped in order: each lane's last slot is its close (D35).
+        last = {e: head_meta(f"{listed[e][0]}/{v[-1][2]}").get("oscope-kind") if v else None for e, v in (("rust", r), ("go", g))}
+        check(f"{ns}: both edges end the lane with their close", last == {"rust": "close", "go": "close"}, f"{last}")
         for (re_, rs, rk), (ge, gs, gk) in zip(r, g):
             tag = f"{ns}/{rs}"
             rm, gm = head_meta(f"{listed['rust'][0]}/{rk}"), head_meta(f"{listed['go'][0]}/{gk}")
-            beat = gm.get("oscope-kind") == "beat"  # a birth heartbeat (FORMAT.md §2): random content, no body
+            # a heartbeat (FORMAT.md §2) or the orderly close (§3.1, D35): random content, no body
+            beat = gm.get("oscope-kind") in ("beat", "close")
             same = lambda m: {k: v for k, v in m.items() if k not in RUN_META and not ((ns == "metrics_series" or beat) and k == "oscope-content")}
             check(f"{tag}: S3 metadata", same(rm) == same(gm) and set(rm) == set(gm)
                   and gm.get("oscope-epoch") == ge and gm.get("oscope-seq") == str(int(gs[:-8])),
                   f"rust {sorted(rm.items())} go {sorted(gm.items())}" if same(rm) != same(gm) or set(rm) != set(gm) else "")
             if beat:
-                check(f"{tag}: both heartbeats", rm.get("oscope-kind") == "beat", f"rust {rm.get('oscope-kind')}")
+                check(f"{tag}: both {gm.get('oscope-kind')}", rm.get("oscope-kind") == gm.get("oscope-kind"), f"rust {rm.get('oscope-kind')}")
                 continue
             rb, gb = s3([], f"{listed['rust'][0]}/{rk}"), s3([], f"{listed['go'][0]}/{gk}")
             rf, gf = pq.ParquetFile(io.BytesIO(rb)), pq.ParquetFile(io.BytesIO(gb))

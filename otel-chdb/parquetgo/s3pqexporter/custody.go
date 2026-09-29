@@ -108,6 +108,16 @@ func (c *custody) low(now uint64) uint64 {
 
 func (c *custody) lowNow() uint64 { return c.low(uint64(time.Now().UnixNano())) }
 
+// empty reports whether nothing is in custody: no request held (taken and
+// not committed or refused), and every queue's probe out (nothing an
+// earlier incarnation persisted is left in a queue). The orderly close
+// (../../FORMAT.md §3.1) is committed only then.
+func (c *custody) empty() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.held) == 0 && len(c.undrained) == 0
+}
+
 func setMeta(ctx context.Context, k, v string) context.Context {
 	info := client.FromContext(ctx)
 	md := map[string][]string{}

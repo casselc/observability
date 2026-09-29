@@ -9,7 +9,7 @@
 //!           [--poll 1s] [--discover 2s] [--lanes-every 30s] [--quiet 30s]
 //!           [--idle-backoff 1s..30s | off] [--idle-after 10s] [--linger 0ms]
 //!           [--balance load|count] [--hysteresis 0.2] [--lane-weight 50] [--load-window 60s] [--min-hold 30s] [--loads-every 10s]
-//!           [--check-horizon 3d | all] [--no-check-range]
+//!           [--check-horizon 3d | all] [--no-check-range] [--quarantine-skew 5s]
 //!           [--max-batch 32] [--max-mb 16] [--max-rows 200000] [--no-squash] [--stats FILE --stats-every 5s]
 //!           [--once | --exit-after-idle 5s | --run-for 10m] [--ch-s3 URL] [--verbose]
 //!           credentials (every subcommand): [--key K --secret S [--session-token T]] | [--profile P] [--role-arn ARN]
@@ -176,6 +176,7 @@ fn wm_families(p: &mut metrics::Prom, d: &consumer::watermark::WmDoc, errors: u6
     p.gauge("consumer_complete_through_lag_seconds", "Wall clock minus complete_through at the last run.", &[], (d.wall_ms as f64 / 1e3 - d.complete_through_ns as f64 / 1e9).max(0.0));
     p.gauge("consumer_watermark_lanes", "Lanes the last run saw.", &[], d.lanes as f64);
     p.gauge("consumer_watermark_stale_lanes", "Lanes whose watermark lags the wall clock by more than --wm-stale.", &[], d.stale.len() as f64);
+    p.gauge("consumer_watermark_retired_lanes", "Retired lanes (D35): +inf in every minimum until a later epoch appears.", &[], d.retired_lanes as f64);
     p.counter("consumer_watermark_errors_total", "Watermark runs that failed.", &[], errors as f64);
     p.declare("consumer_lane_watermark_lag_seconds", metrics::Kind::Gauge, "A stale lane's watermark lag (only stale lanes are exported).");
     for l in &d.stale {
@@ -656,6 +657,9 @@ async fn main() {
     cfg.balance.min_hold_ms = opt_ms(&args, "--min-hold", "30s");
     cfg.balance.loads_every_ms = opt_ms(&args, "--loads-every", "10s");
     cfg.horizon_ms = horizon_ms;
+    // D35: a retired lane's quarantine bound for a later epoch is R minus
+    // this (the edges' clock skew, as --wm-skew).
+    cfg.quarantine_skew_ms = opt_ms(&args, "--quarantine-skew", "5s");
     cfg.full_list_ms = opt_ms(&args, "--full-list", "30s");
     cfg.quiet_ms = opt_ms(&args, "--quiet", "30s");
     cfg.limits.max_objects = arg(&args, "--max-batch").map_or(32, |s| s.parse().expect("--max-batch"));

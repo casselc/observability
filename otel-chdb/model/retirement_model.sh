@@ -47,10 +47,14 @@ sim closeUndrained completeSound "$N" 60 VIOLATED
 sim ingestBelow noLateBelow "$N" 60 VIOLATED
 sim staysRetired completeSound "$N" 60 VIOLATED
 sim retireInFlight quarantineOnlyOnMistake "$N" 60 VIOLATED
+# closeUnsealed (found building it, 2026-09-29): random simulation does not
+# reach it (20,000 x 60: ok, which is why the design's first check missed
+# it); its scripted run below does.
 runs retirementDesign "DesignTest"
 runs opMistake opMistakeQuarantinesTest
 runs ingestBelow ingestBelowBreaksTest
 runs retireStale retireStaleBreaksTest
 runs closeUndrained closeUndrainedBreaksTest
+runs closeUnsealed closeZombieBreaksTest
 echo "failures: $fails" | tee -a "$OUT"
 [ "$fails" -eq 0 ]

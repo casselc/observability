@@ -181,6 +181,53 @@ func (r *rig) publish(bin, cluster string, res []resource, at time.Time) {
 	time.Sleep(3 * time.Second) // a heartbeat per lane after the data
 }
 
+// edge starts one Go edge (otelcol-s3pq) for cluster/producer with the
+// heartbeat interval; stop sends it a signal and waits: SIGINT is an
+// orderly shutdown (drained, then the close, D35), SIGKILL a death without
+// one.
+func (r *rig) edge(bin, cluster, producer, heartbeat string) (int, func(os.Signal)) {
+	t := r.t
+	port, health := freePort(t), freePort(t)
+	cmd := exec.Command(filepath.Join(bin, "otelcol-s3pq"), "--config", "go-edge.yaml")
+	cmd.Env = append(os.Environ(),
+		"CLUSTER="+cluster, "PRODUCER="+producer, "HEARTBEAT="+heartbeat, "LOG_LEVEL=warn",
+		fmt.Sprintf("OTLP_HTTP=127.0.0.1:%d", port), fmt.Sprintf("HEALTH=127.0.0.1:%d", health),
+		"S3_URL="+r.s3url+"/"+r.bucket+"/"+r.run, "AWS_ACCESS_KEY_ID=otel", "AWS_SECRET_ACCESS_KEY=otelsecret", "AWS_REGION=us-east-1")
+	logf, _ := os.Create(filepath.Join(t.TempDir(), "edge-"+cluster+"-"+producer+".log"))
+	cmd.Stdout, cmd.Stderr = logf, logf
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stopped := false
+	return port, func(sig os.Signal) {
+		if stopped {
+			return
+		}
+		stopped = true
+		_ = cmd.Process.Signal(sig)
+		_ = cmd.Wait()
+		if t.Failed() {
+			b, _ := os.ReadFile(logf.Name())
+			t.Logf("edge %s/%s log:\n%s", cluster, producer, b)
+		}
+	}
+}
+
+// ctl reads a consumer control document ({root}/_consumer/{key}).
+func (r *rig) ctl(key string, into any) bool {
+	r.t.Helper()
+	k := r.run + "/_consumer/" + key
+	out, err := r.s3.GetObject(context.Background(), &s3.GetObjectInput{Bucket: &r.bucket, Key: &k})
+	if err != nil {
+		return false
+	}
+	defer out.Body.Close()
+	if err := json.NewDecoder(out.Body).Decode(into); err != nil {
+		r.t.Fatalf("%s: %v", k, err)
+	}
+	return true
+}
+
 func (r *rig) consume(bin string, args ...string) {
 	t := r.t
 	all := append(args, "--s3", r.s3url+"/"+r.bucket+"/"+r.run, "--key", "otel", "--secret", "otelsecret")
@@ -725,6 +772,89 @@ func TestIntegration(t *testing.T) {
 			t.Fatalf("fleet plan: %d %v", code, out["clusters"])
 		}
 		t.Logf("fleet plan: %d objects, %v bytes", len(out["objects"].([]any)), out["total_bytes"])
+	})
+
+	// D35 (FORMAT.md §3.1): a publisher scaled down in order (drained, then
+	// its close) is retired by the consumer, and its cluster's
+	// complete_through moves on with the publishers left: a window after the
+	// scale-down turns complete. The same publisher killed without a close
+	// holds its cluster (stale, paged), and the window stays partial. (Last:
+	// cluster qe's stalled lane holds the fleet value from here on.)
+	t.Run("scale-down", func(t *testing.T) {
+		c.t = t
+		defer srv.Watermark.SetMaxLateness(srv.Watermark.MaxLateness())
+		srv.Watermark.SetMaxLateness(2 * time.Second)
+		p0d, stop0d := r.edge(bin, "qd", "pub-0", "1s")
+		defer stop0d(syscall.SIGINT)
+		p0e, stop0e := r.edge(bin, "qe", "pub-0", "1s")
+		defer stop0e(syscall.SIGINT)
+		p1d, stop1d := r.edge(bin, "qd", "pub-1", "1s")
+		defer stop1d(syscall.SIGINT)
+		p1e, stop1e := r.edge(bin, "qe", "pub-1", "1s")
+		defer stop1e(syscall.SIGKILL)
+		now := time.Now().Add(-5 * time.Second)
+		for _, x := range []struct {
+			port int
+			res  resource
+		}{
+			{p0d, resource{"qd", "shop", "a-0", 1, 0, now}}, {p1d, resource{"qd", "shop", "a-1", 3, 0, now}},
+			{p0e, resource{"qe", "shop", "b-0", 1, 0, now}}, {p1e, resource{"qe", "shop", "b-1", 3, 0, now}},
+		} {
+			var recs []map[string]any
+			for i := 0; i < x.res.logs; i++ {
+				recs = append(recs, map[string]any{"timeUnixNano": fmt.Sprint(now.Add(time.Duration(i) * time.Second).UnixNano()),
+					"severityText": "INFO", "body": map[string]any{"stringValue": fmt.Sprintf("%s scale-down log %d", x.res.pod, i)}})
+			}
+			otlp(t, x.port, "/v1/logs", map[string]any{"resourceLogs": []any{map[string]any{"resource": map[string]any{"attributes": attrs(x.res)},
+				"scopeLogs": []any{map[string]any{"scope": map[string]any{"name": "it"}, "logRecords": recs}}}}})
+		}
+		time.Sleep(1500 * time.Millisecond)
+		down := time.Now()
+		stop1d(syscall.SIGINT)      // scaled down in order: drained, then its close
+		stop1e(syscall.SIGKILL)     // lost: no close
+		time.Sleep(3 * time.Second) // pub-0 of each cluster keeps beating
+		r.consume(bin, "run", "--ch", r.ch, "--db", r.db, "--exit-after-idle", "8s", "--poll", "300ms", "--full-list", "1s")
+		r.consume(bin, "watermark", "--wm-skew", "1s")
+		time.Sleep(1100 * time.Millisecond) // the service's watermark cache
+		type doc struct {
+			CT      uint64            `json:"complete_through_ns"`
+			Retired map[string]uint64 `json:"retired"`
+			Holding []struct {
+				Lane string `json:"lane"`
+			} `json:"holding"`
+		}
+		var qd, qe doc
+		if !r.ctl("watermark/qd.json", &qd) || !r.ctl("watermark/qe.json", &qe) {
+			t.Fatal("no per-cluster watermark documents")
+		}
+		t.Logf("qd: complete_through %v, retired %v; qe: complete_through %v, holding %v",
+			time.Unix(0, int64(qd.CT)).UTC(), qd.Retired, time.Unix(0, int64(qe.CT)).UTC(), qe.Holding)
+		r1, ok := qd.Retired["pub-1/logs"]
+		if !ok || len(qd.Retired) != 7 {
+			t.Fatalf("qd: pub-1's seven lanes retired by its close: %v", qd.Retired)
+		}
+		if qd.CT <= r1 || time.Unix(0, int64(qd.CT)).Before(down) {
+			t.Fatalf("qd's complete_through %d did not pass the removed publisher (R %d, scaled down at %v)", qd.CT, r1, down)
+		}
+		if len(qe.Retired) != 0 || len(qe.Holding) == 0 || !strings.HasPrefix(qe.Holding[0].Lane, "qe/pub-1/") {
+			t.Fatalf("qe: the killed publisher holds its cluster, not retired: %v %v", qe.Retired, qe.Holding)
+		}
+		if !time.Unix(0, int64(qe.CT)).Before(down) {
+			t.Fatalf("qe's complete_through %v passed the killed publisher (%v)", time.Unix(0, int64(qe.CT)), down)
+		}
+		window := map[string]any{"from": now.Add(-time.Minute).UnixNano(), "to": down.Add(time.Second).UnixNano()}
+		for _, x := range []struct{ cluster, want, rows string }{{"qd", "complete", "4"}, {"qe", "partial", "4"}} {
+			code, out := c.post("/v1/query", tok(jwt.MapClaims{"clusters": x.cluster, "namespaces": "*", "roles": "query"}),
+				map[string]any{"sql": "SELECT count() FROM otel_logs", "window": window})
+			if code != 200 {
+				t.Fatalf("%s: %d %v", x.cluster, code, out)
+			}
+			n := fmt.Sprint(out["result"].(map[string]any)["data"].([]any)[0].(map[string]any)["count()"])
+			t.Logf("%s: %s rows, %v, complete_through %v", x.cluster, n, out["completeness"], out["complete_through"])
+			if out["completeness"] != x.want || n != x.rows {
+				t.Fatalf("%s: want %s rows %s, got %s rows %v (%v)", x.cluster, x.rows, x.want, n, out["completeness"], out)
+			}
+		}
 	})
 
 	t.Run("audit", func(t *testing.T) {

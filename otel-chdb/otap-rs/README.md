@@ -235,7 +235,7 @@ dependencies resolve to what upstream tests.
 | `0002-otap-views-u32-parent-id-dictionary16.patch` | **Bug:** `views/otap/common.rs` `build_attribute_index_u32` accepts `UInt32` and `Dictionary(UInt8, UInt32)` parent ids, but upstream's own OTLP→OTAP encoder writes `Dictionary(UInt16, UInt32)` for span event and link attributes. `OtapTracesView` then returns **no attributes for any event or link**. It showed as 750 of 3,000 testgen spans differing, in `Events.Attributes` and `Links.Attributes` [M]. The patch uses `MaybeDictArrayAccessor`, as the u16 variant does. `tests/otap_view.rs` prints the encodings. |
 | `0004-grpc-receivers-max-connection-age.patch` | **Gap:** the OTLP/OTAP gRPC receivers have no `max_connection_age`, so agents never see a scaled-up publisher (../deploy/results/k8s-sim.md §8), and tonic 0.14's own is unusable (U23). The patch adds `max_connection_age` / `max_connection_age_grace` and passes them to tonic's builder (needs `tonic-0001`). Off by default; set in `configs/edge-publisher.yaml`. [Connection age](#connection-age-patches0004-m). Not proposed upstream. |
 | `0005-pdata-otap-zero-values-and-half-floats.patch` | **Bugs** (U24), found by the Hegel property tests (HEGEL.md): on Rust-encoded OTAP (`otlp_path: via_otap`, or a Rust OTAP producer) a span with a zero time loses its duration, a log body of int 0 / double 0 reads as Empty, a half-precision float inside an array or map reads as null, and an attribute's -0.0 becomes 0.0. The patch fixes the encoder and the views; `scripts/otap_values_e2e.sh` shows each value through ClickHouse before and after. Not proposed upstream. |
-| `0006-quiver-publish-custody-floor.patch` | **Feature** (format v2, `../FORMAT.md` §2): the durable buffer publishes the oldest ingestion time over its un-acked bundles (pending segments and the open one) on the pipeline thread (`otel_arrow_dfe_otap::custody`), which the exporter's `custody: durable_buffer` turns into each object's `oscope-low`. Upstreamable as a hook. |
+| `0006-quiver-publish-custody-floor.patch` | **Feature** (format v2, `../FORMAT.md` §2): the durable buffer publishes the oldest ingestion time over its un-acked bundles (pending segments and the open one) on the pipeline thread (`otel_arrow_dfe_otap::custody`), which the exporter's `custody: durable_buffer` turns into each object's `oscope-low`; and (D35, 2026-09-29) whether its shutdown drain handed every bundle downstream (`custody::drained`) and how many NACKs it handled (`custody::nacks_handled`), which the exporter's orderly close requires (`../FORMAT.md` §3.1). Upstreamable as a hook. |
 | `tonic-0001-server-max-connection-age-goaway-grace-jitter.patch` (tonic 0.14.6) | **Bugs** (U23): with a grace, `Server::max_connection_age` sends no GOAWAY and just drops the connection at age + grace; without one it re-polls a finished future and panics the connection task; no jitter. The patch sends the graceful GOAWAY at the age, starts the grace then, and jitters the age +/-10% (gRFC A9). Upstream has #2780 (panic, unreleased) and open PR #2877 (GOAWAY); the jitter is drafted in `patches/tonic-UPSTREAM-DRAFT.md`, not proposed. |
 
 Found upstream, not patched here:
@@ -1495,7 +1495,8 @@ scripts: `scripts/consumer_*.sh`; compaction:
 ```
 {root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet   the edges' slots (format v2, ../FORMAT.md)
 {ctl}/lease/{cluster}/{producer}/{signal}.json    CAS'd {owner, epoch (fencing), beat, ttl_ms}
-{ctl}/ckpt/{cluster}/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed}}, max_low_ns, wm_ns}
+{ctl}/ckpt/{cluster}/{producer}/{signal}.json     CAS'd {lease_epoch, version, floor, epochs: {E: {next, closed, close_low}}, max_low_ns, wm_ns, retired_*}
+{ctl}/quarantine/{cluster}/{producer}/{signal}.json  CAS'd a retired lane's quarantined objects (D35, ../FORMAT.md §3.1)
 {ctl}/watermark.json                    CAS'd complete_through (running max; consume gc / consume watermark), per cluster and signal too (D29)
 {ctl}/watermark/{cluster}.json          CAS'd one cluster's complete_through, per signal and per lane (D29; --wm-cluster-every, --no-cluster-watermarks)
 {ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
@@ -1508,6 +1509,16 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
 `scripts/faults.sh` passes all five scenarios unchanged,
 `results/consumer/faults-compat.txt`).
 
+- **Retirement** (D35, `../FORMAT.md` §3.1: the rule, the quarantine and
+  the tests). A publisher stopped in order ends each writer lane's epoch
+  with a close (`oscope-kind: close`, both edges; `src/exporter.rs`
+  `may_close`, `close_lanes`); once the lane's holder has passed it, with
+  nothing after it and every earlier epoch sealed, it records the
+  retirement in the checkpoint and the lane leaves every
+  `complete_through` minimum until a later epoch appears. An object below
+  R that central does not hold is quarantined, never inserted
+  (`consumer_quarantined_objects_total`, `--quarantine-skew`).
+  `scripts/close_e2e.sh` runs it end to end for both edges.
 - **Leases** (`coord.rs`, sans-IO). A lease has a fencing epoch (+1 per
   change of owner) and a TTL. Expiry is judged on the observer's own
   monotonic clock: a lease whose ETag it has seen unchanged for

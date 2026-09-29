@@ -59,7 +59,17 @@
  *    PUT of the dead process is still in flight;
  *  - OP_EVIDENCE = false (`opMistake`): not a mutant of the reader but the
  *    operator being wrong (the volume kept): safe, and the quarantine is
- *    where its requests go.
+ *    where its requests go;
+ *  - SEAL_OLDER = false (`closeUnsealed`): the close retires the lane while
+ *    a PUT of an earlier incarnation's epoch is still in flight. Found
+ *    building it (2026-09-29): an adopted volume's first incarnation died
+ *    with a PUT out; the adopter re-committed the request, drained and
+ *    closed; the zombie landed after the retirement, below R, and was
+ *    quarantined although its request was ingested (a spurious page:
+ *    `quarantineOnlyOnMistake`). The design seals every earlier epoch
+ *    first (the consumer's tombstone at its head makes such a PUT fail; the
+ *    guard here: none in flight), and the consumer also passes an object
+ *    below R whose content central already holds as a copy.
  */
 module retirement {
   const LANES: Set[int]
@@ -69,6 +79,7 @@ module retirement {
   const UNRETIRE: bool
   const ZOMBIE_WAIT: bool
   const OP_EVIDENCE: bool
+  const SEAL_OLDER: bool
 
   pure val MAX_T: int = 6
   pure val MAX_REQ: int = 3
@@ -258,6 +269,9 @@ module retirement {
       nondet c = cs.oneOf()
       all {
         passed(c), lo.forall(o => before(o, c) implies passed(o)), lo.forall(o => not(before(c, o))),
+        // every earlier epoch sealed: no PUT of it can land after this
+        // (the consumer's tombstone at its head; here: none in flight)
+        not(SEAL_OLDER) or not(puts.exists(o => o.lane == l and o.epoch < c.epoch)),
         retiredAt' = retiredAt.set(l, c.low), retEpoch' = retEpoch.set(l, c.epoch),
       },
       events' = events.union(Set("retiredClosed")),
@@ -407,6 +421,22 @@ module retirement {
   run retireStaleBreaksTest =
     deathPrefix.then(retireStale(1)).then(tick).then(beat(2)).then(ingestAll).then(publish)
       .expect(not(completeSound))
+  // A PUT of an earlier incarnation's epoch still in flight when the lane
+  // is retired by its later incarnation's close: it lands after, below R.
+  pure def z1: Obj = { lane: 1, epoch: 1, seq: 1, kind: Data, req: 1, r: 0, low: 0 }
+  pure def z2: Obj = { lane: 1, epoch: 2, seq: 1, kind: Data, req: 1, r: 0, low: 1 }
+  run zombiePrefix =
+    init.then(receive(1)).then(send(1, req(1))).then(tick).then(die(1)).then(adopt(1)).then(send(1, req(1)))
+      .then(land(z2)).then(ack(1)).then(tick).then(close(1)).then(ingestAll)
+  // The mutant retires with the zombie still out; it lands below R and is quarantined.
+  run closeZombieBreaksTest =
+    zombiePrefix.then(retireClosed(1)).then(land(z1)).then(ingestAll)
+      .expect(and { retiredAt.get(1) == 2, quar.contains(z1), not(quarantineOnlyOnMistake) })
+  // The design retires only once the earlier epoch is sealed: here, the
+  // zombie landed (a copy, ingested before the retirement).
+  run closeSealedDesignTest =
+    zombiePrefix.then(land(z1)).then(ingestAll).then(retireClosed(1))
+      .expect(and { retiredAt.get(1) == 2, quar == Set(), safety })
   // A close committed with a request still in custody (closeUndrained).
   run closeUndrainedBreaksTest =
     init.then(receive(1)).then(tick).then(close(1)).then(ingestAll).then(retireClosed(1)).then(tick).then(beat(2))
@@ -418,30 +448,35 @@ module retirement {
 // reborn lane counts again.
 module retirementDesign {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = true,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = true).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = true, SEAL_OLDER = true).*
 }
 // The operator retires a lane whose volume was kept: safe; its requests go to the quarantine.
 module opMistake {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = true,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = false).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = false, SEAL_OLDER = true).*
 }
 module retireStale {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = true, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = true,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = true).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = true, SEAL_OLDER = true).*
 }
 module closeUndrained {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = true, QUARANTINE = true, UNRETIRE = true,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = true).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = true, SEAL_OLDER = true).*
 }
 module ingestBelow {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = false, UNRETIRE = true,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = false).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = false, SEAL_OLDER = true).*
 }
 module staysRetired {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = false,
-    ZOMBIE_WAIT = true, OP_EVIDENCE = true).*
+    ZOMBIE_WAIT = true, OP_EVIDENCE = true, SEAL_OLDER = true).*
 }
 module retireInFlight {
   import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = true,
-    ZOMBIE_WAIT = false, OP_EVIDENCE = true).*
+    ZOMBIE_WAIT = false, OP_EVIDENCE = true, SEAL_OLDER = true).*
+}
+// The close retires the lane with an earlier epoch's PUT still in flight.
+module closeUnsealed {
+  import retirement(LANES = Set(1, 2), RETIRE_STALE = false, CLOSE_UNDRAINED = false, QUARANTINE = true, UNRETIRE = true,
+    ZOMBIE_WAIT = true, OP_EVIDENCE = true, SEAL_OLDER = false).*
 }

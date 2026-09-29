@@ -170,6 +170,90 @@ fn prop_advance_to_stops_at_the_first_undone(tc: TestCase) {
     assert_eq!(n, stop);
 }
 
+// ---- dead-lane retirement (FORMAT.md §3.1, DECISIONS.md D35) ------------------------------
+
+/// `CkptDoc::close_proof` against its definition: a proof exactly when the
+/// newest epoch ends with a passed close and nothing listed after it, and
+/// every other epoch is tombstoned or ends likewise; R is the highest of
+/// those closes' lows. Never a proof without a close (only the
+/// `RetireStale` mutant makes one).
+#[hegel::test]
+fn prop_close_proof_needs_every_epoch_sealed(tc: TestCase) {
+    use consumer::coord::{CkptDoc, CloseProof, epoch_key};
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(5));
+    let mut c = CkptDoc::new("l");
+    let mut listed = std::collections::BTreeMap::new();
+    for i in 0..n {
+        let e = format!("E{i:02}");
+        let next = tc.draw(gs::integers::<u64>().max_value(6));
+        c.advance(&e, next);
+        match tc.draw(gs::integers::<u8>().max_value(2)) {
+            0 => {}
+            1 => c.close(&e, next),
+            _ => c.epochs.get_mut(&e).unwrap().close_low = tc.draw(gs::integers::<u64>().min_value(1).max_value(1_000)),
+        }
+        if tc.draw(gs::booleans()) {
+            let _ = listed.insert(e.clone(), tc.draw(gs::integers::<u64>().max_value(8)));
+        }
+    }
+    let pending = |e: &str| listed.get(e).is_some_and(|m| *m >= c.next(e));
+    let newest = c.epochs.keys().max_by_key(|e| epoch_key(e)).unwrap().clone();
+    let close = |e: &str| c.epochs[e].close_low;
+    let others_sealed = c.epochs.keys().filter(|e| **e != newest).all(|e| c.closed(e) || (close(e) > 0 && !pending(e)));
+    let want = (close(&newest) > 0 && !pending(&newest) && others_sealed).then(|| CloseProof {
+        epoch: newest.clone(),
+        r_ns: c.epochs.iter().filter(|(e, p)| **e == newest || !p.closed).map(|(_, p)| p.close_low).max().unwrap(),
+    });
+    assert_eq!(c.close_proof(&listed, Mutation::None, 5_000), want);
+    if let Some(p) = c.close_proof(&listed, Mutation::None, 5_000) {
+        assert!(p.r_ns > 0 && p.r_ns <= 1_000, "R is a close's low");
+    }
+}
+
+/// A retired lane is +inf in every minimum: the fleet's, a cluster's and a
+/// signal's values equal those computed without it, and it is never
+/// holding or stale.
+#[hegel::test]
+fn prop_a_retired_lane_is_absent_from_every_minimum(tc: TestCase) {
+    use consumer::watermark::{ClusterWmDoc, RETIRED, WmConfig, WmDoc, compute_cluster, compute_doc};
+    use std::collections::BTreeMap;
+    let cfg = WmConfig { skew_ms: 5_000, stale_ms: 60_000, ..WmConfig::new("r", "c") };
+    let wall = 1_000_000u64;
+    let n = tc.draw(gs::integers::<usize>().min_value(1).max_value(12));
+    let mut all = BTreeMap::new();
+    let mut live = BTreeMap::new();
+    let mut retired = BTreeMap::new();
+    for i in 0..n {
+        let id = format!("c{}/p{i}/{}", tc.draw(gs::integers::<u8>().max_value(2)), ["logs", "traces"][usize::from(tc.draw(gs::booleans()))]);
+        if tc.draw(gs::booleans()) {
+            let _ = all.insert(id.clone(), RETIRED);
+            let _ = retired.insert(id, tc.draw(gs::integers::<u64>().max_value(wall * 1_000_000)));
+        } else {
+            let w = tc.draw(gs::integers::<u64>().max_value(wall * 1_000_000));
+            let _ = all.insert(id.clone(), w);
+            let _ = live.insert(id, w);
+        }
+    }
+    let prev = WmDoc::default();
+    let (a, b) = (compute_doc(&prev, &all, wall, &cfg), compute_doc(&prev, &live, wall, &cfg));
+    assert_eq!((a.computed_ns, a.complete_through_ns), (b.computed_ns, b.complete_through_ns));
+    for (cl, v) in &b.clusters {
+        assert_eq!(a.clusters[cl], *v);
+    }
+    for (s, v) in &a.signals {
+        assert_eq!(*v, b.signals.get(s).copied().unwrap_or(a.unlisted_signals_ns), "signal {s}");
+    }
+    assert!(a.holding.iter().chain(a.stale.iter()).all(|l| !retired.contains_key(&l.lane)));
+    assert_eq!(a.retired_lanes, retired.len());
+    for cl in a.clusters.keys() {
+        let mine = |m: &BTreeMap<String, u64>| m.iter().filter(|(k, _)| k.starts_with(&format!("{cl}/"))).map(|(k, v)| (k.clone(), *v)).collect::<BTreeMap<_, _>>();
+        let d = compute_cluster(&ClusterWmDoc::default(), cl, &mine(&all), &retired, a.clusters[cl], wall, &cfg);
+        assert_eq!(d.complete_through_ns, a.clusters[cl]);
+        assert_eq!(d.retired.len(), mine(&retired).len());
+        assert!(d.lane_wm.values().all(|v| *v != RETIRED && *v >= d.complete_through_ns));
+    }
+}
+
 // ---- grouping objects into statements -----------------------------------------------------
 
 /// `group` (Kani: out of memory at two objects) keeps every object once, in

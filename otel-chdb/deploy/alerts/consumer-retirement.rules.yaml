@@ -1,0 +1,41 @@
+# Prometheus alerting rules for dead-lane retirement (../../FORMAT.md §3.1,
+# DECISIONS.md D35; runbooks/scale-down.md). `consume` exports the counters
+# at --metrics-addr (/metrics). A plain rules file (`rule_files:`); for the
+# Prometheus Operator, put the `groups:` under a PrometheusRule's `spec:`.
+groups:
+  - name: otel-consumer-retirement
+    rules:
+      # An object of a retired lane received below its R, not in central:
+      # custody the retirement said did not exist (a kept volume adopted and
+      # replayed after an operator's retire-lane, or an edge that closed
+      # with custody left). It was NOT ingested and never will be by the
+      # workers; it is listed in {ctl}/quarantine/{lane}.json. Admitting it
+      # (`consume admit`) is an operator's decision: it goes to the separate
+      # recovered tables, and the command reports the windows and bases it
+      # falls in.
+      - alert: ConsumerQuarantinedObjects
+        expr: |
+          sum(increase(consumer_quarantined_objects_total[15m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $value }} objects quarantined below a retired lane's R in 15 min (not ingested)"
+          runbook: >-
+            runbooks/scale-down.md §Quarantine. Read {ctl}/quarantine/*.json
+            (lane, slot, content key, rows, received_at). Find why the lane's
+            custody was not empty when it was retired (retire-lane with a kept
+            volume, or an edge bug), then decide: `consume admit --lane L`
+            copies them into the recovered tables and prints the event-time
+            windows and the published complete_through values they fall
+            below; the alert windows over them must be re-checked by hand.
+      # A quarantine record that cannot be written: the slot is not passed
+      # (the lane's checkpoint waits for its record), so the lane stalls.
+      - alert: ConsumerQuarantineWriteFailing
+        expr: |
+          sum(increase(consumer_quarantine_errors_total[10m])) > 0
+        for: 15m
+        labels: {severity: warn}
+        annotations:
+          summary: "quarantine records failing for 15 min: the affected lanes' checkpoints wait"
+          runbook: >-
+            The consumer's role needs s3:GetObject and s3:PutObject on
+            {ctl}/quarantine/*; check the consumer's log (`quarantine {lane}:`).

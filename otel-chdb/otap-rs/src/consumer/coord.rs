@@ -167,6 +167,18 @@ pub enum Mutation {
     /// its per-part buckets, DECISIONS.md D34): a squashed statement then
     /// writes two partitions per day, and is no longer one part.
     MixLateParts,
+    /// A lane whose newest epoch stopped, with nothing pending, is retired
+    /// without a close (../model/retirement.qnt's `retireStale`).
+    RetireStale,
+    /// A retired lane stays out of the minimum when a later epoch appears
+    /// (the model's `staysRetired`).
+    StaysRetired,
+    /// A retired lane's objects below R are ingested like any other (the
+    /// model's `ingestBelow`, QUARANTINE = false).
+    IngestBelow,
+    /// `consume retire-lane` retires without waiting out a request lifetime
+    /// and with slots still pending (the model's `retireInFlight`).
+    RetireInFlight,
 }
 
 /// The smallest lease margin a production worker accepts: on a replicated
@@ -421,6 +433,11 @@ pub struct EpochPos {
     /// A tombstone sits at `next`: the epoch is over.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closed: bool,
+    /// The last slot passed (at `next - 1`) is its publisher's orderly close
+    /// (`oscope-kind: close`, `../../FORMAT.md` §3.1): its `oscope-low` (ns);
+    /// 0 otherwise.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub close_low: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -445,6 +462,34 @@ pub struct CkptDoc {
     pub wm_ns: u64,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub wm_wall_ms: u64,
+    /// Retirement (`../../FORMAT.md` §3.1, DECISIONS.md D35). `retired_ns`
+    /// is R, the bound: 0 when the lane was never retired. It stays after a
+    /// rebirth, as the quarantine's bound (an object of this lane received
+    /// below it is never ingested). `retired_epoch`: the epoch it was
+    /// retired in; `reborn_epoch`: the first later epoch seen since (then
+    /// the lane counts again); `retired_by`: `close` (its publisher's
+    /// orderly close) or `operator` (`consume retire-lane`, with
+    /// `retired_evidence`); `retired_wall_ms`: when the retirement was
+    /// recorded.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub retired_ns: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub retired_epoch: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reborn_epoch: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub retired_by: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub retired_evidence: String,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub retired_wall_ms: u64,
+}
+
+/// A retirement's proof (`CkptDoc::close_proof`): the newest epoch and R.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloseProof {
+    pub epoch: String,
+    pub r_ns: u64,
 }
 
 fn is_zero(x: &u64) -> bool {
@@ -540,6 +585,89 @@ impl CkptDoc {
         debug_assert_eq!(p.next, at, "a tombstone is closed at the checkpoint");
         p.closed = true;
     }
+    /// Whether the lane is out of every minimum (`../../FORMAT.md` §3.1):
+    /// retired and not reborn as far as this document knows. (A reader
+    /// also checks that no later epoch is listed: `watermark.rs`.)
+    pub fn retired_now(&self) -> bool {
+        self.retired_ns > 0 && self.reborn_epoch.is_empty()
+    }
+
+    /// Whether an object of this lane is below the retirement's bound and
+    /// so quarantined, never ingested (`../../FORMAT.md` §3.1): its
+    /// `received_at` is below R, or, in an epoch after the retired one (a
+    /// later incarnation, possibly on another node whose clock is behind
+    /// the closer's), below R − `skew_ns`.
+    pub fn quarantines(&self, epoch: &str, received_ns: u64, skew_ns: u64) -> bool {
+        if self.retired_ns == 0 {
+            return false;
+        }
+        let bound = if epoch_key(epoch) > epoch_key(&self.retired_epoch) { self.retired_ns.saturating_sub(skew_ns) } else { self.retired_ns };
+        received_ns < bound
+    }
+
+    /// The proof that the lane's custody is empty by its publisher's
+    /// orderly close (`../../FORMAT.md` §3.1, `../../model/retirement.qnt`
+    /// `retireClosed`), from a full listing of the lane after the
+    /// checkpoint moved: `listed_max` holds, per epoch the listing showed,
+    /// its highest slot. Some when
+    /// - the newest epoch (of the listing's and the checkpoint's) ends with
+    ///   a close the checkpoint has passed, and nothing is listed after it;
+    /// - every other epoch is closed by a tombstone (no PUT of a writer of
+    ///   it can still land: a zombie meets the tombstone) or also ends with
+    ///   a passed close and nothing after it (the same process's other
+    ///   writer lanes, drained with it).
+    ///
+    /// R is the highest of those closes' lows: every request the closing
+    /// incarnation held was received below it. With `Mutation::RetireStale`
+    /// (the model's mutant) a newest epoch quiet since `stale_since` with
+    /// nothing pending counts too, at R = `now_ns`: unsound.
+    pub fn close_proof(&self, listed_max: &BTreeMap<String, u64>, mutation: Mutation, now_ns: u64) -> Option<CloseProof> {
+        let mut all: std::collections::BTreeSet<&String> = listed_max.keys().filter(|e| above_floor(e, &self.floor)).collect();
+        all.extend(self.epochs.keys());
+        let newest = (*all.iter().max_by_key(|e| epoch_key(e))?).clone();
+        let pending = |e: &str| listed_max.get(e).is_some_and(|m| *m >= self.next(e));
+        let close = |e: &str| self.epochs.get(e).map_or(0, |p| p.close_low);
+        if pending(&newest) {
+            return None;
+        }
+        let mut r = close(&newest);
+        if r == 0 {
+            if mutation != Mutation::RetireStale || self.closed(&newest) {
+                return None;
+            }
+            r = now_ns;
+        }
+        for e in all.iter().filter(|e| **e != &newest) {
+            if self.closed(e) {
+                continue;
+            }
+            if pending(e) || (close(e) == 0 && mutation != Mutation::RetireStale) {
+                return None;
+            }
+            r = r.max(close(e));
+        }
+        Some(CloseProof { epoch: newest, r_ns: r })
+    }
+
+    /// Records a retirement at R (the running max of the bounds) in `epoch`.
+    pub fn retire(&mut self, epoch: &str, r_ns: u64, by: &str, evidence: &str, wall_ms: u64) {
+        self.retired_ns = self.retired_ns.max(r_ns);
+        self.retired_epoch = epoch.to_string();
+        self.reborn_epoch.clear();
+        self.retired_by = by.to_string();
+        self.retired_evidence = evidence.to_string();
+        self.retired_wall_ms = wall_ms;
+    }
+
+    /// The first epoch after the retired one among `epochs`, if the lane is
+    /// retired and not reborn yet (a new incarnation's birth).
+    pub fn rebirth<'a>(&self, epochs: impl IntoIterator<Item = &'a String>) -> Option<String> {
+        if !self.retired_now() {
+            return None;
+        }
+        epochs.into_iter().filter(|e| epoch_key(e) > epoch_key(&self.retired_epoch)).min_by_key(|e| epoch_key(e)).cloned()
+    }
+
     /// The next version, written by the holder of lease epoch `lease_epoch`.
     pub fn bumped(&self, lease_epoch: u64) -> CkptDoc {
         CkptDoc { lease_epoch, version: self.version + 1, ..self.clone() }
@@ -784,6 +912,65 @@ mod tests {
         // (serde: an old checkpoint without a floor reads; an empty floor isn't written)
         let old: CkptDoc = serde_json::from_str(r#"{"lane":"l","lease_epoch":1,"version":2,"epochs":{}}"#).unwrap();
         assert!(old.floor.is_empty() && !serde_json::to_string(&old).unwrap().contains("floor"));
+    }
+
+    /// D35 (FORMAT.md §3.1, retirement.qnt `retireClosed`): the close
+    /// proof needs the newest epoch to end with a passed close and nothing
+    /// listed after it, and every other epoch sealed (a tombstone, or its
+    /// own passed close).
+    #[test]
+    fn a_close_proves_empty_custody_only_when_everything_is_sealed() {
+        let listed = |xs: &[(&str, u64)]| xs.iter().map(|(e, m)| (e.to_string(), *m)).collect::<BTreeMap<String, u64>>();
+        let mut c = CkptDoc::new("l");
+        c.advance("E1", 3);
+        c.close("E1", 3); // an old incarnation's epoch, tombstoned
+        c.advance("E2", 5);
+        // E2's last passed slot is not a close: no proof
+        assert_eq!(c.close_proof(&listed(&[("E2", 4)]), Mutation::None, 99), None);
+        c.epochs.get_mut("E2").unwrap().close_low = 700;
+        assert_eq!(c.close_proof(&listed(&[("E1", 3), ("E2", 4)]), Mutation::None, 99), Some(CloseProof { epoch: "E2".into(), r_ns: 700 }));
+        // something listed after the close (the checkpoint hasn't passed it)
+        assert_eq!(c.close_proof(&listed(&[("E2", 5)]), Mutation::None, 99), None);
+        // a later epoch listed (a new incarnation): its newest epoch has no close
+        assert_eq!(c.close_proof(&listed(&[("E2", 4), ("E3", 0)]), Mutation::None, 99), None);
+        // another epoch neither tombstoned nor closed: a zombie of it may still land
+        let mut d = c.clone();
+        d.advance("E0x", 2);
+        assert!(epoch_key("E0x") < epoch_key("E2"));
+        assert_eq!(d.close_proof(&listed(&[("E2", 4)]), Mutation::None, 99), None);
+        // ... closed by its own publisher too (another writer lane, drained): R is the higher low
+        d.epochs.get_mut("E0x").unwrap().close_low = 710;
+        assert_eq!(d.close_proof(&listed(&[("E2", 4), ("E0x", 1)]), Mutation::None, 99), Some(CloseProof { epoch: "E2".into(), r_ns: 710 }));
+        // the mutant retires a stopped lane without a close, at the clock
+        let mut s = CkptDoc::new("l");
+        s.advance("E1", 2);
+        assert_eq!(s.close_proof(&listed(&[("E1", 1)]), Mutation::None, 99), None);
+        assert_eq!(s.close_proof(&listed(&[("E1", 1)]), Mutation::RetireStale, 99), Some(CloseProof { epoch: "E1".into(), r_ns: 99 }));
+    }
+
+    #[test]
+    fn a_retired_lane_quarantines_below_r_and_counts_again_when_reborn() {
+        let mut c = CkptDoc::new("l");
+        assert!(!c.quarantines("E1", 0, 0) && !c.retired_now() && c.rebirth([&"E9".to_string()]).is_none());
+        c.retire("E2", 1_000, "close", "", 5);
+        assert!(c.retired_now());
+        // the retired epoch and before: below R
+        assert!(c.quarantines("E2", 999, 100) && !c.quarantines("E2", 1_000, 100) && c.quarantines("E1", 950, 100));
+        // a later epoch (another node's clock): below R - skew
+        assert!(c.quarantines("E3", 899, 100) && !c.quarantines("E3", 900, 100));
+        assert_eq!(c.rebirth([&"E1".to_string(), &"E2".to_string()]), None);
+        assert_eq!(c.rebirth([&"E4".to_string(), &"E3".to_string(), &"E1".to_string()]), Some("E3".to_string()));
+        c.reborn_epoch = "E3".into();
+        assert!(!c.retired_now() && c.rebirth([&"E4".to_string()]).is_none());
+        assert!(c.quarantines("E3", 10, 100), "the bound stays after a rebirth");
+        // a later retirement: R is a running max, the rebirth is cleared
+        c.retire("E4", 900, "operator", "volume deleted", 6);
+        assert!(c.retired_now() && c.retired_ns == 1_000 && c.reborn_epoch.is_empty() && c.retired_by == "operator");
+        // serde: absent in older checkpoints, not written when unset
+        let old: CkptDoc = serde_json::from_str(r#"{"lane":"l","lease_epoch":1,"version":2,"epochs":{"E1":{"next":3}}}"#).unwrap();
+        assert!(!old.retired_now() && old.epochs["E1"].close_low == 0);
+        let j = serde_json::to_string(&old).unwrap();
+        assert!(!j.contains("retired") && !j.contains("close_low"), "{j}");
     }
 
     #[test]

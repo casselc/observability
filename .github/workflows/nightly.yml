@@ -161,6 +161,19 @@ jobs:
         run: |
           otel-chdb/conformance/go_faults.sh
           ci/verdict.sh "$OUT/summary.txt" 6
+      # The orderly close (FORMAT.md §3.1, D35): each edge stopped in order
+      # leaves a close as the last slot of every lane; the consumer retires
+      # them and the cluster's complete_through passes; a restart on the same
+      # Quiver buffer is reborn and nothing is quarantined.
+      - name: otap-rs/scripts/close_e2e.sh (rust, rust-durable with a restart, go)
+        env:
+          B: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          W: ${{ runner.temp }}/out/close
+        run: |
+          EDGE=rust RUN=ci${{ github.run_id }}cr otel-chdb/otap-rs/scripts/close_e2e.sh
+          EDGE=rust-durable RESTART=1 RUN=ci${{ github.run_id }}cd otel-chdb/otap-rs/scripts/close_e2e.sh
+          EDGE=go RUN=ci${{ github.run_id }}cg otel-chdb/otap-rs/scripts/close_e2e.sh
       - name: Service logs
         if: failure()
         run: mkdir -p "$RUNNER_TEMP/out" && ci/services.sh logs > "$RUNNER_TEMP/out/services.log" 2>&1 || true

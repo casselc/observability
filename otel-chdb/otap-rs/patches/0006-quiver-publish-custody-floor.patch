@@ -18,11 +18,20 @@ Quiver's un-acked bundles, which only the buffer knows.
   bundle has a later ingestion time). A pending segment counts with its
   oldest bundle, resolved or not: lower, still sound.
 
+- For the exporter's orderly close (otel-chdb FORMAT.md §3.1, D35;
+  2026-09-29): `custody::{publish_drained, drained}`, set by the buffer's
+  shutdown once its drain handed every bundle downstream (the poll found
+  none left, with no error, no backpressure and no deadline on the way),
+  and `custody::{nack_handled, nacks_handled}`, counted at every NACK the
+  buffer handles: a NACK the exporter sends after the buffer stopped
+  handling them leaves its bundle in custody, which the exporter sees as
+  more NACKs sent than handled.
+
 The payload is unchanged. Upstreamable as a hook; the thread-local is the
 simplest carrier for a thread-per-core engine.
 
 diff --git a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
-index 321d537..eae1c30 100644
+index 321d537..7c32c9b 100644
 --- a/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
 +++ b/rust/otap-dataflow/crates/core-nodes/src/processors/durable_buffer_processor/mod.rs
 @@ -345,6 +345,13 @@ pub struct DurableBuffer {
@@ -114,12 +123,69 @@ index 321d537..eae1c30 100644
  
          // Time-budgeted draining: spend at most 50% of poll_interval processing bundles.
          // This ensures we yield back promptly to handle incoming data, which is typically
+@@ -1487,6 +1548,9 @@ impl DurableBuffer {
+         nack: NackMsg<OtapPdata>,
+         effect_handler: &mut EffectHandler<OtapPdata>,
+     ) -> Result<(), Error> {
++        // For the exporter's orderly close: a NACK seen here is retried
++        // from custody (otel_arrow_dfe_otap::custody).
++        otel_arrow_dfe_otap::custody::nack_handled();
+         // Extract BundleRef from calldata
+         let Some(bundle_ref) = decode_bundle_ref(&nack.unwind.route.calldata) else {
+             // Invalid calldata, just forward the NACK upstream
+@@ -1676,6 +1740,11 @@ impl DurableBuffer {
+ 
+             // Drain any remaining bundles that became available after flush
+             let mut drained = 0u64;
++            // Every bundle handed downstream (the poll found none left), with
++            // no error, no backpressure and no deadline on the way: the
++            // exporter may take its custody as empty once it has committed
++            // them (otel_arrow_dfe_otap::custody, otel-chdb FORMAT.md §3.1).
++            let mut all_handed = true;
+             loop {
+                 // Check deadline on each iteration
+                 if Instant::now() >= deadline {
+@@ -1683,6 +1752,7 @@ impl DurableBuffer {
+                         "durable_buffer.shutdown.drain_deadline",
+                         bundles_drained = drained
+                     );
++                    all_handed = false;
+                     break;
+                 }
+ 
+@@ -1702,20 +1772,26 @@ impl DurableBuffer {
+                                 // During shutdown, if we hit backpressure just log and continue
+                                 // The bundle is deferred and will be picked up on next run
+                                 otel_warn!("durable_buffer.shutdown.backpressure");
++                                all_handed = false;
+                                 break;
+                             }
+                             ProcessBundleResult::Error(e) => {
+                                 otel_warn!("durable_buffer.shutdown.bundle_error", error = %e);
++                                all_handed = false;
+                             }
+                         }
+                     }
+                     Ok(None) => break,
+                     Err(e) => {
+                         otel_warn!("durable_buffer.shutdown.poll_error", error = %e);
++                        all_handed = false;
+                         break;
+                     }
+                 }
+             }
++            if all_handed {
++                otel_arrow_dfe_otap::custody::publish_drained();
++            }
+             if drained > 0 {
+                 otel_info!("durable_buffer.shutdown.drained", bundles_drained = drained);
+             }
 diff --git a/rust/otap-dataflow/crates/otap/src/custody.rs b/rust/otap-dataflow/crates/otap/src/custody.rs
 new file mode 100644
-index 0000000..ce71a35
+index 0000000..c291f31
 --- /dev/null
 +++ b/rust/otap-dataflow/crates/otap/src/custody.rs
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,86 @@
 +//! The custody floor a durable buffer publishes for the exporter behind it.
 +//!
 +//! A durable buffer (Quiver) holds requests it has acknowledged to their
@@ -137,10 +203,20 @@ index 0000000..ce71a35
 +//! moment as well: bundles only leave custody, and a bundle ingested later
 +//! has a later ingestion time. `None`: nothing was published on this thread
 +//! (no buffer, or not initialised yet).
++//!
++//! At shutdown the exporter may also need to know that the buffer's custody
++//! is empty (otel-chdb FORMAT.md §3.1, an orderly close): the buffer
++//! [`publish_drained`]s once its shutdown drain handed every bundle it held
++//! downstream, and counts the NACKs it handled ([`nack_handled`]); a NACK
++//! the exporter sends after the buffer stopped handling them leaves its
++//! bundle in custody, which the exporter sees as more NACKs sent than
++//! [`nacks_handled`].
 +use std::cell::Cell;
 +
 +thread_local! {
 +    static LOW: Cell<Option<u64>> = const { Cell::new(None) };
++    static DRAINED: Cell<bool> = const { Cell::new(false) };
++    static NACKS: Cell<u64> = const { Cell::new(0) };
 +}
 +
 +/// Publishes this thread's custody floor (ns since the Unix epoch).
@@ -154,6 +230,29 @@ index 0000000..ce71a35
 +    LOW.with(Cell::get)
 +}
 +
++/// The buffer's shutdown drain handed every bundle it held downstream:
++/// nothing is left in its custody but what the exporter holds.
++pub fn publish_drained() {
++    DRAINED.with(|c| c.set(true));
++}
++
++/// Whether the buffer on this thread published [`publish_drained`].
++#[must_use]
++pub fn drained() -> bool {
++    DRAINED.with(Cell::get)
++}
++
++/// The buffer handled a NACK from downstream (its bundle is retried).
++pub fn nack_handled() {
++    NACKS.with(|c| c.set(c.get() + 1));
++}
++
++/// How many NACKs the buffer on this thread has handled.
++#[must_use]
++pub fn nacks_handled() -> u64 {
++    NACKS.with(Cell::get)
++}
++
 +#[cfg(test)]
 +mod tests {
 +    #[test]
@@ -162,6 +261,15 @@ index 0000000..ce71a35
 +        super::publish(42);
 +        assert_eq!(super::current(), Some(42));
 +        assert_eq!(std::thread::spawn(super::current).join().unwrap(), None);
++    }
++
++    #[test]
++    fn drained_and_nacks_are_per_thread() {
++        assert!(!super::drained());
++        super::nack_handled();
++        super::publish_drained();
++        assert!(super::drained() && super::nacks_handled() == 1);
++        assert!(!std::thread::spawn(super::drained).join().unwrap());
 +    }
 +}
 diff --git a/rust/otap-dataflow/crates/otap/src/lib.rs b/rust/otap-dataflow/crates/otap/src/lib.rs

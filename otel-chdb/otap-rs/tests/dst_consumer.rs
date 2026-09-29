@@ -189,3 +189,56 @@ fn fleet_is_deterministic() {
         eprintln!("DST meta seed {seed}: identical, {} lines, {} ({})", a.lines, &a.trace_hash[..16], a.failure.as_deref().unwrap_or("passed"));
     }
 }
+
+// ---- dead-lane retirement (DECISIONS.md D35, ../model/retirement.qnt) ------------------------
+
+#[path = "dst/retire.rs"]
+mod retire;
+
+fn retire_run(seed: u64, k: retire::Knobs) -> retire::Outcome {
+    tokio::runtime::Builder::new_current_thread().build().expect("runtime").block_on(retire::run(seed, k))
+}
+
+/// The design over many seeds (`DST_RETIRE_SEEDS`, default 300): no
+/// property of the model breaks, and its witnesses are reached (a lane
+/// retired by its close and passed, a retired lane reborn and ingested, a
+/// request lost with its volume, a zombie PUT landing, an adopted volume).
+#[test]
+fn retirement_seeds() {
+    let n = std::env::var("DST_RETIRE_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(300u64);
+    let t0 = std::time::Instant::now();
+    let mut seen = std::collections::BTreeMap::new();
+    for seed in 1..=n {
+        let o = retire_run(seed, retire::Knobs::design());
+        assert!(o.violations.is_empty(), "seed {seed}: {:#?}\n{}", o.violations, o.summary);
+        for w in o.witnesses {
+            *seen.entry(w).or_insert(0u64) += 1;
+        }
+    }
+    eprintln!("DST retirement: {n} seeds passed in {:.1} s; witnesses {seen:?}", t0.elapsed().as_secs_f64());
+    for w in ["a lane retired", "published past a retired lane", "reborn", "lost with its volume", "zombie landed", "adopted"] {
+        assert!(seen.contains_key(w), "witness {w:?} never reached in {n} seeds: {seen:?}");
+    }
+    assert!(!seen.contains_key("quarantined"), "the design never quarantines");
+}
+
+/// Each of the model's mutants breaks a property on some seed.
+#[test]
+fn retirement_catches_mutants() {
+    let n = std::env::var("DST_MUTANT_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(300u64);
+    let d = retire::Knobs::design();
+    for (name, k, want) in [
+        ("retireStale", retire::Knobs { mutation: Mutation::RetireStale, ..d }, "completeSound"),
+        ("closeUndrained", retire::Knobs { close_undrained: true, ..d }, "completeSound"),
+        ("staysRetired", retire::Knobs { mutation: Mutation::StaysRetired, ..d }, "completeSound"),
+    ] {
+        let caught = (1..=n).find_map(|seed| {
+            let o = retire_run(seed, k);
+            o.violations.iter().find(|v| v.starts_with(want)).map(|v| (seed, v.clone()))
+        });
+        match caught {
+            Some((seed, v)) => eprintln!("mutant {name}: caught by seed {seed}: {v}"),
+            None => panic!("mutant {name} survived {n} seeds (no {want} violation)"),
+        }
+    }
+}

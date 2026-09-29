@@ -65,6 +65,9 @@ pub enum Found {
     Data { content: String, rows: u64, received_ns: u64, low_ns: Option<u64>, announce: u64, late: bool },
     /// A heartbeat (`../../FORMAT.md` §2): nothing to ingest, only its low.
     Beat { low_ns: u64 },
+    /// Its publisher's orderly close (`../../FORMAT.md` §3.1): nothing to
+    /// ingest; its low is R once the lane is retired by it.
+    Close { low_ns: u64 },
     Tomb,
 }
 
@@ -74,7 +77,7 @@ impl Found {
     pub fn low_ns(&self) -> u64 {
         match self {
             Found::Data { low_ns, .. } => low_ns.unwrap_or(0),
-            Found::Beat { low_ns } => *low_ns,
+            Found::Beat { low_ns } | Found::Close { low_ns } => *low_ns,
             Found::Tomb => 0,
         }
     }
@@ -93,6 +96,7 @@ pub fn found(meta: &HashMap<String, String>) -> Found {
     match proto::Slot::from_meta(meta) {
         proto::Slot::Tomb => Found::Tomb,
         _ if meta.get(proto::META_KIND).map(String::as_str) == Some(proto::KIND_BEAT) => Found::Beat { low_ns: low_ns.unwrap_or(0) },
+        _ if meta.get(proto::META_KIND).map(String::as_str) == Some(proto::KIND_CLOSE) => Found::Close { low_ns: low_ns.unwrap_or(0) },
         _ => Found::Data {
             content: meta.get(proto::META_CONTENT).cloned().unwrap_or_default(),
             rows: meta.get(proto::META_ROWS).and_then(|r| r.parse().ok()).unwrap_or(0),
@@ -110,7 +114,7 @@ pub fn found(meta: &HashMap<String, String>) -> Found {
 /// `received_at` over the data slots that LIST shows above the checkpoint.
 /// `pending` holds, per such slot, what its HEAD found (None: not HEADed:
 /// past a gap or the HEAD budget, so no watermark this time). A heartbeat
-/// holds no request; a tombstone ends its epoch.
+/// or a close holds no request; a tombstone ends its epoch.
 pub fn lane_wm(m: u64, pending: &[Vec<Option<Found>>]) -> Option<u64> {
     let mut u = u64::MAX;
     for epoch in pending {
@@ -118,7 +122,7 @@ pub fn lane_wm(m: u64, pending: &[Vec<Option<Found>>]) -> Option<u64> {
             match f {
                 None => return None,
                 Some(Found::Tomb) => break,
-                Some(Found::Beat { .. }) => {}
+                Some(Found::Beat { .. } | Found::Close { .. }) => {}
                 Some(Found::Data { received_ns, .. }) => u = u.min(*received_ns),
             }
         }

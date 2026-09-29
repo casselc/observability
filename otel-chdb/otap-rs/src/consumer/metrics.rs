@@ -182,6 +182,15 @@ pub fn worker_families(p: &mut Prom, v: &serde_json::Value, horizon_ms: Option<u
     }
     p.counter("consumer_gaps_seen_total", "Free slots with a later slot listed (LIST lag or a deleted slot).", wl, n("gaps_seen"));
     p.counter("consumer_epochs_closed_total", "Epochs closed with a tombstone.", wl, n("epochs_closed"));
+    // Dead-lane retirement (FORMAT.md §3.1, D35). A quarantined object is
+    // paged (deploy/alerts): it was not ingested, and admitting it
+    // (`consume admit`) is an operator's decision.
+    p.counter("consumer_quarantined_objects_total", "Objects of a retired lane received below its R and not in central: recorded in {ctl}/quarantine/, never ingested (page).", wl, n("quarantined_objects"));
+    p.counter("consumer_quarantined_rows_total", "Rows of the quarantined objects.", wl, n("quarantined_rows"));
+    p.counter("consumer_quarantine_errors_total", "Quarantine records that could not be written (their slots wait).", wl, n("quarantine_errors"));
+    p.counter("consumer_below_retirement_copies_total", "Objects below a retired lane's R that central already held (replayed copies, passed).", wl, n("below_copies"));
+    p.counter("consumer_lane_retirements_total", "Lanes retired by their publisher's orderly close, and retired lanes seen reborn (a later epoch).", &with(("event", "closed")), n("lanes_retired"));
+    p.counter("consumer_lane_retirements_total", "", &with(("event", "reborn")), n("lanes_reborn"));
     p.counter("consumer_errors_total", "Errors on the worker's step (S3 or central).", wl, n("errors"));
     let held = v.get("held").and_then(|x| x.as_array()).map_or(0.0, |a| a.len() as f64);
     p.gauge("consumer_lanes_held", "Lanes this worker holds.", wl, held);

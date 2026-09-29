@@ -119,6 +119,6 @@ func TestExportToBucket(t *testing.T) {
 	if err != nil || e == nil {
 		t.Fatal(err)
 	}
-	release(set.ID, set.Logger)
+	release(context.Background(), set.ID, set.Logger)
 	_ = parquetgo.SigSeries
 }

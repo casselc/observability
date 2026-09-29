@@ -62,9 +62,10 @@ PASS otel_traces_kv_rollup_15m_mv: count + hash: rust 173	13860908576835131923 g
 PASS otel_traces_kv_rollup_15m_mv: rows in rust not in go: 0
 PASS otel_traces_kv_rollup_15m_mv: rows in go not in rust: 0
 PASS objects: same namespaces: rust ['logs', 'metrics_exponential_histogram_points', 'metrics_histogram_points', 'metrics_number_points', 'metrics_series', 'metrics_summary_points', 'traces'] go ['logs', 'metrics_exponential_histogram_points', 'metrics_histogram_points', 'metrics_number_points', 'metrics_series', 'metrics_summary_points', 'traces']
-PASS logs: same object count: rust 5 go 5
+PASS logs: same object count: rust 6 go 6
+PASS logs: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS logs/00000000000000000000.parquet: S3 metadata
-PASS logs/00000000000000000000.parquet: both heartbeats: rust beat
+PASS logs/00000000000000000000.parquet: both beat: rust beat
 PASS logs/00000000000000000001.parquet: S3 metadata
 PASS logs/00000000000000000001.parquet: footer = metadata (go): []
 PASS logs/00000000000000000001.parquet: footer keys as rust's: []
@@ -93,9 +94,12 @@ PASS logs/00000000000000000004.parquet: Parquet schema: []
 PASS logs/00000000000000000004.parquet: wire encodings and statistics: []
 PASS logs/00000000000000000004.parquet: rows: rust 480 go 480
 INFO logs/00000000000000000004.parquet: bytes: rust 34640 (footer 4668) go 38547 (footer 4498)
-PASS metrics_exponential_histogram_points: same object count: rust 6 go 6
+PASS logs/00000000000000000005.parquet: S3 metadata
+PASS logs/00000000000000000005.parquet: both close: rust close
+PASS metrics_exponential_histogram_points: same object count: rust 7 go 7
+PASS metrics_exponential_histogram_points: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS metrics_exponential_histogram_points/00000000000000000000.parquet: S3 metadata
-PASS metrics_exponential_histogram_points/00000000000000000000.parquet: both heartbeats: rust beat
+PASS metrics_exponential_histogram_points/00000000000000000000.parquet: both beat: rust beat
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: S3 metadata
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: footer = metadata (go): []
 PASS metrics_exponential_histogram_points/00000000000000000001.parquet: footer keys as rust's: []
@@ -131,9 +135,12 @@ PASS metrics_exponential_histogram_points/00000000000000000005.parquet: Parquet 
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: wire encodings and statistics: []
 PASS metrics_exponential_histogram_points/00000000000000000005.parquet: rows: rust 2000 go 2000
 INFO metrics_exponential_histogram_points/00000000000000000005.parquet: bytes: rust 66316 (footer 3199) go 79223 (footer 3819)
-PASS metrics_histogram_points: same object count: rust 6 go 6
+PASS metrics_exponential_histogram_points/00000000000000000006.parquet: S3 metadata
+PASS metrics_exponential_histogram_points/00000000000000000006.parquet: both close: rust close
+PASS metrics_histogram_points: same object count: rust 7 go 7
+PASS metrics_histogram_points: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS metrics_histogram_points/00000000000000000000.parquet: S3 metadata
-PASS metrics_histogram_points/00000000000000000000.parquet: both heartbeats: rust beat
+PASS metrics_histogram_points/00000000000000000000.parquet: both beat: rust beat
 PASS metrics_histogram_points/00000000000000000001.parquet: S3 metadata
 PASS metrics_histogram_points/00000000000000000001.parquet: footer = metadata (go): []
 PASS metrics_histogram_points/00000000000000000001.parquet: footer keys as rust's: []
@@ -169,9 +176,12 @@ PASS metrics_histogram_points/00000000000000000005.parquet: Parquet schema: []
 PASS metrics_histogram_points/00000000000000000005.parquet: wire encodings and statistics: []
 PASS metrics_histogram_points/00000000000000000005.parquet: rows: rust 2000 go 2000
 INFO metrics_histogram_points/00000000000000000005.parquet: bytes: rust 31265 (footer 2686) go 41762 (footer 3210)
-PASS metrics_number_points: same object count: rust 6 go 6
+PASS metrics_histogram_points/00000000000000000006.parquet: S3 metadata
+PASS metrics_histogram_points/00000000000000000006.parquet: both close: rust close
+PASS metrics_number_points: same object count: rust 7 go 7
+PASS metrics_number_points: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS metrics_number_points/00000000000000000000.parquet: S3 metadata
-PASS metrics_number_points/00000000000000000000.parquet: both heartbeats: rust beat
+PASS metrics_number_points/00000000000000000000.parquet: both beat: rust beat
 PASS metrics_number_points/00000000000000000001.parquet: S3 metadata
 PASS metrics_number_points/00000000000000000001.parquet: footer = metadata (go): []
 PASS metrics_number_points/00000000000000000001.parquet: footer keys as rust's: []
@@ -207,9 +217,12 @@ PASS metrics_number_points/00000000000000000005.parquet: Parquet schema: []
 PASS metrics_number_points/00000000000000000005.parquet: wire encodings and statistics: []
 PASS metrics_number_points/00000000000000000005.parquet: rows: rust 4000 go 4000
 INFO metrics_number_points/00000000000000000005.parquet: bytes: rust 41652 (footer 2465) go 43617 (footer 2906)
-PASS metrics_series: same object count: rust 5 go 5
+PASS metrics_number_points/00000000000000000006.parquet: S3 metadata
+PASS metrics_number_points/00000000000000000006.parquet: both close: rust close
+PASS metrics_series: same object count: rust 6 go 6
+PASS metrics_series: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS metrics_series/00000000000000000000.parquet: S3 metadata
-PASS metrics_series/00000000000000000000.parquet: both heartbeats: rust beat
+PASS metrics_series/00000000000000000000.parquet: both beat: rust beat
 PASS metrics_series/00000000000000000001.parquet: S3 metadata
 PASS metrics_series/00000000000000000001.parquet: footer = metadata (go): []
 PASS metrics_series/00000000000000000001.parquet: footer keys as rust's: []
@@ -238,9 +251,12 @@ PASS metrics_series/00000000000000000004.parquet: Parquet schema: []
 PASS metrics_series/00000000000000000004.parquet: wire encodings and statistics: []
 PASS metrics_series/00000000000000000004.parquet: rows: rust 1620 go 1620
 INFO metrics_series/00000000000000000004.parquet: bytes: rust 55368 (footer 3261) go 69827 (footer 3825)
-PASS metrics_summary_points: same object count: rust 6 go 6
+PASS metrics_series/00000000000000000005.parquet: S3 metadata
+PASS metrics_series/00000000000000000005.parquet: both close: rust close
+PASS metrics_summary_points: same object count: rust 7 go 7
+PASS metrics_summary_points: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS metrics_summary_points/00000000000000000000.parquet: S3 metadata
-PASS metrics_summary_points/00000000000000000000.parquet: both heartbeats: rust beat
+PASS metrics_summary_points/00000000000000000000.parquet: both beat: rust beat
 PASS metrics_summary_points/00000000000000000001.parquet: S3 metadata
 PASS metrics_summary_points/00000000000000000001.parquet: footer = metadata (go): []
 PASS metrics_summary_points/00000000000000000001.parquet: footer keys as rust's: []
@@ -276,9 +292,12 @@ PASS metrics_summary_points/00000000000000000005.parquet: Parquet schema: []
 PASS metrics_summary_points/00000000000000000005.parquet: wire encodings and statistics: []
 PASS metrics_summary_points/00000000000000000005.parquet: rows: rust 2000 go 2000
 INFO metrics_summary_points/00000000000000000005.parquet: bytes: rust 44734 (footer 1884) go 49125 (footer 2208)
-PASS traces: same object count: rust 5 go 5
+PASS metrics_summary_points/00000000000000000006.parquet: S3 metadata
+PASS metrics_summary_points/00000000000000000006.parquet: both close: rust close
+PASS traces: same object count: rust 6 go 6
+PASS traces: both edges end the lane with their close: {'rust': 'close', 'go': 'close'}
 PASS traces/00000000000000000000.parquet: S3 metadata
-PASS traces/00000000000000000000.parquet: both heartbeats: rust beat
+PASS traces/00000000000000000000.parquet: both beat: rust beat
 PASS traces/00000000000000000001.parquet: S3 metadata
 PASS traces/00000000000000000001.parquet: footer = metadata (go): []
 PASS traces/00000000000000000001.parquet: footer keys as rust's: []
@@ -307,4 +326,6 @@ PASS traces/00000000000000000004.parquet: Parquet schema: []
 PASS traces/00000000000000000004.parquet: wire encodings and statistics: []
 PASS traces/00000000000000000004.parquet: rows: rust 480 go 480
 INFO traces/00000000000000000004.parquet: bytes: rust 72774 (footer 6222) go 78142 (footer 5986)
+PASS traces/00000000000000000005.parquet: S3 metadata
+PASS traces/00000000000000000005.parquet: both close: rust close
 0 failed

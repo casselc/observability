@@ -31,6 +31,7 @@ the **resource announcements** in the data object itself (§2.1).
 {ctl}/audit/{db}.json                                              horizon-audit state (D11)
 {ctl}/watermark.json                                               complete_through (§3, §4)
 {ctl}/watermark/{cluster}.json                                     one cluster's complete_through, per signal and per lane (§3, D29)
+{ctl}/quarantine/{cluster}/{producer}/{signal}.json                a retired lane's quarantined objects (§3.1, D35)
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.delta.ndjson.gz          entity lanes
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.sync.{syncAtMs}.ndjson.gz
 {root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix             lake index segments (§7)
@@ -75,16 +76,16 @@ metadata only.
 
 | key | on | value |
 |---|---|---|
-| `oscope-format` | data, beat | `2` |
-| `oscope-kind` | all | `data`, `beat` (heartbeat) or `tomb` (tombstone, written by the consumer) |
-| `oscope-cluster` | data, beat | the key's `{cluster}` |
-| `oscope-producer` | data, beat | the key's `{producer}` |
-| `oscope-epoch`, `oscope-seq` | data, beat | the slot |
-| `oscope-content` | data, beat | the content key: BLAKE3-128 hex of `"{signal}\0" + request bytes` (layout-B series objects: of their rows); a heartbeat's is `beat-` + 16 random hex digits |
+| `oscope-format` | data, beat, close | `2` |
+| `oscope-kind` | all | `data`, `beat` (heartbeat), `close` (the publisher's orderly close, §3.1) or `tomb` (tombstone, written by the consumer) |
+| `oscope-cluster` | data, beat, close | the key's `{cluster}` |
+| `oscope-producer` | data, beat, close | the key's `{producer}` |
+| `oscope-epoch`, `oscope-seq` | data, beat, close | the slot |
+| `oscope-content` | data, beat, close | the content key: BLAKE3-128 hex of `"{signal}\0" + request bytes` (layout-B series objects: of their rows); a heartbeat's is `beat-` + 16 random hex digits, a close's `close-` + 16 |
 | `oscope-signal`, `oscope-schema`, `oscope-rows`, `oscope-min-time`, `oscope-max-time` | data | the namespace, envelope schema version (traces and logs `2`, metrics `1`), row count and the rows' event-time range (ns) |
 | `oscope-announce` | data (traces, logs) | how many resources the object announces in `resource_announce` (§2.1); the consumer reads announcements only from objects where it is nonzero |
 | `oscope-received` | data | `received_at` (ns since the Unix epoch): when the request entered the edge's durable custody, kept across retries and replays (D19) |
-| `oscope-low` | data, beat | the custody floor (ns), below |
+| `oscope-low` | data, beat, close | the custody floor (ns), below |
 | `oscope-part`, `oscope-late-after` | data (traces, logs), split requests only | `bulk` or `late`, and the split's bound in ns (§2.2); absent on an object that holds its whole request |
 
 **`oscope-low`** ([`model/completeness.qnt`](model/completeness.qnt)):
@@ -134,6 +135,9 @@ close it; not built.
 
 The consumer ingests nothing for a heartbeat; it only moves the
 checkpoint and the lane's watermark. GC deletes heartbeats like data slots.
+
+**Closes** (`oscope-kind: close`) are zero-byte slots too, one per writer
+lane at an orderly shutdown, the last slot of its epoch (§3.1).
 
 ### 2.1 Resources: `resource_id` and announcements (traces and logs)
 
@@ -325,7 +329,7 @@ result with its source and that source's value (completeness.qnt
 `evalWithinComplete`, `resultLabeled`, `clusterSound`). The lake's sealer
 publishes its own, by the same rule.
 
-### 3.1 Retiring a lane (designed, not built: [D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed))
+### 3.1 Retiring a lane ([D35](DECISIONS.md#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-designed): the orderly close, its retirement and the quarantine built)
 
 A lane that stops advancing holds its cluster's `complete_through` (and the
 fleet's) at its watermark for good, and is paged as `stale`: from S3 an idle
@@ -412,15 +416,72 @@ PUT that lands after `complete_through` passed it would be ingested below
 it. The scale-down runbook's "delete the PVC only after the drain" gains:
 and only once the pod has been gone longer than a request lifetime.
 
-Nothing of this is built yet; building it needs: the close slot in both
-edges (the Rust exporter after `durable_buffer` reports an empty custody
-at shutdown, the Go exporter after its sending queue drains in
-`Shutdown`), with a shutdown budget longer than the drain (else no close,
-and the lane stays stale: safe), and the conformance run comparing them;
-the consumer's `Found::Close`, the retirement in the checkpoint, the
-+inf in `watermark.rs`, the un-retirement on a later epoch, the quarantine
-path in the worker and its document and metric; `consume retire-lane`
-with the tombstone and the three checks; a DST mutant per model mutant.
+**Built (2026-09-29).** What the edges and the consumer do:
+
+- **The close, Rust** (`src/exporter.rs`): at the engine's `Shutdown`
+  (receivers drained first, and the pipeline already reported not ready,
+  `ShutdownRequested`), the exporter waits for its requests in flight and
+  its heartbeats in flight, then commits a close in every writer lane of
+  every registered signal that has an epoch, `oscope-low` = now, **only
+  if** its custody is empty (`may_close`): without a buffer, every request
+  in its hands resolved; behind `durable_buffer`, the buffer's shutdown
+  drain handed every bundle downstream (`otel_arrow_dfe_otap::custody::drained`,
+  `patches/0006`) and handled every NACK the exporter sent (a NACK it never
+  saw leaves its bundle in custody). All within the shutdown deadline (the
+  engine's, 60 s, or the kubelet's SIGKILL at `terminationGracePeriodSeconds`):
+  past it, no close, and the lane stays stale (safe).
+- **The close, Go** (`parquetgo/s3pqexporter`, `edge.Close`): when the last
+  pipeline of the exporter shuts down (exporterhelper has shut its retry
+  sender and sending queue first: the in-memory queue drained, the
+  persistent one stopped), the heartbeats stop and, if the custody ledger
+  is empty (no request taken and not committed or refused; every queue's
+  probe out, so nothing an earlier incarnation persisted is left queued),
+  the same close goes into every lane that has an epoch. The collector
+  reports not ready at the start of its shutdown, before its receivers stop.
+- **The retirement** (`consumer/coord.rs` `CkptDoc::close_proof`, applied at
+  each full listing by the lane's holder): the newest epoch's last slot
+  passed is a close (`epochs[e].close_low`) with nothing listed after it,
+  and **every other epoch is sealed**, by a tombstone (the holder
+  tombstones superseded epochs as always: a zombie PUT of it meets the
+  tombstone) or by its own passed close (the same process's other writer
+  lanes). This is stronger than the model's first `retireClosed`: building
+  it found that an earlier incarnation's zombie PUT could land after a
+  later incarnation's close retired the lane, and be quarantined although
+  its request was ingested (`model/retirement.qnt` `closeUnsealed`, a
+  spurious page). R = the highest of the unsealed closes' lows. The
+  checkpoint records `retired_ns` (R), `retired_epoch`, `retired_by`
+  (`close` | `operator`), `retired_wall_ms`; `reborn_epoch` once a later
+  epoch is listed. `retired_ns` stays after a rebirth: it is the
+  quarantine's bound.
+- **+inf** (`consumer/watermark.rs`): a lane whose checkpoint is retired and
+  not reborn, and whose epochs, LISTed by the watermark run after reading
+  the checkpoint, show none after the retired one, is left out of every
+  minimum. `watermark.json` counts them (`retired_lanes`); the cluster's
+  document names them with R (`retired: {"{producer}/{signal}": R}`), their
+  `lane_wm` is their signal's value (a number, as readers expect).
+- **The quarantine** (`consumer/worker.rs`, `consumer/retire.rs`): an object
+  of a lane whose `retired_ns` is set, received below R (an object of an
+  epoch after the retired one: below R − `--quarantine-skew`, default 5 s,
+  since a later incarnation may run on a node whose clock is behind), is
+  checked against central first: if central holds its content key's rows
+  (a copy: a restarted edge replaying what it committed before its close)
+  it is passed like any copy; otherwise it is recorded in
+  `{ctl}/quarantine/{lane}.json` (CAS, once per slot) **before** the
+  checkpoint passes its slot, logged `QUARANTINED`, counted
+  (`consumer_quarantined_objects_total`, paged:
+  `deploy/alerts/consumer-retirement.rules.yaml`), and never inserted. A
+  record that cannot be written leaves the slot waiting. `metrics_series`
+  objects are never quarantined: a series row is a definition that no
+  answer counts, idempotent by series; its points are quarantined with
+  their own objects.
+- Tests: unit and worker tests (`consumer/coord.rs`, `watermark.rs`,
+  `tests.rs`), the retirement DST (`tests/dst_consumer.rs`
+  `retirement_seeds`, `retirement_catches_mutants`), Hegel properties
+  (`tests/hegel_props.rs`), the edges' tests, `scripts/close_e2e.sh` (both
+  edges, Quiver with a restart), the cross-edge conformance run (the closes
+  compared), and a scale-down in `query/integration` (the cluster's
+  `complete_through` passes the removed publisher; a window after it turns
+  complete; the same publisher killed stays holding).
 
 ## 4. Control documents
 
@@ -428,12 +489,13 @@ with the tombstone and the three checks; a DST mutant per model mutant.
 |---|---|---|
 | `format.json` | consumer (create-only, at start) | `{"format": 2, "layout": "{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet"}` |
 | `lease/…` | consumer workers (CAS) | `{lane, owner, epoch, beat, ttl_ms, wall_ms}` (D8) |
-| `ckpt/…` | the lane's lease holder (CAS) | `{lane, lease_epoch, version, floor, epochs: {epoch: {next, closed}}, max_low_ns, wm_ns, wm_wall_ms}` |
+| `ckpt/…` | the lane's lease holder (CAS) | `{lane, lease_epoch, version, floor, epochs: {epoch: {next, closed, close_low}}, max_low_ns, wm_ns, wm_wall_ms, retired_ns, retired_epoch, reborn_epoch, retired_by, retired_evidence, retired_wall_ms}` (the retirement fields, §3.1, absent until a lane is retired) |
+| `quarantine/{lane}.json` | the lane's lease holder (CAS) | `{lane, version, retired_ns, objects: [{key, epoch, seq, content, rows, received_ns, at_wall_ms, admitted_wall_ms?, admitted_rows?}]}` (§3.1) |
 | `workers/…` | each worker (plain PUT) | `{worker, beat, wall_ms, load, lanes}` |
 | `gc.json` | `consume gc` (CAS) | `{version, marks, deleted_below, retired}` (D12) |
 | `audit/{db}.json` | `consume horizon-audit` | reported copies (D11) |
-| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s, clusters: {cluster: ns}, signals: {signal: ns}, unlisted_signals_ns}` (the last three since D29; a reader treats them as absent in older documents) |
-| `watermark/{cluster}.json` | `consume gc` (CAS) | `{format, version, cluster, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, signals: {signal: ns}, unlisted_signals_ns, lane_wm: {"{producer}/{signal}": ns}, holding, stale, stale_after_s}` (D29) |
+| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s, clusters: {cluster: ns}, signals: {signal: ns}, unlisted_signals_ns, retired_lanes}` (clusters, signals and unlisted since D29, `retired_lanes` since D35; a reader treats them as absent in older documents) |
+| `watermark/{cluster}.json` | `consume gc` (CAS) | `{format, version, cluster, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, signals: {signal: ns}, unlisted_signals_ns, lane_wm: {"{producer}/{signal}": ns}, holding, stale, stale_after_s, retired: {"{producer}/{signal}": R_ns}}` (D29; `retired` since D35, absent when empty) |
 
 ## 5. Versioning and compatibility
 

@@ -18,14 +18,15 @@ const (
 	dW       = 760
 	laneGap  = 12
 	rowPad   = 8
-	lineH    = 15
+	lineH    = 16
 	headH    = 22
 	nodeH    = 44
 	nodeGapY = 48
 )
 
-// wrapWords splits s into lines of at most width pixels of the quiet type, at spaces.
-func wrapWords(s string, width int) []string { return wrapChars(s, int(float64(width)/charW)) }
+// wrapWords splits s into lines of at most width pixels of the quiet type (12 px, legible in
+// the PRD at its displayed scale), at spaces.
+func wrapWords(s string, width int) []string { return wrapChars(s, int(float64(width)/ovCharW)) }
 
 // nameCharW is the average advance of a 13 px semibold name.
 const nameCharW = 7.6
@@ -85,14 +86,14 @@ func (t textRow) at(x, y int) detailRow {
 	r.lines = append(r.lines, mkT(y+12, t.head, t.id, "font-weight", "600", "font-size", "12", "fill", "@ink"))
 	k := 1
 	if t.sub != "" {
-		r.lines = append(r.lines, mkT(y+12+lineH, t.sub, t.id+"-s", "font-size", "11.5", "fill", "@ink"))
+		r.lines = append(r.lines, mkT(y+12+lineH, t.sub, t.id+"-s", "font-size", ovFont, "fill", "@ink"))
 		k++
 	}
 	for j, l := range t.lines {
-		r.lines = append(r.lines, mkT(y+12+lineH*(k+j), l, fmt.Sprintf("%s-l%d", t.id, j+1), "font-size", "11.5", "fill", "@quiet"))
+		r.lines = append(r.lines, mkT(y+12+lineH*(k+j), l, fmt.Sprintf("%s-l%d", t.id, j+1), "font-size", ovFont, "fill", "@quiet"))
 	}
 	for j, l := range t.extra {
-		r.lines = append(r.lines, mkT(y+12+lineH*(k+len(t.lines)+j), l, fmt.Sprintf("%s-x%d", t.id, j+1), "font-size", "11.5", "font-style", "italic", "fill", "@quiet"))
+		r.lines = append(r.lines, mkT(y+12+lineH*(k+len(t.lines)+j), l, fmt.Sprintf("%s-x%d", t.id, j+1), "font-size", ovFont, "font-style", "italic", "fill", "@quiet"))
 	}
 	return r
 }
@@ -445,11 +446,11 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 		cx := b[0] + b[2]/2
 		if len(l.Control) > 0 {
 			ctl.add(mk("path", "d", pathD([][2]int{{cx - 14, b[1] + b[3]}, {cx - 14, boxTop}}), "marker-end", "url(#"+markerID+")"))
-			labels = append(labels, text(cx-22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Control), "lbl-"+pathID(l.Control[0]), "text-anchor", "end", "font-size", "11.5", "fill", "@quiet"))
+			labels = append(labels, text(cx-22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Control), "lbl-"+pathID(l.Control[0]), "text-anchor", "end", "font-size", ovFont, "fill", "@quiet"))
 		}
 		if len(l.Feedback) > 0 {
 			fb.add(mk("path", "d", pathD([][2]int{{cx + 14, boxTop}, {cx + 14, b[1] + b[3]}}), "marker-end", "url(#"+markerID+")"))
-			labels = append(labels, text(cx+22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Feedback), "lbl-"+pathID(l.Feedback[0]), "font-size", "11.5", "fill", "@quiet"))
+			labels = append(labels, text(cx+22, b[1]+b[3]+nodeGapY/2+4, joinLabels(l.Feedback), "lbl-"+pathID(l.Feedback[0]), "font-size", ovFont, "fill", "@quiet"))
 		}
 	}
 	for _, pl := range best.ctl {
@@ -475,7 +476,7 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	g.add(rect)
 	g.add(text(boxL+12, titleY, c.S("title"), tid(c, "name"), "font-weight", "600", "fill", "@ink"))
 	for i, line := range desc {
-		g.add(text(boxL+12, titleY+lineH*(i+1)+2, line, tid(c, fmt.Sprintf("l%d", i+1)), "font-size", "11.5", "fill", "@quiet"))
+		g.add(text(boxL+12, titleY+lineH*(i+1)+2, line, tid(c, fmt.Sprintf("l%d", i+1)), "font-size", ovFont, "fill", "@quiet"))
 	}
 	for _, comp := range []struct {
 		x1, x2   int
@@ -483,7 +484,7 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	}{{boxL + 6, mid - 2, "Control algorithm", "ca"}, {mid + 2, boxR - 6, "Process model", "pm"}} {
 		g.add(mk("rect", "x", itoa(comp.x1), "y", itoa(headY-4), "width", itoa(comp.x2-comp.x1), "height", itoa(boxBottom-headY-2), "rx", "6",
 			"fill", "@tint", "stroke", "none"))
-		g.add(text(comp.x1+6, headY+12, strings.ToUpper(comp.name), tid(c, comp.id), "font-size", "10.5", "font-weight", "600", "fill", "@quiet"))
+		g.add(text(comp.x1+6, headY+12, strings.ToUpper(comp.name), tid(c, comp.id), "font-size", ovFont, "font-weight", "600", "fill", "@quiet"))
 	}
 	for _, i := range best.ruleOrder {
 		g.add(ruleText[i].at(caL, best.caRows[i]).lines...)
@@ -535,8 +536,8 @@ func (p *Project) DetailDiagram(n *Node, markerID string) (*el, int) {
 	x := 24
 	item := func(sym *el, symW int, label, id string) {
 		key.add(sym)
-		key.add(text(x+symW+8, ky+4, label, id, "font-size", "11.5", "fill", "@quiet"))
-		x += symW + 8 + textW(label) + 32
+		key.add(text(x+symW+8, ky+4, label, id, "font-size", ovFont, "fill", "@quiet"))
+		x += symW + 8 + ovTextW(label) + 32
 	}
 	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25"), 32, "control action, from the rule that issues it", "key-control")
 	item(mk("line", "x1", itoa(x), "x2", itoa(x+32), "y1", itoa(ky), "y2", itoa(ky), "stroke", "@edge", "stroke-width", "1.25", "stroke-dasharray", "5 4"), 32, "feedback, into each variable it updates", "key-feedback")

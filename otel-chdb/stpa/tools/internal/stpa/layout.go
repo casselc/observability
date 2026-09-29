@@ -18,7 +18,6 @@ const (
 	laneX     = 730
 	laneStep  = 10
 	pairSep   = 40
-	charW     = 6.2 // average advance of the 11.5 px quiet type
 	maxLines  = 3
 )
 
@@ -105,10 +104,9 @@ func wrap(s string, width int) []string {
 	return lines
 }
 
-func textW(s string) int { return int(float64(len([]rune(s)))*charW + 0.5) }
-
-// The overview's quiet type (edge labels, box descriptions, the key) is read in the PRD, where a
-// 760-wide widget shows at about 0.88 of its size: 12 lands at 10.6 px, above the PRD's 10.5.
+// The diagrams' quiet type (edge labels, descriptions, rule and variable lines, the key) is read
+// in the PRD, where a 760-wide widget shows at about 0.88 of its size: 12 lands at 10.6 px, above
+// the PRD's 10.5. Overviews and detail diagrams alike.
 const (
 	ovFont  = "12"
 	ovCharW = 6.5 // average advance of the 12 px quiet type

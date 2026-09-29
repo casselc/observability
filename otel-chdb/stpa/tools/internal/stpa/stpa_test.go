@@ -308,27 +308,28 @@ func TestRuleTextIDsSurviveReordering(t *testing.T) {
 	}
 }
 
-// The overviews are read in the PRD, whose column is 672 px wide: every text of every
-// overview (names, descriptions, edge labels, strips, key) lands at 10.5 px or more at the
-// widget's displayed scale. A text without a fontSize takes the svg's (13).
-func TestOverviewTextLegibleInThePRD(t *testing.T) {
+// The diagrams are read in the PRD, whose column is 672 px wide: every text of every overview
+// and every controller's detail diagram (names, descriptions, edge labels, strips, rules,
+// variables, key) lands at 10.5 px or more at the widget's displayed scale. A text without a
+// fontSize takes the svg's (13).
+func TestDiagramTextLegibleInThePRD(t *testing.T) {
 	p, err := Load(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	textTag := regexp.MustCompile(`<text ([^>]*)>([^<]*)<`)
 	size := regexp.MustCompile(`fontSize='([0-9.]+)'`)
-	for _, v := range p.Views {
-		if v.Type != "control-structure" {
-			continue
+	width := regexp.MustCompile(`viewBox='0 0 ([0-9]+) `)
+	check := func(name, jsx string) (texts, strips int) {
+		w := 760.0
+		if g := width.FindStringSubmatch(jsx); g != nil {
+			fmt.Sscan(g[1], &w)
 		}
-		L := p.Place(v)
-		scale := 672.0 / float64(L.W)
+		scale := 672.0 / w
 		if scale > 1 {
 			scale = 1
 		}
-		texts, strips := 0, 0
-		for _, m := range textTag.FindAllStringSubmatch(L.PRD(), -1) {
+		for _, m := range textTag.FindAllStringSubmatch(jsx, -1) {
 			fs := 13.0
 			if g := size.FindStringSubmatch(m[1]); g != nil {
 				fmt.Sscan(g[1], &fs)
@@ -338,11 +339,24 @@ func TestOverviewTextLegibleInThePRD(t *testing.T) {
 				strips++
 			}
 			if fs*scale < 10.5 {
-				t.Errorf("%s: %q at %.1f px authored shows at %.1f px (width %d)", v.Name, m[2], fs, fs*scale, L.W)
+				t.Errorf("%s: %q at %.1f px authored shows at %.1f px (width %.0f)", name, m[2], fs, fs*scale, w)
 			}
 		}
-		if texts == 0 || (v.Internals != "" && strips == 0) {
-			t.Errorf("%s: %d texts, %d strip labels found", v.Name, texts, strips)
+		return
+	}
+	for _, v := range p.Views {
+		switch v.Type {
+		case "control-structure":
+			texts, strips := check(v.Name, p.Place(v).PRD())
+			if texts == 0 || (v.Internals != "" && strips == 0) {
+				t.Errorf("%s: %d texts, %d strip labels found", v.Name, texts, strips)
+			}
+		case "controller-details":
+			for _, n := range p.detailNodes(v) {
+				if texts, _ := check("controller-"+n.Name, p.DetailPRD(n)); texts == 0 {
+					t.Errorf("controller-%s: no texts found", n.Name)
+				}
+			}
 		}
 	}
 }

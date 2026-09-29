@@ -473,9 +473,21 @@ go1.27.1`; CI `GO_VERSION` 1.27.x). What the new toolchain changed:
 | Go DST (3) | `parquetgo/internal/s3emu` (port of s3emu.rs, MD5 ETags) + `parquetgo/dst` `TestDSTEdgeCommit`: the real edge and aws-sdk-go-v2 over `httptest.NewTestServer` in a bubble; swarm fault menus; exactly once, closed logs stay closed, calls bounded with no deadline (CAST 39), progress after heal, linearizable; mutants RetryNewKey, NoHalt, a store ignoring If-None-Match, a lane waiting an hour on a hung PUT | 24 seeds | 20,000 new seeds (`edge-dst`) | the lane held a `sync.Mutex` across its S3 requests: queued callers ignored their deadlines, and the bubble's clock froze behind them. The lane's lock is now a channel (context-aware) |
 | rapid machines + swarm, fuzz (4) | alerts engine machine; basis keyring machine; fuzz targets for sqlscope, hdxadapter, basis tokens, rwproxy, the aggregator's NDJSON filter and gap times, the ingress (bearer, token, body) | seeds and corpus; 100 cases per machine | 60 s per target (`fuzz`, `ci/fuzz.sh`) | basis tokens had four accepted spellings (lenient base64 of the MAC's last character; now strict); `ingress.Bearer` accepted an empty token |
 
-Not done: hegel-go machines (rapid with hand-rolled swarm instead), the
-`goroutineleak` profile (goleak covers the packages above), staticcheck,
-Gobra, Antithesis (no contact made).
+Later the same day: **staticcheck** in `ci.yml` over every module (92
+findings fixed or suppressed with a reason; five generators wrote `-0.0`,
+which is +0 in Go, where they meant negative zero); **gremlins** v0.5.1 over
+`parquetgo/commit` in the nightly `mutants` job, against a baseline of
+accepted survivors; the edge DST now drives the exporter's **heartbeat loop**
+(moved to `edge.Heartbeats` so the exporter and the DST run the same code).
+
+Not done: hegel-go machines. Judged against §3: hegel-go's advantages over
+rapid with the hand-rolled swarm are per-rule weighting, an example database
+across runs and per-rule statistics; the two rapid machines are small pure
+state machines that on/off swarm covers, and the fault-heavy Go component
+(the edge's lanes) is covered by the DST's per-seed fault menus. Not worth a
+purego alpha and a second go.mod per module today (VERIFICATION.md §7, "Go
+tooling judgements"). Also not done: the `goroutineleak` profile (goleak
+covers the packages above), Gobra, Antithesis (no contact made).
 
 `-race` and synctest: the DST module (`parquetgo/dst`) runs without
 `-race` in CI (`NORACE`). Under `-race` it reports races between the

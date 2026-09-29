@@ -1,0 +1,47 @@
+# cargo-fuzz targets for the parsers of otap-s3pq that read less-trusted
+# input (the Go twins are the native fuzz targets of ci/fuzz.sh):
+#   slot_key     S3 keys the consumer lists (any writer of the lane prefix
+#                may put one): an accepted key is the slot's one spelling
+#   slot_meta    object metadata (oscope-*): never panics, a tombstone is
+#                one only when it says so
+#   offload_json SDK-supplied values the edge's offloader splits: the array
+#                scanner never panics or recurses, its ranges are in order
+#                and inside the input; the cut stays on a UTF-8 boundary
+# Run: `cargo +nightly fuzz run <target> -- -max_total_time=60` (nightly
+# `fuzz` job, ci/cargo-fuzz.sh). Not a workspace member of otap-rs.
+[package]
+name = "otap-s3pq-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+otap-s3pq = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "slot_key"
+path = "fuzz_targets/slot_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "slot_meta"
+path = "fuzz_targets/slot_meta.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "offload_json"
+path = "fuzz_targets/offload_json.rs"
+test = false
+doc = false
+bench = false

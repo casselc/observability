@@ -27,6 +27,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // The entity rewrite proxy's statements (entities/rwproxy, exact mode) in
@@ -273,6 +275,7 @@ func rwCallers(t *testing.T, c chc) []rwCaller {
 // service's filters applied by hand). Then the proof that a dictionary
 // lookup does not leak another cluster's entities.
 func TestRwproxyChainThroughAdapter(t *testing.T) {
+	tracetag.Covers(t, "D", "H-6")
 	if os.Getenv("HDXA_IT") == "" {
 		t.Skip("HDXA_IT=1 runs the chain against a local ClickHouse")
 	}

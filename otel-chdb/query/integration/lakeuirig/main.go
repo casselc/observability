@@ -731,7 +731,7 @@ func main() {
 	})
 	mux.HandleFunc("/rig/index", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "POST runs one indexer pass", 405)
+			http.Error(w, "POST runs one indexer pass", http.StatusMethodNotAllowed)
 			return
 		}
 		rp, err := indexPass()
@@ -745,7 +745,7 @@ func main() {
 	wmKey := r.run + "/_consumer/watermark.json"
 	mux.HandleFunc("/rig/watermark", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "POST ?op=drop|restore", 405)
+			http.Error(w, "POST ?op=drop|restore", http.StatusMethodNotAllowed)
 			return
 		}
 		var err error
@@ -776,7 +776,7 @@ func main() {
 	moreN := 0
 	mux.HandleFunc("/rig/more", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
-			http.Error(w, "POST sends one more batch", 405)
+			http.Error(w, "POST sends one more batch", http.StatusMethodNotAllowed)
 			return
 		}
 		moreMu.Lock()
@@ -812,14 +812,19 @@ func noStore(h http.Handler) http.Handler {
 	})
 }
 
-func (r *rig) cleanup(ctx context.Context) {
-	// an edge still running (a signal during setup, e.g. a POST that never
-	// returned) would outlive the rig: stop it first
+// killEdges kills every edge the rig started. An edge still running (a
+// signal during setup, e.g. a POST that never returned) would outlive the rig
+// (STPA CAST row 57): cleanup stops them first.
+func (r *rig) killEdges() {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, e := range r.edges {
 		_ = e.cmd.Process.Kill() // an error for one already stopped
 	}
-	r.mu.Unlock()
+}
+
+func (r *rig) cleanup(ctx context.Context) {
+	r.killEdges()
 	req, _ := http.NewRequest(http.MethodPost, r.ch, strings.NewReader("DROP DATABASE IF EXISTS "+r.db+" SYNC"))
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		resp.Body.Close()

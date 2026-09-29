@@ -1,0 +1,10 @@
+# Accepted surviving mutants (nightly job `mutants`, ci/mutants.py check). One line per
+# survivor: `key | reason`. The job fails on a survivor that is not listed here (a test
+# lost its teeth, or new code has none) and on a line without a reason; a listed mutant
+# that is killed is reported for removal. Adding a line is weakening a test: the same
+# review. Keys: `rust <file>: <cargo-mutants description>`, `go <file> <func> <MUTATOR> #n`.
+#
+# Scope (owner decision 2026-09-29, VERIFICATION.md §7): the consumer's lease, plan and
+# collection (otap-rs src/consumer/{coord,plan,gc}.rs) and the slot protocol (src/proto.rs),
+# against `cargo test --bin consume`; the Rust edge's commit (src/store.rs) against
+# `cargo test --lib`; the Go edge's commit and lane code (parquetgo/commit) with gremlins.

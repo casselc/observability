@@ -14,17 +14,22 @@ otel-chdb/parquetgo/*                  ci:go-test
 otel-chdb/otap/*                       ci:go-test
 otel-chdb/entities/*                   ci:go-test
 otel-chdb/query/internal/*             ci:go-test
-otel-chdb/query/integration/hdxadapter/compare_test.go  ci:go-test
+otel-chdb/query/integration/hdxadapter/*  nightly:hdxadapter-integration   # HDXA_IT: skipped in go-test
+otel-chdb/query/integration/lakeuirig/*   ci:go-test
 otel-chdb/alerts/internal/*            ci:go-test
 otel-chdb/s3cas/*                      ci:go-test
 otel-chdb/stpa/tools/*                 ci:go-test
+otel-chdb/ingress/*                    ci:go-test
 
 # Rust (ci.yml rust: --lib --bins, then the named test targets; the nightly repeats some at scale)
+otel-chdb/otap-rs/src/consumer/audit.rs   nightly:replicated   # its tagged test needs the replicas (ci/replicated.sh); ci:rust skips it
 otel-chdb/otap-rs/src/*                ci:rust
 otel-chdb/otap-rs/tests/dst_consumer.rs  ci:rust nightly:dst
 otel-chdb/otap-rs/tests/dst_net.rs       ci:rust nightly:dst
 otel-chdb/otap-rs/tests/hegel_props.rs   ci:rust nightly:hegel
+otel-chdb/otap-rs/tests/offload.rs       ci:rust
 otel-chdb/otap-rs/tests/hegel_dst.rs     ci:rust   # the nightly runs only hegel_dst_fleet and hegel_dst_finds_mutants
 
 # Node (ci.yml lakeui: npm test, with test/trace-reporter.js)
+otel-chdb/lakeui/mosaic/e2e/*        nightly:lakeui-mosaic-e2e   # Playwright, with test/pw-trace-reporter.js
 otel-chdb/lakeui/test/*                ci:lakeui

@@ -65,12 +65,41 @@ jobs:
         run: ci/iam-lint.sh otel-chdb/grants/examples/out/iam
       - name: Traceability record (the IAM lint is CAST row 30's control)
         run: python3 ci/trace/trace.py record --test ci/iam-lint.sh --technique G --ids CAST-30,H-6,R-S7,SEC-2
+      - name: Static credentials in the configurations we ship (CAST row 11); the lint's self-test first
+        run: ci/creds-lint.sh --self-test && ci/creds-lint.sh
+      - name: Traceability record (the credentials lint is CAST row 11's control)
+        run: python3 ci/trace/trace.py record --test ci/creds-lint.sh --technique G --ids CAST-11,H-6
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trace-go-vet
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
+
+  # staticcheck's default checks over every Go module (ci/staticcheck.sh): a
+  # finding is fixed or suppressed where it stands with its reason.
+  staticcheck:
+    name: staticcheck (all Go modules)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      STATICCHECK_VERSION: "2026.2.1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/.cache/staticcheck
+          key: staticcheck-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ env.STATICCHECK_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: staticcheck-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ env.STATICCHECK_VERSION }}-
+      - run: go install "honnef.co/go/tools/cmd/staticcheck@$STATICCHECK_VERSION"
+      - run: ci/staticcheck.sh all
 
   go-test:
     name: go test (fast modules, -race)

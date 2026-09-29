@@ -6,7 +6,8 @@ export default defineConfig({
   testDir: '.',
   timeout: 600_000,
   workers: 1,
-  reporter: [['list']],
+  // the second writes the traceability records of covers() tags (ci/README.md, "Traceability")
+  reporter: [['list'], ['../../test/pw-trace-reporter.js']],
   use: { browserName: 'chromium', headless: true, viewport: { width: 1280, height: 1000 } },
   outputDir: '../test-results',
 })

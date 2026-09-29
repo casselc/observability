@@ -90,11 +90,19 @@ pub fn slot_key(prefix: &str, epoch: &str, seq: u64) -> String {
     format!("{}/{}/{:020}.parquet", prefix.trim_end_matches('/'), epoch, seq)
 }
 
-/// Parses a key made by `slot_key`.
+/// Parses a key made by `slot_key`, and only such a key: a slot has one
+/// spelling (twenty digits). `str::parse` alone also takes `7`, `+7` and
+/// `007`, so any writer of the prefix could put a second key for a slot,
+/// beside the one the create-only PUT guards (the fuzz target `slot_key`
+/// holds the round trip; the Go edge's `commit.ParseSlotKey` agrees).
 pub fn parse_slot_key(prefix: &str, key: &str) -> Option<(String, u64)> {
     let rest = key.strip_prefix(prefix.trim_end_matches('/'))?.strip_prefix('/')?;
     let (epoch, name) = rest.split_once('/')?;
-    let seq = name.strip_suffix(".parquet")?.parse().ok()?;
+    let digits = name.strip_suffix(".parquet")?;
+    if epoch.is_empty() || digits.len() != 20 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let seq = digits.parse().ok()?;
     Some((epoch.to_string(), seq))
 }
 
@@ -593,6 +601,10 @@ mod tests {
         let k = slot_key("p/traces/", "E1", 7);
         assert_eq!(k, "p/traces/E1/00000000000000000007.parquet");
         assert_eq!(parse_slot_key("p/traces", &k), Some(("E1".into(), 7)));
+        for other in ["p/traces/E1/7.parquet", "p/traces/E1/+0000000000000000007.parquet", "p/traces//00000000000000000007.parquet",
+            "p/traces/E1/000000000000000000007.parquet", "p/traces/E1/99999999999999999999.parquet"] {
+            assert_eq!(parse_slot_key("p/traces", other), None, "{other}");
+        }
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20721), (2026, 9, 25));
         assert_eq!(new_epoch().len(), "20260925T031500.123Z-".len() + 8);

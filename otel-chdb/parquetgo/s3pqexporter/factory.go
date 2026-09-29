@@ -79,46 +79,20 @@ type shared struct {
 	done chan struct{}       // closed once the heartbeat loop has returned
 }
 
-// heartbeats registers every lane the edge can write (birth heartbeats,
-// waiting up to BirthTimeout: exporters start before receivers, so nothing
-// is taken into custody before) and then keeps each idle lane alive: a
-// heartbeat per lane that has committed nothing for Interval
-// (../../FORMAT.md §2).
+// heartbeats runs the edge's heartbeat loop (edge.Heartbeats: births, then
+// a heartbeat per idle lane) and closes done when it has returned.
 func heartbeats(ctx context.Context, e *edge.Edge, hb HeartbeatConfig, log *zap.Logger, done chan struct{}) {
-	lanes := e.Registered()
-	born := map[string]bool{}
-	until := time.Now().Add(hb.BirthTimeout)
-	for len(born) < len(lanes) && time.Now().Before(until) {
-		for _, ns := range lanes {
-			if !born[ns] && e.Beat(ctx, ns) == nil {
-				born[ns] = true
-			}
-		}
-		if len(born) < len(lanes) {
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
+	var warn func(string, error)
 	if log != nil {
-		log.Info("s3pq births", zap.Int("registered", len(born)), zap.Int("lanes", len(lanes)))
+		warn = func(ns string, err error) { log.Warn("s3pq heartbeat", zap.String("lane", ns), zap.Error(err)) }
+	}
+	born, loop := e.Heartbeats(ctx, hb.Interval, hb.BirthTimeout, warn)
+	if log != nil {
+		log.Info("s3pq births", zap.Int("registered", born), zap.Int("lanes", len(e.Registered())))
 	}
 	go func() {
-		defer close(done)
-		t := time.NewTicker(hb.Interval / 2)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-			for _, ns := range lanes {
-				if e.IdleFor(ns) >= hb.Interval {
-					if err := e.Beat(ctx, ns); err != nil && log != nil && ctx.Err() == nil {
-						log.Warn("s3pq heartbeat", zap.String("lane", ns), zap.Error(err))
-					}
-				}
-			}
-		}
+		<-loop
+		close(done)
 	}()
 }
 

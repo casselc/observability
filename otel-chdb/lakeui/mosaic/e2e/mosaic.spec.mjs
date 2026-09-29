@@ -31,6 +31,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { covers } from '../../test/pw-trace.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const queryDir = join(here, '..', '..', '..', 'query')
@@ -373,6 +374,11 @@ test('the server-connector question: Mosaic\'s statements (DuckDB dialect) on Cl
 })
 
 test('stale cubes: pre-aggregated tables kept across a reload of other rows answer for the old rows', async ({ browser }) => {
+  // CAST row 33: with the cubes kept (nodrop=1, the old behaviour) the
+  // brushed charts show the previous load's counts; the spike's fix (drop the
+  // cube schema, clear the query cache on every load) is what "dropped" runs
+  const t = test.info()
+  covers(t, 'IT', 'CAST-33', 'H-5')
   const res = {}
   for (const nodrop of ['1', '0']) {
     const page = await open(browser, 'sre', `mode=range&nodrop=${nodrop}`)

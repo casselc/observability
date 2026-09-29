@@ -8,6 +8,7 @@ replace github.com/casselc/observability/otel-chdb/parquetgo => ../parquetgo
 
 require (
 	github.com/casselc/observability/otel-chdb/parquetgo v0.0.0-00010101000000-000000000000
+	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/parquet-go/parquet-go v0.32.0
 	go.opentelemetry.io/collector/pdata v1.67.0

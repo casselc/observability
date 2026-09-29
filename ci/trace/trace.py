@@ -450,7 +450,7 @@ def scan_tags():
             fn = enclosing(text, m.start(), rs_func)
             tags.append({'kind': 'rust', 'file': r, 'line': text.count('\n', 0, m.start()) + 1, 'func': fn.group(1) if fn else '',
                          'technique': m.group(1), 'ids': strs(m.group(2)), 'jobs': jobs_for(r, rules)})
-    for f in code_files(['otel-chdb/lakeui/**/*.test.js', 'otel-chdb/lakeui/**/*.test.mjs']):
+    for f in code_files(['otel-chdb/lakeui/**/*.test.js', 'otel-chdb/lakeui/**/*.test.mjs', 'otel-chdb/lakeui/**/*.spec.mjs']):
         r = rel(f)
         if r in NOT_TAGS:
             continue
@@ -744,6 +744,56 @@ def check(args):
     return 1 if fails else 0
 
 
+def load_exit():
+    """ci/trace/exit-criteria.txt: [{phase, criterion, techniques, ids, line}], errors."""
+    out, errs = [], []
+    p = os.path.join(TRACE_DIR, 'exit-criteria.txt')
+    for n, l in enumerate(lines_of(p), 1):
+        if not l.strip() or l.lstrip().startswith('#'):
+            continue
+        parts = [x.strip() for x in l.rstrip('\n').split('|')]
+        if len(parts) != 4 or not all(parts):
+            errs.append(f'ci/trace/exit-criteria.txt:{n}: want "phase | criterion | techniques | IDs"')
+            continue
+        out.append({'phase': parts[0], 'criterion': parts[1], 'techniques': tech_list(parts[2]),
+                    'ids': [x for x in re.split(r'[, ]+', parts[3]) if x], 'line': n})
+    return out, errs
+
+
+def exit_criteria(args):
+    """Judges one phase's exit criteria against records (VERIFICATION.md §4): fails while any is unmet."""
+    ids, _, _ = build_catalog()
+    tech = techniques()
+    crit, errs = load_exit()
+    for c in crit:
+        errs += [f'ci/trace/exit-criteria.txt:{c["line"]}: unknown ID {x}' for x in c['ids'] if x not in ids]
+        errs += [f'ci/trace/exit-criteria.txt:{c["line"]}: unknown technique {x}' for x in c['techniques'] if x not in tech]
+    phases = sorted({c['phase'] for c in crit})
+    if args.phase not in phases:
+        errs.append(f'no exit criteria for phase {args.phase!r} (known: {", ".join(phases)})')
+    recs, bad, _ = load_records(args.records or [])
+    commit = args.commit or git_commit()
+    passing = [r for r in recs if r.get('outcome') == 'passed' and (not commit or r.get('commit') == commit)]
+    lines = [f'### Exit criteria of phase {args.phase} at {commit[:12] if commit else "(no commit)"}', '',
+             '| criterion | techniques | IDs | evidence |', '|---|---|---|---|']
+    unmet = 0
+    for c in (c for c in crit if c['phase'] == args.phase):
+        ev = sorted({r.get('test', '?') for r in passing
+                     if set(r.get('ids', [])) & set(c['ids']) and set(tech_list(r.get('technique'))) & set(c['techniques'])})
+        unmet += not ev
+        lines.append(f'| {md(c["criterion"])} | {", ".join(c["techniques"])} | {", ".join(c["ids"])} | '
+                     f'{md("; ".join(ev)) if ev else "**unmet**"} |')
+    lines += ['', f'{unmet} unmet' + (' (the phase is not done)' if unmet else ': every criterion has a passing record')]
+    text = '\n'.join(lines) + '\n'
+    print(text)
+    if args.summary:
+        with open(args.summary, 'a', encoding='utf-8') as f:
+            f.write(text)
+    for e in errs + [f'unreadable record {x}' for x in bad]:
+        print(f'::error::{e}')
+    return 1 if errs or bad or unmet else 0
+
+
 def outcome_str(rs):
     if not rs:
         return 'not run'
@@ -920,6 +970,9 @@ def main():
     p.add_argument('--jobs', required=True, help='comma list of the jobs this run ran (ci: go-test,rust,...)')
     p.add_argument('--commit'); p.add_argument('--report'); p.add_argument('--summary'); p.set_defaults(fn=check)
     p = sub.add_parser('snapshot'); p.add_argument('src'); p.set_defaults(fn=snapshot)
+    p = sub.add_parser('exit', help="judge one phase's exit criteria (ci/trace/exit-criteria.txt)")
+    p.add_argument('--phase', required=True); p.add_argument('--records', nargs='*')
+    p.add_argument('--commit'); p.add_argument('--summary'); p.set_defaults(fn=exit_criteria)
     a = ap.parse_args()
     sys.exit(a.fn(a))
 

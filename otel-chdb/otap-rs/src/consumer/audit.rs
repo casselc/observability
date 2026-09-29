@@ -678,6 +678,8 @@ pub(crate) mod tests {
     /// replicas report the same copy; and a dead first URL fails over.
     #[tokio::test(flavor = "current_thread")]
     async fn a_lagging_replica_is_synced_or_the_run_fails() {
+        // CAST row 6: nightly `replicated` starts the replicas (ci/replicated.sh)
+        let _trace = otap_s3pq::oscope_trace::covers("FI", &["CAST-6", "H-2"]);
         let urls = std::env::var("OTAPRS_REPLICAS").unwrap_or_else(|_| "http://127.0.0.1:28123,http://127.0.0.1:38123".into());
         let reps: Vec<ClickHouse> = urls.split(',').map(ClickHouse::new).collect();
         if reps.len() < 2 || !ch_up(&reps[0]).await || !ch_up(&reps[1]).await {

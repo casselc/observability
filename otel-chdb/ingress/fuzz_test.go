@@ -10,12 +10,18 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // FuzzBearer: the Authorization header parser never panics, and a token it
-// returns is a substring of the header with no surrounding space.
+// returns is a substring of the header with no surrounding space. The seeds
+// run as a unit test on every push: "Bearer " followed by blanks is CAST row
+// 67's case (ok with an empty token, before a9b7be9).
 func FuzzBearer(f *testing.F) {
-	for _, h := range []string{"Bearer abc", "bearer abc", "Bearer  abc ", "Basic x", "Bearer", "", "Bearer a b"} {
+	tracetag.Covers(f, "FZ", "CAST-67", "H-6")
+	for _, h := range []string{"Bearer abc", "bearer abc", "Bearer  abc ", "Basic x", "Bearer", "", "Bearer a b",
+		"Bearer ", "Bearer    ", "Bearer \t ", "bearer\t"} {
 		f.Add(h)
 	}
 	f.Fuzz(func(t *testing.T, h string) {

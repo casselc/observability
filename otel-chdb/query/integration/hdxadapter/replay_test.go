@@ -43,6 +43,8 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 var sides = map[string]string{"hdx_old": "hdx_it_old", "hdx_new": "hdx_it_new", "hdx_full": "hdx_it_full"}
@@ -331,6 +333,8 @@ type outcome struct {
 }
 
 func TestReplayHyperDXThroughAdapter(t *testing.T) {
+	// the adapter against ClickHouse on HyperDX's 799 statements (H-5:D, H-6:D in VERIFICATION.md §3)
+	tracetag.Covers(t, "D", "H-5", "H-6")
 	if os.Getenv("HDXA_IT") == "" {
 		t.Skip("HDXA_IT=1 runs the replay against a local ClickHouse")
 	}
@@ -772,13 +776,6 @@ func diffCols(a, b canon) []string {
 		break
 	}
 	return out
-}
-
-func head(rows []string) string {
-	if len(rows) == 0 {
-		return ""
-	}
-	return firstN(rows[0], 150)
 }
 
 // nodeClient runs client.cjs (@clickhouse/client, as HyperDX calls it)

@@ -211,3 +211,47 @@ class Model(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ExitCriteria(unittest.TestCase):
+    def run_exit(self, recs, phase='D36-1'):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'r.jsonl')
+            with open(p, 'w') as f:
+                for r in recs:
+                    f.write(json.dumps(r) + '\n')
+            a = argparse.Namespace(phase=phase, records=[d], commit=SHA, summary=None)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = tr.exit_criteria(a)
+        return rc, out.getvalue()
+
+    def test_every_criterion_names_known_ids_and_techniques(self):
+        ids, _, _ = tr.build_catalog()
+        tech = tr.techniques()
+        crit, errs = tr.load_exit()
+        self.assertEqual(errs, [])
+        self.assertIn('D36-1', {c['phase'] for c in crit})
+        for c in crit:
+            self.assertEqual([x for x in c['ids'] if x not in ids], [], c)
+            self.assertEqual([x for x in c['techniques'] if x not in tech], [], c)
+
+    def test_a_phase_is_done_only_when_every_criterion_has_a_passing_record(self):
+        crit, _ = tr.load_exit()
+        recs = [{'ids': c['ids'][:1], 'technique': c['techniques'][0], 'test': f'crit{c["line"]}', 'func': f'crit{c["line"]}',
+                 'file': 'x', 'commit': SHA, 'job': '', 'outcome': 'passed'} for c in crit if c['phase'] == 'D36-1']
+        rc, out = self.run_exit(recs)
+        self.assertEqual(rc, 0, out)
+        rc, out = self.run_exit(recs[1:])
+        self.assertEqual(rc, 1)
+        self.assertIn('**unmet**', out)
+        # a record of another technique, or another commit, meets nothing
+        rc, _ = self.run_exit([dict(recs[0], technique='G')] + recs[1:])
+        self.assertEqual(rc, 1)
+        rc, _ = self.run_exit([dict(recs[0], commit='deadbeef')] + recs[1:])
+        self.assertEqual(rc, 1)
+
+    def test_an_unknown_phase_fails(self):
+        rc, out = self.run_exit([], phase='D99-1')
+        self.assertEqual(rc, 1)
+        self.assertIn('no exit criteria', out)

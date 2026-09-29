@@ -1955,3 +1955,42 @@ async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
     assert!(b.head(&proto::slot_key(&format!("{ROOT}/c1/p0/logs"), "E00020", 0)).await.unwrap().is_none(), "the birth below it was deleted");
     let _ = rep;
 }
+
+/// A key that parses to a slot but is not that slot's key (`…/E1/0.parquet`,
+/// `…/E1/+1.parquet` for `…/E1/00000000000000000000.parquet`) is not a slot:
+/// the commit protocol's create-only PUT makes one object per KEY, so a
+/// second spelling of a slot's key would give that slot a second object,
+/// which a writer's If-None-Match on the real key never sees. Only the
+/// canonical key (`proto::slot_key`) is read, ingested or collected.
+#[tokio::test(flavor = "current_thread")]
+async fn a_second_spelling_of_a_slot_key_is_not_a_slot() {
+    let (b, c, clk) = setup();
+    let mut w = worker("w1", &b, &c, &clk);
+    let prefix = format!("{ROOT}/c1/p1/traces");
+    put_obj(&b, "c1/p1/traces", "E1", 0, "slot0", 3, 0).await;
+    b.insert(&format!("{prefix}/E1/0.parquet"), Bytes::from(vec![0u8; 100]), meta("E1", 0, "short0", 4));
+    b.insert(&format!("{prefix}/E1/+1.parquet"), Bytes::from(vec![0u8; 100]), meta("E1", 1, "plus1", 6));
+    put_obj(&b, "c1/p1/traces", "E1", 1, "slot1", 2, 0).await;
+    for _ in 0..6 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!((c.count("otel_traces", "slot0"), c.count("otel_traces", "slot1")), (3, 2), "the canonical slots, once");
+    assert_eq!((c.count("otel_traces", "short0"), c.count("otel_traces", "plus1")), (0, 0), "no second spelling ingested");
+    assert_eq!(w.checkpoint("c1/p1/traces").unwrap().next("E1"), 2);
+    // a second spelling ahead of the writer: slot 2 has only `…/E1/2.parquet`;
+    // the lane waits for the real slot 2 and ingests that, never the spelling
+    b.insert(&format!("{prefix}/E1/2.parquet"), Bytes::from(vec![0u8; 100]), meta("E1", 2, "ahead2", 5));
+    for _ in 0..4 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!(c.count("otel_traces", "ahead2"), 0, "a spelling ahead of the writer is not slot 2");
+    put_obj(&b, "c1/p1/traces", "E1", 2, "slot2", 7, 0).await;
+    for _ in 0..4 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 200);
+    }
+    assert_eq!((c.count("otel_traces", "slot2"), c.count("otel_traces", "ahead2")), (7, 0));
+    assert_eq!(w.checkpoint("c1/p1/traces").unwrap().next("E1"), 3);
+}

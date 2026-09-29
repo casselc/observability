@@ -1,0 +1,28 @@
+# Phase exit criteria (VERIFICATION.md §4, "Phase exit criteria"; owner decision 2026-09-29):
+# what must have a passing traceability record before a phase counts as done.
+#   phase | criterion | techniques | IDs
+# A criterion is met by a passing record, at the commit judged, that names one of IDs with
+# one of techniques (the rule of VERIFICATION.md §3's cells). `ci/trace/trace.py exit
+# --phase P --records DIR...` judges one phase and fails while any criterion is unmet; the
+# nightly's traceability job prints D36-1's table in its summary without failing.
+# A criterion no automated record can carry says so in its line (technique G, a step record).
+#
+# D36 phase 1: collect and keep (research/langfuse.md §11). The differential against
+# Langfuse's own mapper is NOT a criterion: the owner deferred that job (2026-09-29).
+D36-1 | tenant-keyed payload hashes: equal content in two tenants, different keys; no cross-tenant probe | P,IT | UCA-L1,SEC-L5
+D36-1 | hostile sizes and shapes (MB values, deep nesting, invalid UTF-8, JSON bombs) through the offloader | PH | UCA-L2,UCA-L3
+D36-1 | the offloader's JSON scanner fuzzed (otap-rs/fuzz offload_json) | FZ | UCA-L2,UCA-L3
+D36-1 | the caps validated together | P | UCA-L2
+D36-1 | a row never before its payload: payload part first, lost answers (MN), under the lease (DST) | MN,DST | UCA-L4
+D36-1 | Go and Rust edges write the same payload parts (conformance GenAI corpus) | D | UCA-L4
+D36-1 | exactly once and dangling = 0 under the fault menus | DST,FI | UCA-L4,LS-L4
+D36-1 | an SDK-claimed project never changes the tenant; references parsed as 32 hex, all else data | PH,FZ | SEC-L1,SEC-L2
+#
+# D36 phase 2: LLM views and facts (not scheduled).
+D36-2 | prices recorded after their effective time; the cost at a basis before and after | P2C | UCA-L5,UCA-L6
+D36-2 | only settled traces scored; a received score visible at every later basis | P2C,M,ML | UCA-L7,UCA-L8
+D36-2 | prompt injection: an adversarial corpus through the judge harness; its output schema fuzzed | PH,FZ | UCA-L9
+D36-2 | fact precedence: the supersedes chain under at-least-once reordering (CAST-49), mutant "latest by custody" | M,MS,MBT,P2C | UCA-L10,UCA-L12
+D36-2 | no content without llm_content; an audit row per read | P | UCA-L11,SEC-L8
+D36-2 | erasure under a basis: an older basis reports the purge | M,P | UCA-L13
+D36-2 | stored XSS through the renderer and sanitiser | PH,FZ,IT | UCA-L14,SEC-L4

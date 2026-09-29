@@ -7,21 +7,14 @@
 # record is reported as stale; remove it in the same change. Adding a line needs the same review
 # as weakening a test: it turns a failure into a report.
 #
-# CAST rows without a regression test (VERIFICATION.md §6 lists #6, #11, #35, #36, #49), or whose
-# control is a process mechanism rather than a test.
-CAST-6 | coordinator | no automated test: a lagging replica needs replicated central, which no job starts (VERIFICATION.md §7 P5; manual replicated soak only)
-CAST-11 | coordinator | no test: no lint of shipped configs for static credentials (VERIFICATION.md §7 P9)
+# CAST rows whose control is a process mechanism rather than a test, or whose test cannot exist
+# yet (#49: the resolver is not built).
 CAST-12 | coordinator | process mechanism (G), not a test: separate target dirs per checkout, build provenance in results
 CAST-22 | coordinator | convention (G), not a test: scripts purge only their own run prefix; nothing checks a script never deletes a bucket
 CAST-27 | coordinator | process mechanism (G), not a test: worktrees and the git diff FETCH_HEAD --stat rule (AGENT-RULES)
-CAST-28 | coordinator | process mechanism (G): the verification gate; the fork patches' jest suites run under it by hand, in no workflow
-CAST-29 | coordinator | the regression is a jest test in the HyperDX fork patch (otel-chdb/hyperdx/patches); no workflow runs the fork's jest, so no record
-CAST-33 | coordinator | the regression is the Mosaic Playwright e2e (nightly lakeui-mosaic-e2e); Playwright has no trace helper yet (node:test only)
-CAST-35 | owner | not fixed in code by design (a 429 is a failed evaluation); no test that the configured limit covers the evaluator's peak; the production value is the owner's to set
-CAST-36 | coordinator | no test: needs a property that a limits-only group never changes scope (VERIFICATION.md §7 P9)
 CAST-38 | coordinator | process mechanism (G), not a test: the heavy-job lock with a disk check
 CAST-41 | coordinator | process mechanism (G), not a test: the verification gate
-CAST-49 | coordinator | design near miss; the score resolver is not built (D36 phase 1 exit criterion, VERIFICATION.md §4)
+CAST-49 | owner | the score resolver is D36 phase 2, which the owner has not scheduled; its test is that phase's exit criterion (VERIFICATION.md §4, "Phase exit criteria": the supersedes chain under at-least-once reordering, mutant "latest by custody")
 CAST-51 | coordinator | process (G), not a test: done only when the latest ci.yml run at or after the commits is green
 CAST-55 | coordinator | workflow configuration (G): the nightly concurrency group includes the job selection; no test of the workflow itself
 #
@@ -31,7 +24,6 @@ H-1:FI | coordinator | not built or not run — plan: partial edge commit on rea
 H-1:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ Rust lane, consumer, GC: mbt_s3inline (mutants retry_new_key, no_halt, no_check_central), mbt_s3inline_consumer (gc::doomed = model's s; ✅ Go lane: parquetgo/modelcheck TestLaneConformsToS3Inline, TestLaneMutantsCaught; N model
 H-1:MN | coordinator | evidence exists, not yet tagged — plan: ✅ commit + consumer + GC: s3Inline.qnt, s3InlineConsumer.qnt (gcReopens, observeAtRequest, own412IsTakeover), retirement.qnt (6 mutants 
 H-2:CC | coordinator | evidence exists, not yet tagged — plan: ✅ S3 conditional writes: hegel_race (mutant racy_conditional), N; s3cas races, PR
-H-2:FI | coordinator | not built or not run — plan: partial consumer on real ClickHouse: faults.sh, consumer_soak.sh (N faults-soak); refused_credentials_are_unsettled_and_redacted (real CH + S3, PR)
 H-2:K | coordinator | evidence exists, not yet tagged — plan: ✅ lease window, check range: 18 harnesses + 4 mutant harnesses (VERIFY.md); N kani
 H-2:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: mbt_s3inline_consumer (designSlow found #20); N rust-mbt; partial watermark / label: not trace-connected. Mirrored by complete_through_is_sound_and_advances + complete_through_mutants_break_sound
 H-2:SM | coordinator | evidence exists, not yet tagged — plan: ✅ consumer: hegel_dst; hegel_dst_finds_mutants (8 planted incl. #13–15); PR 100 cases, N 3,000
@@ -40,20 +32,12 @@ H-3:MBT | coordinator | evidence exists, not yet tagged — plan: ✅ resolver: 
 H-3:MS | coordinator | evidence exists, not yet tagged — plan: ✅ bitemporal catalog: bitemporalCatalog.qnt, 7 mutants, scripted runs; N model
 H-4:MBT | coordinator | not built or not run — plan: ❌ evaluator: the model is not connected: late.go cites it, and the Go simulation restates its properties by hand
 H-4:MN | coordinator | evidence exists, not yet tagged — plan: ✅ evaluator: alertEvaluator.qnt (evalPastCt, ackOnNoAnswer, blindWrite, lateDouble, lateResolves); N model
-H-5:D | coordinator | evidence exists, not yet tagged — plan: ✅ adapter vs ClickHouse: 799 captured statements replayed and compared (N)
-H-5:G | coordinator | evidence exists, not yet tagged — plan: ✅ HyperDX banner (patches): the verification gate (#41): jest 39 suites; the adapter integration test (N hdxadapter-integration)
 H-5:P | coordinator | evidence exists, not yet tagged — plan: ✅ lake UI completeness math, re-plan: lakeui node:test + fast-check; PR
-H-6:D | coordinator | evidence exists, not yet tagged — plan: ✅ adapter decoder vs ClickHouse: the live differential caught two decoder differences before commit (STPA after #29)
-H-6:FZ | coordinator | not built or not run — plan: ❌ sqlscope parser, hdxadapter decoder, rwproxy, basis token decode: no fuzz targets anywhere. These are the parsers facing less-trusted text
 H-7:FI | coordinator | not built or not run — plan: partial buffer volume full (E3b, LS-9): deploy/scripts/diskfull.sh (manual); a measured result, not a CI check
 H-7:G | coordinator | evidence exists, not yet tagged — plan: ✅ (mechanism) shared disk and CPU (#38): heavy-job flock with a disk check inside it (AGENT-RULES); a mechanism, not a test
 H-7:P | coordinator | not built or not run — plan: partial per-caller limits (SEC-5, R-S9): limits exist and are unit-tested; no property over concurrent callers; #35 shows limits are set independently
 H-1:G | coordinator | not built or not run — plan: ❌ retention refused below custody age (R-S6): not built: the measure exists (consumer_lane_watermark_lag_seconds), the refusal at config time does not
-CAST-57 | coordinator | no automated test: the regression needs an S3 store that hangs during rig setup; fix checked by hand and by the nightly journeys runs
-CAST-59 | coordinator | control is a check in conformance/run.sh (fails on any refused or failed send), exercised by the nightly conformance job; no tagged test yet
 CAST-60 | coordinator | process mechanism (G), not a test: AGENT-RULES requires cargo clean -p for workspace crates before each worktree check
 CAST-63 | coordinator | process mechanism (G): ci.yml's paths filter re-includes checked Markdown; stpa check before commit
-CAST-66 | coordinator | caught by goleak in the controller packages' TestMain, which is not a tagged test
-CAST-67 | coordinator | the regression is a FuzzBearer seed; fuzz targets have no trace helper (testing.F)
 CAST-68 | coordinator | process mechanism (G), not a test: CI jobs free runner disk first; caches keyed by Go version
 CAST-69 | coordinator | process mechanism (G), not a test: AGENT-RULES names the shared caches and forbids clearing them

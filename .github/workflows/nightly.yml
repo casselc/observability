@@ -11,11 +11,11 @@ on:
       jobs:
         description: >-
           jobs to run: "all", or a comma list of build, conformance, close_e2e,
-          query-integration, query-kms-emulator, hdxadapter-integration,
+          query-integration, query-kms-emulator, hdxadapter-integration, hyperdx-fork,
           lakeui-e2e, lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak,
-          rust-integration, dst, hegel, rust-mbt (or mbt_s3inline,
+          rust-integration, replicated, dst, hegel, rust-mbt (or mbt_s3inline,
           mbt_s3inline_metrics, mbt_s3inline_consumer), model, model-open, kani, chdb,
-          upstream-patches, edge-dst, fuzz. A job that needs the build's binaries brings build.
+          upstream-patches, edge-dst, fuzz, mutants. A job that needs the build's binaries brings build.
         default: all
       soak_seconds:
         description: consumer soak duration (s)
@@ -68,9 +68,9 @@ jobs:
           python3 - <<'EOF'
           import json, os
           jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
-                  "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
-                  "faults-soak", "rust-integration", "dst", "hegel", "model", "model-open", "kani", "chdb",
-                  "upstream-patches", "edge-dst", "fuzz"]
+                  "hdxadapter-integration", "hyperdx-fork", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
+                  "faults-soak", "rust-integration", "replicated", "dst", "hegel", "model", "model-open", "kani", "chdb",
+                  "upstream-patches", "edge-dst", "fuzz", "mutants"]
           mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
           # the jobs that download the build job's `bin` artifact
           uses_build = ["conformance", "close_e2e", "query-integration", "lakeui-e2e",
@@ -217,6 +217,31 @@ jobs:
           W: ${{ runner.temp }}/out/conformance
           RUN: ci${{ github.run_id }}b
         run: otel-chdb/conformance/run.sh
+      # CAST row 59: both edges refused the two largest datasets alike, so the
+      # comparison passed on less data. run.sh must fail when a send is
+      # refused: here with a request cap (64 MiB) below traces-nasty-700 (85 MB).
+      - name: "conformance/run.sh fails when both edges refuse a dataset (CAST row 59's regression)"
+        if: fromJSON(needs.plan.outputs.run).conformance
+        env:
+          B: ${{ runner.temp }}/bin
+          D: ${{ runner.temp }}/data
+          W: ${{ runner.temp }}/out/conformance
+          RUN: ci${{ github.run_id }}r
+          DATASETS: traces-nasty-700
+          MAXREQ: "67108864"
+        run: |
+          set +e
+          otel-chdb/conformance/run.sh > "$RUNNER_TEMP/refused.txt" 2>&1
+          rc=$?
+          set -e
+          tail -5 "$RUNNER_TEMP/refused.txt"
+          outcome=passed
+          if [ "$rc" -eq 0 ] || ! grep -q '^FAIL send to rust' "$W/$RUN/compare.txt" || ! grep -q '^FAIL send to go' "$W/$RUN/compare.txt"; then
+            echo "::error::run.sh exited $rc and did not report both edges' refused sends"
+            outcome=failed
+          fi
+          python3 ci/trace/trace.py record --test "conformance/run.sh fails on refused sends" --technique D --ids CAST-59,H-2 --outcome "$outcome"
+          [ "$outcome" = passed ]
       - name: conformance/run.sh (ClickStack metrics tables)
         if: fromJSON(needs.plan.outputs.run).conformance
         env:
@@ -390,6 +415,62 @@ jobs:
         if: always()
         with:
           name: trace-hdxadapter-integration
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
+  # The HyperDX fork (otel-chdb/hyperdx/fork): its patch series applied to the
+  # upstream commit it is kept against, and the jest suites the patches
+  # touch, which the verification gate (CAST row 41) had run only by hand
+  # (CAST row 28): common-utils' unit suites, where CAST row 29's regression
+  # lives (a query's token goes as its `auth`, which @clickhouse/client keeps;
+  # a per-query Authorization header it replaces), the API's token tests and
+  # the app's completeness banner.
+  hyperdx-fork:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['hyperdx-fork']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      HDX: ${{ github.workspace }}/.ci/hyperdx
+    steps:
+      - name: Free disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: HyperDX at the fork's base commit, with the patch series (git am)
+        run: |
+          base=$(sed -n 's/.*HyperDX at `\([0-9a-f]\{7,40\}\)`.*/\1/p' otel-chdb/hyperdx/fork/README.md | head -1)
+          echo "base commit: $base"
+          git clone --filter=blob:none -q https://github.com/hyperdxio/hyperdx "$HDX"
+          git -C "$HDX" checkout -q "$base"
+          git -C "$HDX" -c user.name=ci -c user.email=ci@localhost am -q "$GITHUB_WORKSPACE"/otel-chdb/hyperdx/fork/patches/*.patch
+          git -C "$HDX" log --oneline -5
+      - name: yarn install (yarn 4 through corepack, as upstream)
+        working-directory: ${{ env.HDX }}
+        run: |
+          corepack enable
+          yarn install --immutable
+      - name: common-utils (every jest unit suite)
+        working-directory: ${{ env.HDX }}
+        run: yarn workspace @hyperdx/common-utils ci:unit
+      - name: api (the query-service token tests) and app (the completeness banner)
+        working-directory: ${{ env.HDX }}
+        run: |
+          yarn build:common-utils
+          (cd packages/api && npx jest --ci src/utils/__tests__/queryServiceToken.test.ts src/middleware/__tests__/queryServiceUser.test.ts)
+          (cd packages/app && npx jest --ci src/components/__tests__/CompletenessBanner.test.tsx)
+      # Every step above failed the job if a suite did, so the record stands for them all.
+      - name: Traceability record (the fork's jest suites; CAST row 29's regression is in common-utils)
+        run: python3 ci/trace/trace.py record --test otel-chdb/hyperdx/fork/patches --technique G --ids CAST-28,CAST-29,H-5
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-hyperdx-fork
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
@@ -720,6 +801,61 @@ jobs:
         if: always()
         with:
           name: trace-faults-soak
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
+  # The consumer against a replicated central (ci/replicated.sh: one Keeper, two
+  # replicas in Docker): the audit's lagging-replica test (STPA CAST row 6),
+  # which the other jobs skip for want of replicas.
+  replicated:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).replicated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+    steps:
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
+      - uses: actions/checkout@v7
+      - name: Toolchain (rust-toolchain.toml)
+        working-directory: otel-chdb/otap-rs
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - name: Start the replicated central
+        run: ci/replicated.sh start
+      - name: the audit against a lagging replica (src/consumer/audit.rs)
+        working-directory: otel-chdb/otap-rs
+        run: cargo test --release --locked --bin consume a_lagging_replica_is_synced_or_the_run_fails -- --nocapture
+      - name: Replica logs
+        if: failure()
+        run: ci/replicated.sh logs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-replicated
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
@@ -1394,16 +1530,26 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
-  # Coverage-guided fuzzing (ci/fuzz.sh): every Go fuzz target for 60 s. Per push
-  # go-test runs them only over their seeds and checked-in corpus. A crasher is
-  # uploaded as the `fuzz-crashers` artifact: copy it into the package's
-  # testdata/fuzz/<target>/ to make it a regression test.
+  # Coverage-guided fuzzing: every Go fuzz target (ci/fuzz.sh) and every
+  # cargo-fuzz target of otap-rs (ci/cargo-fuzz.sh: slot keys, object
+  # metadata, the offloader's JSON) for 60 s each. Per push go-test runs the Go
+  # targets only over their seeds and checked-in corpus. A crasher is uploaded
+  # as the `fuzz-crashers` artifact: copy it into the package's
+  # testdata/fuzz/<target>/ (Go) or otap-rs/fuzz/corpus/<target>/ (Rust) and
+  # add a test for it.
   fuzz:
     needs: plan
     if: fromJSON(needs.plan.outputs.run).fuzz
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
     steps:
+      - name: Free disk
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
@@ -1421,6 +1567,31 @@ jobs:
           FUZZTIME: 60s
           OUT: ${{ runner.temp }}/crashers
         run: ci/fuzz.sh fast
+      - uses: actions/cache@v6
+        id: upstream
+        if: ${{ !cancelled() }}
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches), a nightly toolchain and cargo-fuzz
+        if: ${{ !cancelled() }}
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+          rustup toolchain install nightly --profile minimal
+          cargo install cargo-fuzz --locked
+      - name: cargo fuzz every target (otap-rs/fuzz)
+        if: ${{ !cancelled() }}
+        env:
+          FUZZTIME: "60"
+          OUT: ${{ runner.temp }}/crashers
+        run: ci/cargo-fuzz.sh
+      # ci/cargo-fuzz.sh failed the job if any target did, so the record stands for all three;
+      # offload_json is a D36 phase-1 exit criterion (ci/trace/exit-criteria.txt)
+      - name: Traceability record (the cargo-fuzz targets; offload_json is a D36 exit criterion)
+        if: ${{ !cancelled() }}
+        run: python3 ci/trace/trace.py record --test otel-chdb/otap-rs/fuzz --technique FZ --ids H-2,H-6,UCA-L2,UCA-L3
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -1434,13 +1605,112 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
+  # Mutation testing (owner decision 2026-09-29; VERIFICATION.md §7): cargo-mutants
+  # over the consumer's lease, plan and collection code and the slot protocol, and
+  # the Rust edge's commit; gremlins over the Go edge's commit and lane code. The
+  # surviving mutants are the `mutants` artifact and the job summary; the job
+  # fails only on a survivor ci/mutants-baseline.txt does not accept (ci/mutants.py).
+  mutants:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run).mutants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
+      CARGO_MUTANTS_VERSION: "27.1.0"
+      GREMLINS_VERSION: "v0.5.1"
+    steps:
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
+      - uses: actions/checkout@v7
+      - name: ci/mutants.py's own tests
+        run: python3 -m unittest -v ci/mutants_test.py
+      - name: Toolchain (rust-toolchain.toml)
+        working-directory: otel-chdb/otap-rs
+        run: rustup show active-toolchain
+      - uses: actions/cache@v6
+        id: upstream
+        with:
+          path: .ci/otel-arrow
+          key: otel-arrow-${{ hashFiles('otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+      - name: Upstream otel-arrow (pinned + patches)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          if [ "${{ steps.upstream.outputs.cache-hit }}" = true ]; then ln -sfn "$UPSTREAM_DIR" .upstream
+          else scripts/fetch-upstream.sh "$UPSTREAM_DIR"; fi
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            otel-chdb/otap-rs/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-go${{ env.GO_VERSION }}-
+      - name: cargo-mutants and gremlins
+        run: |
+          cargo install cargo-mutants --locked --version "$CARGO_MUTANTS_VERSION"
+          go install "github.com/go-gremlins/gremlins/cmd/gremlins@$GREMLINS_VERSION"
+      - name: Start SeaweedFS and ClickHouse
+        run: ci/services.sh start
+      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      - name: Go edge commit and lanes (gremlins, parquetgo/commit)
+        working-directory: otel-chdb/parquetgo
+        run: |
+          mkdir -p "$RUNNER_TEMP/mutants"
+          gremlins unleash --timeout-coefficient 10 --output "$RUNNER_TEMP/mutants/gremlins-commit.json" ./commit | tail -30
+          python3 "$GITHUB_WORKSPACE/ci/mutants.py" go "$RUNNER_TEMP/mutants/gremlins-commit.json" . > "$RUNNER_TEMP/mutants/survivors-go.txt"
+          wc -l < "$RUNNER_TEMP/mutants/survivors-go.txt"
+      - name: consumer lease, plan, collection and slot protocol (cargo-mutants, cargo test --bin consume)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          cargo mutants --no-shuffle --jobs 2 --timeout 600 --build-timeout 1200 --output "$RUNNER_TEMP/mutants/consumer" \
+            --file src/consumer/coord.rs --file src/consumer/plan.rs --file src/consumer/gc.rs --file src/proto.rs \
+            -- --release --bin consume || true
+          python3 "$GITHUB_WORKSPACE/ci/mutants.py" rust "$RUNNER_TEMP/mutants/consumer/mutants.out" > "$RUNNER_TEMP/mutants/survivors-rust-consumer.txt"
+          wc -l < "$RUNNER_TEMP/mutants/survivors-rust-consumer.txt"
+      - name: the Rust edge's commit (cargo-mutants, src/store.rs, cargo test --lib)
+        working-directory: otel-chdb/otap-rs
+        run: |
+          cargo mutants --no-shuffle --jobs 2 --timeout 600 --build-timeout 1200 --output "$RUNNER_TEMP/mutants/commit" \
+            --file src/store.rs -- --release --lib || true
+          python3 "$GITHUB_WORKSPACE/ci/mutants.py" rust "$RUNNER_TEMP/mutants/commit/mutants.out" > "$RUNNER_TEMP/mutants/survivors-rust-commit.txt"
+          wc -l < "$RUNNER_TEMP/mutants/survivors-rust-commit.txt"
+      - name: survivors against ci/mutants-baseline.txt
+        run: python3 ci/mutants.py check ci/mutants-baseline.txt "$RUNNER_TEMP"/mutants/survivors-*.txt --summary "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutants
+          path: |
+            ${{ runner.temp }}/mutants/*.txt
+            ${{ runner.temp }}/mutants/*.json
+            ${{ runner.temp }}/mutants/*/mutants.out/*.txt
+            ${{ runner.temp }}/mutants/*/mutants.out/outcomes.json
+          if-no-files-found: warn
+
   # Requirements-to-test traceability for this run's selected jobs (ci/README.md,
   # "Traceability"): as ci.yml's job, over the nightly's records. Tags whose jobs were not
   # selected, and rows only they claim, are reported as deferred, not judged.
   traceability:
     name: traceability (tagged tests ran and passed at this commit)
-    needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, lakeui-e2e,
-            lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, model-open, kani,
+    needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, hyperdx-fork, lakeui-e2e,
+            lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, replicated, dst, hegel, rust-mbt, model, model-open, kani,
             chdb, upstream-patches, edge-dst, fuzz]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -1460,6 +1730,11 @@ jobs:
           echo "judging: $jobs"
           python3 ci/trace/trace.py check --workflow nightly --jobs "$jobs" \
             --records "$RUNNER_TEMP/trace" --report "$RUNNER_TEMP/TRACEABILITY.md" --summary "$GITHUB_STEP_SUMMARY"
+      # D36 phase 1's exit criteria (VERIFICATION.md §4): reported, not judged, until the
+      # owner declares the phase; `trace.py exit` fails while any is unmet
+      - name: trace.py exit --phase D36-1 (report only)
+        if: ${{ !cancelled() }}
+        run: python3 ci/trace/trace.py exit --phase D36-1 --records "$RUNNER_TEMP/trace" --summary "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -794,6 +794,22 @@ alias and the Rust edge's (upstream patch 0007). Still open for the phase's exit
 differential against Langfuse's own mapper (its `OtelIngestionProcessor` needs the monorepo
 installed; not run).
 
+**Exit criteria (policy, owner decision 2026-09-29).** A phase is done only when each of its
+exit criteria has a passing traceability record at the commit that declares it done
+(VERIFICATION.md §4, "Phase exit criteria"; the list is `ci/trace/exit-criteria.txt`, judged by
+`ci/trace/trace.py exit --phase D36-1`, and the nightly prints the table). Phase 1's: tenant-keyed
+hashes with no cross-tenant probe (P, IT); hostile sizes and shapes through the offloader (PH); the
+offloader's JSON scanner fuzzed (FZ, `otap-rs/fuzz` `offload_json`); the caps validated together
+(P); a row never before its payload (MN, DST); Go and Rust payload parts equal (D, conformance's
+GenAI corpus); exactly once and dangling = 0 under the fault menus (DST, FI); an SDK-claimed
+project never changes the tenant and references parse as 32 hex (PH, FZ). The differential against
+Langfuse's mapper, named in the phase-1 exit above, is **not** a criterion: the owner deferred that
+job (2026-09-29). By this rule phase 1 is not done yet: two criteria have records (the hostile
+corpus on every push, the fuzz target nightly), the rest need their tests written or tagged.
+Phase 2's criteria are the phase-2 rows of VERIFICATION.md §4's LLM table (prices, settle, prompt
+injection, fact precedence with CAST-49's retried older correction, the content right, erasure,
+stored XSS).
+
 **Phase 2: LLM views and facts.** Query service: payload resolution in the tree, `llm_content`
 right and audit, cost from price facts at the basis, score resolution, settle labels. HyperDX fork:
 LLM trace list, trace detail with chat rendering (text only), sessions, cost and score views, human

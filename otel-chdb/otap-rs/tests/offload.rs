@@ -500,6 +500,8 @@ fn env(seq: u64) -> Envelope {
 /// the markers say what happened; nothing inline changed.
 #[test]
 fn the_hostile_corpus_round_trips_through_the_object() {
+    // D36 phase 1 exit criterion (ci/trace/exit-criteria.txt): hostile sizes and shapes
+    let _trace = otap_s3pq::oscope_trace::covers("PH", &["UCA-L2", "UCA-L3"]);
     let opts = OffloadOptions::default();
     for (sig, bytes) in [(Signal::Traces, traces_request(&["team-a", "team-b"])), (Signal::Logs, logs_request("team-a"))] {
         let mut enc = encoder(&opts);

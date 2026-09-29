@@ -126,17 +126,25 @@ func SlotKey(prefix, epoch string, seq uint64) string {
 	return strings.TrimRight(prefix, "/") + "/" + epoch + "/" + fmt.Sprintf("%020d", seq) + ".parquet"
 }
 
-// ParseSlotKey parses a key made by SlotKey.
+// ParseSlotKey parses a key made by SlotKey, and only such a key: a slot has
+// one spelling (twenty digits), as the Rust consumer's proto::parse_slot_key.
+// Any writer of the prefix can PUT "…/E1/7.parquet" beside
+// "…/E1/00000000000000000007.parquet"; read as slot 7 it would give the slot
+// a second object, which the create-only PUT on the real key never sees.
 func ParseSlotKey(prefix, key string) (epoch string, seq uint64, ok bool) {
 	rest, found := strings.CutPrefix(key, strings.TrimRight(prefix, "/")+"/")
 	if !found {
 		return "", 0, false
 	}
 	epoch, name, found := strings.Cut(rest, "/")
-	if !found || !strings.HasSuffix(name, ".parquet") {
+	if !found || epoch == "" || !strings.HasSuffix(name, ".parquet") {
 		return "", 0, false
 	}
-	n, err := strconv.ParseUint(strings.TrimSuffix(name, ".parquet"), 10, 64)
+	digits := strings.TrimSuffix(name, ".parquet")
+	if len(digits) != 20 || strings.Trim(digits, "0123456789") != "" {
+		return "", 0, false
+	}
+	n, err := strconv.ParseUint(digits, 10, 64)
 	if err != nil {
 		return "", 0, false
 	}

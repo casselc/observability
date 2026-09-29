@@ -310,6 +310,40 @@ named.
 | UCA-L14, SEC-L4 (stored XSS) | E | PH + FZ over the renderer / sanitiser; IT in a browser | lakeui e2e rig |
 | SEC-L1, SEC-L2 (claimed tenant, spliced refs) | E, I | PH: SDK-claimed project never changes tenant; refs parsed as 32 hex, all else data (FZ) | `TestHostileKeysAreData` pattern |
 
+#### Phase exit criteria (policy; owner decision 2026-09-29)
+
+A D36 phase counts as **done** only when every exit criterion of that phase
+has a passing traceability record at the commit that declares it done:
+a record from a tagged test, model run or workflow step (§8) that names one
+of the criterion's IDs with one of its techniques, the rule §3's cells use.
+The criteria are the table above, split by phase, in
+[`ci/trace/exit-criteria.txt`](../ci/trace/exit-criteria.txt);
+`ci/trace/trace.py exit --phase D36-1 --records <the run's trace records>`
+judges one phase and fails while any criterion is unmet. The nightly's
+traceability job prints D36-1's table in its summary on every run (report
+only, until the phase is declared); `trace_test.py` checks that every
+criterion names known IDs and techniques and that the judgement fails on a
+missing, failed, other-technique or other-commit record.
+
+| Phase | Criterion (IDs) | Techniques | Check | Automated |
+|---|---|---|---|---|
+| 1 | tenant-keyed payload hashes; no cross-tenant probe (UCA-L1, SEC-L5) | P, IT | a property on `offload::tenant_key` / `payload_hash` and the lake IT | yes, once tagged |
+| 1 | hostile sizes and shapes through the offloader (UCA-L2, UCA-L3) | PH | `tests/offload.rs` `the_hostile_corpus_round_trips_through_the_object` (tagged) | **yes** (PR `rust`) |
+| 1 | the offloader's JSON scanner fuzzed (UCA-L2, UCA-L3) | FZ | `otap-rs/fuzz` `offload_json` (nightly `fuzz`, step record) | **yes** (nightly) |
+| 1 | the caps validated together (UCA-L2) | P | a property over `OffloadOptions::validate` (`the_policy_is_validated_together` is a unit test today) | yes, once written |
+| 1 | a row never before its payload (UCA-L4, X22) | MN, DST | a model step with the payload part first and a lost answer; `dst_consumer` with payloads | yes, once tagged |
+| 1 | Go and Rust edges write the same payload parts (UCA-L4) | D | conformance's GenAI corpus (`conformance/run.sh`) | yes, once recorded |
+| 1 | exactly once and dangling = 0 under the fault menus (UCA-L4, LS-L4) | DST, FI | the DST fleet with payloads; `faults.sh` | yes, once tagged |
+| 1 | an SDK-claimed project never changes the tenant; refs are 32 hex (SEC-L1, SEC-L2) | PH, FZ | hostile keys through both edges | yes, once written |
+| 2 | prices, settle, prompt injection, fact precedence (CAST-49), content role, erasure, stored XSS (UCA-L5..L14, SEC-L4, SEC-L8) | as the table above | phase 2's own tests | when built |
+
+**Not an exit criterion of phase 1:** the differential against Langfuse's
+own mapper (research/langfuse.md §11 listed it). The owner deferred that job
+on 2026-09-29; it becomes a criterion again only when the owner schedules it.
+At this commit D36-1 has one criterion met on the PR path (hostile corpus)
+and one on the nightly (the fuzz target); the phase is **not done** by this
+rule, though D36 records its code as built.
+
 ## 5. Requirements
 
 | Req | Required techniques | Status | Evidence / gap |
@@ -340,12 +374,12 @@ model covers the class.
 | 3 | A | model `releaseInFlight`; DST + Hegel `release_in_flight`; Kani `mutant_release_in_flight_acts_before_landing` | yes |
 | 4 | A, B, K | model `gcReopens`; `EarlyCompact`; `mbt_s3inline_consumer` `gc` | yes for GC; a new deleter (lake sealer, index GC) needs the same model |
 | 5 | A, J | Kani `mutant_slack_above_margin_lands_after_takeover`; model `keeperOverrun`; start-up check `keeper_session_timeout_ms` | **partly**: the arithmetic yes; the real Keeper bound is measured only by the manual replicated soak |
-| 6 | A, B | none automated (replicated soak, manual) | **no**: DST has no replicas and does not run the audit |
+| 6 | A, B | `a_lagging_replica_is_synced_or_the_run_fails` against two replicas and a Keeper (nightly `replicated`, `ci/replicated.sh`) | yes, in the nightly; DST still has no replicas |
 | 7 | E | `prop_statements_keep_every_value_one_literal`, `prop_sql_on_clickhouse` | **partly**: the Rust consumer yes; #24 was the same class in Go a month later. Needs FZ + PH in every module that builds SQL |
 | 8 | H | `ci/clippy.sh` (`-D warnings`) | yes, for lints clippy has |
 | 9 | E | `prop_statistics_stay_small_with_huge_values`, `parquetgo/stats_test.go` | yes for statistics; LLM payloads (H-L5) need their own |
 | 10 | G | `prop_objects_depend_on_the_request_only`; conformance | yes for the edge's objects |
-| 11 | H, I | none | **no**: no lint of shipped configs for credentials |
+| 11 | H, I | `ci/creds-lint.sh` (PR `go-vet`, with a self-test on planted keys) | yes for the shipped configs it lists |
 | 12 | H | G: separate target dirs per checkout; CI records build provenance | yes as a mechanism |
 | 13 | A, B | `a_slow_discovery_round_does_not_backdate_lease_observations`; Hegel `backdate_observations`; model `observeAtRequest` | yes: `slow_list`/`slow_s3` rules and the non-atomic model generalise |
 | 14 | D | `a_backlog_longer_than_the_lease_window_is_still_ingested`; `renew_only_at_insert`; DST liveness rule | yes for the consumer; yes for the Go edge since 2026-09-29 (`TestDSTEdgeCommit`: every call bounded with no deadline, the "hour on a hung PUT" mutant caught) |
@@ -363,14 +397,14 @@ model covers the class.
 | 26 | F | `TestCompleteMeansAllRowsWithinLateness`, `TestLateRowNotComplete`; query-integration late row | yes for the label; new consumers of `complete_through` need P2C (§4 LLM) |
 | 27 | H | G: worktrees + `git diff FETCH_HEAD --stat` rule | yes as a mechanism |
 | 28 | H | G: the verification gate | yes (recurred as #41 before the gate existed) |
-| 29 | G | jest test of the adapter token; IT with the real client | yes for that client version |
+| 29 | G | jest test of the adapter token (nightly `hyperdx-fork` runs the fork's suites); IT with the real client | yes for that client version |
 | 30 | I | `ci/iam-lint.sh`; `a_403_on_head_is_an_error_not_a_free_slot`, `TestHeadOnlyA404IsFree` | **no** for the class: nothing runs against the real target store ([D]) |
 | 31 | E, I | `refused_credentials_are_unsettled_and_redacted` | **partly**: one channel measured |
 | 32 | I | `TestMetadataProjectedProperty`, `TestCheckProjectedRefuses`, the replay's column check | yes for metadata reads |
-| 33 | K, G | Mosaic e2e total = SQL | yes in the spike; not a production path (D28 proposed) |
+| 33 | K, G | Mosaic e2e "stale cubes" (tagged through the Playwright helper `lakeui/test/pw-trace.js`) | yes in the spike; not a production path (D28 proposed) |
 | 34 | F | `TestBasisSameAnswerWhileDataArrives` with the `≤` mutant | yes for the basis; **no general boundary-mutant sweep** |
-| 35 | I, J | none (documented; IT sets 16) | **no** |
-| 36 | I | none | **no**: needs a property "limits-only groups never change scope" |
+| 35 | I, J | `TestEvaluatorPeakFitsTheQueryServiceLimit`: two replicas with late checks against the shipped `alert-evaluator` limit | yes for the shipped configs; the production value stays the owner's |
+| 36 | I | `TestLimitsOnlyGroupsNeverChangeScope` (rapid, shipped and random configs) | yes |
 | 37 | F | `restart_test.go`; fleet replay (manual) | **partly**: an example, not a generator of restarts × relabels × skew |
 | 38 | H | G: heavy-job lock with a disk check | yes as a mechanism (it recurred before the lock existed) |
 | 39 | D | `a_store_that_fails_every_put_is_not_resent_forever`, `TestAppendResendLimit` | **partly**: no liveness property in the commit model; no Go simulation |
@@ -383,7 +417,7 @@ model covers the class.
 | 46 | G, H | `TestFlattenResourceAndEnvelope`; `TestSameRowsAsChdb`; strict gates | yes where the modules' tests run |
 | 47 | C | scripted `closeUnsealed`; `a_close_proves_empty_custody_only_when_everything_is_sealed`; `prop_close_proof_needs_every_epoch_sealed` | yes: scripted runs are in `retirement_model.sh` (N) |
 | 48 | K | `admit_recovers_quarantined_objects_once_and_gc_keeps_them` | **partly**: no model of quarantine × GC |
-| 49 | F, A | none (design; not built) | **no**: exit criterion for the score resolver (§4) |
+| 49 | F, A | none (design; not built) | **no**: a D36 phase-2 exit criterion (§4, "Phase exit criteria") |
 
 Summary: 44 of the 49 rows have a test or mechanism that would catch the
 original bug. The five that do not are #6, #11, #35, #36 and #49. For the
@@ -405,24 +439,59 @@ under the heavy-job lock, which should be avoided where GH can run it.
 | P | Gap | Hazards / rows | Work | Effort | Where |
 |---|---|---|---|---|---|
 | **1** | Seven models are checked in no workflow: `completeness`, `entityCatalog`, `retention`, `sealer` (`open_models.sh`, 82 rows), `s3Native`, `fastPath`, `partLifetime`. **Done 2026-09-29**: nightly `model-open` (`ci/model-open.sh`) runs all seven with a new seed each night, the consumer designs at 4× the `model` job's samples plus wider instances (`model/openInstances.qnt`), and Apalache bounded runs; judged by `ci/model-verdict.sh`, the `model` job's rules | H-1, H-2, H-4, H-3; #21, LS-5..8, LS-10 | a `model-open` job running `open_models.sh` (the same fail and warn rules as `ci/model-check.sh`), `fastpath/run_model.sh`, and the s3Native / partLifetime runs from model/README | S | GH nightly (`model-open`) |
-| **2** | No automated mutation analysis; boundary mutants are planted only after a bug | H-2, H-4; #26, #34 class | cargo-mutants over `consumer/{coord,plan,watermark,retire}.rs` with the unit + Hegel `ci` profile; a Go mutator over `query/internal/{completeness,basis,lake}`, `alerts/internal/engine` (tool → go-verification); a surviving mutant becomes a property or an accepted-equivalent note | M | GH nightly (`mutants`, weekly, sharded) |
-| **3** | No fuzzing of any parser facing less-trusted text. **Go part done 2026-09-29** (targets for sqlscope, hdxadapter, rwproxy, the aggregator, basis, the ingress; nightly `fuzz`); `cargo fuzz` still open | H-6, H-3, H-2; #7, #24, SEC-7, R-S9 | Go native `Fuzz*` for `sqlscope` (parse → rebuild → re-parse is a fixed point, scope never widens), `hdxadapter` param decoder (differential against ClickHouse when `HEGEL_CH`-like env set), `rwproxy`, the aggregator's key and NDJSON parsing, `basis` token decode; `cargo fuzz` for OTAP/CBOR decode and `Slot::from_meta`; seed each from the hostile generators | M | GH nightly (`fuzz`, 10 min per target, corpus in the Actions cache like `hegel-db`) |
-| **4** | The Go edge has no deterministic simulation (#39 was found by a goroutine dump); `lanes: N` in parallel, heartbeats vs the lane mutex, slow S3. **Done 2026-09-29**: `parquetgo/dst` with synctest (PR 24 seeds, nightly `edge-dst`); heartbeats are not driven by it yet | H-1, H-2, H-7; #14/#39 class | a DST of `parquetgo/commit` + `edge` with lost and late answers and a liveness rule; tool → go-verification (`testing/synctest` is the obvious candidate to evaluate) | M | PR (fixed seeds) + GH nightly (new seeds) |
-| **5** | Replicated central untested in CI; DST has no replicas and does not run the horizon audit | H-2; #2, #5, #6; C3, C5, C6 | (a) replicas, `SYNC REPLICA` and the audit's queries in `chemu.rs` + fidelity checks; (b) a weekly job with a 2-replica + Keeper cluster running `keeper_faults.sh` | M (a), L (b) | (a) PR; (b) GH nightly weekly (a 16 GB runner is enough per `central-replicated/` measurements, **not verified**) |
+| **2** | No automated mutation analysis; boundary mutants are planted only after a bug. **Built 2026-09-29** (owner decision below): nightly `mutants`, cargo-mutants 27.1.0 over `consumer/{coord,plan,gc}.rs` and `proto.rs` (`cargo test --bin consume`) and `store.rs` (`--lib`), gremlins v0.5.1 over `parquetgo/commit`; fails only on a survivor `ci/mutants-baseline.txt` does not accept with a reason | H-2, H-4; #26, #34 class | next: `watermark.rs`, `retire.rs`, the Go query packages once the first scope's survivors are triaged | M | GH nightly (`mutants`) |
+| **3** | No fuzzing of any parser facing less-trusted text. **Done 2026-09-29**: Go targets for sqlscope, hdxadapter, rwproxy, the aggregator, basis, the ingress; `cargo fuzz` targets `slot_key`, `slot_meta`, `offload_json` (`otap-rs/fuzz`, `ci/cargo-fuzz.sh`); both in nightly `fuzz` | H-6, H-3, H-2; #7, #24, SEC-7, R-S9 | Go native `Fuzz*` for `sqlscope` (parse → rebuild → re-parse is a fixed point, scope never widens), `hdxadapter` param decoder (differential against ClickHouse when `HEGEL_CH`-like env set), `rwproxy`, the aggregator's key and NDJSON parsing, `basis` token decode; `cargo fuzz` for OTAP/CBOR decode and `Slot::from_meta`; seed each from the hostile generators | M | GH nightly (`fuzz`, 10 min per target, corpus in the Actions cache like `hegel-db`) |
+| **4** | The Go edge has no deterministic simulation (#39 was found by a goroutine dump); `lanes: N` in parallel, heartbeats vs the lane mutex, slow S3. **Done 2026-09-29**: `parquetgo/dst` with synctest (PR 24 seeds, nightly `edge-dst`); since the same day it also drives the exporter's heartbeat loop (`edge.Heartbeats`, a swarm entry): heartbeats bounded without a deadline, every lane beaten once the faults stop, no heartbeat after a tombstone | H-1, H-2, H-7; #14/#39 class | a DST of `parquetgo/commit` + `edge` with lost and late answers and a liveness rule; tool → go-verification (`testing/synctest` is the obvious candidate to evaluate) | M | PR (fixed seeds) + GH nightly (new seeds) |
+| **5** | Replicated central untested in CI; DST has no replicas and does not run the horizon audit | H-2; #2, #5, #6; C3, C5, C6 | (a) replicas, `SYNC REPLICA` and the audit's queries in `chemu.rs` + fidelity checks; (b) a weekly job with a 2-replica + Keeper cluster running `keeper_faults.sh` | M (a), L (b) | (a) PR; (b) GH nightly weekly (a 16 GB runner is enough per `central-replicated/` measurements, **not verified**). **Started 2026-09-29**: nightly `replicated` (`ci/replicated.sh`: one Keeper, two replicas in Docker) runs the audit's lagging-replica test (#6) |
 | **6** | `completeness.qnt` and `alertEvaluator.qnt` are not connected to their implementations | H-2, H-4; #21 | quint-connect MBT of `watermark.rs` (reuse `mbt_s3inline_consumer`'s harness); quintgo replay of the evaluator's recorded runs (the `chdbexporter` step recorder pattern) | M each | GH nightly (`rust-mbt` matrix entry; `model`) |
 | **7** | Answer-boundary FI tests not in CI: `ambig_s3.rs` (#15's real-store shape) | H-2; #15 | add to `faults-soak` (it already builds `faultproxy2`) | S | GH nightly |
 | **8** | Crash consistency of the durable buffer (UCA-1): no fsync or power-loss injection | H-1 | a LazyFS- or dm-flakey-style run of both edges: kill at every write/fsync boundary, then check "acked ⇒ in S3 after restart" | L | GH nightly if FUSE works on the runner (**unverified**); else box |
-| **9** | Policy composition: #36 (grants vs limits), #11 (static keys), #35 (evaluator load vs limit) | H-6, H-4 | rapid property over random group configs: limits-only groups never change scope; a config lint for credentials in `deploy/`, `configs/`; an IT asserting the evaluator's peak concurrency ≤ its limits tier | S | PR |
+| **9** | Policy composition: #36 (grants vs limits), #11 (static keys), #35 (evaluator load vs limit). **Done 2026-09-29**: `TestLimitsOnlyGroupsNeverChangeScope` (rapid, shipped and random configs), `ci/creds-lint.sh` (with a self-test), `TestEvaluatorPeakFitsTheQueryServiceLimit` (two replicas with late checks against the shipped limit) | H-6, H-4 | — | S | PR |
 | **10** | A generator of controller restarts × relabels × skew (#37); a hostile edge clock beyond the D9 bound (SEC-8) | H-3, H-2 | rapid over `ctrl` + the aggregator's merge; DST skew menu extended past the bound with the horizon audit simulated (needs 5a) | M | PR |
 | **11** | Liveness property in the commit model (#39's lesson) and a model of quarantine × GC (#48) | H-1, H-7 | add to `s3Inline.qnt` / `retirement.qnt`; mutants | S–M | GH nightly (`model`) |
 | **12** | ABAC on the real target (#30, SEC-1..3) | H-6 | run `deploy/validation/eks/abac_matrix.sh` on AWS | M | owner's AWS account; not GH or box |
 | **13** | Opt-in gates still skip silently (#43's remainder) | process | each nightly job sets the opt-in variables it is supposed to satisfy (`FAULTPROXY2`, `QS_IT_BIN`, …), so a missing one fails | S | GH (workflow) |
-| **14** | LLM extension: all ❌ | H-L1..L8 | the §4 LLM table as phase-1 exit criteria, recorded in D36 when the owner accepts it | L (with the build) | PR + nightly as each part lands |
+| **14** | LLM extension: all ❌ | H-L1..L8 | **Adopted as policy 2026-09-29** (owner decision below): §4's "Phase exit criteria", judged by `trace.py exit`; the phase-1 tests still to be written or tagged | L (with the build) | PR + nightly as each part lands |
 | — | R-S4, R-S10, R-S5 (second half), R-S6 refusal | H-4, H-5, H-1 | requirement gaps, not verification gaps: build first, then verify as §5 says | — | — |
 
 **Top five by risk reduction per effort:** 1 (S, closes the "model checked
 nowhere" cells on H-1, H-2 and H-4), 7 (S), 9 (S), 3 (M, the only defence
 against the next #24), 2 (M, the only defence against the next #34).
+
+### Owner decisions (2026-09-29)
+
+- **Mutation testing (§7 item 2): approved** as a nightly job. Scope: the
+  safety-critical modules only, so a run fits a runner (the consumer's lease,
+  plan and collection code and the slot protocol; the Rust edge's commit; the
+  Go edge's commit and lane code). Surviving mutants are reported as the
+  `mutants` artifact and in the job summary; the job fails only on a
+  regression against the checked-in baseline of accepted survivors
+  (`ci/mutants-baseline.txt`, each with its reason). Selectable through the
+  nightly `jobs` input (`mutants`), with the runner's free-disk step.
+- **LLM exit criteria (§7 item 14): approved.** §4's exit criteria are policy:
+  a D36 phase is done only when each of its criteria has a passing record
+  (§4, "Phase exit criteria"). The Langfuse differential job is **deferred**,
+  so it is not an exit criterion of phase 1.
+
+### Go tooling judgements (2026-09-29)
+
+- **staticcheck**: in `ci.yml` (job `staticcheck`, `ci/staticcheck.sh`, v2026.2.1)
+  over every Go module. The first run found 92 findings; each is fixed or
+  suppressed where it stands with its reason. Among them, five test and data
+  generators meant negative zero and wrote `-0.0`, which Go reads as +0
+  (`math.Copysign(0, -1)` now): the "nasty" datasets never carried a negative
+  zero through the edges.
+- **hegel-go machines: not built.** Where rapid with the hand-rolled swarm is
+  weaker than hegel-go: hegel-go weights each rule per case (rapid's swarm is
+  on/off), keeps an example database across runs, and reports per-rule
+  statistics. The two rapid machines (the alerts engine, the basis keyring)
+  are pure logic with a handful of rules; on/off swarm reaches their states
+  and a failure file reproduces a case. The component where weighting and
+  fault statistics matter, the Go edge's lanes under faults, is the edge DST,
+  which already draws a fault menu per seed and runs 20,000 seeds a night.
+  The cost of hegel-go stays a purego alpha behind a build tag and a second
+  go.mod per module (PBT.md). Revisit when a Go component gets a stateful
+  machine with more than a few fault rules and no DST.
 
 **Load on this box.** Items 1, 2, 3, 6, 7 and 11 run on GH nightly and add
 nothing here. Items 4, 9 and 10 are fast PR tests. Only item 8 (if FUSE is
@@ -455,10 +524,14 @@ cell can still hold a ❌ row (H-1 DST covers the consumer, not the Go edge),
 which the report prints beside it.
 
 **Known gaps.** `ci/trace/known-gaps.txt` lists what may lack a passing
-record, each with an owner and a reason: the CAST rows with no regression test
-(#6, #11, #35, #36, #49), those whose control is a process mechanism (#12, #22,
-#27, #28, #38, #41, #51, #55) or a test outside the instrumented runners (#29
-jest in the fork, #33 Playwright), and the §3 cells no test is tagged for yet.
+record, each with an owner and a reason: the CAST rows whose test cannot exist yet
+(#49: the resolver is phase 2), those whose control is a process mechanism
+(#12, #22, #27, #38, #41, #51, #55, #60, #63, #68, #69), and the §3 cells no
+test is tagged for yet. Tests outside the Go, Rust and node:test runners are
+tagged too: a Go fuzz target with `tracetag.Covers(f, …)` (it takes any
+`testing.TB`), a Playwright test with `covers(test.info(), …)` from
+`lakeui/test/pw-trace.js` (its reporter writes the record), and the fork's
+jest suites by a workflow step record in nightly `hyperdx-fork`.
 The job reports them and does not fail; a listed item that gains a passing
 record is reported stale and should be removed in the same change. Adding a
 line weakens a check and gets the same review as deleting a test.
@@ -501,7 +574,8 @@ simulation restating the model's properties; *cites* = a comment only.
 | unit + randomized | `src/consumer/tests.rs` (38 incl. `randomized_fleet*`, `complete_through_*`), `store.rs`, `runner.rs`, `sql.rs` (real CH + S3) | PR |
 | FI | `tests/ambig_s3.rs` (faultproxy2), `scripts/faults.sh`, `consumer_soak.sh` | faults.sh N; ambig_s3 **none** |
 | differential | `tests/determinism.rs`, `otap_view.rs`, `series.rs` (vs Go) | PR / N |
-| fuzzing | **none** | — |
+| fuzzing | `fuzz/` (cargo-fuzz): `slot_key`, `slot_meta`, `offload_json` | N `fuzz` |
+| mutation | cargo-mutants over `consumer/{coord,plan,gc}.rs`, `proto.rs`, `store.rs`; baseline `ci/mutants-baseline.txt` | N `mutants` |
 | lint gate | `ci/clippy.sh` | PR |
 
 ### Go modules
@@ -527,8 +601,9 @@ Go modules (2026-09-29, Go 1.27.1): `testing/synctest` for the timer code
 porcupine histories via `casreg` (alerts sim, edge lanes, controller lanes,
 s3accept, the edge DST); the edge DST (`parquetgo/dst`, nightly
 `edge-dst`); native fuzz targets (nightly `fuzz`); rapid machines with
-hand-rolled swarm for the alerts engine and the basis keyring. **No mutation
-tool.** `go test -race` runs in PR (`RACE=1`; `parquetgo/dst` is exempt,
+hand-rolled swarm for the alerts engine and the basis keyring; gremlins
+(mutation) over `parquetgo/commit` (nightly `mutants`); staticcheck over every
+module (PR). `go test -race` runs in PR (`RACE=1`; `parquetgo/dst` is exempt,
 see research/go-verification.md §8). Details and the gosim probe:
 → [research/go-verification.md](research/go-verification.md) §8.
 

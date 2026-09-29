@@ -86,6 +86,7 @@ var dstMenu = []dstFault{
 	{"head_drop", s3emu.DropBefore, "HEAD"},
 	{"head_slow", s3emu.Slow, "HEAD"},
 	{"tombstones", s3emu.None, ""}, // the consumer closes logs
+	{"heartbeats", s3emu.None, ""}, // the exporter's heartbeat loop (edge.Heartbeats) shares the lanes
 }
 
 type dstOpts struct {
@@ -94,6 +95,9 @@ type dstOpts struct {
 	// putTimeout replaces the edge's PUT timeout (the liveness mutant: a
 	// lane that waits on a hung PUT for an hour)
 	putTimeout time.Duration
+	// beatEvery replaces the heartbeat loop's interval (the mutant: a loop
+	// that never beats an idle lane)
+	beatEvery time.Duration
 }
 
 // dstResult is what one seed found.
@@ -107,6 +111,7 @@ type dstResult struct {
 	late       int // late copies that applied
 	delayed    int // requests delayed (Late, Slow)
 	tombs      int
+	beats      int // heartbeat objects in the traces lanes
 	maxCall    time.Duration
 }
 
@@ -122,10 +127,15 @@ const (
 	dstCallBound = time.Duration(commit.MaxResends+1) * 3 * (dstPutTimeout + dstHeadTimeout + 20*time.Second)
 	// SDK attempts per request (the default retryer).
 	dstAttempts = 3
+	// the heartbeat loop's interval and birth timeout (s3pqexporter's
+	// defaults are 30 s and 30 s)
+	dstBeatInterval = 30 * time.Second
+	dstBeatBirth    = 30 * time.Second
 )
 
 func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 	res := &dstResult{}
+	simStart := time.Now()
 	rng := rand.New(rand.NewPCG(seed, 0xed6e))
 	var rmu sync.Mutex
 	intn := func(n int) int { rmu.Lock(); defer rmu.Unlock(); return rng.IntN(n) }
@@ -137,13 +147,16 @@ func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 			menu = append(menu, f)
 		}
 	}
-	tombs := false
+	tombs, beats := false, false
 	var faults []dstFault
 	for _, f := range menu {
 		res.menu = append(res.menu, f.name)
-		if f.name == "tombstones" {
+		switch f.name {
+		case "tombstones":
 			tombs = true
-		} else {
+		case "heartbeats":
+			beats = true
+		default:
 			faults = append(faults, f)
 		}
 	}
@@ -238,9 +251,24 @@ func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 		}()
 	}
 
+	// the heartbeats: births first (the exporter starts before its receivers),
+	// then a heartbeat per lane idle for dstBeatInterval, as s3pqexporter
+	// runs them, with no deadline (CAST 39): the edge's own timeouts bound them
+	faultsOff := time.Now().Add(time.Duration(60+intn(240)) * time.Second)
+	hbCtx, hbStop := context.WithCancel(context.Background())
+	defer hbStop()
+	var hbDone <-chan struct{}
+	var lateWarn atomic.Value // a keep-alive heartbeat that failed well after the faults stopped
+	if beats {
+		_, hbDone = e.Heartbeats(hbCtx, cmp.Or(o.beatEvery, dstBeatInterval), dstBeatBirth, func(ns string, err error) {
+			if time.Now().After(faultsOff.Add(dstCallBound)) {
+				lateWarn.CompareAndSwap(nil, fmt.Sprintf("%s: %v", ns, err))
+			}
+		})
+	}
+
 	// the senders: each pushes its requests in order, retrying each until ACKed
 	const senders, perSender = 3, 5
-	faultsOff := time.Now().Add(time.Duration(60+intn(240)) * time.Second)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for s := range senders {
@@ -289,9 +317,29 @@ func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 		faultsOn.Store(false)
 	}()
 	wg.Wait()
+	if beats {
+		// every lane idle: once the faults are over, each namespace gets its
+		// heartbeat within an interval and a half (the loop ticks at half)
+		time.Sleep(time.Until(faultsOff.Add(dstCallBound)))
+		time.Sleep(2 * dstBeatInterval)
+		for _, ns := range e.Registered() {
+			if idle := e.IdleFor(ns); idle > 2*dstBeatInterval {
+				res.fail("heartbeats: lane %s idle for %v after the faults stopped (interval %v)", ns, idle, dstBeatInterval)
+			}
+		}
+		if w := lateWarn.Load(); w != nil {
+			res.fail("heartbeats: a heartbeat failed after the faults stopped: %v", w)
+		}
+		hbStop()
+		select {
+		case <-hbDone:
+		case <-time.After(dstCallBound):
+			res.fail("heartbeats: the loop did not return within %v of its stop", dstCallBound)
+		}
+	}
 	close(stop)
 	bg.Wait()
-	emu.Wait() // every late copy has landed (or lost its condition)
+	emu.Wait()  // every late copy has landed (or lost its condition)
 	srv.Close() // and every request, answered or cut, has finished
 	synctest.Wait()
 
@@ -300,7 +348,11 @@ func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 	res.late = int(late.Load())
 	res.delayed = int(delayed.Load())
 	res.tombs = int(tombCount.Load())
-	if limit := res.calls * (commit.MaxResends + 1) * dstAttempts; res.puts > limit+res.tombs {
+	beatCalls := 0 // at most: a birth round per half second, then a round per tick
+	if beats {
+		beatCalls = (int(time.Since(simStart)/(dstBeatInterval/2)) + 1 + int(dstBeatBirth/(500*time.Millisecond)) + 1) * len(e.Registered())
+	}
+	if limit := (res.calls + beatCalls) * (commit.MaxResends + 1) * dstAttempts; res.puts > limit+res.tombs {
 		res.fail("%d PUTs for %d calls: more than %d", res.puts, res.calls, limit)
 	}
 
@@ -327,6 +379,9 @@ func dstSimulate(t *testing.T, seed uint64, o dstOpts) *dstResult {
 		case commit.KindData:
 			byContent[obj.Meta[commit.MetaContent]] = append(byContent[obj.Meta[commit.MetaContent]], k)
 			data = append(data, slot{ep, seq, k})
+		case commit.KindBeat:
+			res.beats++
+			data = append(data, slot{ep, seq, k}) // a heartbeat after a tombstone reopens a closed log too
 		}
 	}
 	for c, keys := range byContent {
@@ -378,7 +433,7 @@ func runSeed(t *testing.T, seed uint64, o dstOpts) *dstResult {
 func TestDSTEdgeCommit(t *testing.T) {
 	tracetag.Covers(t, "DST", "CAST-39", "CAST-50", "CAST-64", "H-1", "H-2")
 	seed0, n := dstSeeds(24)
-	var calls, puts, late, delayed, tombs, requests, ops int
+	var calls, puts, late, delayed, tombs, beats, requests, ops int
 	var worst time.Duration
 	menus := map[string]int{}
 	for seed := seed0; seed < seed0+uint64(n); seed++ {
@@ -388,6 +443,7 @@ func TestDSTEdgeCommit(t *testing.T) {
 				seed, res.menu, len(res.violations), strings.Join(res.violations, "\n  "), seed)
 		}
 		calls, puts, late, delayed, tombs, requests = calls+res.calls, puts+res.puts, late+res.late, delayed+res.delayed, tombs+res.tombs, requests+res.requests
+		beats += res.beats
 		worst = max(worst, res.maxCall)
 		ops += res.ops
 		for _, m := range res.menu {
@@ -399,8 +455,8 @@ func TestDSTEdgeCommit(t *testing.T) {
 		ms = append(ms, fmt.Sprintf("%s:%d", m, c))
 	}
 	sort.Strings(ms)
-	t.Logf("%d seeds from %d: %d requests ACKed exactly once in %d calls, %d PUTs, %d delayed requests of which %d landed late, %d tombstones; %d object requests checked linearizable; longest call %v (bound %v); menus %v",
-		n, seed0, requests, calls, puts, delayed, late, tombs, ops, worst, dstCallBound, ms)
+	t.Logf("%d seeds from %d: %d requests ACKed exactly once in %d calls, %d PUTs, %d delayed requests of which %d landed late, %d tombstones, %d heartbeats; %d object requests checked linearizable; longest call %v (bound %v); menus %v",
+		n, seed0, requests, calls, puts, delayed, late, tombs, beats, ops, worst, dstCallBound, ms)
 }
 
 // Each planted bug is caught by some seed of the default range.
@@ -414,6 +470,7 @@ func TestDSTCatchesMutants(t *testing.T) {
 		{"lane_no_halt", dstOpts{laneMut: commit.NoHalt}},
 		{"store_ignores_if_none_match", dstOpts{storeMut: s3emu.IgnoreIfNoneMatch}},
 		{"lane_waits_an_hour_on_a_put", dstOpts{putTimeout: time.Hour}},
+		{"heartbeats_never_beat_an_idle_lane", dstOpts{beatEvery: 1000 * time.Hour}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			for seed := uint64(1); seed <= 40; seed++ {

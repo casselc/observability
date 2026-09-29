@@ -24,8 +24,6 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-
-	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 // Label is one label.
@@ -121,7 +119,7 @@ func (c *Converter) Walk(md pmetric.Metrics, sink Sink) (floats, hists int) {
 		rm := rms.At(i)
 		c.base = c.base[:0]
 		rm.Resource().Attributes().Range(func(k string, v pcommon.Value) bool {
-			c.base = append(c.base, Label{c.name(k), parquetgo.AttrString(v)})
+			c.base = append(c.base, Label{c.name(k), v.AsString()})
 			return true
 		})
 		pointBase = len(c.base)
@@ -134,7 +132,7 @@ func (c *Converter) Walk(md pmetric.Metrics, sink Sink) (floats, hists int) {
 				pa := func(a pcommon.Map) {
 					c.base = c.base[:pointBase]
 					a.Range(func(k string, v pcommon.Value) bool {
-						c.base = append(c.base, Label{c.name(k), parquetgo.AttrString(v)})
+						c.base = append(c.base, Label{c.name(k), v.AsString()})
 						return true
 					})
 				}

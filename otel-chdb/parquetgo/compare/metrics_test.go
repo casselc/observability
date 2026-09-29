@@ -112,10 +112,11 @@ func TestMetricsSameRowsAsExporter(t *testing.T) {
 		sig := parquetgo.MetricSignals[mt]
 		table := "otel_" + sig
 		cols := ContribCols(mt)
+		cmpCols := normalizedFFFD(cols)
 		refT := refDB + "." + table
 		ddl := ch(t, "SHOW CREATE TABLE "+refT+" FORMAT TSVRaw")
 		sum := func(from string) string {
-			return ch(t, fmt.Sprintf("SELECT count(), sum(cityHash64(%s)) FROM %s SETTINGS use_query_condition_cache = 0", cols, from))
+			return ch(t, fmt.Sprintf("SELECT count(), sum(cityHash64(%s)) FROM %s SETTINGS use_query_condition_cache = 0", cmpCols, from))
 		}
 		want := sum(refT)
 		t.Logf("%s reference: %s", table, want)
@@ -137,7 +138,7 @@ func TestMetricsSameRowsAsExporter(t *testing.T) {
 					t.Errorf("%s %s%s: got %s, exporter %s", table, engine, suffix, got, want)
 				}
 				for _, dir := range [][2]string{{tbl, refT}, {refT, tbl}} {
-					q := fmt.Sprintf("SELECT count() FROM (SELECT %[1]s FROM %[2]s EXCEPT SELECT %[1]s FROM %[3]s)", cols, dir[0], dir[1])
+					q := fmt.Sprintf("SELECT count() FROM (SELECT %[1]s FROM %[2]s EXCEPT SELECT %[1]s FROM %[3]s)", cmpCols, dir[0], dir[1])
 					if n := ch(t, q); n != "0" {
 						t.Errorf("%s %s%s: %s rows in %s not in %s", table, engine, suffix, n, dir[0], dir[1])
 					}
@@ -308,4 +309,30 @@ func indexOf(s []string, v string) int {
 		}
 	}
 	return -1
+}
+
+// normalizedFFFD wraps the attribute map columns of a column list so that
+// the one known difference between the edge and the contrib exporter
+// compares equal: in a map or slice attribute value (JSON text), an invalid
+// UTF-8 byte is the escape for U+FFFD in the edge's rendering, pinned to
+// Go 1.26's encoding/json (../attrjson.go, the bytes the Rust edge
+// writes), and a raw U+FFFD in the exporter's when it is built with
+// Go >= 1.27 (encoding/json on the json/v2 engine). Everything else in
+// those values, and every other column, still compares byte for byte.
+func normalizedFFFD(cols string) string {
+	esc := "'" + `\\` + "u" + "fffd'" // SQL literal: backslash, u, fffd
+	raw := `'\xEF\xBF\xBD'`
+	norm := func(m string) string {
+		return "mapApply((k, v) -> (k, replaceAll(v, " + esc + ", " + raw + ")), " + m + ")"
+	}
+	parts := strings.Split(cols, ", ")
+	for i, c := range parts {
+		switch {
+		case c == "`Exemplars.FilteredAttributes`":
+			parts[i] = "arrayMap(m -> " + norm("m") + ", " + c + ")"
+		case strings.HasSuffix(c, "Attributes`"):
+			parts[i] = norm(c)
+		}
+	}
+	return strings.Join(parts, ", ")
 }

@@ -25,7 +25,8 @@ package parquetgo
 // A string is uvarint(len) || bytes; kvs are uvarint(n) then each entry in
 // key order (a stable sort: duplicate keys keep their wire order), the value
 // tagged with its type: 's' string, 'i'/'d' 8 little-endian bytes, 'b' one
-// byte, else 'x' and AsString().
+// byte, else 'x' and AttrString() (AsString, with maps and slices in
+//     pinned JSON: attrjson.go).
 //
 // Maps in the series object and the exemplars are written in the order the
 // contrib exporter writes them: clickhouse-go's orderedmap.CollectN, an
@@ -758,7 +759,7 @@ func (m *seriesKV) hashInto(b []byte) []byte {
 			b = append(b, 'b', x)
 		default:
 			b = append(b, 'x')
-			b = putStr(b, v.AsString())
+			b = putStr(b, AttrString(v))
 		}
 	}
 	return b

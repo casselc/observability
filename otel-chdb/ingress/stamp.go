@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
+
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 )
@@ -85,7 +87,7 @@ func moveClaims(m pcommon.Map, reserved func(string) bool) [][2]string {
 			return false
 		}
 		if !strings.HasPrefix(k, "oscope.") {
-			out = append(out, [2]string{k, v.AsString()})
+			out = append(out, [2]string{k, parquetgo.AttrString(v)})
 		}
 		return true
 	})

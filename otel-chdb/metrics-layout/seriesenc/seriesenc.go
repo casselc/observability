@@ -17,7 +17,7 @@
 // where every string is uvarint(len) || bytes, kvs are the map's entries
 // sorted by key (byte order), each value tagged with its pdata type ('s'
 // string bytes, 'i'/'d' 8 little-endian bytes, 'b' one byte, else 'x' and
-// AsString()). Everything the contrib row holds except the per-point fields
+// parquetgo.AttrString()). Everything the contrib row holds except the per-point fields
 // is in the id, so the series row plus the points row reproduce the contrib
 // row exactly (the compatibility view relies on it).
 //
@@ -43,6 +43,8 @@ import (
 	"github.com/zeebo/xxh3"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+
+	"github.com/casselc/observability/otel-chdb/parquetgo"
 )
 
 // Metric types, parquetgo's order.
@@ -164,7 +166,7 @@ type SummaryRow struct {
 
 // SeriesRow is one announced series: everything of the contrib row that is
 // not per point. Maps are key and value arrays (central builds the Map with
-// mapFromArrays); keys are sorted, values are AsString(), as the exporter
+// mapFromArrays); keys are sorted, values are parquetgo.AttrString() (AsString with maps and slices pinned), as the exporter
 // renders them.
 type SeriesRow struct {
 	SeriesID               uint64    `parquet:"series_id"`
@@ -280,7 +282,7 @@ func (e *Encoder) putVal(v pcommon.Value) {
 		e.buf = append(e.buf, 'b', b)
 	default:
 		e.buf = append(e.buf, 'x')
-		e.putStr(v.AsString())
+		e.putStr(parquetgo.AttrString(v))
 	}
 }
 
@@ -313,7 +315,7 @@ func (e *Encoder) putKVs(kvs []kvp) {
 func render(kvs []kvp) (keys, vals []string) {
 	keys, vals = make([]string, len(kvs)), make([]string, len(kvs))
 	for i, a := range kvs {
-		keys[i], vals[i] = a.k, a.v.AsString()
+		keys[i], vals[i] = a.k, parquetgo.AttrString(a.v)
 	}
 	return
 }
@@ -347,7 +349,7 @@ func (e *Encoder) Encode(md pmetric.Metrics, env *Envelope) (rows [NumTypes]int)
 		sc.resK, sc.resV = nil, nil
 		sc.svc = ""
 		if v, ok := res.Get("service.name"); ok {
-			sc.svc = v.AsString()
+			sc.svc = parquetgo.AttrString(v)
 		}
 		sc.resURL = rm.SchemaUrl()
 		sms := rm.ScopeMetrics()

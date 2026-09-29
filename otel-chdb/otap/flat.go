@@ -129,7 +129,7 @@ func render(dst []byte, typ arrow.Array, v attrCols, i int) []byte {
 		if decodeCBOR(x, pv) != nil {
 			return dst
 		}
-		return append(dst, pv.AsString()...)
+		return parquetgo.AppendAttrJSON(dst, pv) // the Go edge's rendering (attrjson.go)
 	}
 	return dst
 }

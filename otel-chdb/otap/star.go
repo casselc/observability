@@ -191,7 +191,7 @@ func serJSON(mem memory.Allocator, a arrow.Array) arrow.Array {
 			b.AppendNull()
 			continue
 		}
-		b.Append(v.AsString())
+		b.Append(parquetgo.AttrString(v))
 	}
 	return b.NewArray()
 }

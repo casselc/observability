@@ -106,7 +106,7 @@ func serviceName(res pcommon.Map) string {
 		if v.Type() == pcommon.ValueTypeStr {
 			return v.Str()
 		}
-		return v.AsString()
+		return AttrString(v)
 	}
 	return ""
 }
@@ -127,7 +127,7 @@ func valueString(dst []byte, v pcommon.Value) []byte {
 			return strconv.AppendFloat(dst, f, 'f', -1, 64)
 		}
 	}
-	return append(dst, v.AsString()...)
+	return AppendAttrJSON(dst, v) // AsString; maps and slices pinned (attrjson.go)
 }
 
 func writeTraces(w rowWriter, td ptrace.Traces, env *Envelope) int {
@@ -259,7 +259,7 @@ func writeLogs(w rowWriter, ld plog.Logs, env *Envelope) int {
 				if body.Type() == pcommon.ValueTypeStr {
 					w.str(body.Str())
 				} else {
-					w.str(body.AsString())
+					w.str(AttrString(body))
 				}
 				w.str(resURL)
 				w.attrs(res)

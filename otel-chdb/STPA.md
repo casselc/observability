@@ -192,6 +192,40 @@ Ten requirements come out of this pass; all are P0 unless marked, and each trace
 | R-S9 | The query service and rewrite proxy build SQL only from a parsed tree, with per-user limits (P1) | SEC-5, SEC-7 |
 | R-S10 | Alerts group by entity and cause, one page per incident (P1) | TM-7 |
 
+### Extension: LLM (Langfuse-shaped) traces (D36, proposed)
+
+Analysed first, before the design, in [research/langfuse.md](research/langfuse.md) §1, which holds the full
+control structure, UCA-L1..L14, LS-L1..L8, SEC-L1..L8 and TM-L1..L7, and the table of how each CAST theme is
+avoided. The losses, hazards and requirements are adopted here.
+
+**Loss.** L-7: a model, prompt or release decision is made on wrong evaluation or cost figures.
+
+| ID | Hazard | Losses |
+| --- | --- | --- |
+| H-L1 | Prompt or completion content readable outside its tenant's scope, by a metadata-only role, or through an existence probe (a content hash) | L-4 |
+| H-L2 | A cost presented as correct while computed from a stale, wrong or since-changed price, or over double-counted tokens | L-3, L-7 |
+| H-L3 | An evaluated result changes after it was acted on, and nothing shows that it changed or that more scores could arrive | L-7, L-3 |
+| H-L4 | An LLM trace or session shown as complete while spans, content or scores are still missing | L-3, L-7, L-1 |
+| H-L5 | Payload volume exhausts an edge buffer, an object, a lane or central | L-6, L-2 |
+| H-L6 | Content from a less-trusted writer interpreted as code or instructions (SQL, markup, prompt injection into an LLM-as-judge or assistant) | L-4, L-5, L-7 |
+| H-L7 | An erasure or retention obligation unmet, or met by rewriting history under an answer that promised not to change | L-4, L-3 |
+| H-L8 | Two versions of one observation or score both counted, or a partial update overwriting a field with an older or empty value | L-3, L-7 |
+
+| ID | Requirement (summary; full text in research/langfuse.md §1.8) |
+| --- | --- |
+| R-L1 | Tenant = the (cluster, namespace) from the edge's own resource detection; SDK-claimed projects and keys are labels at most |
+| R-L2 | Content only through the query service, same scope as its rows **and** an `llm_content` right; content reads audited; hashes keyed per tenant |
+| R-L3 | Cost computed at query time from price facts with valid and system time; results name the price as-of and count unpriced spans |
+| R-L4 | Offload above a threshold; caps on value, request and nesting; truncation and redaction always marked; caps validated together (CAST 25) |
+| R-L5 | Evaluated results carry their basis and a settle status; evaluators read at a basis and score only settled traces |
+| R-L6 | Scores, corrections, deletions and annotations are append-only facts with custody time, stable id, the fact they supersede, and source/author set by the writer's identity |
+| R-L7 | No producer name, key, reference or content spliced into SQL or a path; references validated and resolved in the query tree (CAST 24) |
+| R-L8 | Content never reaches a model or renderer as instructions or markup |
+| R-L9 | Rows committed only with or after the payloads they reference; dangling references counted and shown |
+| R-L10 | Erasure is a fact (tombstone at query time), plus an optional physical purge recorded as an epoch that older bases report |
+| R-L11 | No storage-engine merge decides which version of a fact wins (no `ReplacingMergeTree`/`FINAL`/`min`/`anyLast` for correctness) (CAST 37) |
+| R-L12 | The GenAI semconv mapping is versioned policy; a mapping change runs every consumer of the mapped columns (CAST 45, 46) |
+
 ## CAST: issues already found
 
 Most of the defects found so far share one control flaw: a controller treated an ambiguous outcome (no answer, an error, a timeout, a restart) as a definite one, and its process model drifted from reality. [AMBIGUITY.md](AMBIGUITY.md) turns this into a register of every boundary call's outcomes.
@@ -377,6 +411,14 @@ A strict gate means a transient S3 error now fails CI where it used to skip sile
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 47 | Model and design gap: an earlier incarnation's zombie PUT could land after a later incarnation's close retired the lane; it fell below R and was quarantined although its request had been ingested (a false page), because a close was taken to seal the whole lane | Building the retirement rule; confirmed by a scripted Quint run (the random simulation passed 20,000 × 60 samples with the mutant on) | H-4 adjacent: a false quarantine page (alert fatigue, H-8), and a rule that did not mean what the model said | Consumer retirement rule and the D35 model: "a close proves nothing more can land in this lane", but it proves it only for its own incarnation | The model had one writer per lane; random traces never reach the long multi-incarnation sequence | Retire only when every earlier epoch is sealed (tombstone or its own close); below-R copies pass as copies; model gains `SEAL_OLDER`, mutant `closeUnsealed`, scripted runs; `a_close_proves_empty_custody_only_when_everything_is_sealed`; commit a1841d4 | Scripted traces for multi-incarnation cases: random simulation misses long, specific traces; a proof is scoped to the actor that gave it |
 | 48 | Design gap: GC deletes slots ~2 minutes after the checkpoint passes them, so the only copy of a quarantined object would be gone before an operator could admit it | Building `consume admit` | H-1 (data lost for good: the recovered path would have nothing to recover) | GC: "a slot below the checkpoint was ingested"; quarantine made that untrue | Before quarantine, "passed" and "ingested" were the same state | GC reads the quarantine documents after its marks and keeps every listed key; `admit_recovers_quarantined_objects_once_and_gc_keeps_them`; commit b17d8bd | A new "passed but not ingested" state means re-checking every reader of "passed" |
+
+### CAST: the Langfuse design (2026-09-29)
+
+| # | Issue | Found by | Hazard | Controller and flawed process model | Why it made sense at the time | Fix | Lesson |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 49 | Near miss in the design: resolving score facts "latest by custody time" lets a retried older correction, received later, override a newer one | The D36 agent, checking its own resolution rule against at-least-once delivery | H-L8, H-L3: a corrected score silently reverted | Designer: "custody order is the order facts were meant in"; at-least-once retries reorder them | Custody order is sound for completeness (D19) and for the basis, so it looked sound for precedence too | Each fact names the fact it supersedes (a `supersedes` chain, R-L6, AMBIGUITY X24); custody order only breaks ties between unrelated facts | Ordering by custody time is not intent when the writer retries; precedence must be stated by the writer, not inferred from arrival |
+
+Row 38 recurred during this study: other agents took free disk to 789 MB, below the 2.5 GB floor every agent was keeping. The rule is now a mechanism: heavy steps run under one machine-wide lock (`flock` on a shared lock file) with a disk check inside it.
 
 ## What the models showed
 

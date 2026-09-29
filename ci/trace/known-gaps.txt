@@ -54,3 +54,4 @@ H-7:FI | coordinator | not built or not run — plan: partial buffer volume full
 H-7:G | coordinator | evidence exists, not yet tagged — plan: ✅ (mechanism) shared disk and CPU (#38): heavy-job flock with a disk check inside it (AGENT-RULES); a mechanism, not a test
 H-7:P | coordinator | not built or not run — plan: partial per-caller limits (SEC-5, R-S9): limits exist and are unit-tested; no property over concurrent callers; #35 shows limits are set independently
 H-1:G | coordinator | not built or not run — plan: ❌ retention refused below custody age (R-S6): not built: the measure exists (consumer_lane_watermark_lag_seconds), the refusal at config time does not
+CAST-57 | coordinator | no automated test: the regression needs an S3 store that hangs during rig setup; fix checked by hand and by the nightly journeys runs

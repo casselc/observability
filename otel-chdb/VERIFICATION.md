@@ -462,6 +462,8 @@ jest in the fork, #33 Playwright), and the §3 cells no test is tagged for yet.
 The job reports them and does not fail; a listed item that gains a passing
 record is reported stale and should be removed in the same change. Adding a
 line weakens a check and gets the same review as deleting a test.
+A new CAST row fails the next run until its regression test is tagged with it
+or it is listed there: the row's author adds one or the other with the row.
 
 The first slice tags every CAST row's regression test that exists and the model
 runs that pin CAST mutants; tagging the rest of §3's evidence closes the

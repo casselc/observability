@@ -72,3 +72,4 @@ tables:
   - {name: cast-langfuse-design-2026-09-29, kind: incident, batch: langfuse-design-2026-09-29, doc: STPA.md, columns: *cast}
   - {name: cast-d36-phase1-and-ci-2026-09-29, kind: incident, batch: d36-phase1-and-ci-2026-09-29, doc: STPA.md, columns: *cast}
   - {name: cast-go-upgrade-and-verification-2026-09-29, kind: incident, batch: go-upgrade-and-verification-2026-09-29, doc: STPA.md, columns: *cast}
+  - {name: cast-stpa-records-and-prd-2026-09-29, kind: incident, batch: stpa-records-and-prd-2026-09-29, doc: STPA.md, columns: *cast}

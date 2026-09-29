@@ -3,6 +3,8 @@ package basis
 import (
 	"testing"
 	"time"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // FuzzDecode: whatever a client sends as a basis token, Decode never
@@ -41,6 +43,7 @@ func FuzzDecode(f *testing.F) {
 // Every token has exactly one accepted spelling: the MAC's last character
 // carries two unused bits, which a lenient decoder ignores.
 func TestTokenTrailingBitsAreRefused(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-65")
 	k := ring(t)
 	tok, err := k.Encode(sample())
 	if err != nil {

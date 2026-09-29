@@ -58,3 +58,7 @@ CAST-57 | coordinator | no automated test: the regression needs an S3 store that
 CAST-59 | coordinator | control is a check in conformance/run.sh (fails on any refused or failed send), exercised by the nightly conformance job; no tagged test yet
 CAST-60 | coordinator | process mechanism (G), not a test: AGENT-RULES requires cargo clean -p for workspace crates before each worktree check
 CAST-63 | coordinator | process mechanism (G): ci.yml's paths filter re-includes checked Markdown; stpa check before commit
+CAST-66 | coordinator | caught by goleak in the controller packages' TestMain, which is not a tagged test
+CAST-67 | coordinator | the regression is a FuzzBearer seed; fuzz targets have no trace helper (testing.F)
+CAST-68 | coordinator | process mechanism (G), not a test: CI jobs free runner disk first; caches keyed by Go version
+CAST-69 | coordinator | process mechanism (G), not a test: AGENT-RULES names the shared caches and forbids clearing them

@@ -376,7 +376,7 @@ func runSeed(t *testing.T, seed uint64, o dstOpts) *dstResult {
 }
 
 func TestDSTEdgeCommit(t *testing.T) {
-	tracetag.Covers(t, "DST", "CAST-39", "CAST-50", "H-1", "H-2")
+	tracetag.Covers(t, "DST", "CAST-39", "CAST-50", "CAST-64", "H-1", "H-2")
 	seed0, n := dstSeeds(24)
 	var calls, puts, late, delayed, tombs, requests, ops int
 	var worst time.Duration

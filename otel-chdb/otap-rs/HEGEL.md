@@ -154,6 +154,17 @@ only statement faults, some with none.
 - **At the end:** heal, drain, and let late statements land. Then
   `atMostOnce`, `onlyCommittedIngested`, and liveness.
 
+  "Drained" means every committed row AND every committed announcement is
+  in, with at most a minute of no progress (a new row or a landed
+  announcement). Until nightly run 7 it meant rows only. That case
+  (3 workers: `write` 1, `restart_edge`, `kill` the holder) left the
+  restarted epoch's first object, a copy whose rows were already in, for a
+  dead holder's lane, which another worker can take back only after
+  ttl + margin. The harness stopped the fleet 12 s later and reported the
+  copy's announcement as not ingested. The fleet was not at fault; the
+  harness stopped waiting too soon.
+  `regression_finish_waits_for_a_copys_announcement` replays it.
+
 The simulation runs on its own thread (seeded OS randomness and clocks, as
 `sim::run`), and the rules send it closures. Between rules no simulated
 time passes except what the rule itself draws (0–5 s, which the shrinker

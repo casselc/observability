@@ -1341,14 +1341,22 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
     assert!(dup.is_empty(), "atMostOnce: ingested more than once: {dup:?}\n{summary}");
     assert!(extra.is_empty(), "onlyCommittedIngested: {extra:?}\n{summary}");
     assert!(missing.is_empty(), "not ingested, no progress for 60 s after {quiesce_ms} ms healed (neverSkipsCommitted / liveness): {missing:?}\n{summary}");
-    assert!(ann_missing.is_empty(), "announcements committed and not ingested: {ann_missing:?}\n{summary}");
+    assert!(ann_missing.is_empty(), "announcements committed and not ingested, no progress for 60 s after {quiesce_ms} ms healed: {ann_missing:?}\n{summary}");
     assert!(ann_extra.is_empty(), "announcements ingested and never committed: {ann_extra:?}\n{summary}");
     summary
 }
 
-/// Every committed content key has all its rows in central.
+/// Every committed content key has all its rows in central, and every
+/// committed announcement has landed (`announcement_state`). Both, because
+/// a lane's pending object can be a copy whose rows are already in (an
+/// edge restart resends its last batch into the new epoch) while its
+/// announcement is not: judging the fleet done on rows alone ended the
+/// wait before a dead holder's lane was taken back (nightly run 7).
 pub fn complete(w: &World) -> bool {
-    w.rows_of.borrow().iter().all(|((t, c), r)| w.count(t, c) >= *r)
+    w.rows_of.borrow().iter().all(|((t, c), r)| w.count(t, c) >= *r) && {
+        let ch = w.ch.borrow();
+        w.ann_of.borrow().keys().all(|slot| ch.announced_objs.contains(slot))
+    }
 }
 
 /// Liveness: healed, the fleet must keep making progress until it is
@@ -1357,7 +1365,11 @@ pub fn complete(w: &World) -> bool {
 /// it ran (simulated ms); `complete` says whether it got there.
 pub async fn quiesce(w: &World) -> u64 {
     let q0 = now_ms();
-    let total = |w: &World| w.ch.borrow().rows.values().sum::<u64>();
+    // Progress: new rows, or a newly landed announcement.
+    let total = |w: &World| {
+        let ch = w.ch.borrow();
+        ch.rows.values().sum::<u64>() + ch.announced_objs.len() as u64
+    };
     let (mut last, mut last_at) = (total(w), q0);
     while !complete(w) && now_ms() < q0 + 3_600_000 && now_ms() < last_at + 60_000 {
         sleep_ms(1_000).await;

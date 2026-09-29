@@ -274,7 +274,8 @@ async fn heal_and_check(f: &Fleet) -> Reply {
     let q = quiesce(&f.w).await;
     if !complete(&f.w) {
         let (missing, _, _) = final_state(&f.w);
-        return Err(format!("liveness: healed, no progress for 60 s after {q} ms; not ingested: {missing:?}"));
+        let (ann_missing, _, _) = announcement_state(&f.w);
+        return Err(format!("liveness: healed, no progress for 60 s after {q} ms; not ingested: {missing:?}; announcements not ingested: {ann_missing:?}"));
     }
     violations(f)
 }
@@ -308,7 +309,7 @@ async fn finish(f: Rc<Fleet>) -> Reply {
     }
     let (ann_missing, ann_extra, _) = announcement_state(&f.w);
     if !ann_missing.is_empty() {
-        return Err(format!("announcements committed and not ingested: {ann_missing:?}"));
+        return Err(format!("announcements committed and not ingested, no progress for 60 s after {q} ms healed: {ann_missing:?}"));
     }
     if !ann_extra.is_empty() {
         return Err(format!("announcements ingested and never committed: {ann_extra:?}"));
@@ -757,3 +758,53 @@ fn hegel_dst_finds_mutants() {
     assert!(survived.is_empty(), "mutants survived: {survived:?}");
 }
 
+/// Nightly run 7's shrunk case, as plain steps (no Hegel blob, so it keeps
+/// meaning the same thing when the rules change): 3 workers; a lane
+/// commits one batch (its object announces the lane's resource); the edge
+/// restarts, resending that batch into E0002/0 (a copy: its rows are
+/// already in, its announcement is not); the lane's holder is killed right
+/// after its checkpoint write. Another worker can take the lane back only
+/// after the dead lease has looked unchanged for ttl + margin (and load
+/// balancing lets it), about 11 s later. `finish` judged the fleet done on
+/// rows alone and stopped it at 12 s: announcements "committed and not
+/// ingested". The fleet was not done; the harness stopped waiting.
+#[test]
+fn regression_finish_waits_for_a_copys_announcement() {
+    let s = Setup {
+        seed: 0,
+        workers: 3,
+        producers: 1,
+        lat_ms: 1,
+        s3_timeout_ms: 1_000,
+        scale: true,
+        zombie_ms: 3_000,
+        server_skew_ms: 0,
+        worker_skew_ms: vec![0, 0, 0],
+        mutant: Mutation::None,
+    };
+    let sim = SimThread::start(s);
+    let _ = sim.run(|f| async move {
+        f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
+        let _ = f.edges[0].0.send(EdgeCmd::Write(1));
+        sleep_ms(360).await;
+        f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
+        let _ = f.edges[0].0.send(EdgeCmd::Restart);
+        sleep_ms(378).await;
+        let mut slots = f.slots.borrow_mut();
+        trace(format!("KILL {}", slots[0].proc.name));
+        if let Some(h) = slots[0].handle.take() {
+            h.abort();
+        }
+        let inc = slots[0].inc + 1;
+        slots[0] = spawn_worker(&f.w, 0, inc);
+        drop(slots);
+        // The case's shape: E0002/0 is a copy, and nobody holds the lane now.
+        let (missing, _, _) = final_state(&f.w);
+        let (ann_missing, _, _) = announcement_state(&f.w);
+        if !missing.is_empty() || ann_missing.len() != 1 {
+            return Err(format!("not the nightly-7 shape: rows missing {missing:?}, announcements missing {ann_missing:?}"));
+        }
+        violations(&f)
+    });
+    let _ = sim.run(finish);
+}

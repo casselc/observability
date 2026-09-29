@@ -2904,6 +2904,58 @@ startup check refuses a symmetric key; two replicas; tampering; latency,
 KMS: `deploy/validation/eks-aws.md` EKS-13. KMS throttling:
 AMBIGUITY X17.
 
+**Amendment 2026-09-29: the tail (owner decision on AMBIGUITY.md #10,
+option (b); built).** D30.6 made a lake plan at a basis leave out
+everything received at or after C, and D30.9 pinned the lake UI to
+`"latest"`, so the UI stopped showing D24's lake-only rows (received after
+`complete_through`, drawn incomplete) and both browser suites failed.
+
+1. **`/v1/plan` with `"tail": true`** (a basis required: `400
+   tail_needs_basis`) answers the basis part exactly as D30.6 (the same
+   objects and `objects_hash` at the same basis) plus `tail_objects`: the
+   objects received at or after the bound of their cluster up to
+   `listed_at`, and a `tail` block labelled `completeness: "incomplete"`,
+   `cache: "never"`, with its own counts and hash. The bound stays strict:
+   `received_at < C` is the basis, everything else the tail.
+2. **Unplaceable objects go to the tail**, never into the basis part: an
+   object the planner cannot date (no HEAD within budget, a failed HEAD, no
+   `oscope-received`, `LastModified` too close to C) is in the tail with
+   `basis_check` and `received_before_ns`; the reader moves it into the
+   basis part only by its footer. (Without tail, D30.6 is unchanged: such an
+   object is in the plan with `basis_check`.)
+3. **The HEAD budget** goes to basis candidates first, oldest
+   `LastModified` first, so a later arrival never takes the HEAD of an
+   object an earlier plan at the same basis dated: the basis part does not
+   depend on what arrived since.
+4. **Clients** (lake UI, Mosaic spike) ask for the tail with every plan at
+   a basis, keep only the basis part (plans and per-object answers, keyed
+   on the basis), re-read the tail on every run, and draw its rows, and
+   every bucket holding one, incomplete whatever their event time; a result
+   with tail rows is incomplete. A `latest` refused because no basis can be
+   issued (`basis_unverifiable`, `basis_disabled`,
+   `basis_signer_unavailable`) is planned unpinned and says so; a held
+   token's refusal stays the answer.
+
+**Why (b)**: (a) would have made the lake UI show only what central can
+answer, dropping D24's reason for reading the lake; (c) would have given up
+repeatable runs and every cache. (b) keeps both: the basis part is D30's
+stable answer, the tail is D24's incomplete lake-only rows, labelled so.
+
+**Evidence** [Q]: `internal/lake/tail_test.go` (rapid, 3,000 runs: every
+object that may hold window rows is in exactly one part; nothing received
+at or after the bound, and nothing undated, is in the basis part; the basis
+answer, after footer checks, is exactly the objects received before the
+bound under any HEAD budget and HEAD failures, before and after arrivals;
+with every HEAD answered the basis part's list and `objects_hash` do not
+change as data arrives; mutants "unplaced into the basis" and "tail first
+in the HEAD budget" caught), `internal/server/tail_plan_test.go` (the HTTP
+contract, the audit record); lake UI `test/tail.test.js` (9 tests, one a
+property; two mutants caught) and two Mosaic tests (one runs the URL-mode
+SQL in DuckDB-WASM against the range reader's columns). [M] the nightly
+`lakeui-e2e` and `lakeui-mosaic-e2e` (the basis part = central's 18,000,
+the tail the late batch's 600; at a held basis `/rig/more` grows the tail
+and leaves the basis part and its hash unchanged).
+
 **Status:** built (2026-09-28). `query/internal/basis` (token, checks),
 `query/internal/server` (`basis` / `basis_from` on `/v1/query`, `basis` on
 `/v1/plan`, `POST /v1/basis`), `query/internal/sqlscope` (the filter, the
@@ -3010,7 +3062,8 @@ its own and bases die with it (the evaluator drops such windows from its
 checks, counted). A ClickHouse replica behind the one serving is still not
 in the label (C3), so a basis inherits that gap. An unwindowed statement at
 a basis is stable only until retention removes its oldest rows. The lake
-UI's browser e2e does not exercise the basis yet.
+UI's browser e2e exercises the basis and its tail since the 2026-09-29
+amendment.
 
 ### D31. Late rows in their own object: the edges split a request by event time
 

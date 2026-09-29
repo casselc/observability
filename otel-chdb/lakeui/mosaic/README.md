@@ -80,17 +80,28 @@ durations and the late batch spans (unset, its data is as before).
   the completeness band starts exactly at the first bucket lakeui calls
   unsettled; the URL mode's SQL carries exact BigInt literals. Two mutants
   (band at `s` instead of its bucket; a row state off by 1 ns) each fail.
-- **Browser** (`e2e/mosaic.spec.mjs`, against the real stack): range mode's
-  tables equal ClickHouse's counts plus the late batch, exactly the late rows
-  are incomplete, every GET is a ranged 206 and the tap's bytes equal the
+  The tail (AMBIGUITY.md #10 (b)): range mode's columns draw a tail part's
+  rows and their buckets incomplete; URL mode's SQL, run in DuckDB-WASM over
+  a basis file and a tail file it wrote, gives per bucket the same rows,
+  tail rows and states as the range reader's columns (mutant `bool_and`
+  for `bool_or` fails).
+- **Browser** (`e2e/mosaic.spec.mjs`, against the real stack): both modes
+  plan at a basis with its tail (D30 amendment): range mode's tables equal
+  ClickHouse's counts (the basis part) plus the late batch (the tail),
+  exactly the late rows are incomplete, every GET is a ranged 206 and the tap's bytes equal the
   page's; URL mode builds the same tables column by column (timestamps at
-  µs, see below) from whole-object GETs; really expired URLs (403) re-plan in
-  URL mode too; the shim + trusted-HEAD mode fails to open files and shows
+  µs, see below) from whole-object GETs, the tail's rows marked from
+  `read_parquet`'s `filename` (a tail object the planner could not date
+  stays in the tail here: DuckDB does not read its footer, so its rows are
+  drawn incomplete, the weaker claim); really expired URLs (403: the plan
+  answers replayed past their expiry, since tail plans are never cached)
+  re-plan in URL mode too; the shim + trusted-HEAD mode fails to open files and shows
   "not read"; after every brush and click, each chart's drawn total equals an
   independent SQL count under its filter (asserted without pre-aggregation,
   recorded with it); brush latency with and without pre-aggregation at 1×,
   20×, 100×, 300×, 600× the loaded rows; kept cube tables answer for the old
-  rows; an unknown watermark greys all four charts; Mosaic's statements
+  rows; an unknown watermark greys all four charts (no basis can be issued:
+  planned unpinned, and said so); Mosaic's statements
   replayed on ClickHouse.
 
 ## Found here

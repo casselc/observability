@@ -77,24 +77,40 @@ localhost), **[E]** estimate.
   `oscope-received` is below `received_before_ns`; a footer without it
   fails the query, naming the object. "Hold the basis" reuses the last
   run's basis for the next run. The stats line says which basis the run
-  read at (per cluster), how many newer objects the plan left out, and
-  whether the answer came from the cache; a service without bases is said
-  to be "not at a basis".
+  read at (per cluster), the tail it read, how many objects of the basis
+  part came from the cache; a service without bases, or a `latest` that
+  cannot be issued, is said to be "not at a basis".
+- **The tail** (D30 amendment, AMBIGUITY.md #10 (b)): every plan at a basis
+  asks for `"tail": true`, so what was received after the basis (the late
+  batch of D24) is read on every run, never left out: its rows, and every
+  bucket holding one, are drawn **incomplete whatever their event time**
+  (`src/completeness.js`), a result with tail rows is incomplete, and the
+  banner says how many rows came after the basis. A tail object the planner
+  could not date is placed by its footer (below the bound: the basis part;
+  otherwise the tail). The basis part is what D30 pins: at the same basis
+  it is the same objects (`objects_hash`) and the same rows.
+- **No basis to be had**: a `latest` refused with `basis_unverifiable`
+  (no or an unreadable watermark), `basis_disabled` or
+  `basis_signer_unavailable` is re-asked without a basis (unpinned, the
+  label the service gives: unknown without a watermark) and the run says
+  so; a held token that is refused stays the answer.
 - **Caches keyed on the basis** (`src/planclient.js`, `src/engine.js`): a
-  plan is cached only when it is at a basis, under that basis (and still
-  reused only before `replan_after`: its URLs expire); a result only at a
-  basis, under the basis and the query (50, oldest out): an answer at a
-  basis never changes. A request for `latest` or without a basis is never
-  answered from a cache, and nothing without a basis is kept (CAST row 33's
-  rule: every cache keys on the data version, and the basis is it).
+  plan is cached only when it is at a basis, under that basis, and only its
+  basis part (a request with tail is always asked: the tail is never
+  cached); per-object answers of the basis part (and the detail of the rows
+  shown from it) are kept under the basis and the query (50, oldest out),
+  so a later run at the same basis reads only the tail. Nothing of the tail
+  and nothing without a basis is kept (CAST row 33's rule: every cache keys
+  on the data version, and the basis is it).
 
 ## What doesn't (yet)
 
 - **No snapshots**: the service plans from a LIST (no sealer), at a basis
   since D30 (so a re-plan lists the same objects), but each plan is still a
-  LIST and HEADs, not a lookup. The basis is covered by the unit tests
-  and the query service's integration test; the Playwright e2e does not
-  exercise it yet.
+  LIST and HEADs, not a lookup. The Playwright e2e exercises the basis and
+  its tail: the basis part equals central, the late batch is the tail, and
+  at a held basis more data (`/rig/more`) grows the tail and leaves the
+  basis part unchanged.
 - **Namespace-scoped viewers are refused** by the service
   (`namespace_scope_needs_filtering_reader`): raw objects hold every
   namespace. They need `/v1/query` (not wired into this UI).
@@ -131,7 +147,7 @@ localhost), **[E]** estimate.
 | `src/parquet.js` | footer, row-group pruning (a truncated string max never prunes a value that extends it), column reads, BigInt timestamps |
 | `src/completeness.js` | segments, row/bucket/result states, banner words |
 | `src/runner.js` | the re-plan state machine |
-| `src/queries.js`, `src/engine.js` | the three views' reads and merges (a plan object's `row_groups` narrows the read); plan → read → merge → label; a query's `filter` goes to the planner; one basis per run, footer checks, the result cache (D30) |
+| `src/queries.js`, `src/engine.js` | the three views' reads and merges (a plan object's `row_groups` narrows the read; tail parts' rows incomplete); plan → read → merge → label; a query's `filter` goes to the planner; one basis per run with its tail, footer checks, the basis part's cache (D30) |
 | `src/charts.js` | SVG histogram, line chart, waterfall |
 | `test/` | `node:test` + fast-check, with three real edge objects as fixtures |
 | `e2e/` | Playwright against the real stack (`../query/integration/lakeuirig`) |
@@ -139,7 +155,7 @@ localhost), **[E]** estimate.
 ## Tests
 
 ```
-npm ci && npm test           # 47 unit and property tests, ~15 s (D30: the basis pinned per run, the caches keyed on it, footer checks)
+npm ci && npm test           # 56 unit and property tests, ~30 s (D30: the basis pinned per run, the caches keyed on it, footer checks; the tail)
 npm run vendor:check         # vendor/ == the pinned packages
 QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123, SeaweedFS :18333 (ci/services.sh)
 ```
@@ -176,13 +192,33 @@ QS_IT_BIN=<dir with otelcol-s3pq and consume> npm run e2e   # ClickHouse :18123,
   narrows the read, `scan` or a row group the file lacks reads everything;
   trace and text answers are the same whatever the index says, with fewer
   bytes when objects are pruned.
+- `tail` (AMBIGUITY.md #10 (b)): a plan's tail is carried apart and a tail
+  that says complete or cacheable, tail objects without the label, a tail
+  object in the basis part or in both parts are refused; `tail` is sent
+  only with a basis; a request with tail is never answered from the cache,
+  which keeps its basis part only; tail rows and buckets incomplete (unknown
+  stays unknown); the engine counts every row once, draws the tail's
+  incomplete, and at the same basis answers the basis part from what it
+  kept and re-reads only the tail (a property over random splits and a
+  growing tail); an unplaced tail object is placed by its footer; a
+  `latest` that cannot be issued is planned unpinned, a held basis refused
+  is thrown. Mutants (the tail's parts kept; the tail not drawn incomplete)
+  fail them.
 - `fold`: only U+0130 and U+212A lowercase to anything ASCII in this engine
   (every code point scanned); the shared vector file the Go tokenizer is
   tested against is what this engine computes; a property that every body
   the page's substring test matches satisfies every constraint of the text.
 
-**Browser test** (`npm run e2e`, nightly as `lakeui-e2e`, 10 tests, ~2 min of
-which 60 s waits for real URL expiry). `../query/integration/lakeuirig`
+**Browser test** (`npm run e2e`, nightly as `lakeui-e2e`, 11 tests, ~2 min of
+which 60 s waits for real URL expiry). Since the tail (AMBIGUITY.md #10
+(b)) the late batch is read as the plan's tail: the first test checks the
+basis part equals central and the tail is the late batch; the expiry test
+replays the recorded plan answer past its expiry (plans with a tail are
+never cached, so no cached plan can go stale); the no-watermark test
+expects the unpinned fallback; the last test posts `/rig/more` (another
+`lui-a` batch at long-settled event times, received after every basis) and
+checks, at a held basis, the same basis part (`objects_hash`, count =
+central, answered from what was kept) and a grown tail, drawn incomplete. `../query/integration/lakeuirig`
 brings up: its own bucket `lui-…` (with CORS) and database `lui_…`; the Go
 edge for clusters `lui-a` (2 pods) and `lui-b` publishing three batches of
 logs, spans and gauge points; the Rust consumer ingesting them and publishing

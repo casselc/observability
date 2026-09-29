@@ -430,6 +430,31 @@ basis), `gc.json` unreadable `503 basis_unverifiable`. The last rule of the
 plan's `rules` is replaced by the two basis rules. A plan without a basis
 still names the current one in `basis`.
 
+**The tail** (`"tail": true` with a basis; D30 amendment, AMBIGUITY.md #10
+(b)). The plan above is then the **basis part** (`objects`, unchanged: the
+same objects and `objects_hash` at the same basis however much arrives),
+and what it would leave out is listed apart, in **`tail_objects`** (each
+marked `"tail": true`, with URLs): the objects received at or after the
+bound of their cluster, up to `listed_at`, including those written long
+after the basis was issued (not HEADed). An object the planner cannot date
+is **never** put in the basis part on a guess: it goes to the tail with
+`basis_check` and `received_before_ns`, and a reader moves it into the basis
+part only when its footer's `oscope-received` is below the bound. So
+`after_basis` and `basis_unverified` are 0; `objects_hash`, `total_bytes`,
+`late_objects` and `unrefined` describe the basis part only. The `tail`
+block labels the rest: `completeness: "incomplete"` (always: more may
+arrive, whatever the rows' event time), `cache: "never"`, `objects`,
+`bytes`, `rows` / `min_time_ns` / `max_time_ns` (over refined tail
+objects), `unrefined`, `unplaced`, `late_objects`, `received_from` (per
+cluster: the basis's bound), `received_through` (`listed_at`) and its own
+`objects_hash` (audit only, never a cache key). Two rules are added to
+`rules`. The HEAD budget goes to basis candidates first, oldest first, so a
+later arrival never takes the HEAD of an object an earlier plan at the
+same basis dated. `max_objects` counts both parts. `"tail"` without a
+basis is `400 tail_needs_basis`. The audit record lists basis keys, then
+tail keys, with `tail_objects`, `tail_bytes` and `tail_objects_hash`;
+metrics `qs_plan_tail_objects_total`, `qs_plan_tail_unplaced_total`.
+
 No Iceberg-REST `loadTable` yet: it needs the sealer's metadata.
 
 ### 2.3 `POST /v1/basis` (role `query` or `plan`)

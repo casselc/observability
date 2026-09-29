@@ -251,24 +251,24 @@ production.
    prevented only by IAM), X16 (a changed split bound duplicates queued
    requests; metrics not split). The edge
    commit-outcome metrics (S1) are built (2026-09-27).
-10. **Owner decision: the lake UI's basis (D24 against D30).** Since D30
-    the lake UI plans every run at a basis, `"latest"`, which the service
-    mints at `complete_through` (D30.1: a basis is never above it), and a
-    plan at a basis lists only objects received before it (D30.6). So the
-    lake UI no longer shows anything received after `complete_through`:
-    the lake-only rows D24's UI was built to show as incomplete are left
-    out, reported only as "N newer object(s) left out". Both browser e2e
-    suites (`lakeui/e2e`, `lakeui/mosaic/e2e`) still assert D24's behaviour
-    (the late batch counted, drawn incomplete) and have failed since their
-    first nightly run (2026-09-29, 18,000 rows against 18,600: the late
-    batch's one object "left out"); D30 itself noted that the e2e did not
-    exercise the basis. Not changed here: each way out reverses part of an
-    accepted decision. Options: (a) keep D30 and rewrite both e2e suites to
-    it (the UI then shows only rows central could answer too, with an
-    event-time "incomplete" tail below the basis); (b) the lake UI pins a
-    basis for the settled part and reads the tail beyond it separately
-    (objects received at or after C, a plan "after the basis": labelled
-    incomplete, never cached), which keeps both; (c) the lake UI plans
-    without a basis, as before D30 (runs no longer repeatable, no cache).
-    (b) looks like the intent of both decisions; it needs a plan mode the
-    service does not have.
+10. ~~**Owner decision: the lake UI's basis (D24 against D30).**~~
+    **Decided (owner, 2026-09-29): option (b), built** (D30 amendment "the
+    tail"). `/v1/plan` with a basis and `"tail": true` returns the basis
+    part (pinned, the same `objects_hash` at the same basis, cacheable) and,
+    apart, `tail_objects`: what was received at or after the bound
+    (strictly: `received_at < C` is the basis), labelled `incomplete`,
+    `cache: "never"`, outside `objects_hash`; an object the planner cannot
+    date goes to the tail with `basis_check`, never into the basis part.
+    The lake UI and the Mosaic spike ask for the tail on every run, keep
+    only the basis part (keyed on the basis) and draw the tail's rows and
+    buckets incomplete whatever their event time. Found on the way (all
+    since D30, all fixed): the nightly e2e failed at its first test, so 9
+    lake UI and 6 Mosaic tests after it never ran; the expiry tests relied
+    on a cached plan (a tail plan is never cached: they now replay the
+    recorded plan answers past their expiry); the no-watermark tests got
+    `503 basis_unverifiable` on `latest` (the clients now plan unpinned
+    when no basis can be issued, and say so); Mosaic's URL mode planned
+    without a basis (it now pins one with its tail, as range mode does).
+    Was: since D30 the lake UI planned at `"latest"` and left out
+    everything received after `complete_through` (D24's incomplete lake-only
+    rows), and both browser suites failed (18,000 rows against 18,600).

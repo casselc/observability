@@ -52,7 +52,7 @@ test('Late data', {
     await markBucket(i)
     await expect(page.locator('[data-testid="basis"]')).toContainText('answered from the cache')
     await j.step(page, 'held', 'Hold the basis: the old bucket is settled; the basis part comes from what was kept', {
-      region: ['#scope', '#banner', '#stats', '#chart'], marks: ['[data-jny-bucket]', '#hold-basis'] })
+      region: ['#scope', '#banner', '#stats', '#chart'], maxHeight: 700, marks: ['[data-jny-bucket]', '#hold-basis'] })
   })
 
   await test.step('2. rows stamped 18 minutes ago arrive now: the old bucket turns incomplete', async () => {
@@ -74,7 +74,7 @@ test('Late data', {
     await expect(page.locator('#banner')).toContainText(`${info.truth.late_logs + more.logs} row(s) received after the basis`)
     await markBucket(i)
     await j.step(page, 'arrived', 'Late rows arrive: the basis part is unchanged, the tail grows, the old bucket turns incomplete', {
-      region: ['#scope', '#banner', '#stats', '#chart'], marks: ['[data-jny-bucket]'] })
+      region: ['#scope', '#banner', '#stats', '#chart'], maxHeight: 700, marks: ['[data-jny-bucket]'] })
   })
 
   await test.step('3. zoomed in: the late rows are the ones tagged incomplete', async () => {

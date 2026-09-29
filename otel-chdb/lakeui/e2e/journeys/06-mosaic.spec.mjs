@@ -46,7 +46,7 @@ test('Cross-filter, with the completeness marks (Mosaic spike)', {
     await expect(page.locator('#chart-A text', { hasText: 'settled through' })).toHaveCount(1)
     expect(await page.locator('#chart-B [fill="url(#mos-hatch)"]').count()).toBeGreaterThan(0)
     await consistent('loaded')
-    await j.step(page, 'loaded', 'Four cross-filtered charts; the tail hatched on each', { region: ['#banner', '#stats', '#charts'], maxHeight: 700 })
+    await j.step(page, 'loaded', 'Four cross-filtered charts; the tail hatched on each', { region: ['#banner', '#stats', '#charts'], maxHeight: 1400 })
   })
 
   await test.step('2. brush a time range: every chart filters, every total exact', async () => {
@@ -61,7 +61,7 @@ test('Cross-filter, with the completeness marks (Mosaic spike)', {
     const cs = await checkAll()
     expect(cs.find(c => c.id === 'B').where).not.toBe('') // B is filtered by the brush
     await consistent('brushed time')
-    await j.step(page, 'brushed', 'Brush a time range: the other charts follow, each total exact', { region: ['#charts'], maxHeight: 700 })
+    await j.step(page, 'brushed', 'Brush a time range: the other charts follow, each total exact', { region: ['#charts'], maxHeight: 1400 })
   })
 
   await test.step('3. click a pod: spans filtered by time and pod, still exact', async () => {
@@ -71,7 +71,7 @@ test('Cross-filter, with the completeness marks (Mosaic spike)', {
     const d = (await checkAll()).find(c => c.id === 'D')
     expect(d.where).toMatch(/pod/)
     await consistent('clicked a pod')
-    await j.step(page, 'pod', 'Click a pod: spans filtered by time and pod, still exact', { region: ['#charts'], maxHeight: 700 })
+    await j.step(page, 'pod', 'Click a pod: spans filtered by time and pod, still exact', { region: ['#charts'], maxHeight: 1400 })
   })
   await page.context().close()
 })

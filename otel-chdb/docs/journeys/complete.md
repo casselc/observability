@@ -54,6 +54,9 @@ Three things on this picture carry the answer to "can this change?":
   the **tail**, read on every run and never cached (the owner's decision,
   [AMBIGUITY #10 (b)](../../AMBIGUITY.md)). Here the tail is the rig's late
   batch: 600 rows sent after the consumer published its watermark.
+- The banner also counts the **objects that arrived later than
+  `max_lateness`** (D26's `late_objects`): data a result drawn earlier did
+  not have, which is exactly what [journey 5](late.md) is about.
 - **The histogram**: buckets wholly before *settled through* and holding
   no tail rows are solid; every other bucket is **hatched**, and the dashed
   line marks where settled ends. Colour is never the only signal: hatching,

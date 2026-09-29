@@ -50,6 +50,11 @@ never rows from the answer: a false positive costs bytes, a false negative
 would be a wrong answer, and segments are exact per object for that reason
 ([FORMAT.md §7.3](../../FORMAT.md#73-what-a-reader-may-conclude)).
 
+On the rig the window also holds a tail object of spans received after
+the basis (the late batch), which the indexer has not seen yet: the stats
+line counts it as "not indexed (read whole)" and it is read, as step 3
+explains.
+
 *Asserted:* the same span count (= ClickHouse); objects ruled out > 0;
 strictly fewer bytes and fewer range GETs than without the index; page and
 pass-through agree on the bytes.

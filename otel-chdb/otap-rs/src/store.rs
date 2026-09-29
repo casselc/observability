@@ -739,5 +739,23 @@ mod tests {
         assert_eq!(t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), 1790305200);
         let t2 = parse_rfc3339("2026-09-25T05:00:00.123+02:00").unwrap();
         assert_eq!(t, t2);
+        // January and February (the other branch of the civil-day formula), leap
+        // days, centuries, every field, negative offsets (nightly `mutants`
+        // found the date arithmetic unchecked outside September)
+        for (s, secs) in [
+            ("1970-01-01T00:00:00Z", 0u64),
+            ("2000-02-29T23:59:59Z", 951868799),
+            ("2024-01-31T12:34:56Z", 1706704496),
+            ("2100-03-01T00:00:01Z", 4107542401),
+            ("2026-02-28T10:20:30-05:30", 1772293830),
+            ("1999-12-31T23:59:59.999999+00:00", 946684799),
+            ("2400-02-29T00:00:00z", 13574563200),
+        ] {
+            let t = parse_rfc3339(s).unwrap_or_else(|| panic!("{s}"));
+            assert_eq!(t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(), secs, "{s}");
+        }
+        for bad in ["2026-09-25T03:00:00", "2026-09-25T03:00:00Q", "1969-12-31T23:59:59Z", "2026-09-25"] {
+            assert_eq!(parse_rfc3339(bad), None, "{bad}");
+        }
     }
 }

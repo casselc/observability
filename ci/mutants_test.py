@@ -10,12 +10,12 @@ import mutants  # noqa: E402
 
 
 class Keys(unittest.TestCase):
-    def test_rust_keys_drop_positions_and_number_repeats(self):
+    def test_rust_keys_drop_positions_and_merge_repeats(self):
         with tempfile.TemporaryDirectory() as d:
             open(os.path.join(d, 'missed.txt'), 'w').write(
                 'src/gc.rs:12:9: replace < with <= in doomed\nsrc/gc.rs:40:3: replace < with <= in doomed\n')
             open(os.path.join(d, 'timeout.txt'), 'w').write('src/plan.rs:7:1: replace found -> Found with Default::default()\n')
-            self.assertEqual(mutants.rust(d), ['rust src/gc.rs: replace < with <= in doomed', 'rust src/gc.rs: replace < with <= in doomed #2',
+            self.assertEqual(mutants.rust(d), ['rust src/gc.rs: replace < with <= in doomed',
                                                'rust src/plan.rs: replace found -> Found with Default::default()'])
 
     def test_go_keys_name_the_function_not_the_line(self):

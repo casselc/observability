@@ -68,6 +68,14 @@ lto = false
 codegen-units = 16
 debug = false
 
+# Nightly `mutants` (cargo-mutants): every mutant rebuilds this crate; a
+# release build without incremental artifacts took ~7 min per mutant.
+[profile.mutants]
+inherits = "dev"
+opt-level = 1
+debug = false
+incremental = true
+
 [profile.dist]
 inherits = "release"
 lto = "thin"

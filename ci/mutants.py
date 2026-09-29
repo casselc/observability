@@ -9,9 +9,10 @@ A survivor is a mutant no test caught: missed or timed out (cargo-mutants), live
 covered (gremlins). Each is written as a key that does not move when lines do:
 
     rust <file>: <cargo-mutants' description>          e.g. rust src/consumer/gc.rs: replace < with <= in doomed
+                                                       (one key for equal descriptions in a file)
     go <module-relative file> <func> <MUTATOR> #n      e.g. go commit/lane.go (*Lane).Append CONDITIONALS_NEGATION #2
 
-(#n numbers the equal keys of a file in line order.) `check` fails when a survivor is not in
+(Go: #n numbers the equal keys of a file in line order.) `check` fails when a survivor is not in
 the baseline (a regression: a test lost its teeth, or new code has none), and reports
 baseline entries that no longer survive (remove them). Every baseline line is
 `key | reason`; a line without a reason is an error, as a known-gaps line without an owner is.
@@ -46,7 +47,9 @@ def rust(outdir):
                 pairs.append((f'rust {m.group(1)}: {m.group(4)}', (m.group(1), int(m.group(2)), int(m.group(3)))))
             elif line:
                 pairs.append((f'rust {line}', (line, 0, n)))
-    return keyed(pairs)
+    # the same description twice in a file (two `<` in one function) is one key: keys must
+    # not depend on how cargo-mutants' shards split the mutants
+    return sorted({base for base, _ in pairs})
 
 
 FUNC = re.compile(r'^func\s+(?:\((?:\w+\s+)?(\*?\w+)(?:\[[^\]]*\])?\)\s*)?(\w+)')

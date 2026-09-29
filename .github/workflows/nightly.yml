@@ -738,6 +738,14 @@ jobs:
       OTAPRS_SERIES_FLEET: ${{ github.workspace }}/.ci/data/series/fleet
       OTAPRS_CREDSTUBS: ${{ github.workspace }}/.ci/creds
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - name: Toolchain (rust-toolchain.toml)
         working-directory: otel-chdb/otap-rs
@@ -826,6 +834,14 @@ jobs:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
       DST_TRACE_DIR: ${{ github.workspace }}/.ci/dst
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain
@@ -894,6 +910,14 @@ jobs:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
       HEGEL_DEFAULT_PROFILE: nightly
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain
@@ -981,6 +1005,14 @@ jobs:
     env:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain
@@ -1105,6 +1137,14 @@ jobs:
     env:
       KANI_VERSION: "0.68.0"
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
         with:
@@ -1207,6 +1247,14 @@ jobs:
     env:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
     steps:
+      # The runner's unused preinstalled SDKs (~20 GB); a Rust build plus services filled
+      # the disk (nightly runs 21, 22, 24: "No space left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
         id: upstream

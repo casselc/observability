@@ -3718,6 +3718,8 @@ what `consume admit` may do.
 
 **Status:** **accepted as proposed** by the owner (2026-09-29). Research, STPA and a spike:
 [research/langfuse.md](research/langfuse.md), [`langfuse/spike/`](langfuse/spike/README.md).
+**Owner decisions on phase 1, 2026-09-29:** the 128 MiB request cap stays, for metrics as for traces and logs; offloading stays **on by default** and the deploy order is written down (the consumer before the edges: a consumer from before ingests offloaded rows without their payloads, silently; [deploy/validation/README.md](deploy/validation/README.md)); the scope split is accepted (`llm_*` cluster and namespace from the rows' resource, as every row filter; the payload hash key from the writing edge; for devtools both are the ingress's policy stamp, D37); mapping v1 is accepted; the Rust alias prefix stays fixed; the differential against Langfuse's own mapper is **deferred** (phase 2).
+
 **Phase 1 (collect and keep, no new UI) built, 2026-09-29:**
 - **The offloader at both edges, byte for byte** (Rust `otap-rs/src/offload.rs`, Go
   `parquetgo/offload.go`; [FORMAT.md §2.3](FORMAT.md)): the owner's policy as the default (2 KiB
@@ -3973,6 +3975,8 @@ is caught too.
 H-G3); OPA/Rego (no schema validation or analyzability of the same kind; a second language for IAM
 anyway); tuples in YAML (no validator, no independent oracle); namespace as a key tier (the edge cannot
 split a cluster's lanes by namespace without a writer per namespace; D1/D19).
+
+**Owner decision O-G9, 2026-09-29:** **pseudonymise on departure.** When a person leaves, their catalog record (D32 person entity) is replaced by a stable pseudonym as a bitemporal correction; telemetry stays, attribution to the named person does not (to design and build; not yet started).
 
 **Consequences / open.** Owner decisions O-G1..O-G9 (research/grants.md §10). STPA additions (L-G1,
 H-G1..H-G8, UCA-G1..G7, LS-G1..G8, SEC-G1..G8, TM-G1..G5, R-G1..R-G9) proposed for the coordinator;

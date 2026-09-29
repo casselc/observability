@@ -85,6 +85,10 @@ code gaps these runbooks find.
 | central-idle-bench | a dedicated 32-vCPU machine (not burstable, not shared); 2 replica hosts and 3 Keeper hosts with SSH + passwordless sudo; the production Keeper session timeout to test |
 | clocks-and-skew | read access to a cluster (production is fine for the probe); UDP/123 egress to the reference |
 
+## Deploy order
+
+**Consumers before edges** when upgrading a deployment to schema 3 (D36 payload offloading, on by default): a consumer from before reads the new objects but ignores the payload columns, so it would ingest offloaded rows **without their content, silently** (the content stays in the S3 object only until GC). Upgrade every consumer, check `consumer_payload_dangling_total` is exported, then the edges. A fresh deployment has no old consumer.
+
 ## How the scripts behave
 
 - **Parameterised by the environment** (each script's header lists its

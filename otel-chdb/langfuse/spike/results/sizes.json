@@ -1,0 +1,464 @@
+{
+ "lfz_a.events_full": {
+  "rows": 107814,
+  "compressed": 69630179,
+  "uncompressed": 657852419,
+  "on_disk": 149425716,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "input",
+    "35560547"
+   ],
+   [
+    "output",
+    "25950270"
+   ],
+   [
+    "span_id",
+    "869902"
+   ],
+   [
+    "trace_id",
+    "764630"
+   ],
+   [
+    "blob_storage_file_path",
+    "730640"
+   ],
+   [
+    "cost_details",
+    "600261"
+   ]
+  ]
+ },
+ "lfz_a.events_core": {
+  "rows": 107814,
+  "compressed": 27267091,
+  "uncompressed": 125628550,
+  "on_disk": 27722073,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "output",
+    "6885368"
+   ],
+   [
+    "input",
+    "5242146"
+   ],
+   [
+    "span_id",
+    "1732626"
+   ],
+   [
+    "blob_storage_file_path",
+    "1401267"
+   ],
+   [
+    "trace_id",
+    "1333311"
+   ],
+   [
+    "cost_details",
+    "998843"
+   ]
+  ]
+ },
+ "lfz_a.scores": {
+  "rows": 26867,
+  "compressed": 2585658,
+  "uncompressed": 8148801,
+  "on_disk": 2733440,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "updated_at",
+    "0"
+   ],
+   [
+    "created_at",
+    "0"
+   ],
+   [
+    "evaluation_rule_id",
+    "0"
+   ],
+   [
+    "string_value",
+    "0"
+   ],
+   [
+    "queue_id",
+    "0"
+   ],
+   [
+    "author_user_id",
+    "0"
+   ]
+  ]
+ },
+ "lfz_b.otel_traces": {
+  "rows": 107814,
+  "compressed": 82873588,
+  "uncompressed": 641359371,
+  "on_disk": 201595364,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "SpanAttributes",
+    "76050441"
+   ],
+   [
+    "TraceId",
+    "993502"
+   ],
+   [
+    "SpanId",
+    "882564"
+   ],
+   [
+    "ResourceAttributes",
+    "744350"
+   ],
+   [
+    "received_at",
+    "571619"
+   ],
+   [
+    "Timestamp",
+    "502522"
+   ]
+  ]
+ },
+ "lfz_b.otel_traces_kv_rollup_15m": {
+  "rows": 12701,
+  "compressed": 58515,
+  "uncompressed": 436727,
+  "on_disk": 71763,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "Timestamp",
+    "0"
+   ],
+   [
+    "ColumnIdentifier",
+    "0"
+   ],
+   [
+    "Key",
+    "0"
+   ],
+   [
+    "Value",
+    "0"
+   ],
+   [
+    "cluster",
+    "0"
+   ],
+   [
+    "count",
+    "0"
+   ]
+  ]
+ },
+ "lfz_b.otel_logs": {
+  "rows": 27516,
+  "compressed": 1640316,
+  "uncompressed": 9631751,
+  "on_disk": 3895442,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "LogAttributeItems",
+    "0"
+   ],
+   [
+    "ScopeAttributeItems",
+    "0"
+   ],
+   [
+    "ResourceAttributeItems",
+    "0"
+   ],
+   [
+    "__hdx_materialized_k8s.deployment.name",
+    "0"
+   ],
+   [
+    "__hdx_materialized_k8s.pod.uid",
+    "0"
+   ],
+   [
+    "__hdx_materialized_deployment.environment.name",
+    "0"
+   ]
+  ]
+ },
+ "lfz_b.otel_logs_kv_rollup_15m": {
+  "rows": 19528,
+  "compressed": 32718,
+  "uncompressed": 494814,
+  "on_disk": 48045,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "Timestamp",
+    "0"
+   ],
+   [
+    "ColumnIdentifier",
+    "0"
+   ],
+   [
+    "Key",
+    "0"
+   ],
+   [
+    "Value",
+    "0"
+   ],
+   [
+    "cluster",
+    "0"
+   ],
+   [
+    "count",
+    "0"
+   ]
+  ]
+ },
+ "lfz_c.otel_traces": {
+  "rows": 107814,
+  "compressed": 10595781,
+  "uncompressed": 93222489,
+  "on_disk": 22457898,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "SpanAttributes",
+    "5558490"
+   ],
+   [
+    "SpanId",
+    "882160"
+   ],
+   [
+    "TraceId",
+    "868324"
+   ],
+   [
+    "ResourceAttributes",
+    "733281"
+   ],
+   [
+    "received_at",
+    "572347"
+   ],
+   [
+    "Timestamp",
+    "504494"
+   ]
+  ]
+ },
+ "lfz_c.otel_traces_kv_rollup_15m": {
+  "rows": 12701,
+  "compressed": 58515,
+  "uncompressed": 436727,
+  "on_disk": 71763,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "Timestamp",
+    "0"
+   ],
+   [
+    "ColumnIdentifier",
+    "0"
+   ],
+   [
+    "Key",
+    "0"
+   ],
+   [
+    "Value",
+    "0"
+   ],
+   [
+    "cluster",
+    "0"
+   ],
+   [
+    "count",
+    "0"
+   ]
+  ]
+ },
+ "lfz_c.llm_payloads": {
+  "rows": 108381,
+  "compressed": 32512018,
+  "uncompressed": 95189743,
+  "on_disk": 53889619,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "content",
+    "30385868"
+   ],
+   [
+    "hash",
+    "1738435"
+   ],
+   [
+    "bytes",
+    "308013"
+   ],
+   [
+    "namespace",
+    "1369"
+   ],
+   [
+    "received_day",
+    "1065"
+   ],
+   [
+    "cluster",
+    "861"
+   ]
+  ]
+ },
+ "lfz_c.llm_spans": {
+  "rows": 107814,
+  "compressed": 12642597,
+  "uncompressed": 38345957,
+  "on_disk": 12930861,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "input_refs",
+    "2184704"
+   ],
+   [
+    "span_id",
+    "1708262"
+   ],
+   [
+    "trace_id",
+    "1326783"
+   ],
+   [
+    "output_refs",
+    "1287693"
+   ],
+   [
+    "parent_span_id",
+    "852723"
+   ],
+   [
+    "received_at",
+    "741561"
+   ]
+  ]
+ },
+ "lfz_c.otel_logs": {
+  "rows": 27516,
+  "compressed": 1640316,
+  "uncompressed": 9631751,
+  "on_disk": 3895442,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "LogAttributeItems",
+    "0"
+   ],
+   [
+    "ScopeAttributeItems",
+    "0"
+   ],
+   [
+    "ResourceAttributeItems",
+    "0"
+   ],
+   [
+    "__hdx_materialized_k8s.deployment.name",
+    "0"
+   ],
+   [
+    "__hdx_materialized_k8s.pod.uid",
+    "0"
+   ],
+   [
+    "__hdx_materialized_deployment.environment.name",
+    "0"
+   ]
+  ]
+ },
+ "lfz_c.otel_logs_kv_rollup_15m": {
+  "rows": 19528,
+  "compressed": 32718,
+  "uncompressed": 494814,
+  "on_disk": 48045,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "Timestamp",
+    "0"
+   ],
+   [
+    "ColumnIdentifier",
+    "0"
+   ],
+   [
+    "Key",
+    "0"
+   ],
+   [
+    "Value",
+    "0"
+   ],
+   [
+    "cluster",
+    "0"
+   ],
+   [
+    "count",
+    "0"
+   ]
+  ]
+ },
+ "lfz_c.llm_scores": {
+  "rows": 27516,
+  "compressed": 2534621,
+  "uncompressed": 3795219,
+  "on_disk": 2663041,
+  "merge_cpu_us": 0,
+  "top_columns": [
+   [
+    "value",
+    "0"
+   ],
+   [
+    "string_value",
+    "0"
+   ],
+   [
+    "kind",
+    "0"
+   ],
+   [
+    "row_ordinal",
+    "0"
+   ],
+   [
+    "received_at",
+    "0"
+   ],
+   [
+    "event_time",
+    "0"
+   ]
+  ]
+ }
+}

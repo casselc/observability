@@ -3698,7 +3698,18 @@ events, and allow content in external storage by reference.
 6. **UI: LLM views in the HyperDX fork on the query service**; Langfuse web is the functional
    specification, not the viewer.
 
-**Evidence.** [filled from §9]
+**Evidence** [M] ([research/langfuse.md](research/langfuse.md) §9; one run, shared ClickHouse
+26.10, load 2–6): 107,814 synthetic agent spans, 53,907 generations of 2–20 KB input, 27,516 score
+facts, through Langfuse's own migrations (A), our tables with content inline (B) and the proposal
+(C). Bytes per span on disk: A 1,643, B 1,871, **C 829** (messages deduplicate 6.2× per tenant and
+day; B's largest structure is ClickStack's items text index over the prompts, 118.5 of 201.7 MB).
+Insert CPU per span: A 87.3 µs, B 49.5, **C 36.6** (rows 18.8 + payloads 17.8). Langfuse's pages:
+C 1.3–1.7× A's latency on trace list, sessions, cost by model and day and score analytics (half
+of the cost query is the naive query-time price lookup), 2.2× on trace detail (payload lookup),
+faster on content search; B 2–11× slower than A. Same answers except A's cost, 1.1% high for the
+week: the six hours between a price cut and its recording are stored 25% high. An average score
+at basis day 1 + 1 h (0.5114, 2,110 scores) differs from the latest (0.5119, 2,105); C gives both,
+A only the latest. Not run: the edges and consumer, merge CPU, replicated central, repeated passes.
 
 **Alternatives.** Langfuse's own tables on central (rows mutable, dedup at read, answers not
 reproducible, stored costs; option A of the spike); LLM content inline in `otel_traces`

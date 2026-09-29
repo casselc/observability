@@ -76,7 +76,16 @@ by the UI, not the pipeline, (d) **bitemporal price facts** applied at query tim
    project key the SDK claims; prompt and completion **content is a separate read right**
    (`llm_content`) from metadata, and every content read is audited.
 
-**Measured (§9).** [numbers in §9]
+**Measured (§9)** on 107,814 synthetic agent spans (53,907 generations, 2–20 KB inputs) with
+Langfuse's own DDL (A), our tables with content inline (B) and the proposal (C): C stores
+**829 B per span against 1,643 for Langfuse's tables and 1,871 for inline content** (messages
+deduplicate 6.2×: every call resends the conversation), inserts at **36.6 µs per span against 87.3
+and 49.5**, and answers the Langfuse list and aggregate pages in **1.3–1.7× Langfuse's time** with
+no read-side deduplication and a basis on every read (inline content in `SpanAttributes` is 2–11×
+slower). Trace detail costs C 2.2× (the payload lookup). And both mutability hazards show on
+Langfuse's shape: a price recorded six hours late leaves those hours' stored cost 25% high for
+ever; an average score changes as corrections arrive and the earlier answer cannot be reproduced.
+C answers both, at each basis, stably.
 
 **What the owner decides** (§11): the offload threshold and caps; whether per-message splitting
 happens at the edge (proposed) or at the consumer; the `llm_content` role and its audit; the score
@@ -88,7 +97,7 @@ the UI option; whether the Langfuse ingestion API is ever accepted.
 The pipeline's STPA ([STPA.md](../STPA.md)) is the base: its losses L-1..L-6, hazards H-1..H-7 and
 requirements R-S1..R-S10 all still apply to LLM traces, which are traces. This section adds what is
 new when the telemetry is prompts, completions, token costs and evaluations. The coordinator owns
-STPA.md; the text below is proposed for it (report, §12).
+STPA.md; the text below is proposed for it.
 
 ### 1.1 Losses
 
@@ -296,7 +305,7 @@ and how the design avoids repeating it.
   each model with a `match_pattern` regex and a `start_date`; project-level overrides), **score
   configs**, **annotation queues**, **evaluators and rules** (LLM-as-judge configuration),
   **comments**, **dashboards**, **users, orgs, projects, API keys, RBAC**: Postgres
-  (`packages/shared/prisma/schema.prisma`, 87 models).
+  (`packages/shared/prisma/schema.prisma`, 77 models).
 
 ### 2.2 ClickHouse schema
 
@@ -445,7 +454,7 @@ experiment; annotation (a person scores or corrects from the trace view).
 | Tenant | `project_id` from an API key | (cluster, namespace) from the edge | **ours** (R-L1); a project is a label |
 | Content | inline `ZSTD(3)` in the events table (2 MiB overflow optional) | by reference, deduplicated per message | **ours**, measured (§9) |
 | Cost | stored at ingest | at query time from price facts | **ours** (R-L3), measured (§9.4) |
-| Trace-level fields | denormalised onto every span at ingest | resolved per trace at query time | ours; Langfuse denormalises for list speed — measured equal or better here (§9.3) |
+| Trace-level fields | denormalised onto every span at ingest | resolved per trace at query time | ours; Langfuse denormalises for list speed; resolving per trace costs C 1.3× on the trace list here (§9.3) |
 | UI state (bookmark, public, comments) | `ALTER UPDATE` on the events tables | not telemetry: the UI's own store | ours |
 | Retention and erasure | `DELETE FROM` per project (EE) | partition TTL; erasure as a fact plus an owner-decided purge (R-L10) | ours, with an open decision |
 
@@ -601,7 +610,120 @@ Langfuse's own migrations for the comparison (`lfz_bench.py render_langfuse`).
 
 ## 9. Measurements
 
-[to be filled from langfuse/spike/results]
+[`langfuse/spike/`](../langfuse/spike/README.md), one run on 2026-09-29 on the shared ClickHouse
+26.10.1.618 (4 vCPU, load average 2–6 from other agents' tests), 8,000 conversations over 3
+days: **107,814 spans, 53,907 generations** (input 7.5 KB on average, 20.5 KB at most), 1,041
+late spans, 27,516 score facts. All [M] unless marked; the text is synthetic (a 4,000-word
+vocabulary with a skewed distribution), so absolute bytes are indicative, ratios less so.
+
+### 9.1 Stored bytes (after `OPTIMIZE FINAL`)
+
+| Shape | Tables | On disk | per span | per generation | of which skip indexes |
+|---|---|---:|---:|---:|---:|
+| **A** Langfuse v4 | `events_full` 149.4 MB + `events_core` 27.7 MB | 177.1 MB | 1,643 B | 3.29 KB | 80.1 MB (the text indexes on `lower(input)`, `lower(output)`) |
+| **B** ours, content inline | `otel_traces` 201.6 MB (+ rollup 0.1) | 201.7 MB | 1,871 B | 3.74 KB | 118.5 MB (`idx_span_attr_items`: every `key=value` item, prompts included, is one token) |
+| **C** proposal | `otel_traces` 22.5 + `llm_payloads` 53.9 + `llm_spans` 12.9 (+ rollup 0.1) | 89.4 MB | 829 B | 1.66 KB | 33.1 MB (21.3 of it the optional text index on payloads) |
+
+Scores: A 2.7 MB; B 3.9 MB (`otel_logs`); C 3.9 + 2.7 (`llm_scores`).
+
+- **Deduplication by message**: the spans carried 565 MB of message JSON; 91.7 MB of it is
+  distinct per tenant and day (**6.2×**), because every call resends the system prompt and the
+  conversation so far. Stored compressed, A's `input` + `output` columns are 61.6 MB and C's
+  `content` 30.4 MB: ZSTD recovers part of the repetition when a conversation's calls share a
+  block, the hash recovers all of it whatever the sort order. With longer agent loops (20–50 tool
+  calls, not 1–8 turns) the ratio grows roughly with the loop length [E].
+- **Option B pays twice for inline content**: the `SpanAttributes` map (76.1 MB) and ClickStack's
+  items text index (118.5 MB). Option 2 dropped the `mapKeys` indexes for insert cost; with LLM
+  content in attributes, the items index becomes the largest structure in the table. Offloading
+  (C) takes it back to 11.7 MB.
+- At fleet rates [E, from these per-generation figures]: 10,000 generations/s is 864 M a day:
+  A 2.8 TB/day, B 3.2 TB/day, C 1.4 TB/day, one copy compressed; against the mid scenario's
+  5.92 TB/day for everything else (DECISIONS §3), C adds 24%, B 55%. At 1,000/s, a tenth.
+
+### 9.2 Insert CPU
+
+Server CPU of each shape's `INSERT … SELECT` minus the same `SELECT … FORMAT Null` (row generation),
+summed over 11 statements of 10,000 spans in custody order; one pass (not repeated):
+
+| Shape | µs per span | µs per generation | at 10k generations/s [E] |
+|---|---:|---:|---:|
+| A (`events_full` + its MV to `events_core`, text and bloom indexes) | 87.3 | 175 | 1.7 vCPU |
+| B (`otel_traces` + items indexes + rollup MV) | 49.5 | 99 | 1.0 vCPU |
+| C rows (`otel_traces` + `llm_spans` MV) | 18.8 | | |
+| C payloads (`llm_payloads`, text index) | 17.8 | | |
+| **C total** | **36.6** | **73** | **0.7 vCPU** |
+
+Scores: 3.3 µs per fact in A, 9.3 in B (`otel_logs` + rollup), 11.7 in C (+ `llm_scores` view),
+baseline not subtracted. The edge's hashing and splitting is in C's subtracted `SELECT` and is not
+measured here (it is edge CPU, phase 1). Merge CPU was not captured (OPTIMIZE's merges run on
+background threads the client's profile events do not include): **not measured**.
+
+### 9.3 The UI's queries
+
+One namespace (ns-p1, a quarter of the data); median of 5 after a warm-up, query cache off;
+rows read from the summary header. B and C are read at a basis (`received_at < C`) and compute
+cost from the price facts at that basis; A deduplicates as Langfuse's repositories do
+(`LIMIT 1 BY span_id` on `events_core`, `FINAL` on `scores`) and reads its stored cost.
+
+| Query (Langfuse view) | A | B | C | C reads |
+|---|---:|---:|---:|---|
+| Q1 trace list: one day, newest 50 traces, latency, cost, tokens, average score | 41.0 ms | 247.5 ms | 54.8 ms | 85,644 rows, 6.7 MB |
+| Q2 trace detail: every observation with full input/output, and its scores | 28.4 | 43.9 | 61.5 | 46,600 rows, 5.2 MB (payload lookups) |
+| Q3 sessions: a week, 50 most recent, traces, cost, tokens | 23.6 | 171.9 | 35.0 | 91,243 rows, 7.0 MB |
+| Q4 cost by model and day | 15.8 | 172.7 | 23.5 | 91,243 rows, 2.5 MB |
+| Q5 score histograms and average judge score per model | 21.9 | 161.5 | 37.4 | 154,451 rows, 9.8 MB |
+| Q6 search a word in one day's generation outputs | 29.5 | 66.8 | 19.4 | 70,853 rows, 3.0 MB |
+
+- **B is 2–11× slower than A** on every list and aggregate: each reads the whole `SpanAttributes` map (content
+  included) to get tokens, model and session. That is the case for typed columns (C's
+  `llm_spans`) even without offloading.
+- **C is within 1.3–1.7× of A** on list and aggregate pages, with no deduplication at read and a
+  basis on every read. Half of C's Q4 is the query-time price lookup (Q4 without cost: 14.8 ms,
+  A 15.8), done here as a per-row array scan; a `range_hashed` dictionary of price facts at the
+  basis is the build choice [E]. C also reads 2–3× A's rows at this size: its key leads with
+  `cluster`, which the test's filter leaves open, and its partitions are small; with the scope's
+  cluster list in the filter (as the query service passes it) the key prunes as A's does [E].
+- **Trace detail is C's cost**: 61.5 ms against 28.4, the payload lookup (a second read by hash,
+  over the trace's custody days). It is one trace; acceptable for a detail page, and cacheable
+  forever by hash (content-addressed).
+- **Search is cheaper in C** (19.4 ms, 3.0 MB): the text index is over distinct messages, not
+  over every copy.
+- **Same answers**: Q3 equal in all three (50 sessions, cost sum 0.5141). Q4: B and C equal
+  (18.7049); **A 18.9199, 1.1% higher: the stale price stored at ingest** (§9.4).
+
+### 9.4 Late facts and prices: the basis
+
+| Question | Answer |
+|---|---|
+| Average judge score of day-1 traces, C at basis day 1 + 1 h | 2,110 scores, **0.5114** |
+| … C at day 3, and at the end | 2,105 scores, **0.5119** (corrections and deletions since) |
+| … A (`FINAL`) | 2,105, 0.5119: the latest only; the day-1 + 1 h answer cannot be reproduced |
+| Cost of day 2, 00–06 h, gpt-5.1-mini and haiku; C at basis 05:00 (price cut valid from 00:00, recorded 06:00) | 526 spans received by then, **1.0046** (the old price: what was known) |
+| … C at the end | 603 spans, **0.8604** (the new price: correct) |
+| … A, stored at ingest | 603 spans, **1.0754**: 25% high for those six hours, for ever (LS-L1) |
+
+Both hazards are concrete on Langfuse's own shape: an evaluated number changes after the fact with
+no way to show what it was (H-L3), and a price recorded late leaves stored costs wrong (H-L2). C
+answers both questions — "what did we know then" and "what is true" — and each answer is stable.
+
+### 9.5 The UI options, costed [E from §4 and D25/D33's experience]
+
+| Option | What it takes | Keeps | Loses / risks |
+|---|---|---|---|
+| **HyperDX fork + query service** (proposed) | LLM pages (trace list, detail with chat rendering, sessions, cost, scores) in the fork we already patch (D25, D33); payload resolution, cost and score resolution in the query service | one auth (OIDC), scope, audit, labels, basis; one UI for all telemetry | Langfuse's app features (prompts, datasets, playground, eval configuration, queues) — out of scope or phase 3 |
+| Lake UI | the same views as static pages over plans; payload parts read from objects | history beyond central's retention | content access control on objects is coarse (§6.3); later |
+| Langfuse web on our store | Postgres, Redis, its worker; compatibility tables (its reads use `FINAL`, which views do not take) for `events_full`/`events_core`/`scores` shapes; an adapter in front of ClickHouse like D25's (its SQL uses the same `{name: Type}` parameters); its writes (`ALTER UPDATE`, `DELETE`) refused or redirected; NextAuth mapped to our OIDC groups and namespaces; tracking a code base at 4.46 | Langfuse's whole feature set | a second auth and permission model (H-L1); stored-cost and `FINAL` semantics back (H-L2, H-L3); the largest fork we would carry |
+| Upstream Langfuse beside us, fed by a fan-out exporter | nothing in our code; per-namespace opt-in export | Langfuse unchanged | a second copy of every prompt outside our scope and audit (H-L1): only for tenants who accept it |
+
+### 9.6 What was not run, and provenance
+
+Not run: the edges and the consumer (the rows were written as their statements would write them);
+merge CPU; replicated central; repeated insert passes (one pass, 11 statements per shape); Langfuse's
+own worker (A's rows follow its converters' column choices by hand, and its costs follow its
+ingest-time rule); the `supersedes` chain (the spike resolves latest-by-custody; it has no retried
+facts). The first full run waited ~10 minutes for disk: other agents held it below the 2.5 GB floor
+(CAST row 38's theme); the spike's databases were dropped after the run. Langfuse `536c2d6`,
+ClickHouse 26.10.1.618, this repository at the commit of this note.
 
 ## 10. Requirements to design
 

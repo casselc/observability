@@ -1,9 +1,9 @@
 {
- "C avg helpfulness, day-1 traces, at end of day 1 + 1 h": "125\t0.4777",
- "C avg helpfulness, day-1 traces, at day 3": "125\t0.4794",
- "C avg helpfulness, day-1 traces, at end": "125\t0.4794",
- "A avg helpfulness, day-1 traces (FINAL: latest only; no earlier answer is reproducible)": "125\t0.4794",
- "C cost, day 2 00-06h, gpt-5.1-mini + haiku, at before the price was recorded (05:00)": "44\t0.0984",
- "C cost, day 2 00-06h, gpt-5.1-mini + haiku, at after (end)": "44\t0.0787",
- "A stored cost, same spans (computed at ingest from the table as it then was)": "44\t0.0984"
+ "C avg helpfulness, day-1 traces, at end of day 1 + 1 h": "2110\t0.5114",
+ "C avg helpfulness, day-1 traces, at day 3": "2105\t0.5119",
+ "C avg helpfulness, day-1 traces, at end": "2105\t0.5119",
+ "A avg helpfulness, day-1 traces (FINAL: latest only; no earlier answer is reproducible)": "2105\t0.5119",
+ "C cost, day 2 00-06h, gpt-5.1-mini + haiku, at before the price was recorded (05:00)": "526\t1.0046",
+ "C cost, day 2 00-06h, gpt-5.1-mini + haiku, at after (end)": "603\t0.8604",
+ "A stored cost, same spans (computed at ingest from the table as it then was)": "603\t1.0754"
 }

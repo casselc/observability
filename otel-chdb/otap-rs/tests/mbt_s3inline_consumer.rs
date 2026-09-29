@@ -1056,6 +1056,7 @@ impl ConsumerDriver {
         if !keep && unchanged {
             return;
         }
+        let ce = self.ckpt_etag;
         let x = self.w(p.worker);
         if !keep {
             x.drop_lane();
@@ -1075,7 +1076,11 @@ impl ConsumerDriver {
                 x.idle();
                 x.keep_heads(p.epoch, p.from, n);
                 x.view = ck;
-                x.view_etag = p.ckpt_etag;
+                // (the 200's ETag, or the one read back: `write_ckpt` takes the
+                // stored ETag when the doc equals ours, which since LATE_CAS
+                // may be an identical earlier write of ours that landed late,
+                // this one rejected)
+                x.view_etag = if ans == CasAnsM::A200 { p.ckpt_etag } else { ce };
                 x.unsure = false;
             }
         }

@@ -1185,7 +1185,18 @@ jobs:
       - name: cargo test --test ${{ matrix.test }}
         env:
           QUINT_SEED: "0x5eed"
-        run: cargo test --release --locked --test "${{ matrix.test }}" -- --test-threads=1 --nocapture
+        # quint-connect prints the spec/implementation diff of a divergence only when built with
+        # QUINT_VERBOSE (which also prints every step), so a failing test is re-run alone with it and
+        # the tail of its output kept in the log.
+        run: |
+          set -o pipefail
+          cargo test --release --locked --test "${{ matrix.test }}" -- --test-threads=1 --nocapture 2>&1 | tee "$RUNNER_TEMP/mbt.log" && exit 0
+          for f in $(sed -n '/^failures:$/,/^test result/p' "$RUNNER_TEMP/mbt.log" | grep -E '^    [a-z0-9_]+$' | sort -u); do
+            echo "::group::$f with QUINT_VERBOSE=1 (the divergence's diff)"
+            QUINT_VERBOSE=1 cargo test --release --locked --test "${{ matrix.test }}" -- --exact "$f" --test-threads=1 2>&1 | grep -v '^   \[Step\|^   \[Trace' | tail -700 || true
+            echo "::endgroup::"
+          done
+          exit 1
       - uses: actions/upload-artifact@v7
         if: always()
         with:

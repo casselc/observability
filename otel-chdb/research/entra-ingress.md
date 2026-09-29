@@ -455,6 +455,41 @@ Tests (`go test ./...` in `otel-chdb/ingress`, pass, run 2026-09-29):
 **Not verified:** a real Entra tenant, the broker on a real device, the forwarder (not built),
 throughput. Command still to run: `deploy/validation/entra-ingress.md`.
 
+## 10a. Forwarder build plan: verification first (owner, 2026-09-29)
+
+The forwarder is built **against its hazards**, as VERIFICATION.md does for the rest of the pipeline: the
+hazard-to-test table and a Quint model of the buffer and token lifecycle come first; the code is written
+against them; the scenarios below are the exit criteria. The .NET tooling (versions and maintenance status to
+be confirmed when the build starts): **Coyote** (systematic concurrency testing: controlled task scheduling,
+replayable interleavings) as the madsim counterpart; **`TimeProvider` / `FakeTimeProvider`** for time;
+**System.IO.Abstractions** for the buffer; a fake `HttpMessageHandler` for the network; **CsCheck** (stateful
+and parallel linearizability checks) or FsCheck's model-based commands as the Hegel counterpart; Quint traces
+(ITF JSON) replayed into xUnit as the quint-connect counterpart; **Polly chaos strategies** for HTTP faults;
+**SharpFuzz** for parsers.
+
+| Hazard / CAST class | Must show | Technique |
+| --- | --- | --- |
+| H-E4 (acknowledged then dropped); CAST 8, VERIFICATION gap 8 | every byte acknowledged to a tool is committed or counted as a drop, across kill -9 mid-write and lost fsyncs | crash tests over a fault-injecting file layer; Quint model of the buffer with that invariant, replayed against the code |
+| H-E6 (double counting); D11; CAST 50 | a resend after an ambiguous 503 is byte-identical, so it lands as a copy even when the first attempt applied late | stateful test with lost answers and late application; end-to-end differential test forwarder → ingress → edge: equal content keys across retries and replicas |
+| H-E1 (wrong person); R-E6 | buffered data is sent only under the token of the person who produced it, across account switch, sign-out, sign-in as another person | CsCheck state machine over sign-in/out/switch/send |
+| SEC-E6 (stolen or shared laptop); R-E7 | buffer unreadable by another OS user, deleted on sign-out and switch, capped in bytes and age | OS-level tests on GitHub's windows-latest and macos-latest runners (real DPAPI, real Keychain) |
+| H-E9 (sign-in friction); R-E6 | the tool is never blocked or prompted: expired token, broker outage, offline — answered within a bound and queued | liveness bound in fake time; Coyote: no interleaving blocks the tool's path |
+| CAST 39 (unbounded retries) | every retry loop bounded, with back-off, handing back | liveness property in the model and the simulation |
+| CAST 26 / 34 (two clocks) | sleep, hibernate, clock jumps (backwards too) and skew break neither ordering, buffer age, nor the ingress's stamped receive time | fake-time jumps in the state machine |
+| CAST 44 (dead by its effects) | a laptop asleep for days with a full buffer: aged-out drops counted; retries past the 3-day horizon counted by the audit (O-E8) | simulation plus the ingress integration test |
+| CAST 38 (shared budget) | the device disk cap holds with many tools sending at once | parallel CsCheck test |
+| SEC-E9 (hostile input) | the local OTLP endpoint survives malformed and huge bodies and gzip bombs | SharpFuzz on body and config parsing |
+
+**Where it runs.** All of the above on Linux, Windows and macOS CI runners, with the broker mocked behind
+`IPublicClientApplication`. The real broker (WAM, the macOS Enterprise SSO plug-in / Platform SSO) and
+Conditional Access need a real tenant and enrolled devices: they stay in the validation runbook
+([../deploy/validation/entra-ingress.md](../deploy/validation/entra-ingress.md), ENT-1..ENT-8), run by hand.
+
+**Order.** (1) the hazard table and the Quint model (buffer, token, account lifecycle; invariants: acked ⇒
+committed or counted; sent only under the producer's own identity; deleted on sign-out; liveness: the tool is
+answered within a bound); (2) the simulation harness (fake time, fake file system, fake network, Coyote);
+(3) the forwarder, test-first; (4) the OS matrix in CI; (5) the runbook on real devices.
+
 ## 11. Owner decisions
 
 | ID | Decision | Recommendation |

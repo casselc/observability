@@ -70,7 +70,7 @@ flowchart TB
 | [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29); **phase 1 built** (2026-09-29: both edges' offloader, the payload part, the consumer's payloads-first, `llm_payloads`/`llm_spans`/`llm_scores`, the route alias for Langfuse's path in both edges); phase 2 not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
 | [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
 | [D38](#d38-grants-as-explicit-role-cluster-namespace-tuples-environments-as-buckets-cedar-as-the-source-compiled-to-tuples-and-prefixtag-iam-partly-built) | Grants: explicit `(role, cluster, namespace)` tuples combined as a union, never a product (CAST 52; built); environments as a bucket (or account) each with a cluster registry that gates writes; Cedar policies as the source, compiled to per-environment query-service tuples and prefix/principal-tag IAM, other policies refused with a reason and the output checked against Cedar; person facts scoped by a `resolve_person` tuple | **partly built** (2026-09-29): tuples in the query service; `grants/` compiler prototype; the rest proposed: [research/grants.md](research/grants.md) (STPA first) |
-| [D39](#d39-stpa-data-as-normalized-records-tables-and-control-structure-diagrams-generated-from-them-proposed-pilot-built) | STPA data as normalized records (one fact, one home; adapted from stpa-workbench v0, whose strict form is an export): STPA.md's tables, the control-structure diagrams in the PRD style (SVG, the PRD widget, Mermaid) and the label catalogue generated and checked in CI; OSCAL a later export for the assurance half. Proposed; pilot of 95 records built (stpa/) |
+| [D39](#d39-stpa-data-as-normalized-records-the-control-structure-as-one-document-tables-and-diagrams-generated-from-them-accepted-built) | STPA data as normalized records (one fact, one home; adapted from stpa-workbench v0, whose strict form is an export) and the control structure as one document where duplicate links cannot be written; controllers hold their process model and control algorithm; STPA.md's tables, the diagrams (overview plus a detail per controller, in the PRD style) and the label catalogue generated and checked in CI; UCA-10/12 feedback flaws; H-8 the availability hazard; OSCAL a later export | **accepted; built** (2026-09-29): 222 records, stpa/structure.yaml |
 
 ---
 
@@ -3980,36 +3980,108 @@ AMBIGUITY G1–G5. Nothing run on AWS; the presign session path, break-glass mar
 and the environment registry in the consumer are not built. The query service still presigns with its
 own credentials, cut by the tuples.
 
-### D39. STPA data as normalized records; tables and control-structure diagrams generated from them (proposed; pilot built)
+### D39. STPA data as normalized records; the control structure as one document; tables and diagrams generated from them (accepted; built)
 
-**Status:** **proposed**, pilot built (2026-09-29): 95 records in [stpa/](stpa/README.md) (losses,
-hazards H-1..7 and four H-E, three constraints, both control structures, six UCAs, four loss scenarios,
-six STPA-Sec and three STPA-Teaming rows, three requirements, five CAST rows), a Go renderer and checker
-(`stpa/tools`, golden-tested; a CI test fails when a generated file is edited by hand or not
-re-rendered). STPA.md is unchanged until the owner decides.
+**Owner decisions, 2026-09-29:** "go with your recs, migrate the rest" (stpa/README.md §8): adopt the
+normalized profile and migrate everything; the research notes' text where copies disagree (H-E hazards;
+likewise the other extension hazards and requirements), diagram A's component descriptions, the more
+complete edge labels; UCA-10 and UCA-12 decided from the control structure; H-8 defined or the rows
+corrected, and L-G1 placed in the losses table; the TM/SEC requirement columns and the LS status
+generated from requirement links; OSCAL not now. Then two refinements: the control structure becomes
+its own document whose shape makes redundant or duplicate links impossible ("the document would only
+allow controller and controlled process references which can be linked with labelled control or
+feedback edges"), decomposed into controller records (holding their process model and control
+algorithm), controlled-process records (metadata only), the analysis records, and the structure; and
+the diagrams show each controller's control algorithm and process model.
+
+**Status:** **accepted; built** (2026-09-29): [stpa/](stpa/README.md) holds 222 records and
+[stpa/structure.yaml](stpa/structure.yaml); every table of STPA.md, the extensions' losses, hazards and
+requirements in STPA.md and research/{langfuse,entra-ingress,grants}.md, and diagrams A and B are
+generated sections between `<!-- stpa:begin NAME -->` markers, with one detail diagram per controller.
+`stpa/tools` (Go, golden-tested) renders them and fails CI (`TestRepositoryGeneratedUpToDate`) when a
+section or file differs from the records. A CAST row is now added as a record (stpa/README.md §7), not
+as a table row. The v0 export validates with the workbench's `stpawb` (280 records, 0 diagnostics, 0
+findings). ci/trace reads the same IDs from either source (the generated tables, or
+`OSCOPE_STPA_SOURCE=records`), checked by a test.
 
 **Context.** The owner liked the PRD's hand-drawn control-structure diagrams and asked for
 source-maintained diagrams in that style, from a structured STPA format, with stpa-workbench's artifact
 schema v0 as optional prior work; then made normalization the primary criterion (every fact one home)
 and asked for NIST OSCAL to be evaluated. The audit (stpa/README.md §2–§3) found facts kept in two to
-four places that already disagree: extension hazards and requirements in STPA.md and the research
+four places that already disagreed: extension hazards and requirements in STPA.md and the research
 notes, component descriptions and edge labels across STPA.md's and the PRD's diagrams, UCA controller
 names, TM/SEC requirement texts beside R-S\*, and a hazard H-8 cited by four CAST rows but defined
 nowhere.
 
-**Decision (proposed).** Adapt, not adopt, workbench v0: one record per file, `<kind>-<hex>` ids,
-labels (H-2, UCA-4, CAST-50) as the only citation alias, generated views; minus v0's own copies (no
-`kind:`, no heading, one component per real thing, links on one side, derived values computed). The
-strict v0 form is an export, validated with the workbench's `stpawb` (0 diagnostics). OSCAL is a
-later generated export for the assurance half (requirements as a catalog, mechanisms as component
-definitions, traceability runs as assessment results, known gaps as a POA&M, STPA-Sec ↔ 800-53 as a
-mapping), not the source: it has no STPA semantics and duplicates more than it removes.
+**Decision.** Adapt, not adopt, workbench v0: one record per file, `<kind>-<hex>` ids (the hex is the
+identity: a record keeps it when its kind changes), labels (H-2, UCA-4, CAST-50) as the only citation
+alias, generated views; minus v0's own copies (no `kind:`, no heading, links on one side, derived values
+computed). Specifically:
+
+- **The control structure is one document**, the only place links exist: nodes are typed references
+  to `controller` and `controlled_process` records, links one entry per ordered pair keyed
+  `"<upper> -> <lower>"` with `control:` and `feedback:` maps of labelled entries. The parser refuses a
+  duplicate pair, action, feedback or node (strict YAML keys), a pair spelled another way, a name that
+  is not a node, and a controlled process at the upper end; the check reports the pair keyed in both
+  orders, a self link, a cycle of control, and nodes that name no record or share one. Diagrams A and B
+  are views (placement only), so they cannot disagree about a shared link. Records cite a link by path
+  (`consumer->clickhouse/control/insert`); the pilot's 21 action and 10 feedback records became entries
+  (their ids kept as `was` aliases), and its components became 10 controllers and 4 controlled
+  processes (hex kept), plus the telemetry producers.
+- **A controller record holds its process model and control algorithm**: variables (name, meaning, the
+  feedback that updates each, or the source when none does) and rules (a condition over the variables,
+  the control actions it issues), derived from what STPA.md and this file already say (42 variables, 25
+  rules). Checked: every feedback updates a variable of its controller, every control action is issued
+  by a rule, a controller cites only its own links; UCAs, flawed-process-model scenarios and CAST rows
+  name the variable they concern (a warning where the source text cannot say: 34 CAST rows whose
+  controller is outside the structure). Writing them down added five feedback edges that the beliefs
+  needed (the edge's PUT outcome, the consumer's statement answers, GC's marks, the sealer's snapshots,
+  the query service's entities) and the producers as a controlled process (the edge's acks and 503s,
+  UCA-1 and UCA-3).
+- **Drawn as overview plus detail** (option (b) of three prototyped): the overview keeps its levels and
+  gives each controller a two-compartment strip (control algorithm left, where control leaves; process
+  model right, where feedback arrives); one detail diagram per controller draws it as the STPA Handbook
+  does, control arrows starting at the rule that issues them and feedback arrows ending at each variable
+  they update, in the order with the fewest crossings. Compartments listing everything inside the
+  overview (option (a)) grew diagram A by half and still could not end feedback on a variable; a Mermaid
+  detail is generated but legible only for small controllers, so STPA.md embeds the SVGs.
+- **UCA-10 and UCA-12 are feedback flaws, not control actions.** In the structure the query service's
+  result is feedback to the Telemetry UI (the UI requests; the service answers), and a page is feedback
+  to on-call (on-call controls the alerting engine through rules, acks and silences). So UCA-10 is LS-6's
+  flaw on `ui->qs/feedback/complete-through` (wrong or missing complete-through), UCA-12 is LS-8's on
+  `oncall->alerting/feedback/pages` (no page when evaluation failed); both labels still resolve
+  (`formerly`, STPA.md's former-labels table, stpa/generated/labels.json), and R-S2 derives from LS-6.
+  Redrawing either as a control action would have made the service or the alerting engine a controller
+  of the component above it, a cycle the structure now refuses.
+- **H-8 is the availability hazard**: "the pipeline cannot accept, ingest or serve telemetry while an
+  incident needs it: a lane stalls, writes are refused, or queries fail closed" (L-1), with SC-8 (keep
+  serving or say visibly that it cannot; bound every retry on an unknown outcome; enforced today by the
+  edge lane's bounded resends). CAST rows 29 and 39 named it; rows 7 and 8 ("H-1 (availability)") now cite
+  it too, since no acknowledged data was lost in either. Rows 35 and 47 are false pages, which H-4 already
+  covers ("a page fires for a condition that does not hold"), and cite H-4.
+- **One wording per obligation**: an STPA-Sec or STPA-Teaming row answered by a requirement shows that
+  requirement instead of its own text (SEC-6, SEC-8, TM-5 and TM-8 keep theirs: nothing answers them); a
+  loss scenario's status is derived from the mechanisms that settle it and the requirements that cite
+  it (mechanisms record what DECISIONS.md and query/README.md say is built: R-S1, R-S3, R-S7, R-S8, R-S9,
+  R-E8, R-G1..R-G4).
+- The strict v0 form is an export. **OSCAL is a later generated export** for the assurance half
+  (requirements as a catalog, mechanisms as component definitions, traceability runs as assessment
+  results, known gaps as a POA&M, STPA-Sec ↔ 800-53 as a mapping), not the source: it has no STPA
+  semantics and duplicates more than it removes. Not built now.
+
+**Consequences.** Two texts changed meaning on the way and are the owner's to confirm: R-E7 now carries
+the owner's revision of D37 (no disk buffer), where research/entra-ingress.md §1.8 still had the
+encrypted per-user buffer; R-S7's text still says "Scheme (proposed, not built)" while D18 records the
+write-side ABAC as built with format v2 (its mechanism says so; the requirement's text is unchanged). The
+extension analyses' UCA, LS, SEC and TM tables stay hand-kept in the research notes (no other document
+copies them), declared in stpa/project.yaml so that requirements may cite their labels; migrating them
+needs each extension's control structure as nodes and links first.
 
 **Alternatives.** Keep Markdown tables (the drift continues); adopt v0 as is (keeps its duplicates:
-stpa/workbench-feedback.md); OSCAL as the source (STPA only as opaque props/links).
-
-**Owner decisions needed:** stpa/README.md §8 (adopt and migrate the rest; the canonical wording where
-copies disagree; UCA-10/UCA-12 as control actions or feedback; H-8; OSCAL export).
+stpa/workbench-feedback.md); OSCAL as the source (STPA only as opaque props/links); actions and feedback
+as records with a uniqueness check (duplicates representable, then reported, instead of unwritable);
+controller internals inside the structure document (rejected by the owner's decomposition: a
+controller's view of its links belongs to the controller).
 
 ## 6. Upstream bugs found
 

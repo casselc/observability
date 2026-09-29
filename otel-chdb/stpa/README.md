@@ -1,21 +1,24 @@
-# STPA as records (pilot, proposed: DECISIONS.md D39)
+# STPA as records (DECISIONS.md D39, accepted)
 
 The STPA of this repository ([STPA.md](../STPA.md) and the STPA sections of
 [research/langfuse.md](../research/langfuse.md), [research/entra-ingress.md](../research/entra-ingress.md) and
-[research/grants.md](../research/grants.md)) is kept today as hand-written Markdown tables and Mermaid, and
-several facts live in two to four places that already disagree. This directory is a **pilot** of the
-alternative: every STPA fact is one field of one record, and the tables, the control-structure
-diagrams (SVG in the style of the PRD, the PRD's own widget code, Mermaid) and the label catalogue are
-generated from the records.
+[research/grants.md](../research/grants.md)) is kept here as data: every STPA fact is one field of one
+record, the control structure is one document ([structure.yaml](structure.yaml)), and the tables, the
+control-structure diagrams (SVG in the style of the PRD, the PRD's own widget code, Mermaid), one detail
+diagram per controller and the label catalogue are generated from them. The tables and diagrams in STPA.md
+and the research notes are generated sections between `<!-- stpa:begin NAME -->` and `<!-- stpa:end NAME -->`
+markers: edit the records, run `stpa render`, and CI fails if a section was edited by hand or not
+re-rendered.
 
-**Status: pilot, paused for the owner's review of the design** (the owner asked for the audit and the
-design before a full migration). 95 records are migrated (counts in §6); `STPA.md` is unchanged.
+**Status (2026-09-29):** adopted by the owner ("go with your recs, migrate the rest"); every table of
+STPA.md is migrated (222 records, §6), and the structure became its own document with the controllers'
+process models and control algorithms (§5).
 
 Contents: [1. Criterion](#1-the-criterion-one-fact-one-home) ·
 [2. Audit of stpa-workbench v0](#2-redundancy-audit-stpa-workbench-artifact-schema-v0) ·
 [3. Audit of our documents](#3-redundancy-audit-our-own-documents) ·
 [4. OSCAL](#4-nist-oscal) · [5. The normalized model](#5-the-normalized-model) ·
-[6. The pilot](#6-the-pilot) · [7. How to use it](#7-how-to-use-it) · [8. Owner decisions](#8-what-the-owner-must-decide)
+[6. The migration](#6-the-migration) · [7. How to use it](#7-how-to-use-it) · [8. Owner decisions](#8-owner-decisions-2026-09-29)
 
 ## 1. The criterion: one fact, one home
 
@@ -116,7 +119,7 @@ component definition says; a POA&M carries its own `observation`, `risk` and `fi
 alongside the assessment results it follows from; every `prop` repeats its namespace URI. It is also
 verbose to diff and to write by hand (trestle's Markdown authoring helps for catalogs, not for STPA).
 
-**Verdict: OSCAL as a generated export, not the source.** The STPA core stays in the records of §5;
+**Verdict: OSCAL as a generated export, not the source (owner, 2026-09-29: not now; a later export).** The STPA core stays in the records of §5;
 the assurance half is exported as OSCAL documents from them — a catalog (R-\*, SC-\*), component
 definitions (mechanisms by component), assessment results (from the traceability runs), a POA&M (from
 the known-gaps list), and a mapping collection (STPA-Sec requirements → 800-53) — and validated in CI
@@ -131,37 +134,145 @@ redundancy of §2:
 
 - no `kind:` (the id prefix is the kind), no per-record `schema:` (the manifest's), no heading
   (the title is in the front matter), file name = id (checked), one flat `records/` directory;
-- the hex part is unique across kinds, so a record can change kind (e.g. `sec` → v0 `scenario` in
-  the export) without a collision;
-- one `component` per real thing; controller or controlled process is computed;
-- links on one side; inverses and derived values computed (table below);
-- prose fields that cite labels (CAST cells, requirement text) are links by scanning; an unknown
-  label is reported (warning in the pilot, error after the full migration).
+- the hex part is unique across kinds, so a record can change kind without a collision: the pilot's
+  `component-8020ed` is `controller-8020ed` now, and `labels.json` still resolves the old id;
+- links exist only in the control structure (below); a controller holds its own internals;
+- links between records on one side; inverses and derived values computed (table below);
+- prose fields that cite labels (CAST cells, requirement text) are links by scanning; a label that
+  resolves to nothing is an **error** (it was a warning during the pilot).
 
 | Kind | Fields (all have `id`, `state`) | Derived, never stored |
 | --- | --- | --- |
 | `loss` | `label`, `title` | the hazards leading to it |
-| `hazard` | `label`, `title` (the system condition), `losses`, `refines` (⊂) | its constraints, UCAs, refinements |
+| `hazard` | `label`, `title` (the system condition, with its worst-case environment), `losses`, `refines` (⊂) | its constraints, UCAs, refinements |
 | `constraint` | `label`, `title`, `hazards` | "Enforced today by" (its mechanisms) |
-| `mechanism` | `title`, `implements` | — |
-| `component` | `title`, `label` (short name used in tables), `description`, `component_type` | controller / controlled process; its actions and feedback |
-| `action` | `label` (short, drawn), `title` (full name), `from`, `to` | the drawn edge (all actions between two components) |
-| `feedback` | `label`, `title`, `from` (the process side), `to` (a controller: checked) | — |
-| `uca` | `label`, `action`, `category`, `context`, `hazards` | controller (`action.from`), the generated title |
-| `scenario` (LS) | `label`, `title`, `findings`, `resolution` (text, flagged O8) | hazards (its findings') |
-| `sec` (STPA-Sec) | `label`, `title` (adversary action), `unsafe`, `findings`, `hazards`, `mitigation` | the "(UCA-8)" suffix |
-| `teaming` | `label`, `title`, `text`, `hazards`, `requirement` (text, flagged O6) | — |
-| `requirement` | `label`, `title`, `priority`, `from` | the "(P1)" suffix; which TM/SEC/LS it answers (inverse) |
-| `incident` (CAST) | `label`, `batch`, `title`, `found_by`, `hazard`, `controller`, `why`, `fix`, `lesson` | hazards cited (scanned from `hazard`) |
+| `mechanism` | `title`, `implements` (constraints, requirements, loss scenarios), `effect` (fixed, guarded, measured: for a scenario) | — |
+| `controller` | `label`, `title`, `description`, `component_type`, `process_model`, `control_algorithm` | its links (the structure); whether it is also controlled |
+| `controlled_process` | `label`, `title`, `description`, `owner` | its links |
+| `uca` | `label`, `action` (a structure path), `category`, `context`, `hazards`, `variables` | controller (the path's upper end), the generated title |
+| `scenario` (LS) | `label`, `title`, `findings` (UCAs) and/or `feedback` (structure paths), `factor`, `hazards` (only without findings), `variables`, `formerly` | hazards (its findings'), status (its mechanisms and the requirements that cite it) |
+| `sec` (STPA-Sec) | `label`, `title` (adversary action), `unsafe`, `findings`, `hazards`, `mitigation` (only if no requirement cites it) | the "(UCA-8)" suffix; the requirements answering it |
+| `teaming` | `label`, `title`, `text`, `hazards`, `requirement` (only if no requirement cites it) | the requirements answering it |
+| `requirement` | `label`, `title`, `priority`, `from` (record ids, or labels of hand-kept tables) | the "(P1)" suffix; its mechanisms |
+| `incident` (CAST) | `label`, `batch`, `title`, `found_by`, `hazard`, `controller`, `why`, `fix`, `lesson`, `variables` | hazards cited (scanned from `hazard`) |
 
-Views (`views/*.yaml`) hold presentation only: a control-structure view places components in rows and
-columns and gives the diagram's title; a tables view names columns and which hand-kept document holds
-the same table today. Every box, edge, label and cell comes from the records.
+### 5.1 The control structure: one document where duplicates cannot be written
 
-How the duplicates collapse: O1, O2, O4, O5, O9, O11, O12–O15, O19, O21, O22 become generated views of
-one record each; O6, O7, O8, O20 become links (the remaining text fields are flagged for the full
-migration); O16 is caught by the check; O3, O17, O18 are prose that should cite labels instead of
-restating titles.
+[structure.yaml](structure.yaml) is the only place links exist. Its nodes are references to controller
+and controlled-process records; its links are one map entry per ordered pair, keyed
+`"<upper> -> <lower>"`, holding `control:` (runs down the arrow) and `feedback:` (runs back up) maps of
+labelled entries. Diagrams A and B are **views**: a subset of nodes and their placement
+([views/](views/)); every link between two placed nodes is drawn, so two views cannot disagree about a
+shared link. Records cite an entry by its path, `<upper>-><lower>/<control|feedback>/<key>`.
+
+What the shape rules out, and how:
+
+| Form | How it is ruled out |
+| --- | --- |
+| a pair defined twice; an action or a feedback defined twice on one pair; a node named twice | **cannot be written**: the parser refuses any duplicate mapping key |
+| a pair spelled another way (`a->b`, two spaces) | **cannot be written**: the key must be exactly `<name> -> <name>` |
+| a controlled process at the upper end | **cannot be written**: a node's kind is its record id's kind (`controller-…` or `controlled_process-…`), and the upper end must be a controller |
+| a link to a name that is not a node; an entry without a label; a link with no entries; an unknown field | **cannot be written** (parse errors with the line) |
+| control in the wrong direction | **cannot be written**: direction is not a field |
+| the same pair keyed in both orders; a self link; a cycle of control | **checked** (`stpa check` error) |
+| a node naming no record; two nodes for one record; a controller or process record in no node | **checked** |
+| a controller that controls nothing (it should be a controlled process) | **checked** |
+| a record citing a path that does not exist, or of the wrong kind (a UCA on a feedback) | **checked** |
+| a feedback entry no process-model variable of its upper controller cites; a control entry no rule of it issues; a controller citing a link it is not the upper end of | **checked** (controller internals) |
+
+A controller can itself be controlled (on-call engineers → Telemetry UI → query service): it stays one
+controller record; the v0 export computes v0's separate controller and process records (A02).
+
+One page of it, for diagram A's consumer and ClickHouse: the controller record
+(`records/controller-8020ed.md`, abridged)
+
+```yaml
+id: controller-8020ed
+label: Consumer worker
+title: Consumer workers
+description: leases, time-bound inserts, count check and repair
+component_type: software
+process_model:
+- name: statement
+  meaning: "Each statement's outcome: committed, not applied, or unresolved until it can no longer land"
+  updated_by: [consumer->clickhouse/feedback/answers]
+- name: row_counts
+  meaning: How many rows of each object central holds, by content key (D11)
+  updated_by: [consumer->clickhouse/feedback/counts]
+- name: fence
+  meaning: "The deadline a statement carries, evaluated on ClickHouse's clock: sent + ttl - margin - budget (D9)"
+  source: computed from the lease write's send time, the TTL and the margin
+control_algorithm:
+- when: the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved
+  uses: [lease, fence, pending_objects, statement]
+  issues: [consumer->clickhouse/control/insert]
+- when: a settled statement's objects are short in central's counts
+  uses: [statement, row_counts]
+  issues: [consumer->clickhouse/control/repair]
+state: accepted
+```
+
+the controlled-process record (`records/controlled_process-ed00c7.md`)
+
+```yaml
+id: controlled_process-ed00c7
+title: Central ClickHouse
+description: tables, rollups, indexes
+state: accepted
+```
+
+and the structure entry that links them (`structure.yaml`)
+
+```yaml
+nodes:
+  consumer: controller-8020ed         # Consumer workers
+  clickhouse: controlled_process-ed00c7 # Central ClickHouse
+links:
+  consumer -> clickhouse:
+    control:
+      insert: {label: insert, title: Insert a statement, was: action-a2cc85}
+      repair: {label: repair, title: Repair missing rows, was: action-50af26}
+    feedback:
+      answers: {label: answers}
+      counts: {label: counts, was: feedback-80b0e6}
+```
+
+`title` is the full name the tables show ("Insert a statement" in the UCA table); `was` keeps the pilot's
+action and feedback record ids resolvable (`generated/labels.json`).
+
+### 5.2 Inside a controller: process model and control algorithm
+
+A **process-model variable** has a `name`, its `meaning`, and where it comes from: `updated_by`, the
+feedback entries (of this controller's own links) that update it, or `source`, a sentence for a belief no
+feedback updates (the edge's own clock, a configuration, the Kubernetes API outside the structure). A
+**rule** of the control algorithm has a condition (`when`), the variables it `uses`, and the control
+entries it `issues`. They were derived from what STPA.md (UCA contexts, loss scenarios, the CAST "flawed
+process model" cells) and DECISIONS.md (D8, D9, D11, D12, D19, D21–D23, D29, D30, D35, D38) already say;
+42 variables and 25 rules for the 10 controllers.
+
+Checks: every feedback entry updates some variable of its upper controller; every variable has a source;
+every control entry is issued by some rule; a rule uses only its controller's variables and issues only its
+controller's links. UCAs name the variables their context is about (`variables: [lease, fence]`, resolved
+against the UCA's controller); loss scenarios and CAST rows name them qualified (`consumer/lease`); a
+flawed-process-model scenario or CAST row that names none is a **warning** (34, all CAST rows whose
+controller is not in the structure: an upstream encoder, a fork patch, the development process).
+
+Writing them down changed the structure where a belief had no feedback to come from: five feedback
+entries were added (the edge's PUT outcome, the consumer's statement answers, GC's checkpoints and marks,
+the sealer's snapshots, the query service's entities), and the telemetry producers became a controlled
+process (the edge's acks and 503s act on them: UCA-1, UCA-3).
+
+**Drawn** (option (b) of the prototypes; the others are in the D39 record): the overview (diagrams A and B)
+keeps its boxes and gives each controller a strip with its two compartments, control algorithm (left, where
+control leaves) and process model (right, where feedback arrives), with their sizes; one **detail
+diagram per controller** ([generated/controller-*.svg](generated/)) draws the controller as the STPA
+Handbook does: rules on the left, each starting the control arrows it issues; variables on the right, each
+the end of the feedback arrows that update it; the controllers above and the nodes below as in the
+structure. The order of rules, variables and nodes is the one with the fewest crossings (tried
+exhaustively, deterministic). A Mermaid version of each detail is generated too; it is legible for small
+controllers only, so STPA.md embeds the SVGs.
+
+![The consumer's detail diagram](generated/controller-consumer.svg)
 
 ### What does not fit v0, and the decision for each
 
@@ -172,114 +283,142 @@ restating titles.
 | Loss without stakeholder records | propose `stakeholders` optional (overlay) |
 | Requirements R-\* | propose a `requirement` kind: derives from any analysis record, has a priority |
 | CAST rows | propose an `incident` kind (v0: "incidents … not in v0"): the eight CAST fields |
-| STPA-Sec rows | use v0 `scenario` as is, with `factors.control`, and `ext: {stpa-sec:mitigation}` |
+| A mechanism that settles a loss scenario, or implements a requirement | overlay: `mechanism.implements` takes constraints, requirements and scenarios |
+| STPA-Sec rows | use v0 `scenario` as is, with `factors.control`, and `ext: {stpa-sec:mitigation}` (the answering requirements, or the row's own text) |
 | STPA-Teaming rows | use v0 `scenario` with `factors.human` and `ext: {stpa-teaming:requirement}` |
-| LS status | `ext: {otel-chdb:resolution}` in the export (to become derived, O8) |
+| Loss-scenario status, factor, feedback flaw, former labels | `ext: {otel-chdb:…}` in the export (the status is derived) |
+| Control actions and feedback | v0 `action` / `feedback` records, generated from the structure entries (the `was` id, else a hash of the path) |
+| A process-model variable without feedback; the control algorithm | v0's `process_model[]` needs a `source_feedback`; the rest goes to `ext` |
+| A controller's responsibility | one v0 `responsibility` per controller, from its description, scoped to what it controls |
 | Diagram layout hints | not expressible (`views[]` is closed); kept in our `views/*.yaml` |
 
 The overlay schemas are in [workbench-v0-overlay/](workbench-v0-overlay/); the notes for the
 workbench RFC in [workbench-feedback.md](workbench-feedback.md).
 
-## 6. The pilot
+## 6. The migration
 
 ### 6.1 What is migrated
 
 | Kind | Records | Which |
 | --- | --- | --- |
-| loss | 7 | L-1..L-6, L-E1 |
-| hazard | 11 | H-1..H-7, H-E1, H-E2, H-E3, H-E9 (the extension, from research/entra-ingress.md §1.2) |
-| constraint | 3 | SC-1, SC-2, SC-6 |
-| mechanism | 2 | SC-1's and SC-6's "Enforced today by" |
-| component | 14 | every box of control structures A and B (Platform operators, Central ClickHouse, Entity catalog and Lake snapshots once, not twice) |
-| action | 21 | every drawn control action of A and B, split where a UCA names one member |
-| feedback | 10 | every drawn feedback of A and B |
-| uca | 6 | UCA-4, 5, 6, 8, 11, 14 |
-| scenario | 4 | LS-2, 3, 4, 7 |
-| sec | 6 | SEC-1, 2, 3, 5, 6, 7 |
-| teaming | 3 | TM-2, 3, 4 |
-| requirement | 3 | R-S4, R-S7, R-S9 |
-| incident | 5 | CAST 1, 2, 29, 50, 52 (three batches) |
+| loss | 9 | L-1..L-7, L-E1, L-G1 (L-G1 was in no table) |
+| hazard | 33 | H-1..H-8 (H-8 new), H-L1..L8, H-E1..E9, H-G1..G8 |
+| constraint | 8 | SC-1..SC-8 (SC-8 new, for H-8) |
+| mechanism | 20 | the constraints' "Enforced today by", the fixes that settle LS-1..5 and LS-9, what implements R-S1, R-S3, R-S7..9, R-E8, R-G1..4 |
+| controller | 10 | every controller of diagrams A and B, with process model and control algorithm |
+| controlled_process | 5 | the four stores and the telemetry producers (new) |
+| uca | 14 | UCA-1..16 but UCA-10 and UCA-12 (now feedback flaws, §8 item 3) |
+| scenario | 10 | LS-1..LS-10 |
+| sec | 8 | SEC-1..SEC-8 |
+| teaming | 8 | TM-1..TM-8 |
+| requirement | 40 | R-S1..S10, R-L1..L12, R-E1..E9, R-G1..G9 |
+| incident | 57 | CAST rows 1–57, in their 21 tables (batches) |
+| structure | 1 file | 15 nodes, 21 links, 28 control and 15 feedback entries (31 replace the pilot's 21 action and 10 feedback records) |
+
+Labels still defined only in hand-kept tables (the extensions' UCA-L/E/G, LS-L/E/G, SEC-L/E/G and TM-L/E/G
+rows, which no other document copies, and decision headings) are declared in `project.yaml`
+(`hand_kept`); a requirement's `from` may cite them until they are records.
 
 ### 6.2 Outputs (`generated/`, all checked in CI)
 
 | File | What |
 | --- | --- |
-| [control-structure-a.svg](generated/control-structure-a.svg), [control-structure-b.svg](generated/control-structure-b.svg) | the PRD style: levels top-down, bold name and quiet lines, stores tinted, people accented, control solid, feedback dashed, control left of feedback in a pair, a long loop around the right side, a key; light and dark from the reader's colour scheme |
-| `control-structure-{a,b}.prd.jsx` | the same drawing as the PRD's widget code (JSX in SVG, the document's `--cds-*` tokens, a `data-claude-text-id` per text, keyed by record id) |
+| [control-structure-a.svg](generated/control-structure-a.svg), [control-structure-b.svg](generated/control-structure-b.svg) | the PRD style: levels top-down, bold name and quiet lines, stores tinted, people accented, control solid, feedback dashed, control left of feedback in a pair, loops around the sides, the compartment strip, a key; light and dark from the reader's colour scheme |
+| `controller-<node>.svg`, `controller-<node>.mmd` | one detail diagram per controller (§5.2) |
+| `control-structure-{a,b}.prd.jsx` | the overview as the PRD's widget code (JSX in SVG, the document's `--cds-*` tokens, a `data-claude-text-id` per text, keyed by record id or structure path) |
 | `control-structure-{a,b}.mmd` | Mermaid in STPA.md's convention (ELK, edges written downward, the `fb` class) |
-| `stpa-tables.md` | the tables, each between `<!-- stpa:begin NAME -->` / `<!-- stpa:end NAME -->` markers, ready to splice into STPA.md |
-| `labels.json` | label → id, kind, title, path: the citation catalogue |
+| `stpa-tables.md` | every table, between markers; the same sections are spliced into STPA.md and the research notes |
+| `labels.json` | label → record; former labels; structure paths; the ids that moved (the citation catalogue) |
 
 ![Control structure A, generated](generated/control-structure-a.svg)
 
-### 6.3 Check against today's documents (`stpa compare`)
+### 6.3 Check against the hand-kept documents before the splice (`stpa compare`)
 
-Every piloted row of STPA.md's tables is **identical** to the hand-kept row (losses 6/6, hazards 7/7,
-constraints 3/3, UCAs 6/6, loss scenarios 4/4, STPA-Sec 6/6, STPA-Teaming 3/3, requirements 3/3, CAST
-5/5, research/entra-ingress.md §1.2 4/4), except the four H-E rows of STPA.md, whose wording is a
-shortened second copy of the research note's (O1). The pilot keeps the research note's text and
-reports the difference; it does not choose silently. The diagrams differ from the hand-drawn ones
-where the copies disagreed (O12, O13) and in one deliberate case: B's on-call → alerting edge reads
-"acks, rules, silence", since UCA-14 is on silencing.
+Every migrated row was identical to its hand-kept row except where the owner decided a difference (§8):
+L-7, L-E1, L-G1 now in the losses table; H-8 new; the loss-scenario status derived (LS-5..LS-10); the
+STPA-Sec mitigation of SEC-1..5, 7 and the teaming requirement of TM-1..4, 6, 7 replaced by the requirement
+that answers them; LS-6's and LS-8's UCA column now names the feedback flaw; R-S2 derives from LS-6 (was
+UCA-10); CAST rows 7, 8, 35, 47's hazard; R-E7's text (the owner's revision, D37); `CAST 36` written as
+`CAST-36` in the extension requirements' "From"; and the extensions' hazards and requirements with the
+research notes' wording in STPA.md (they were summaries). The diagrams differ from the hand-drawn ones where
+the copies disagreed (O12, O13), where UCAs name an action the drawing bundled (B's on-call → alerting reads
+"acks, rules, silence"; operators → query service "access, routing"), and by the edges §5.2 added.
 
 ### 6.4 Validation with the workbench's own validator
 
-`stpa export-v0` writes the records as a strict artifact-v0 project (with the overlay kinds and
-fields), recomputing every copy v0 stores (a UCA's controller, a scenario's hazards, the
-controller/process split, the H1 heading). `stpawb validate` (stpa-workbench tools, in a scratch venv,
-through [stpawb_overlay.py](workbench-v0-overlay/stpawb_overlay.py), which adds the overlay's kinds to
-the validator's constants): **101 records, 0 diagnostics, 10 findings**, all "controller without any
-responsibility" — a validator rule that is not in the spec's rule list, and our analysis has no
-responsibility records (the component description plays that role).
+`stpa export-v0` writes the records and the structure as a strict artifact-v0 project (with the overlay
+kinds and fields), recomputing every copy v0 stores. `stpawb validate` (stpa-workbench tools, through
+[stpawb_overlay.py](workbench-v0-overlay/stpawb_overlay.py)): **280 records, 0 diagnostics, 0 findings**
+(the pilot's 10 "controller without any responsibility" findings are gone: each controller exports a
+responsibility).
 
 ## 7. How to use it
 
 ```sh
 cd otel-chdb/stpa/tools
-go run ./cmd/stpa check          # schema, references, labels, structure; fails if generated/ is stale
-go run ./cmd/stpa render         # rewrite generated/ from the records
-go run ./cmd/stpa compare        # generated tables vs the hand-kept tables in STPA.md and research/
+go run ./cmd/stpa check          # schema, references, labels, structure, internals; fails if a generated file or section is stale
+go run ./cmd/stpa render         # rewrite generated/ and the marked sections of STPA.md and the research notes
+go run ./cmd/stpa compare        # generated tables vs hand-kept tables (useful when migrating one)
 go run ./cmd/stpa export-v0 DIR  # the records as a stpa-workbench v0 project
-go test ./...                    # golden tests (testdata/mini) and "generated/ is up to date"
+go test ./...                    # golden tests (testdata/mini), the structure's refused and checked forms, "generated/ is up to date"
 ```
 
-**Add a record.** Pick an id: the kind, a hyphen, six random hex digits (`openssl rand -hex 3`); the
-check rejects a hex already used by any kind. Write `records/<id>.md`:
+**Add a CAST row** (or any row): write a record, not a table row. Pick an id: the kind, a hyphen, six
+random hex digits (`openssl rand -hex 3`); the check rejects a hex already used by any kind. For a CAST
+row, `records/incident-<hex>.md` with `label: CAST-58`, the `batch` of its table (the `cast-*` names in
+[views/stpa-tables.yaml](views/stpa-tables.yaml); a new batch is a new table there and a new pair of markers
+under a heading in STPA.md), the eight fields, and `variables` if the flawed process model is one of a
+controller in the structure. Then `render`, and commit the record with its regenerated outputs. Editing the
+row in STPA.md instead fails CI (`TestRepositoryGeneratedUpToDate`).
 
 ```yaml
 ---
-id: uca-057c96          # UCA-6 as it is stored
+id: uca-057c96
 label: UCA-6
-action: action-e7ecbf   # "Delete a slot", from GC to the S3 lanes: GC is the controller, derived
-category: too-early-too-late-wrong-order   # not-provided | provided | too-early-too-late-wrong-order | stopped-too-soon-applied-too-long
+action: gc->s3/control/delete          # the structure entry; GC is the controller, derived
+category: too-early-too-late-wrong-order # not-provided | provided | too-early-too-late-wrong-order | stopped-too-soon-applied-too-long
 context: Before every reader (consumer groups, sealer) has passed it
-hazards: [hazard-6fa4d1] # H-1
+hazards: [hazard-6fa4d1]               # H-1
+variables: [positions]                 # GC's process-model variable the context is about
 state: accepted
 ---
 ```
 
-Refer to other records by id, never by label; cite labels in prose. Then `render`, and commit the
-record with its regenerated outputs (CI's `TestRepositoryGeneratedUpToDate` fails otherwise).
+Refer to records by id and to links by path, never by label; cite labels in prose.
 
-**Change a diagram.** Placement is in `views/control-structure-*.yaml` (rows, `span`, `col`,
-`detail: false`); everything else is a record. The layout is deterministic: fixed 3-column grid,
-straight verticals where the corridor is clear, an L-route otherwise, a lane on the right for a loop
-that would cross a box.
+**Change the structure.** Add or change a link in [structure.yaml](structure.yaml); the check then asks
+for the controller side: a feedback entry needs a process-model variable that it updates, a control entry a
+rule that issues it. Placement is in `views/control-structure-*.yaml` (rows, `span`, `col`, `width`,
+`detail: false`, `internals`); every link between two placed nodes is drawn.
 
 **The PRD.** Paste `generated/<view>.prd.jsx` into the PRD's widget; its text ids are stable across
-re-renders as long as the records keep their ids.
+re-renders as long as the records keep their ids and the structure its node names and entry keys.
 
-## 8. What the owner must decide
+## 8. Owner decisions (2026-09-29)
 
-1. Adopt the normalized profile (§5) as the source of STPA.md's tables and every control-structure
-   diagram, and migrate the rest (the other 10 UCAs, 6 loss scenarios, 7 requirements, 50 CAST rows,
-   the Langfuse, Entra and grants extensions), then replace STPA.md's tables with the generated ones
-   between markers.
-2. The canonical wording where copies disagree: the H-E summaries vs the research text (O1); the
-   component descriptions (O12); "CAST leases, checkpoints" vs "CAST leases" (O13).
-3. UCA-10 ("Return a result") and UCA-12 ("Page on-call"): control actions (then diagram B draws them
-   solid) or feedback (then the UCAs become feedback flaws in loss scenarios).
-4. H-8, cited by CAST 29, 35, 39, 47: define it (availability?) or correct the rows.
-5. Whether TM/SEC "Requirement"/"Mitigation" columns and LS "Status" become generated from the
-   requirements that cite them (O6–O8).
-6. OSCAL as a generated export (§4): yes or not now.
+"Go with your recs, migrate the rest." How each was carried out:
+
+1. **Adopt and migrate.** Done (§6): every table of STPA.md, the extensions' losses, hazards and
+   requirements, and the control structure; STPA.md's and the research notes' tables and diagrams are
+   generated sections now. Unresolved label mentions are errors.
+2. **Canonical wording.** H-E hazards: research/entra-ingress.md's text (and likewise H-L, H-G, R-L, R-E,
+   R-G: the research notes' full text; R-E7 is the owner's revised text of D37). Component descriptions:
+   diagram A's. Edge labels: the more complete ("CAS leases, checkpoints"). The research notes' §1 tables that
+   duplicated STPA.md are the same generated sections; their restated core losses became a list of the
+   extension's instances, citing the labels.
+3. **UCA-10 and UCA-12 are feedback flaws.** In the structure the query service's result is feedback to
+   the Telemetry UI (the UI requests, the service answers), and a page is feedback to on-call (on-call
+   controls the alerting engine through rules, acks and silences). Neither is a control action: UCA-10 is
+   now LS-6's flaw on `ui->qs/feedback/complete-through` (feedback wrong), UCA-12 is LS-8's on
+   `oncall->alerting/feedback/pages` (feedback missing); both labels resolve (`formerly`, the former-labels
+   table, `labels.json`), and R-S2 derives from LS-6.
+4. **H-8.** Rows 29 and 39 (and 7, 8, written "H-1 (availability)") name one hazard none of H-1..H-7 covers:
+   H-8, "The pipeline cannot accept, ingest or serve telemetry while an incident needs it: a lane stalls,
+   writes are refused, or queries fail closed" (L-1), with SC-8. Rows 35 and 47 are false pages: H-4
+   already covers them ("a page fires for a condition that does not hold"), so they cite H-4. L-G1 is in the
+   losses table.
+5. **Generated from links.** A loss scenario's status comes from the mechanisms that settle it and the
+   requirements that cite it; the STPA-Sec and STPA-Teaming requirement columns name the requirements that
+   answer the row, or keep the row's own text when none does (SEC-6, SEC-8, TM-5, TM-8): one wording per
+   obligation, checked.
+6. **OSCAL: not now**; a later generated export (§4).

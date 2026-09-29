@@ -1,9 +1,14 @@
 # STPA analysis
 
 Exported 2026-09-27 from the PRD's "STPA analysis" tab (Telemetry UI PRD,
-draft). The PRD's drawn diagrams are redrawn here as Mermaid. Related:
-[DECISIONS.md](DECISIONS.md), [AMBIGUITY.md](AMBIGUITY.md) (the ambiguity
+draft). Related: [DECISIONS.md](DECISIONS.md), [AMBIGUITY.md](AMBIGUITY.md) (the ambiguity
 register that follows from the CAST below), [model/](model/).
+
+**Every table and diagram here is generated** from the records in [stpa/](stpa/README.md)
+(DECISIONS.md D39): the control structure is [stpa/structure.yaml](stpa/structure.yaml), each
+table a section between `stpa:begin` and `stpa:end` markers. Edit the records (a new CAST row is a
+new `incident` record, stpa/README.md §7) and run `stpa render`; CI fails when a section here
+differs from the records. The prose between the sections is kept by hand.
 
 A first-pass STPA of the telemetry pipeline and UI, extended with STPA-Sec for adversarial causes and STPA-Teaming for how on-call people and automation work together.
 
@@ -15,8 +20,9 @@ compared and rendered in [docs/stpa-diagrams/](docs/stpa-diagrams/README.md)):
   and uses dagre. Both give the same levels, because of the next rule.
 - Levels top-down as in the STPA Handbook: people and organisation at the top, automated
   controllers below them, the controlled processes (stores, cylinders `[(…)]`) at the bottom.
-  Declare nodes in that order. Controllers are plain rectangles; a controller's algorithm or
-  process model goes on its label's second line.
+  Declare nodes in that order. Controllers are plain rectangles; a controller's description goes
+  on its label's second line, and the size of its control algorithm and process model on the last
+  (the content is in its detail diagram).
 - Every edge in the source points DOWN the hierarchy, so neither layout engine has a cycle to
   break. A control action is a solid arrow, `C -->|action| P`. Feedback is written from the same
   controller, `C fbN@<-.->|feedback| P`, and every `fbN` gets `class … fb` with

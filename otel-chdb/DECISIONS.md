@@ -3875,6 +3875,14 @@ caps and CA, not prevented). Devtools completeness is the ingress's custody time
 
 ### D38. Grants as explicit (role, cluster, namespace) tuples; environments as buckets; Cedar as the source, compiled to tuples and prefix/tag IAM (partly built)
 
+**Owner decisions, 2026-09-29:** O-G1 (tuples, built) and **O-G2..O-G8 as recommended**: a bucket per
+environment, with an account per production environment where possible and a cluster registry gating writes
+(O-G2); one `devtools` cluster in dev unless prd tooling telemetry must stay in prd (O-G3); break-glass through
+PIM-for-groups with pre-granted groups, no expiring policies (O-G4); Cedar as the source of truth compiled
+with cedar-go, the Rust CLI added to CI later (O-G5); no signal tier (O-G6); presign sessions per cluster
+(O-G7); minimal Graph permissions and person attributes (O-G8). **Open:** O-G9 (person retention after
+departure; erasure at every basis).
+
 **Status:** **partly built** (2026-09-29). **Built and tested:** the query service's grants as tuples
 (`query/internal/auth`, `sqlscope/pairs.go`, the server, the planner, the catalog cache, the audit;
 CAST 52 closed in code); the Cedar compiler prototype `grants/` (`grantc`, examples, compiled IAM

@@ -790,7 +790,17 @@ fn regression_finish_waits_for_a_copys_announcement() {
         sleep_ms(360).await;
         f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
         let _ = f.edges[0].0.send(EdgeCmd::Restart);
-        sleep_ms(378).await;
+        // Until the original's rows are in and only the copy's announcement
+        // is not (378 ms before D36's payload statement joined the round;
+        // the wait keeps the shape whatever a round's statements cost).
+        sleep_ms(300).await;
+        for _ in 0..300 {
+            let (missing, _, _) = final_state(&f.w);
+            if missing.is_empty() && announcement_state(&f.w).0.len() == 1 {
+                break;
+            }
+            sleep_ms(2).await;
+        }
         let mut slots = f.slots.borrow_mut();
         trace(format!("KILL {}", slots[0].proc.name));
         if let Some(h) = slots[0].handle.take() {

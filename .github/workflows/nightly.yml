@@ -1636,8 +1636,7 @@ jobs:
     env:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
       CARGO_MUTANTS_VERSION: "27.1.0"
-      # each mutant rebuilds only this crate: incremental, unlike the other jobs
-      CARGO_INCREMENTAL: "1"
+      CARGO_BUILD_JOBS: "2"
     steps:
       - name: Free disk
         working-directory: /
@@ -1669,9 +1668,13 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('otel-chdb/otap-rs/rust-toolchain.toml', 'otel-chdb/otap-rs/Cargo.lock', 'otel-chdb/otap-rs/UPSTREAM', 'otel-chdb/otap-rs/patches/*.patch') }}
           restore-keys: cargo-${{ runner.os }}-
       - run: cargo install cargo-mutants --locked --version "$CARGO_MUTANTS_VERSION"
-      - name: Start SeaweedFS and ClickHouse
-        run: ci/services.sh start
-      - run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV"
+      # No services: nightly run 37's shards lost their runners mid-run (no log, no
+      # annotation) with ClickHouse and SeaweedFS beside release builds; the tests
+      # gated on them skip here, and their mutants are judged by the other tests.
+      # Disk and memory every minute, in the log, in case a runner is lost again.
+      - name: Resource log
+        run: |
+          (while sleep 60; do echo "resources: $(df -h / | tail -1 | awk '{print $4}') free disk, $(free -m | awk '/Mem/{print $7}') MB available"; done) &
       # --in-place: the crate reads files beside it (include_str! of ../../parquetgo/testdata,
       # the .upstream link), which a copy in a temp dir does not have. Exit 0: all caught,
       # 2: some missed, 3: some timed out; anything else (4: the unmutated tree failed) tested nothing.

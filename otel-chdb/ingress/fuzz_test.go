@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -70,6 +71,39 @@ func FuzzBody(f *testing.F) {
 	f.Add(gz.Bytes(), uint8(2))
 	f.Add([]byte{0x0a, 0xff, 0xff, 0xff, 0x0f}, uint8(0))
 	h := r.srv.Handler()
+	// Requests this rig ACKed, by their decoded content (canonical protobuf):
+	// the edge ACKs a resend of committed content without a second object
+	// (exactly once), and the fuzzer repeats inputs within a worker. Nightly
+	// fuzz run 34 failed on exactly that ("200 but nothing committed"),
+	// which the minimised input alone, on a fresh rig, does not reproduce.
+	acked := map[string]bool{}
+	canonical := func(body []byte, mode uint8) (string, int, bool) {
+		var td ptrace.Traces
+		var err error
+		switch mode % 4 {
+		case 0:
+			td, err = (&ptrace.ProtoUnmarshaler{}).UnmarshalTraces(body)
+		case 1:
+			td, err = (&ptrace.JSONUnmarshaler{}).UnmarshalTraces(body)
+		case 2:
+			zr, zerr := gzip.NewReader(bytes.NewReader(body))
+			if zerr != nil {
+				return "", 0, false
+			}
+			raw, rerr := io.ReadAll(zr)
+			if rerr != nil {
+				return "", 0, false
+			}
+			td, err = (&ptrace.ProtoUnmarshaler{}).UnmarshalTraces(raw)
+		default:
+			return "", 0, false
+		}
+		if err != nil {
+			return "", 0, false
+		}
+		b, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(td)
+		return string(b), td.SpanCount(), err == nil
+	}
 	f.Fuzz(func(t *testing.T, body []byte, mode uint8) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(body))
 		req.Header.Set("Authorization", tok)
@@ -91,11 +125,38 @@ func FuzzBody(f *testing.F) {
 		case c >= 500 && c != http.StatusServiceUnavailable:
 			t.Fatalf("%d for a %d-byte body (mode %d): %s", c, len(body), mode%4, w.Body.String())
 		case c == http.StatusOK && len(r.store.Keys("root/")) == before:
-			// an empty request (no spans) is ACKed without an object
-			td, err := (&ptrace.ProtoUnmarshaler{}).UnmarshalTraces(body)
-			if mode%4 == 0 && err == nil && td.SpanCount() > 0 {
-				t.Fatalf("200 but nothing committed for %d spans", td.SpanCount())
+			// an empty request (no spans) is ACKed without an object, and so is
+			// a resend of content this rig already committed
+			if key, spans, ok := canonical(body, mode); mode%4 == 0 && ok && spans > 0 && !acked[key] {
+				t.Fatalf("200 but nothing committed for %d spans", spans)
+			}
+		case c == http.StatusOK:
+			if key, spans, ok := canonical(body, mode); ok && spans > 0 {
+				acked[key] = true
 			}
 		}
 	})
+}
+
+// The shape FuzzBody's nightly run 34 hit: the same request twice to one
+// ingress is ACKed twice and committed once (the edge knows the content), so
+// "200 and no new object" is a resend, not a lost request. The fuzz oracle
+// tells the two apart by the content it ACKed before.
+func TestAResendIsACKedWithoutASecondObject(t *testing.T) {
+	lim := DefaultLimits()
+	lim.RequestsPerMinute, lim.DecodedBytesPerMinute = 1e12, 1e15
+	r := newRig(t, "ingress-0", nil, nil, &lim)
+	tok := "Bearer " + userToken(r.is, alice, "Team.Payments")
+	body, _ := (&ptrace.ProtoMarshaler{}).MarshalTraces(agentTraces())
+	h := r.srv.Handler()
+	for i, want := range []int{1, 1, 1} {
+		req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(body))
+		req.Header.Set("Authorization", tok)
+		req.Header.Set("Content-Type", "application/x-protobuf")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusOK || len(r.store.Keys("root/")) != want {
+			t.Fatalf("send %d: %d, %d objects, want 200 and %d", i, w.Code, len(r.store.Keys("root/")), want)
+		}
+	}
 }

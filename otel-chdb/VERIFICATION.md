@@ -481,6 +481,13 @@ against the next #24), 2 (M, the only defence against the next #34).
   generators meant negative zero and wrote `-0.0`, which Go reads as +0
   (`math.Copysign(0, -1)` now): the "nasty" datasets never carried a negative
   zero through the edges.
+- **gremlins' blind spot**: gremlins v0.5.1 marks a mutant NOT COVERED when
+  no Go coverage block contains its position, and a `switch` case's
+  condition lies outside every block (Go counts the clause bodies). So the
+  decisions of `Lane.Append`'s outcome switch are never mutated, though the
+  package's fault tests run them; `ci/mutants-baseline.txt` records each as
+  that tool limit. The first run also showed `ValidName`, `LanePrefix` and
+  `Classify` with no test in their own package (now `names_test.go`).
 - **hegel-go machines: not built.** Where rapid with the hand-rolled swarm is
   weaker than hegel-go: hegel-go weights each rule per case (rapid's swarm is
   on/off), keeps an example database across runs, and reports per-rule

@@ -429,8 +429,9 @@ cluster-wide budget, if wanted, belongs in central's admission, not here.
   per-user write (H-E4), resending byte-identical requests later (H-E6), working offline, deleting on
   sign-out (SEC-E6). A reverse proxy answers the tool with the upstream's answer; the forwarder must answer
   with its own durable one. Using YARP for an "online fast path" beside the buffered path would create two
-  paths with different acknowledgement meanings (CAST 40: divergence between implementations). Not adopted;
-  revisit only if routing across several ingress regions becomes a need. Native AOT and trimming support for
+  paths with different acknowledgement meanings (CAST 40: divergence between implementations). *Superseded:
+  with no disk buffer (D37, owner) the forwarder is exactly a pass-through, so **YARP is adopted**; its queue
+  and retry must stay bounded and every drop counted (CAST 39).* Native AOT and trimming support for
   a small signed device binary would also have to be confirmed.
 - **Our own Go edge distribution as the device forwarder**, with an otlphttp exporter, the persistent queue,
   and a custom auth extension that gets tokens from a tiny .NET **token helper** (MSAL.NET + broker, over a
@@ -476,6 +477,15 @@ Tests (`go test ./...` in `otel-chdb/ingress`, pass, run 2026-09-29):
 throughput. Command still to run: `deploy/validation/entra-ingress.md`.
 
 ## 10a. Forwarder build plan: verification first (owner, 2026-09-29)
+
+> **Revised by the owner the same day (D37): no disk buffer.** The forwarder is a YARP pass-through with a
+> bounded in-memory queue; drops are counted and never block the tool; the telemetry is best-effort. In the
+> table below, H-E4 becomes "every drop is counted and visible, none silent", SEC-E6's buffer rows and the
+> crash-consistency rows no longer apply (nothing persists on the device; test instead that nothing is
+> written to disk), CAST 44's "asleep with a full buffer" becomes "the queue is dropped and counted on
+> sleep", and the Quint model covers the in-memory queue and the token/account lifecycle. The Go edge +
+> token helper option is withdrawn (its value was the durable queue). YARP (below) is adopted.
+
 
 The forwarder is built **against its hazards**, as VERIFICATION.md does for the rest of the pipeline: the
 hazard-to-test table and a Quint model of the buffer and token lifecycle come first; the code is written

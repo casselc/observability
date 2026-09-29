@@ -247,8 +247,8 @@ developer's own work (sign-in prompts, a blocked tool), so people disable it.
 Requirements R-E1..R-E9 (full text there): tenant and person asserted by the ingress from a verified token and
 policy only (R-E1); strict token validation (R-E2); admission before the body, per-principal budgets (R-E3);
 deterministic stamping so retries stay copies (R-E4); 200 only after the commit verdict (R-E5); the forwarder
-resends bytes unchanged under the producer's own token and never prompts on the tool's path (R-E6); an
-encrypted, bounded, per-user buffer deleted on sign-out, drops counted (R-E7); **query grants as explicit
+resends bytes unchanged under the producer's own token and never prompts on the tool's path (R-E6); a bounded
+in-memory queue only, nothing persisted on the device, every drop counted (R-E7, revised by the owner: D37); **query grants as explicit
 (cluster, namespace) pairs** (R-E8, CAST 52); Conditional Access requiring a compliant device (R-E9).
 
 ## CAST: issues already found

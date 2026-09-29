@@ -3746,6 +3746,15 @@ proposed for the coordinator. AMBIGUITY X22–X25 (designed).
 
 ### D37. The tenant from a user's Entra identity, for producers outside Kubernetes: a device forwarder and an authenticated ingress (proposed)
 
+**Owner decision, 2026-09-29 (supersedes O-E3):** the device forwarder keeps **no disk buffer**. It is a
+**YARP**-based pass-through (the bearer token from MSAL.NET + broker added per request) with a **small bounded
+in-memory queue** that rides over token refreshes and brief network loss; anything dropped (queue full, a
+long outage, a crash, a token that cannot be obtained) is **counted on the device and never blocks the tool**.
+Developer-tool telemetry is **best-effort**: labelled so, and outside any completeness claim before the
+ingress. Consequences: SEC-E6's stolen-laptop buffer, the encrypted per-user store, sign-out deletion and
+crash-consistency testing drop out; O-E8's late-retry horizon mostly does too (retries live only in memory).
+A disk buffer is added later only if the measured loss rate says it matters.
+
 **Owner decisions, 2026-09-29:** accepted as recommended, O-E1..O-E8 (single-tenant, no guests;
 the forwarder in MSAL.NET, Node as fallback; device buffer 256 MiB / 7 days, deleted on sign-out or switch;
 Intune device certificates with mTLS later; stamp the Entra object id, names resolved only for entitled

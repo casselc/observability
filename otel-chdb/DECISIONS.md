@@ -71,7 +71,7 @@ disagreed with each other, and how each was resolved.
 | [D32](#d32-the-entity-catalog-as-bitemporal-events-resolved-at-query-time-proposed) | Entity catalog as append-only bitemporal events (assert / retract / unknown from the controller, the overseer, announcements), resolved by a backwards replay with one precedence rule (the controller within a trust window, then system time; announcements fill only what the authority does not know), a materialised current view | **proposed** (2026-09-28): model, reference resolver and fleet replay [`entities/bitemp/`](entities/bitemp/README.md); no storage change; owner to decide |
 | [D34](#d34-centrals-partition-key-todatereceived_at-late_part-late-parts-in-partitions-of-their-own) | Central's traces and logs partitioned by `(toDate(received_at), late_part)`: an object-constant column from the edges' `oscope-part`, statements that never mix parts, the range check on the first element (an exact key list), an online-copy-then-pause migration | **built** (2026-09-28): owner decision; 1.9× fewer granules per 5-minute window merged, 5.6× before the merges, through the real consumer; migration pause 3.9 s |
 | [D35](#d35-dead-lane-retirement-a-proof-of-empty-custody-then-quarantine-below-the-bound-built) | Dead-lane retirement: a lane leaves `complete_through` only on an orderly close (drained) or an operator's evidence (volume deleted, no PUT in flight, every slot passed); +inf until a later epoch; below R quarantine, never ingest | **built** (2026-09-29): the orderly close (both edges), its retirement, +inf, the quarantine, `consume retire-lane` and `consume admit` into recovered tables (FORMAT.md §3.1, `model/retirement.qnt`) |
-| [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis-proposed) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **proposed** (2026-09-29): [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md); owner to decide |
+| [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29), not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
 
 ---
 
@@ -3657,11 +3657,17 @@ what `consume admit` may do.
 
 ---
 
-### D36. Langfuse-shaped LLM traces: one store, content by reference, facts resolved at a basis (proposed)
+### D36. Langfuse-shaped LLM traces: one store, content by reference, facts resolved at a basis
 
-**Status:** **proposed, not decided** (2026-09-29). Research, STPA and a spike:
+**Status:** **accepted as proposed** by the owner (2026-09-29); not built. Research, STPA and a spike:
 [research/langfuse.md](research/langfuse.md), [`langfuse/spike/`](langfuse/spike/README.md).
-No pipeline code changed.
+
+**Owner decisions, 2026-09-29:** every recommendation of research/langfuse.md §11 is taken: offload
+threshold 2 KiB and max value 8 MiB, split per message **at the edge**; a separate `llm_content` right,
+and no content for metadata-only callers; score settle 15 min for automated evaluators, never for
+human annotations; erasure by tombstone facts, a physical purge only as a recorded epoch; LLM views
+in the **HyperDX fork**; the Langfuse ingestion API **not accepted in phases 1–2** (a converter is a
+later option); payload dedup **per tenant and day**.
 
 **Context.** The owner asked for collectors for Langfuse-shaped trace data, done as ClickStack
 was (D2 option 2, D25, D33): from the real OSS schema, adapted for our design, with the UI adapted

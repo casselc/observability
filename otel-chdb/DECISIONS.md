@@ -3520,6 +3520,15 @@ and the historical `entities/sql/generated/*` keep the old key.
 
 ### D35. Dead-lane retirement: a proof of empty custody, then quarantine below the bound (designed)
 
+**Owner decisions, 2026-09-29:** build it. (1) The orderly close first, in both
+edges and the consumer; (2) operator retirement (`consume retire-lane`) with
+its three checks enforced by the tool, allowed now (a lost node and volume
+is a dead lane today, per-node publishers or not); (3) `consume admit` never
+writes into the main tables: quarantined objects go to a separate, always
+labelled *recovered* table that queries include explicitly, and the command
+reports the bases and alert windows the data would have touched (the basis
+guarantee, D30, stays intact).
+
 **Status:** **designed, not built** (2026-09-28; owner decision of
 2026-09-28: "design it before any per-node publisher layout"). Design:
 [FORMAT.md](FORMAT.md) §3.1. Model: [`model/retirement.qnt`](model/retirement.qnt),

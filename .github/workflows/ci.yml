@@ -185,6 +185,16 @@ jobs:
       OTAPRS_DATA: ${{ github.workspace }}/.ci/data
       OTAPRS_SERIES_GO: ${{ github.workspace }}/.ci/data/series/go
     steps:
+      # The runner's preinstalled SDKs we do not use (~20 GB): with the cargo
+      # cache (release target dir) and the Go cache restored, the disk filled
+      # before the services' images were pulled (runs 133, 135: "No space
+      # left on device").
+      - name: Free disk
+        working-directory: /
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/.ghcup
+          df -h / | tail -1
       - uses: actions/checkout@v7
       - name: Toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain && rustup component add clippy

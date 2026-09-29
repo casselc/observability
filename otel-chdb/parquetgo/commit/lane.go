@@ -170,7 +170,7 @@ type Lane struct {
 	// NewEpoch names epochs (default NewEpoch); tests pin it.
 	NewEpoch func() string
 
-	mu sync.Mutex
+	mu laneLock
 	// Epoch is named at the lane's first write, not when the lane is made:
 	// an idle lane's first slot must not land under a name older than the
 	// epochs the consumer has since closed and compacted past
@@ -187,6 +187,40 @@ type Lane struct {
 	cacheContent string
 	cacheRef     Ref
 	cacheObj     *Object
+}
+
+// laneLock is the lane's mutex, as a channel: a caller waiting for the lane
+// can give up when its context ends, and a goroutine waiting on it is
+// durably blocked in a testing/synctest bubble, so fake time advances while
+// Append holds the lane across its S3 requests (the edge's DST,
+// ../edge/dst_test.go). A sync.Mutex waiter is neither: callers queued
+// behind a lane stuck in resends outlived their deadlines, and the
+// simulation's clock froze.
+type laneLock struct {
+	once sync.Once
+	ch   chan struct{}
+}
+
+func (k *laneLock) c() chan struct{} {
+	k.once.Do(func() { k.ch = make(chan struct{}, 1) })
+	return k.ch
+}
+
+func (k *laneLock) Lock()   { k.c() <- struct{}{} }
+func (k *laneLock) Unlock() { <-k.c() }
+
+func (k *laneLock) lockCtx(ctx context.Context) error {
+	select {
+	case k.c() <- struct{}{}:
+		return nil
+	default:
+	}
+	select {
+	case k.c() <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (l *Lane) emit(e Event) {
@@ -262,7 +296,12 @@ func inc(c *atomic.Int64) { c.Add(1) }
 // outcome is unknown (call again with the same content to resolve it, never
 // committing twice); with *ErrEncode if enc fails.
 func (l *Lane) Append(ctx context.Context, content string, enc Encoder) (Ref, error) {
-	l.mu.Lock()
+	// A caller queued behind another's Append (which may hold the lane
+	// through MaxResends resends and their timeouts) gives up at its own
+	// deadline; nothing was sent for it.
+	if err := l.mu.lockCtx(ctx); err != nil {
+		return Ref{}, fmt.Errorf("lane %s busy: %w", l.Name, err)
+	}
 	defer l.mu.Unlock()
 	st := l.Stats
 	if st == nil {

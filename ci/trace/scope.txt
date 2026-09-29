@@ -8,6 +8,7 @@
 # Go (ci/go-modules.sh test fast, in ci.yml's go-test)
 otel-chdb/parquetgo/compare/*          nightly:chdb
 otel-chdb/parquetgo/modelcheck/*       nightly:model
+otel-chdb/parquetgo/dst/*              ci:go-test nightly:edge-dst
 otel-chdb/testgate/*                   ci:go-test
 otel-chdb/parquetgo/*                  ci:go-test
 otel-chdb/otap/*                       ci:go-test

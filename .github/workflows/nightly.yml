@@ -15,7 +15,7 @@ on:
           lakeui-e2e, lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak,
           rust-integration, dst, hegel, rust-mbt (or mbt_s3inline,
           mbt_s3inline_metrics, mbt_s3inline_consumer), model, kani, chdb,
-          upstream-patches. A job that needs the build's binaries brings build.
+          upstream-patches, edge-dst. A job that needs the build's binaries brings build.
         default: all
       soak_seconds:
         description: consumer soak duration (s)
@@ -70,7 +70,7 @@ jobs:
           jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
                   "hdxadapter-integration", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
                   "faults-soak", "rust-integration", "dst", "hegel", "model", "kani", "chdb",
-                  "upstream-patches"]
+                  "upstream-patches", "edge-dst"]
           mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
           # the jobs that download the build job's `bin` artifact
           uses_build = ["conformance", "close_e2e", "query-integration", "lakeui-e2e",
@@ -1238,6 +1238,51 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
+  # The Go edge's deterministic simulation (otel-chdb/parquetgo/dst): the real
+  # edge and aws-sdk-go-v2 against the in-memory S3 emulator in fake time
+  # (testing/synctest). Per push go-test runs 24 fixed seeds and the mutants;
+  # here 20,000 new seeds a night (base = run number x 20,000).
+  edge-dst:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['edge-dst']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-nightly-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: go-nightly-${{ runner.os }}-
+      - name: seed sweep
+        working-directory: otel-chdb/parquetgo/dst
+        env:
+          EDGE_DST_SEEDS: "20000"
+        run: |
+          EDGE_DST_SEED0=$(( ${{ github.run_number }} * 20000 ))
+          export EDGE_DST_SEED0
+          echo "seeds $EDGE_DST_SEED0 .. $(( EDGE_DST_SEED0 + EDGE_DST_SEEDS - 1 ))"
+          go test -count=1 -timeout 40m -run 'TestDSTEdgeCommit|TestDSTCatchesMutants|TestLaneHistoryIsLinearizable' -v . 2>&1 | tee "$RUNNER_TEMP/edge-dst.log" | grep -E -- '^(---|ok|FAIL|panic)|seeds from|caught|violations|rerun'
+          exit "${PIPESTATUS[0]}"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: edge-dst
+          path: ${{ runner.temp }}/edge-dst.log
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-edge-dst
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
   # Requirements-to-test traceability for this run's selected jobs (ci/README.md,
   # "Traceability"): as ci.yml's job, over the nightly's records. Tags whose jobs were not
   # selected, and rows only they claim, are reported as deferred, not judged.
@@ -1245,7 +1290,7 @@ jobs:
     name: traceability (tagged tests ran and passed at this commit)
     needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, lakeui-e2e,
             lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, dst, hegel, rust-mbt, model, kani,
-            chdb, upstream-patches]
+            chdb, upstream-patches, edge-dst]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10

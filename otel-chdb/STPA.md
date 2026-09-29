@@ -7,6 +7,27 @@ register that follows from the CAST below), [model/](model/).
 
 A first-pass STPA of the telemetry pipeline and UI, extended with STPA-Sec for adversarial causes and STPA-Teaming for how on-call people and automation work together.
 
+**Diagram conventions** (every control structure in this repository follows them; options
+compared and rendered in [docs/stpa-diagrams/](docs/stpa-diagrams/README.md)):
+
+- Mermaid `flowchart TB` with `config: layout: elk` in the front matter. Mermaid 12 lays it out
+  with ELK (orthogonal edges); GitHub (Mermaid 11.17.2 on 2026-09-29, no ELK) ignores the setting
+  and uses dagre. Both give the same levels, because of the next rule.
+- Levels top-down as in the STPA Handbook: people and organisation at the top, automated
+  controllers below them, the controlled processes (stores, cylinders `[(…)]`) at the bottom.
+  Declare nodes in that order. Controllers are plain rectangles; a controller's algorithm or
+  process model goes on its label's second line.
+- Every edge in the source points DOWN the hierarchy, so neither layout engine has a cycle to
+  break. A control action is a solid arrow, `C -->|action| P`. Feedback is written from the same
+  controller, `C fbN@<-.->|feedback| P`, and every `fbN` gets `class … fb` with
+  `classDef fb stroke:#888,marker-end:none`: the line is dashed grey and its only arrowhead is at
+  the controller, so feedback reads upward. Writing feedback as `P -.-> C` instead lets dagre put
+  the process above its controller.
+- Declare each controller's control action before its feedback: both engines then draw control on
+  the left of the pair and feedback on the right.
+- No fills or colours on nodes (GitHub also renders a dark theme). CAST counterexamples stay
+  `sequenceDiagram`s.
+
 ## Losses and hazards
 
 Six losses cover safety, security and cost; seven hazards are the system states that lead to them.
@@ -51,35 +72,45 @@ Two views of one hierarchy: the automated data plane, and the loop where people 
 **A. Data plane.** Every store has automated controllers and no person acts on it directly; operators act only through configuration and deploys, and see aggregate feedback.
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 flowchart TB
   ops["Platform operators<br/>configuration, budgets, retention, access; deploy and scale"]
   edge["Edge collectors<br/>agents, publishers, buffer; commit protocol per lane"]
   ec["Entity controllers<br/>one per cluster; write entity records"]
-  s3[("S3 lanes and control objects<br/>telemetry and entity objects; leases, checkpoints, tombstones, GC marks")]
   con["Consumer workers<br/>leases, time-bound inserts, count check and repair"]
   agg["Central aggregator<br/>merges and versions; flags catalog gaps"]
   gc["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots"]
+  s3[("S3 lanes and control objects<br/>telemetry and entity objects; leases, checkpoints, tombstones, GC marks")]
   ch[("Central ClickHouse<br/>tables, rollups, indexes")]
   cat[("Entity catalog<br/>tables and dictionaries")]
   lake[("Lake snapshots<br/>Iceberg (planned)")]
   ops -->|config, deploy| edge
   ops -->|config, deploy| ec
+  ops fb1@<-.->|health, audit, cost| gc
   edge -->|create-only PUT| s3
   ec -->|entity records| s3
   con -->|CAS leases, checkpoints| s3
-  s3 -.->|list, get| con
-  s3 -.->|read records| agg
-  gc -->|delete, seal| s3
+  con fb2@<-.->|list, get| s3
   con -->|insert, repair| ch
-  ch -.->|counts| con
+  con fb3@<-.->|counts| ch
   agg -->|upsert| cat
+  agg fb4@<-.->|read records| s3
+  gc -->|delete, seal| s3
   gc -->|commit| lake
-  gc -.->|health, audit, cost| ops
+  classDef fb stroke:#888,marker-end:none
+  class fb1,fb2,fb3,fb4 fb
 ```
 
 **B. People and automation.** On-call people steer through two automated teammates, the UI and the alerting engine. Their only view of the data is what the query service returns, so its complete-through time is the feedback that keeps their mental model correct.
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 flowchart TB
   oc["On-call engineers<br/>choose scope, time range and snapshot; write alert rules; ack, silence, escalate"]
   op["Platform operators<br/>routing policy, access, retention, budgets"]
@@ -90,19 +121,21 @@ flowchart TB
   lake[("Lake snapshots")]
   cat[("Entity catalog")]
   oc -->|queries| ui
-  ui -.->|results, freshness| oc
+  oc fb1@<-.->|results, freshness| ui
   oc -->|rules, acks| al
-  al -.->|pages| oc
+  oc fb2@<-.->|pages| al
   ui -->|requests| qs
-  qs -.->|complete-through| ui
+  ui fb3@<-.->|complete-through| qs
   al -->|evaluate| qs
-  qs -.->|values| al
+  al fb4@<-.->|values| qs
   op -->|routing, access| qs
   qs -->|SQL| ch
-  ch -.->|rows, status| qs
+  qs fb5@<-.->|rows, status| ch
   qs -->|plans, reads| lake
-  lake -.->|rows| qs
+  qs fb6@<-.->|rows| lake
   qs -->|lookups| cat
+  classDef fb stroke:#888,marker-end:none
+  class fb1,fb2,fb3,fb4,fb5,fb6 fb
 ```
 
 ## Unsafe control actions

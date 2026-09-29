@@ -135,39 +135,45 @@ offloader** in the edge, the **price-fact writer**, and the **score writers** (p
 evaluators). Solid arrows are control actions, dashed arrows feedback.
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 flowchart TB
+  hum["Human reviewers<br/>annotate, score, correct"]
+  ops["Platform operators<br/>thresholds, caps, retention, roles, price facts"]
   subgraph producers["Producers (pods, less trusted)"]
     sdk["Langfuse SDK v3/v4 (OTel)<br/>OpenLLMetry, OpenInference,<br/>Logfire, Vercel AI SDK, GenAI semconv"]
     ev["LLM-as-judge evaluators<br/>(automation, read traces, write scores)"]
   end
-  hum["Human reviewers<br/>annotate, score, correct"]
-  ops["Platform operators<br/>thresholds, caps, retention, roles, price facts"]
-  edge["Edge collectors<br/>OTLP receiver, redaction hook,<br/>payload offloader, durable buffer, commit"]
-  s3[("S3 lanes<br/>objects: rows + payload part + announcements")]
-  con["Consumer<br/>payloads first, rows, views; count check"]
-  ch[("Central ClickHouse<br/>otel_traces, otel_logs, llm_payloads,<br/>llm_spans, llm_scores, llm_prices")]
-  qs["Query service<br/>scope (cluster, namespace), llm_content right,<br/>basis, labels, audit"]
   ui["UI: LLM views<br/>(HyperDX fork / lake UI)"]
   pw["Price-fact writer<br/>(CI from a price catalogue)"]
+  edge["Edge collectors<br/>OTLP receiver, redaction hook,<br/>payload offloader, durable buffer, commit"]
+  qs["Query service<br/>scope (cluster, namespace), llm_content right,<br/>basis, labels, audit"]
+  con["Consumer<br/>payloads first, rows, views; count check"]
+  s3[("S3 lanes<br/>objects: rows + payload part + announcements")]
+  ch[("Central ClickHouse<br/>otel_traces, otel_logs, llm_payloads,<br/>llm_spans, llm_scores, llm_prices")]
+  hum -->|score, annotate| ui
+  hum fb1@<-.->|views, labels, 'scores may still arrive'| ui
+  ops -->|config, caps| edge
+  ops fb2@<-.->|offload, truncation, redaction counters| edge
+  ops -->|price changes| pw
   sdk -->|OTLP spans| edge
   ev -->|OTLP log records: scores| edge
-  hum -->|score, annotate| ui
+  ev -->|read traces at a basis| qs
+  ev fb3@<-.->|results, labels| qs
   ui -->|score facts as OTLP| edge
-  ops -->|config, caps| edge
-  ops -->|price changes| pw
+  ui -->|queries at a basis| qs
+  ui fb4@<-.->|results, labels, basis| qs
   pw -->|price facts, valid + system time| ch
   edge -->|create-only PUT| s3
-  s3 -.->|list, get| con
+  con fb5@<-.->|list, get| s3
   con -->|insert| ch
-  ch -.->|counts| con
-  ui -->|queries at a basis| qs
-  ev -->|read traces at a basis| qs
+  con fb6@<-.->|counts| ch
   qs -->|SQL from the tree| ch
-  ch -.->|rows| qs
-  qs -.->|results, labels, basis| ui
-  qs -.->|results, labels| ev
-  ui -.->|views, labels, 'scores may still arrive'| hum
-  edge -.->|offload, truncation, redaction counters| ops
+  qs fb7@<-.->|rows| ch
+  classDef fb stroke:#888,marker-end:none
+  class fb1,fb2,fb3,fb4,fb5,fb6,fb7 fb
 ```
 
 Who acts on what, and what their process model is:

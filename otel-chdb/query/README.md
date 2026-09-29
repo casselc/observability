@@ -1041,18 +1041,28 @@ caller's own bearer token**. It holds **no ClickHouse credentials**: what
 reaches ClickHouse is what the service parsed, allow-listed, rebuilt, scoped
 and audited.
 
-```
-browser ─ HyperDX app ─ API /clickhouse-proxy ──┐   (fork 0002: user's token → Authorization: Bearer)
-API routes, MCP, external API (node client) ────┤   (fork 0004: the requesting user's token → auth.access_token)
-alert task, usage stats (node client) ──────────┤   (fork 0002: HDX_QUERY_SERVICE_TOKEN_FILE → auth.access_token)
-                                                ▼
-                          [rwproxy, optional: entity rewrite, same wire]
-                                                ▼
-hdxadapter :18191 ── bind params · strip FORMAT · lift SETTINGS · DESCRIBE/SHOW → system SELECT · derive window
-                                                ▼  POST /v1/query {sql, window?, output?, settings?, sample?}  Bearer <user token>
-queryd ── parse · allow-list · rebuild · scope (additional_table_filters) · audit · limits
-                                                ▼
-ClickHouse (read-only user)            answer: ClickHouse's format + X-Otel-* label headers
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  br["browser ─ HyperDX app ─ API /clickhouse-proxy<br/>(fork 0002: user's token → Authorization: Bearer)"]
+  api["API routes, MCP, external API (node client)<br/>(fork 0004: the requesting user's token → auth.access_token)"]
+  alert["alert task, usage stats (node client)<br/>(fork 0002: HDX_QUERY_SERVICE_TOKEN_FILE → auth.access_token)"]
+  rw["rwproxy, optional: entity rewrite, same wire"]
+  hdxa["hdxadapter :18191<br/>bind params · strip FORMAT · lift SETTINGS ·<br/>DESCRIBE/SHOW → system SELECT · derive window"]
+  qd["queryd<br/>parse · allow-list · rebuild · scope (additional_table_filters) · audit · limits"]
+  ch[("ClickHouse (read-only user)")]
+  br --> rw
+  api --> rw
+  alert --> rw
+  rw --> hdxa
+  hdxa -->|"POST /v1/query {sql, window?, output?, settings?, sample?}<br/>Bearer #lt;user token#gt;"| qd
+  hdxa fb1@<-.->|"answer: ClickHouse's format + X-Otel-* label headers"| qd
+  qd --> ch
+  classDef fb stroke:#888,marker-end:none
+  class fb1 fb
 ```
 
 Run: `go build ./cmd/hdxadapter && ./hdxadapter -config hdxadapter.example.json`

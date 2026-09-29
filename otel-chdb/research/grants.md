@@ -71,23 +71,34 @@ a data subject's question goes unanswered or is answered wrongly).
 
 ### 1.3 Control structure
 
-```
- grant authors ──(PR: Cedar policies)──▶ code review (CODEOWNERS, 2 approvals) ──▶ CI: grantc
-     ▲                                                                              │ compile, refuse,
-     │ compiled diff, reasons                                                       │ check vs Cedar,
-     └──────────────────────────────────────────────────────────────────────────────┘ iam-lint
-                                                                                    │
-            ┌───────────────────────────────────────────────┬───────────────────────┘
-            ▼                                               ▼
-  query service (per environment)                      IAM (per environment bucket / account)
-  group_grants = tuples; For(role);                    edge: ROOT/${PrincipalTag/cluster}/*, Deny other env's clusters
-  PairScope → table filters, dict guards,              presign role: one cluster per session (tags env, cluster);
-  catalog ids; plan: whole clusters only               trust: only the query service, only registered plan clusters
-            ▲ token (groups, app roles)                         ▲ session tags (EKS Pod Identity; STS TagSession)
-            │                                                   │
-  Entra ID (groups, app roles, PIM for break-glass) ◀── managers, identity team (TM-G1, TM-G3)
-            │
-            └── Graph delta ──▶ person controller ──▶ D32 events (person) ──▶ name resolution (§9)
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  authors["grant authors"]
+  mgrs["managers, identity team (TM-G1, TM-G3)"]
+  review["code review (CODEOWNERS, 2 approvals)"]
+  grantc["CI: grantc<br/>compile, refuse, check vs Cedar, iam-lint"]
+  qs["query service (per environment)<br/>group_grants = tuples; For(role);<br/>PairScope → table filters, dict guards,<br/>catalog ids; plan: whole clusters only"]
+  iam["IAM (per environment bucket / account)<br/>edge: ROOT/${PrincipalTag/cluster}/*, Deny other env's clusters<br/>presign role: one cluster per session (tags env, cluster);<br/>trust: only the query service, only registered plan clusters"]
+  entra["Entra ID (groups, app roles, PIM for break-glass)"]
+  tags["EKS Pod Identity; STS TagSession"]
+  pc["person controller"]
+  d32["D32 events (person)"]
+  nr["name resolution (§9)"]
+  authors -->|"PR: Cedar policies"| review
+  authors fb1@<-.->|compiled diff, reasons| grantc
+  review --> grantc
+  grantc --> qs
+  grantc --> iam
+  mgrs --> entra
+  qs fb2@<-.->|"token (groups, app roles)"| entra
+  iam fb3@<-.->|session tags| tags
+  entra -->|Graph delta| pc --> d32 --> nr
+  classDef fb stroke:#888,marker-end:none
+  class fb1,fb2,fb3 fb
 ```
 
 Controllers and their process models: the **query service** believes "a token's groups are what Entra

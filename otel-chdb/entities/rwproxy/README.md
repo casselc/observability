@@ -56,16 +56,17 @@ source (HyperDX at `885d30c`, `CODE_VERSION=2.39.1`), **[E]** estimate.
 
 ## 2. Design
 
-```
-HyperDX (browser: @clickhouse/client-web via the API's /clickhouse-proxy;
-         API + alert task: @clickhouse/client)          HTTP only
-   │  POST /?param_HYPERDX_PARAM_…=…&query_id=…  body: the statement
-   ▼
-rwproxy :18125 ── parse (ClickHouse grammar) ── find SELECTs on a catalog table
-   │             ── replace ResourceAttributes['k'] uses by catalog lookups
-   │             ── re-parse the result; anything unknown → forward as is
-   ▼
-ClickHouse :8123 ── response streamed back unchanged (headers, compression, progress)
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  hdx["HyperDX<br/>(browser: @clickhouse/client-web via the API's /clickhouse-proxy;<br/>API + alert task: @clickhouse/client)<br/>HTTP only"]
+  rw["rwproxy :18125<br/>parse (ClickHouse grammar) ── find SELECTs on a catalog table<br/>── replace ResourceAttributes['k'] uses by catalog lookups<br/>── re-parse the result; anything unknown → forward as is"]
+  ch[("ClickHouse :8123<br/>response streamed back unchanged (headers, compression, progress)")]
+  hdx -->|"POST /?param_HYPERDX_PARAM_…=…#amp;query_id=…<br/>body: the statement"| rw
+  rw --> ch
 ```
 
 - **Transport.** HyperDX talks to ClickHouse only over HTTP: the browser uses

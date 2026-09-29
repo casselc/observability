@@ -51,17 +51,22 @@ after the overlay's, so a value set in a component cannot be overridden.
 
 ## Topology
 
-```
- app pods ──OTLP──► otel-agent (DaemonSet, one per node)
-                     memory_limiter → persistent queue (hostPath); no batch step
-                     retry forever
-                        │ OTLP/gRPC, round robin over the headless Service
-                        ▼
-                    otap-publisher-N (StatefulSet, 3 per cluster; 8 routed)  ┌─ with components/routing:
-                     receiver → batch (3 MiB / 1 s) → durable buffer (PVC)  │  agents → otel-gateway (Deployment)
-                     (Go: receiver → s3pq batch (10k items / 1 s) → queue)  │
-                     → exporter:s3pq ── 1 create-only PUT per object ──► S3  │  load_balancing, routing_key: service
-                                                                             │  → the publisher that owns the service
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  app["app pods"]
+  agent["otel-agent (DaemonSet, one per node)<br/>memory_limiter → persistent queue (hostPath); no batch step<br/>retry forever"]
+  gw["otel-gateway (Deployment)<br/>load_balancing, routing_key: service"]
+  pub["otap-publisher-N (StatefulSet, 3 per cluster; 8 routed)<br/>receiver → batch (3 MiB / 1 s) → durable buffer (PVC)<br/>(Go: receiver → s3pq batch (10k items / 1 s) → queue)<br/>→ exporter:s3pq"]
+  s3[("S3")]
+  app -->|OTLP| agent
+  agent -->|"OTLP/gRPC, round robin over the headless Service"| pub
+  agent -.->|"with components/routing: agents → otel-gateway"| gw
+  gw -.->|"→ the publisher that owns the service"| pub
+  pub -->|"1 create-only PUT per object"| s3
 ```
 
 The agents are the custodians of anything not yet acknowledged: their queue

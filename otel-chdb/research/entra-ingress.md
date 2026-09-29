@@ -72,6 +72,10 @@ added for the people whose laptops run the forwarder.
 ### 1.3 Control structure
 
 ```mermaid
+---
+config:
+  layout: elk
+---
 flowchart TB
   subgraph Org["Organisation controllers"]
     SEC["Security / privacy reviewers<br/>CA policy, app registrations, retention"]
@@ -95,22 +99,24 @@ flowchart TB
   QS["Query service<br/>grants → additional_table_filters"]
   PEOPLE["People, dashboards, evaluators"]
 
+  SEC -->|"CA: compliant device, allowed client"| ENTRA
+  MGR -->|"app roles, groups"| ENTRA
+  MDM -->|"package, config, compliance state"| Device
+  MDM -->|compliance| ENTRA
+  OPS -->|"policy, limits"| ING
+  OPS -->|grants| QS
   DEV -->|runs, signs in| TOOL
   TOOL -->|"OTLP/HTTP, local Basic key"| FWD
   FWD -->|"acquireTokenSilent / interactive"| BRK
+  FWD fb1@<-.-> BRK
   BRK -->|"PRT-backed token request"| ENTRA
-  ENTRA -->|"access token (aud = ingress API) or refusal"| BRK
-  BRK --> FWD
+  BRK fb2@<-.->|"access token (aud = ingress API) or refusal"| ENTRA
   FWD -->|"OTLP/HTTP + Bearer"| ING
-  ING -->|"200 committed / 401 / 403 / 413 / 429 / 503"| FWD
+  FWD fb3@<-.->|"200 committed / 401 / 403 / 413 / 429 / 503"| ING
   ING --> EDGE --> S3 --> CONS --> QS --> PEOPLE
-  SEC -.->|"CA: compliant device, allowed client"| ENTRA
-  MGR -.->|"app roles, groups"| ENTRA
-  MDM -.->|"package, config, compliance state"| Device
-  MDM -.->|compliance| ENTRA
-  OPS -.->|"policy, limits"| ING
-  OPS -.->|grants| QS
   EDGE -.->|"heartbeats, close (D35)"| CONS
+  classDef fb stroke:#888,marker-end:none
+  class fb1,fb2,fb3 fb
 ```
 
 Feedback that exists: the ingress's status codes (and `Retry-After`) to the forwarder; the
@@ -236,14 +242,23 @@ helper headers" alternative for these producers (§8) and puts a local forwarder
 
 ## 3. Design overview
 
-```
-tool ──OTLP/HTTP, Basic(local key)──▶ forwarder (127.0.0.1, per user)
-        buffer: encrypted, bounded, keyed by (tid, oid)
-        token: MSAL + broker, scope api://oscope-ingress/Telemetry.Write
-forwarder ──OTLP/HTTP, Bearer──▶ ingress (Kubernetes, N replicas behind a TLS load balancer)
-        verify token → map identity to (devtools, dev-<team>) → caps → stamp → edge lanes
-        200 only when committed
-edge lanes (cluster devtools, producer = replica) ──▶ S3 ──▶ consumer ──▶ central ──▶ query service
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  tool["tool"]
+  fwd["forwarder (127.0.0.1, per user)<br/>buffer: encrypted, bounded, keyed by (tid, oid)<br/>token: MSAL + broker, scope api://oscope-ingress/Telemetry.Write"]
+  ing["ingress (Kubernetes, N replicas behind a TLS load balancer)<br/>verify token → map identity to (devtools, dev-#lt;team#gt;) → caps → stamp → edge lanes<br/>200 only when committed"]
+  lanes["edge lanes (cluster devtools, producer = replica)"]
+  s3[("S3")]
+  cons["consumer"]
+  central[("central")]
+  qs["query service"]
+  tool -->|"OTLP/HTTP, Basic(local key)"| fwd
+  fwd -->|"OTLP/HTTP, Bearer"| ing
+  ing --> lanes --> s3 --> cons --> central --> qs
 ```
 
 ## 4. The device forwarder

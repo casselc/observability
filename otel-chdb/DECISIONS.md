@@ -18,23 +18,19 @@ disagreed with each other, and how each was resolved.
 
 ## The pipeline in one picture
 
-```
- k8s cluster (×20 per region)                         S3 (AWS) or Nutanix Objects
- ┌──────────────────────────────────────┐            ┌──────────────────────────────────────────┐
- │ pods → gateway collectors (3/cluster)│  1 create- │ {root}/{cluster}/{producer}/{signal}/     │
- │   Rust otap-dataflow + s3pq exporter │  only PUT  │  {epoch}/{seq:020d}.parquet (FORMAT.md)   │
- │   (or Go collector + parquetgo)      │ ─────────► │ {ctl}/lease/…  {ctl}/ckpt/…  (CAS'd)      │
- │   ack upstream only after the commit │  per batch │ {ctl}/gc.json               (CAS'd)       │
- └──────────────────────────────────────┘            └──────────────────┬───────────────────────┘
-                                                                          │ LIST StartAfter, HEAD
-                                                                          ▼
-                                      consume workers (leased lanes, ≤32 objects per statement)
-                                      INSERT … SELECT FROM s3('{k1,…,k32}') → verify by projection
-                                                                          │
-                                                                          ▼
-                                      central ClickHouse 26.10: ReplicatedMergeTree, 2 replicas,
-                                      hot fast disk 1–7 days → cold tier, 90 days total
-                                      traces/logs: ClickStack tables; metrics: series layout (B)
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+  edge["k8s cluster (×20 per region)<br/>pods → gateway collectors (3/cluster)<br/>Rust otap-dataflow + s3pq exporter<br/>(or Go collector + parquetgo)<br/>ack upstream only after the commit"]
+  s3[("S3 (AWS) or Nutanix Objects<br/>{root}/{cluster}/{producer}/{signal}/{epoch}/{seq:020d}.parquet (FORMAT.md)<br/>{ctl}/lease/…  {ctl}/ckpt/…  (CAS'd)<br/>{ctl}/gc.json (CAS'd)")]
+  con["consume workers (leased lanes, ≤32 objects per statement)<br/>INSERT … SELECT FROM s3('{k1,…,k32}') → verify by projection"]
+  ch[("central ClickHouse 26.10: ReplicatedMergeTree, 2 replicas,<br/>hot fast disk 1–7 days → cold tier, 90 days total<br/>traces/logs: ClickStack tables; metrics: series layout (B)")]
+  edge -->|"1 create-only PUT per batch"| s3
+  s3 -->|"LIST StartAfter, HEAD"| con
+  con --> ch
 ```
 
 ## Decision index

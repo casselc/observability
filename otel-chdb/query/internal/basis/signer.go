@@ -302,8 +302,12 @@ func parse(tok string) (string, []byte, *Basis, error) {
 	if !ok || strings.Contains(sig, ".") {
 		return "", nil, nil, invalid("malformed token")
 	}
-	body, err1 := base64.RawURLEncoding.DecodeString(pl)
-	mac, err2 := base64.RawURLEncoding.DecodeString(sig)
+	// Strict: the unused low bits of the last character must be zero, so
+	// a token has one spelling. Lenient decoding accepted four spellings
+	// of every MAC (TestKeyringStateMachine, 2026-09-29): harmless to the
+	// MAC, but a token string was no longer an identity (caches, audit).
+	body, err1 := strictB64.DecodeString(pl)
+	mac, err2 := strictB64.DecodeString(sig)
 	if err1 != nil || err2 != nil || len(mac) == 0 {
 		return "", nil, nil, invalid("malformed token encoding")
 	}
@@ -387,3 +391,5 @@ func (c *ttlLRU[V]) len() int {
 	defer c.mu.Unlock()
 	return c.ll.Len()
 }
+
+var strictB64 = base64.RawURLEncoding.Strict()

@@ -37,3 +37,23 @@ func FuzzDecode(f *testing.F) {
 		}
 	})
 }
+
+// Every token has exactly one accepted spelling: the MAC's last character
+// carries two unused bits, which a lenient decoder ignores.
+func TestTokenTrailingBitsAreRefused(t *testing.T) {
+	k := ring(t)
+	tok, err := k.Encode(sample())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	accepted := 0
+	for _, c := range alphabet {
+		if _, err := k.Decode(tok[:len(tok)-1] + string(c)); err == nil {
+			accepted++
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("%d spellings of the MAC's last character accepted, want 1", accepted)
+	}
+}

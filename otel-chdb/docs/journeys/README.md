@@ -196,8 +196,9 @@ npm run vendor`, ~40 MB, not committed); `JOURNEYS_MOSAIC=0` skips it.
 `render.sh` runs the journeys against a fresh rig (ClickHouse
 `:18123`, SeaweedFS `:18333`, as `ci/services.sh` starts them), writes each
 step's PNG under `img/<journey>/`, re-encodes them as palette PNGs and builds
-`img/<journey>.gif` (ffmpeg). A journey whose assertions fail writes no
-pictures for the failing step and fails the script. The nightly `journeys`
+`img/<journey>.gif` (ffmpeg). A step's picture is taken only after its
+assertions pass, and `img/` is replaced only when every journey passed; a
+failure leaves it as it was and fails the script. The nightly `journeys`
 job runs the same script and uploads the pictures as an artifact; it does
 not commit them. To take the pictures from a run instead, unpack its
 `journeys` artifact's `journeys-img/` over `img/`.

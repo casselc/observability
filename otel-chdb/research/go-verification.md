@@ -457,10 +457,13 @@ go1.27.1`; CI `GO_VERSION` 1.27.x). What the new toolchain changed:
   `AsString` renders map and slice attributes with encoding/json, so the
   Go edge's `AttributesValues` and layout-B `series_id` changed for such
   attributes and no longer matched the Rust edge (CI run 36532538131,
-  `tests/series.rs`). The edge now renders them with its own port of Go
-  1.26's encoder (`parquetgo/attrjson.go`). A contrib clickhouseexporter
-  built with Go ≥ 1.27 differs from the edge only in those bytes;
-  `parquetgo/compare` normalises exactly that difference.
+  `tests/series.rs`). The edge renders them with its own encoder
+  (`parquetgo/attrjson.go`), first pinned to Go 1.26's bytes; since
+  2026-09-29 (AMBIGUITY E10, owner: follow Go 1.27) pinned to Go 1.27's,
+  which the Rust edge writes too (shared vectors
+  `parquetgo/testdata/attrjson_vectors.json`). The contrib and chdb
+  exporters built with Go 1.27 match the edge byte for byte again, and
+  `parquetgo/compare` no longer maps U+FFFD.
 
 | Item (§5 rank) | Where | Per push | Nightly | Found |
 |---|---|---|---|---|

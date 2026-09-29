@@ -16,15 +16,18 @@ import (
 // AppendAttrJSON, whose output is pinned here instead of following the
 // toolchain's encoding/json.
 //
-// Why: AsString renders maps and slices with encoding/json, and Go 1.27
-// made encoding/json v1 run on the json/v2 engine (GOEXPERIMENT jsonv2 on by
-// default), which writes an invalid UTF-8 byte as a raw U+FFFD where Go ≤
-// 1.26 wrote the six-byte escape (backslash, u, fffd). The same request then gave another
-// AttributesValues string, and another series_id (series.go hashes the
-// rendering), under Go 1.27 than under 1.26 and than the Rust edge, which
-// mirrors the ≤ 1.26 bytes (otap-rs tests/series.rs
-// same_as_go_prototype_corr, CI run 36532538131). An edge's output must
-// not depend on the compiler it was built with.
+// Why: AsString renders maps and slices with encoding/json, whose bytes
+// have changed with the toolchain before: Go 1.27 made encoding/json v1
+// run on the json/v2 engine (GOEXPERIMENT jsonv2 on by default), which
+// writes an invalid UTF-8 byte as a raw U+FFFD where Go <= 1.26 wrote the
+// six-byte escape. series.go hashes the rendering into the series_id, and
+// the Rust edge (otap-rs src/render.rs) writes the same bytes, so an
+// edge's output must not depend on the compiler it was built with.
+//
+// The pinned bytes are Go 1.27's (AMBIGUITY E10, owner 2026-09-29: follow
+// Go 1.27). Until that commit they were Go 1.26's escape; the series ids
+// of series whose map or slice attribute values hold invalid UTF-8 changed
+// once there (FORMAT.md §5, DECISIONS.md D7).
 func AttrString(v pcommon.Value) string {
 	switch v.Type() {
 	case pcommon.ValueTypeMap, pcommon.ValueTypeSlice:
@@ -34,15 +37,16 @@ func AttrString(v pcommon.Value) string {
 }
 
 // AppendAttrJSON appends a map or slice value as JSON exactly as
-// encoding/json v1 (Go ≤ 1.26) marshalled its AsRaw form with HTML
-// escaping off, which is what pcommon's AsString produced: keys sorted
-// bytewise; strings escaped with \" \\ \b \f \n \r \t and \u00XX for the
-// other control bytes, invalid UTF-8 as the escape for U+FFFD per byte, U+2028 and U+2029
-// escaped, everything else (DEL included) raw; numbers as ES6 would print
-// them (exponent form below 1e-6 and from 1e21, no exponent padding);
-// bytes in standard base64. A NaN or an infinity anywhere makes the whole
-// value unencodable, and AsString then returned "": so does this. Other
-// value types are appended as AsString.
+// encoding/json (Go 1.27, json/v2 engine) marshals its AsRaw form with HTML
+// escaping off, which is what pcommon's AsString produces: keys sorted
+// bytewise on their raw bytes; strings escaped with \" \\ \b \f \n \r \t
+// and \u00XX for the other control bytes, each invalid UTF-8 byte (as
+// utf8.DecodeRune sees it: one byte at a time) as a raw U+FFFD, U+2028 and
+// U+2029 escaped, everything else (DEL included) raw; numbers as ES6 would
+// print them (exponent form below 1e-6 and from 1e21, no exponent
+// padding); bytes in standard base64. A NaN or an infinity anywhere makes
+// the whole value unencodable, and AsString then returns "": so does this.
+// Other value types are appended as AsString.
 func AppendAttrJSON(dst []byte, v pcommon.Value) []byte {
 	var raw any
 	switch v.Type() {
@@ -141,8 +145,9 @@ func appendFloatV1(b []byte, f float64) ([]byte, bool) {
 
 const hexDigits = "0123456789abcdef"
 
-// appendStringV1 is encoding/json's appendString (Go 1.26) with
-// escapeHTML false.
+// appendStringV1 is encoding/json's appendString with escapeHTML false,
+// with an invalid byte written as a raw U+FFFD (Go 1.27) instead of Go
+// 1.26's escape.
 func appendStringV1(dst []byte, s string) []byte {
 	dst = append(dst, '"')
 	start := 0
@@ -176,7 +181,7 @@ func appendStringV1(dst []byte, s string) []byte {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size == 1 {
 			dst = append(dst, s[start:i]...)
-			dst = append(dst, '\\', 'u', 'f', 'f', 'f', 'd')
+			dst = append(dst, "\uFFFD"...) // EF BF BD
 			i += size
 			start = i
 			continue

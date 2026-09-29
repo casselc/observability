@@ -689,6 +689,23 @@ its content, so a reader of central that wants the content resolves it in
 from before would ingest such rows without their payloads: deploy the
 consumer first.
 
+**The attribute rendering of 2026-09-29 (AMBIGUITY E10) is not a format
+change, but it changes some series ids once.** A map or slice attribute
+value is stored (`AttributesValues` and the other map columns) and hashed
+into the layout-B `series_id` as its JSON rendering. Until this change both
+edges wrote an invalid UTF-8 byte inside it as Go 1.26's six-byte `\ufffd`
+escape; from this commit on they write a raw U+FFFD (Go 1.27's
+encoding/json, the contrib exporter's bytes), pinned by the vectors in
+`parquetgo/testdata/attrjson_vectors.json`. Only series with such a value
+(an invalid UTF-8 byte in a map or slice attribute of the resource, the
+scope or the data point) are affected: from the upgraded edge on, their
+points carry a new `series_id` with a new `otel_metrics_series` row, and the
+points written before keep the old id and old row. A query that groups by
+the rendered value sees them as two series across the upgrade; every
+other series id is unchanged. Elsewhere (traces, logs, exemplar
+attributes) no id is computed over it; only the stored string of such a
+value changes (and, when D36 offloads it, its content hash).
+
 ## 6. Who may write what (D18, ABAC)
 
 | role | may | may not |

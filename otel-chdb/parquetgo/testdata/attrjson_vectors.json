@@ -1,0 +1,279 @@
+{
+ "comment": [
+  "Rendering of map and slice attribute values (AttributesValues; the layout-B series id hashes it), shared by the Go edge (parquetgo/attrjson_test.go) and the Rust edge (otap-rs src/render.rs).",
+  "The bytes are Go 1.27's encoding/json (json/v2 engine) with HTML escaping off, as pcommon AsString writes them: each invalid UTF-8 byte is a raw U+FFFD (AMBIGUITY E10, owner 2026-09-29). Pinned: a later toolchain that renders differently does not change them.",
+  "value: {s | s_hex} string, {i} int (decimal string), {d} double (strconv / Rust parse form, NaN, Inf, -Inf), {b} bool, {y_hex} bytes, {e} empty, {l: [value]} slice, {m: [{k | k_hex, v: value}]} map. want: the rendering (always valid UTF-8)."
+ ],
+ "vectors": [
+  {
+   "name": "map: invalid UTF-8 in values (top level and nested), escapes, numbers, bytes",
+   "value": {
+    "m": [
+     {
+      "k": "s",
+      "v": {
+       "s_hex": "62616420fffe2078"
+      }
+     },
+     {
+      "k": "u",
+      "v": {
+       "s": " <&>"
+      }
+     },
+     {
+      "k": "c",
+      "v": {
+       "s": "\u0001\b\f\n\r\t\"\\"
+      }
+     },
+     {
+      "k": "f1",
+      "v": {
+       "d": "1e21"
+      }
+     },
+     {
+      "k": "f2",
+      "v": {
+       "d": "1e-7"
+      }
+     },
+     {
+      "k": "f3",
+      "v": {
+       "d": "9007199254740992"
+      }
+     },
+     {
+      "k": "f4",
+      "v": {
+       "d": "-0"
+      }
+     },
+     {
+      "k": "i",
+      "v": {
+       "i": "-42"
+      }
+     },
+     {
+      "k": "b",
+      "v": {
+       "b": true
+      }
+     },
+     {
+      "k": "n",
+      "v": {
+       "e": true
+      }
+     },
+     {
+      "k": "y",
+      "v": {
+       "y_hex": "0001ff"
+      }
+     },
+     {
+      "k": "m",
+      "v": {
+       "m": [
+        {
+         "k": "inner",
+         "v": {
+          "s_hex": "696e76616c696420c3282075746638"
+         }
+        },
+        {
+         "k": "l",
+         "v": {
+          "l": [
+           {
+            "s": " "
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "want": "{\"b\":true,\"c\":\"\\u0001\\b\\f\\n\\r\\t\\\"\\\\\",\"f1\":1e+21,\"f2\":1e-7,\"f3\":9007199254740992,\"f4\":-0,\"i\":-42,\"m\":{\"inner\":\"invalid �( utf8\",\"l\":[\"\\u2029\"]},\"n\":null,\"s\":\"bad �� x\",\"u\":\"\\u2028<&>\",\"y\":\"AAH/\"}"
+  },
+  {
+   "name": "slice: invalid UTF-8 in elements, in a nested slice and in a nested map's key and value",
+   "value": {
+    "l": [
+     {
+      "s_hex": "ff"
+     },
+     {
+      "s_hex": "6f6b20c328"
+     },
+     {
+      "l": [
+       {
+        "s_hex": "e282"
+       }
+      ]
+     },
+     {
+      "m": [
+       {
+        "k_hex": "6bff",
+        "v": {
+         "s_hex": "eda080"
+        }
+       },
+       {
+        "k": "a",
+        "v": {
+         "i": "1"
+        }
+       }
+      ]
+     },
+     {
+      "d": "0.5"
+     },
+     {
+      "e": true
+     }
+    ]
+   },
+   "want": "[\"�\",\"ok �(\",[\"��\"],{\"a\":1,\"k�\":\"���\"},0.5,null]"
+  },
+  {
+   "name": "slice: each invalid byte is its own U+FFFD (truncated, surrogate, overlong, above U+10FFFF)",
+   "value": {
+    "l": [
+     {
+      "s_hex": "f09f98"
+     },
+     {
+      "s_hex": "eda080"
+     },
+     {
+      "s_hex": "c0af"
+     },
+     {
+      "s_hex": "f4908080"
+     },
+     {
+      "s_hex": "61ff62"
+     }
+    ]
+   },
+   "want": "[\"���\",\"���\",\"��\",\"����\",\"a�b\"]"
+  },
+  {
+   "name": "map: keys sort on their raw bytes, before any replacement",
+   "value": {
+    "m": [
+     {
+      "k_hex": "ff",
+      "v": {
+       "i": "1"
+      }
+     },
+     {
+      "k": "�",
+      "v": {
+       "i": "2"
+      }
+     },
+     {
+      "k": "z",
+      "v": {
+       "i": "4"
+      }
+     },
+     {
+      "k": "😀",
+      "v": {
+       "i": "5"
+      }
+     },
+     {
+      "k": "",
+      "v": {
+       "i": "6"
+      }
+     }
+    ]
+   },
+   "want": "{\"z\":4,\"\":6,\"�\":2,\"😀\":5,\"�\":1}"
+  },
+  {
+   "name": "map: a valid U+FFFD and U+2028/U+2029 in keys and values",
+   "value": {
+    "m": [
+     {
+      "k": " ",
+      "v": {
+       "s": "� "
+      }
+     }
+    ]
+   },
+   "want": "{\"\\u2028\":\"�\\u2029\"}"
+  },
+  {
+   "name": "map: a NaN anywhere makes the value empty",
+   "value": {
+    "m": [
+     {
+      "k": "s",
+      "v": {
+       "s_hex": "ff"
+      }
+     },
+     {
+      "k": "x",
+      "v": {
+       "m": [
+        {
+         "k": "nan",
+         "v": {
+          "d": "NaN"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "want": ""
+  },
+  {
+   "name": "slice: an infinity makes the value empty",
+   "value": {
+    "l": [
+     {
+      "s_hex": "ff"
+     },
+     {
+      "d": "-Inf"
+     }
+    ]
+   },
+   "want": ""
+  },
+  {
+   "name": "empty map and empty slice",
+   "value": {
+    "l": [
+     {
+      "m": []
+     },
+     {
+      "l": []
+     }
+    ]
+   },
+   "want": "[{},[]]"
+  }
+ ]
+}

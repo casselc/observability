@@ -10,10 +10,14 @@
 //! - bytes as standard base64;
 //! - maps and slices as the JSON Go's `encoding/json` writes with HTML
 //!   escaping off: map keys sorted by raw bytes, duplicate keys last-wins
-//!   (pcommon `Map.AsRaw` builds a Go map), `\ufffd` for each invalid UTF-8
-//!   byte, `\u2028`/`\u2029` escaped, and **the whole value is the empty
-//!   string when any double inside is NaN or ±Inf** (json.Encoder fails and
-//!   `AsString` ignores the error);
+//!   (pcommon `Map.AsRaw` builds a Go map), a raw U+FFFD for each invalid
+//!   UTF-8 byte (Go 1.27's json/v2 engine; until AMBIGUITY E10 was built,
+//!   2026-09-29, both edges wrote Go 1.26's `\ufffd` escape), `\u2028` /
+//!   `\u2029` escaped, and **the whole value is the empty string when any
+//!   double inside is NaN or ±Inf** (json.Encoder fails and `AsString`
+//!   ignores the error). The bytes are pinned by the vectors shared with
+//!   the Go edge (`../parquetgo/testdata/attrjson_vectors.json`, Go's
+//!   `parquetgo/attrjson.go`);
 //! - Empty as the empty string (top level) or `null` (inside JSON).
 //!
 //! The functions take the backend-agnostic `AnyValueView`, so the same code
@@ -170,7 +174,9 @@ fn json<'a, V: AnyValueView<'a>>(dst: &mut Vec<u8>, v: &V) -> Result<(), Unsuppo
 
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
-/// encoding/json string escaping with SetEscapeHTML(false) (Go >= 1.22).
+/// encoding/json string escaping with SetEscapeHTML(false), as Go 1.27
+/// writes it: an invalid UTF-8 byte is a raw U+FFFD (Go 1.26 wrote the
+/// `\ufffd` escape), so the output is always valid UTF-8.
 pub fn json_str(dst: &mut Vec<u8>, s: &[u8]) {
     dst.push(b'"');
     let mut i = 0;
@@ -206,7 +212,7 @@ pub fn json_str(dst: &mut Vec<u8>, s: &[u8]) {
         match decode_rune(&s[i..]) {
             None => {
                 dst.extend_from_slice(&s[start..i]);
-                dst.extend_from_slice(b"\\ufffd");
+                dst.extend_from_slice("\u{FFFD}".as_bytes());
                 i += 1;
                 start = i;
             }
@@ -312,12 +318,91 @@ mod tests {
         json_str(&mut v, b"a\x00b\x08\x0c\n\r\t\"\\<>&\x7f\xff\xfe\xe2\x80\xa8\xf0\x9f\x9a\x80");
         assert_eq!(
             String::from_utf8(v).unwrap(),
-            "\"a\\u0000b\\b\\f\\n\\r\\t\\\"\\\\<>&\x7f\\ufffd\\ufffd\\u2028🚀\""
+            "\"a\\u0000b\\b\\f\\n\\r\\t\\\"\\\\<>&\x7f\u{FFFD}\u{FFFD}\\u2028🚀\""
         );
         // A truncated multi-byte sequence: each byte is replaced on its own.
         let mut v = Vec::new();
         json_str(&mut v, b"\xe2\x80");
-        assert_eq!(String::from_utf8(v).unwrap(), "\"\\ufffd\\ufffd\"");
+        assert_eq!(String::from_utf8(v).unwrap(), "\"\u{FFFD}\u{FFFD}\"");
+    }
+
+    /// Protobuf `AnyValue` bytes for a vector value of
+    /// `../parquetgo/testdata/attrjson_vectors.json` (its comment has the
+    /// format). Built by hand: prost's `String` cannot hold invalid UTF-8.
+    fn any_value(v: &serde_json::Value) -> Vec<u8> {
+        fn varint(out: &mut Vec<u8>, mut x: u64) {
+            while x >= 0x80 {
+                out.push((x as u8) | 0x80);
+                x >>= 7;
+            }
+            out.push(x as u8);
+        }
+        fn len_field(out: &mut Vec<u8>, field: u64, b: &[u8]) {
+            varint(out, field << 3 | 2);
+            varint(out, b.len() as u64);
+            out.extend_from_slice(b);
+        }
+        let s = |k: &str| v.get(k).and_then(|x| x.as_str());
+        let unhex = |k: &str| s(k).map(|h| hex::decode(h).unwrap());
+        let mut out = Vec::new();
+        if let Some(x) = s("s") {
+            len_field(&mut out, 1, x.as_bytes());
+        } else if let Some(x) = unhex("s_hex") {
+            len_field(&mut out, 1, &x);
+        } else if let Some(b) = v.get("b").and_then(|x| x.as_bool()) {
+            varint(&mut out, 2 << 3);
+            varint(&mut out, b as u64);
+        } else if let Some(i) = s("i") {
+            varint(&mut out, 3 << 3);
+            varint(&mut out, i.parse::<i64>().unwrap() as u64);
+        } else if let Some(d) = s("d") {
+            varint(&mut out, 4 << 3 | 1);
+            out.extend_from_slice(&d.parse::<f64>().unwrap().to_bits().to_le_bytes());
+        } else if let Some(l) = v.get("l").and_then(|x| x.as_array()) {
+            let mut arr = Vec::new();
+            for e in l {
+                len_field(&mut arr, 1, &any_value(e));
+            }
+            len_field(&mut out, 5, &arr);
+        } else if let Some(m) = v.get("m").and_then(|x| x.as_array()) {
+            let mut kvl = Vec::new();
+            for kv in m {
+                let k = match kv.get("k").and_then(|x| x.as_str()) {
+                    Some(k) => k.as_bytes().to_vec(),
+                    None => hex::decode(kv["k_hex"].as_str().unwrap()).unwrap(),
+                };
+                let mut e = Vec::new();
+                len_field(&mut e, 1, &k);
+                len_field(&mut e, 2, &any_value(&kv["v"]));
+                len_field(&mut kvl, 1, &e);
+            }
+            len_field(&mut out, 6, &kvl);
+        } else if let Some(y) = unhex("y_hex") {
+            len_field(&mut out, 7, &y);
+        } else {
+            assert_eq!(v.get("e"), Some(&serde_json::Value::Bool(true)), "unknown vector value {v}");
+        }
+        out
+    }
+
+    /// The vectors shared with the Go edge (`parquetgo/attrjson_test.go`):
+    /// the same bytes for maps and slices, invalid UTF-8 in either included.
+    #[test]
+    fn the_shared_attrjson_vectors() {
+        use otel_arrow_dfe_pdata::views::otlp::bytes::common::RawAnyValue;
+        let f: serde_json::Value =
+            serde_json::from_str(include_str!("../../parquetgo/testdata/attrjson_vectors.json")).unwrap();
+        let vs = f["vectors"].as_array().unwrap();
+        assert!(vs.len() >= 8, "{} vectors", vs.len());
+        for vec in vs {
+            let buf = any_value(&vec["value"]);
+            let raw = RawAnyValue::new(&buf);
+            let mut got = b"x".to_vec();
+            value(&mut got, Some(&raw));
+            let want = format!("x{}", vec["want"].as_str().unwrap());
+            assert_eq!(String::from_utf8_lossy(&got), want, "{}", vec["name"]);
+            assert_eq!(got, want.as_bytes(), "{}", vec["name"]);
+        }
     }
 
     #[test]

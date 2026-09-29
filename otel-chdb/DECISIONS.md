@@ -671,6 +671,11 @@ views return exactly contrib's `otel_metrics_*` rows.
 - **Late series:** a point shows with empty maps for seconds (`ANY LEFT JOIN`).
 - **The 64-bit id:** about a 3% chance of any collision among 10⁹ series ever
   seen [E]. A collision merges two series' attributes.
+- **Ids follow the pinned attribute rendering** (`parquetgo/attrjson.go`,
+  `otap-rs` `render.rs`, shared vectors). On 2026-09-29 (AMBIGUITY E10,
+  owner: follow Go 1.27) it moved from Go 1.26's `\ufffd` escape to Go
+  1.27's raw U+FFFD for invalid UTF-8 in map and slice values: the ids of
+  those series changed once at that commit ([FORMAT.md §5](FORMAT.md#5-versioning-and-compatibility)).
 - **Long retention** needs a coarse time bucket in B's sort key [E, not
   measured].
 

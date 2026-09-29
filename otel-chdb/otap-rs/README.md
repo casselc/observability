@@ -195,7 +195,7 @@ encbench: the in-process edge benchmark (pubbench's accounting)
     - `5`, not `5.0`; `1e+21` and `1e-7`; `NaN` / `Infinity`;
     - base64 for bytes;
     - Go `encoding/json` for maps and slices: keys sorted bytewise,
-      duplicates last-wins, `\ufffd` for invalid bytes, `\u2028` escaped,
+      duplicates last-wins, a raw U+FFFD for each invalid byte (Go 1.27; the Go 1.26 escape until AMBIGUITY E10, 2026-09-29), `\u2028` escaped,
       no HTML escaping, and **an empty string for a map or slice holding
       NaN or ±Inf**, as Go's `json.Encoder` fails;
     - hex ids, with zero ids empty; durations wrap as uint64.

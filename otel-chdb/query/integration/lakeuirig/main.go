@@ -17,7 +17,7 @@
 //     the browser fetched independently of the page;
 //   - a static server for ../../../lakeui with the page's config.json and a
 //     small control API under /rig/ (info, tap counters, watermark drop and
-//     restore).
+//     restore, one more indexer pass, and more data after every basis).
 //
 // It prints one line, "LAKEUI_RIG_READY <json>", when ready, and cleans up
 // everything it created (bucket, database, user) on SIGINT or SIGTERM
@@ -688,7 +688,9 @@ func main() {
 	cfg.Lake.Root = r.run
 	cfg.Lake.URLTTLS = *urlTTL
 	cfg.Lake.ReplanMarginS = *replanMargin
-	cfg.Watermark.CacheS, cfg.Watermark.MaxAgeS = 1, 900
+	// a watermark older than MaxAgeS is stale (the label unknown, "latest"
+	// refused): the suites run for many minutes after the one publish
+	cfg.Watermark.CacheS, cfg.Watermark.MaxAgeS = 1, 3600
 	v, err := auth.NewVerifier(cfg.OIDC, nil)
 	must(err)
 	srv, err := app.Build(ctx, cfg, v, sink)
@@ -758,6 +760,31 @@ func main() {
 		}
 		time.Sleep(1100 * time.Millisecond) // the service caches the document for 1 s
 		w.WriteHeader(204)
+	})
+	// POST /rig/more: another lui-a batch, received now (after every basis
+	// issued so far: the tail of a plan at any of them), at event times two
+	// minutes into the window, long settled: late arrivals, which the lake
+	// UI must draw incomplete whatever their time. No consumer run, so
+	// central does not get them.
+	var moreMu sync.Mutex
+	moreN := 0
+	mux.HandleFunc("/rig/more", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "POST sends one more batch", 405)
+			return
+		}
+		moreMu.Lock()
+		defer moreMu.Unlock()
+		moreN++
+		const perResource = 100
+		from := at.Add(2*time.Minute + time.Duration(moreN)*time.Second)
+		e := r.startEdge("lui-a")
+		sendBatch(e, res["lui-a"], batchSpec{from: from, span: 30 * time.Second, logs: perResource, seed: uint64(200 + moreN)}, &Truth{})
+		time.Sleep(2500 * time.Millisecond)
+		e.stop()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"cluster": "lui-a", "logs": perResource * len(res["lui-a"]),
+			"from": from.UTC().Format(time.RFC3339Nano), "to": from.Add(30 * time.Second).UTC().Format(time.RFC3339Nano)})
 	})
 	mux.Handle("/", noStore(http.FileServer(http.Dir(*uiDir))))
 	ps := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", pagePort), Handler: mux}

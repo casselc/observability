@@ -6,6 +6,11 @@
 // SeverityText, ServiceName, Body; traces Timestamp, TraceId, SpanId,
 // ParentSpanId, SpanName, ServiceName, Duration, StatusCode; clickstack
 // gauge points TimeUnix, MetricName, Value, ServiceName.
+//
+// A part (one object's answer) the engine marks `tail: true` is from the
+// plan's tail (received after the basis): its rows, and the buckets they
+// fall in, are drawn incomplete (completeness.js), and each merge reports
+// them as `tailRows` (the basis part's rows are the rest).
 
 import { bucketIndex, bucketState, buckets, niceStep, rowState } from './completeness.js'
 import { pruneByRange, readGroup, rowGroups } from './parquet.js'
@@ -79,16 +84,27 @@ export function logSearch({ fromNs, toNs, text = '', severities = [], limit = 50
     },
     merge(parts, label) {
       let count = 0
-      const bs = buckets({ ...label, fromNs: q.fromNs, toNs: q.toNs }, q.stepNs).map(b => ({ ...b, count: 0 }))
+      let tailRows = 0
+      const bs = buckets({ ...label, fromNs: q.fromNs, toNs: q.toNs }, q.stepNs).map(b => ({ ...b, count: 0, tailCount: 0 }))
+      const tailKeys = new Set()
       let top = []
       for (const p of parts) {
         count += p.count
-        for (const [b, n] of p.hist) if (bs[b]) bs[b].count += n
+        if (p.tail) {
+          tailRows += p.count
+          tailKeys.add(p.key)
+        }
+        for (const [b, n] of p.hist) {
+          if (!bs[b]) continue
+          bs[b].count += n
+          if (p.tail) bs[b].tailCount += n
+        }
         for (const r of p.top) pushTop(top, r, q.limit)
       }
       top = top.sort(byNewest)
-      for (const b of bs) b.state = bucketState(label, b.fromNs, b.toNs)
-      return { count, buckets: bs, rows: top.map(r => ({ ...r, state: rowState(label, r.ts) })) }
+      for (const b of bs) b.state = bucketState(label, b.fromNs, b.toNs, b.tailCount > 0)
+      return { count, tailRows, basisCount: count - tailRows, buckets: bs,
+        rows: top.map(r => ({ ...r, tail: tailKeys.has(r.key), state: rowState(label, r.ts, tailKeys.has(r.key)) })) }
     },
     /** Objects whose rows are shown and still need their display columns. */
     detailNeeds(result) {
@@ -185,12 +201,12 @@ export function traceById({ traceId, fromNs, toNs }) {
       return out
     },
     merge(parts, label) {
-      const spans = parts.flatMap(p => p.spans).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
+      const spans = parts.flatMap(p => p.spans.map(s => ({ ...s, tail: p.tail === true }))).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
       const t0 = spans.length ? spans[0].ts : null
       let t1 = t0
       for (const s of spans) if (s.ts + s.durationNs > t1) t1 = s.ts + s.durationNs
-      return { traceId: id, spans: spans.map(s => ({ ...s, state: rowState(label, s.ts) })), startNs: t0, endNs: t1,
-        objects: new Set(spans.map(s => s.key)).size }
+      return { traceId: id, spans: spans.map(s => ({ ...s, state: rowState(label, s.ts, s.tail) })), startNs: t0, endNs: t1,
+        objects: new Set(spans.map(s => s.key)).size, tailRows: spans.filter(s => s.tail).length }
     },
   }
 }
@@ -236,18 +252,25 @@ export function metricChart({ metric, fromNs, toNs, stepNs }) {
       const all = new Map()
       let points = 0
       let sum = 0
+      let tailRows = 0
+      const tailB = new Set() // buckets holding a tail point (any series)
       for (const p of parts) {
         points += p.points
+        if (p.tail) tailRows += p.points
         for (const [svc, m] of p.series) {
           if (!all.has(svc)) all.set(svc, new Map())
           const s = all.get(svc)
           for (const [b, a] of m) {
             sum += a.sum
-            const c = s.get(b) ?? { n: 0, sum: 0, min: Infinity, max: -Infinity }
+            const c = s.get(b) ?? { n: 0, sum: 0, min: Infinity, max: -Infinity, tail: false }
             c.n += a.n
             c.sum += a.sum
             c.min = Math.min(c.min, a.min)
             c.max = Math.max(c.max, a.max)
+            if (p.tail) {
+              c.tail = true
+              tailB.add(b)
+            }
             s.set(b, c)
           }
         }
@@ -256,10 +279,11 @@ export function metricChart({ metric, fromNs, toNs, stepNs }) {
         service: svc,
         points: [...all.get(svc).entries()].sort((a, b) => a[0] - b[0]).map(([b, a]) => ({
           fromNs: bs[b].fromNs, toNs: bs[b].toNs, avg: a.sum / a.n, min: a.min, max: a.max, n: a.n,
-          state: bucketState(label, bs[b].fromNs, bs[b].toNs),
+          state: bucketState(label, bs[b].fromNs, bs[b].toNs, a.tail),
         })),
       }))
-      return { metric, points, sum, series, buckets: bs.map(b => ({ ...b, state: bucketState(label, b.fromNs, b.toNs) })) }
+      return { metric, points, sum, tailRows, series,
+        buckets: bs.map((b, i) => ({ ...b, state: bucketState(label, b.fromNs, b.toNs, tailB.has(i)) })) }
     },
   }
 }

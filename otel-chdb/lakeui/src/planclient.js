@@ -36,6 +36,17 @@ const COMPLETENESS = new Set(['complete', 'partial', 'unknown'])
 export const BASIS_TOKEN = /^b1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 export const isBasisToken = b => typeof b === 'string' && BASIS_TOKEN.test(b)
 
+/**
+ * Refusals of "latest" that mean "no basis can be issued now" (no or an
+ * unreadable watermark, no basis key, the signer down: D30.7), not "this
+ * request is wrong": a client that asked for the latest basis may then plan
+ * without one, unpinned and saying so (its label is the service's, unknown
+ * without a watermark). A refusal of a token the client holds is never
+ * this: that is the answer.
+ */
+export const UNPINNABLE = new Set(['basis_unverifiable', 'basis_disabled', 'basis_signer_unavailable'])
+export const unpinnable = e => e instanceof PlanError && UNPINNABLE.has(e.reason)
+
 function bigOrNull(v) {
   if (v === null || v === undefined) return null
   if (typeof v === 'bigint') return v
@@ -73,9 +84,9 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
   const ml = raw.max_lateness_s
   const maxLatenessNs = typeof ml === 'number' && Number.isFinite(ml) && ml >= 0 ? BigInt(Math.round(ml * 1e9)) : null
   const settled = bigOrNull(raw.settled_through_ns)
-  const objects = raw.objects.map((o, i) => {
+  const object = (o, i, tail) => {
     if (!o || typeof o.url !== 'string' || !o.url || typeof o.key !== 'string' || !o.key) {
-      throw new PlanError('bad_plan', `plan: object ${i} has no url or key`)
+      throw new PlanError('bad_plan', `plan: ${tail ? 'tail ' : ''}object ${i} has no url or key`)
     }
     if (!Number.isSafeInteger(o.size) || o.size <= 0) throw new PlanError('bad_plan', `plan: object ${o.key} has no usable size`)
     const minT = bigOrNull(o.min_time_ns)
@@ -102,6 +113,9 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     if (basisCheck && typeof receivedBeforeNs !== 'bigint') {
       throw new PlanError('bad_plan', `plan: object ${o.key} needs a basis check without received_before_ns`)
     }
+    // the tail (D30 amendment): an object in tail_objects is the tail
+    // whatever it says; one in objects that says tail is a plan not to trust
+    if (!tail && o.tail === true) throw new PlanError('bad_plan', `plan: object ${o.key} is marked tail in the basis part`)
     return {
       key: o.key, url: o.url, size: o.size, cluster: o.cluster ?? '', producer: o.producer ?? '',
       minTimeNs: minT ?? null, maxTimeNs: maxT ?? null,
@@ -109,12 +123,40 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
       late: o.late === true,
       index, rowGroups,
       basisCheck, receivedBeforeNs: basisCheck ? receivedBeforeNs : null,
+      tail,
     }
-  })
+  }
+  const objects = raw.objects.map((o, i) => object(o, i, false))
+  if (raw.tail_objects !== undefined && raw.tail_objects !== null && !Array.isArray(raw.tail_objects)) {
+    throw new PlanError('bad_plan', 'plan: tail_objects is not a list')
+  }
+  const tailObjects = (raw.tail_objects ?? []).map((o, i) => object(o, i, true))
   const keys = new Set()
-  for (const o of objects) {
+  for (const o of [...objects, ...tailObjects]) {
     if (keys.has(o.key)) throw new PlanError('bad_plan', `plan: object ${o.key} twice`)
     keys.add(o.key)
+  }
+  // the tail's label: never complete, never cached (a tail that says
+  // otherwise is not one this client can draw honestly)
+  let tail = null
+  if (raw.tail && typeof raw.tail === 'object') {
+    if (raw.tail.completeness !== 'incomplete' || raw.tail.cache !== 'never') {
+      throw new PlanError('bad_plan', 'plan: the tail must be labelled incomplete and never cached')
+    }
+    tail = {
+      objects: tailObjects.length,
+      bytes: tailObjects.reduce((a, o) => a + o.size, 0),
+      unplaced: Number.isSafeInteger(raw.tail.unplaced) ? raw.tail.unplaced : tailObjects.filter(o => o.basisCheck).length,
+      lateObjects: Number.isSafeInteger(raw.tail.late_objects) ? raw.tail.late_objects : 0,
+      receivedFrom: (Array.isArray(raw.tail.received_from) ? raw.tail.received_from : [])
+        .map(b => ({ cluster: String(b.cluster ?? ''), receivedFromNs: bigOrNull(b.received_from_ns) ?? null })),
+      receivedThrough: raw.tail.received_through ?? '',
+      minTimeNs: bigOrNull(raw.tail.min_time_ns) ?? null,
+      maxTimeNs: bigOrNull(raw.tail.max_time_ns) ?? null,
+      objectsHash: raw.tail.objects_hash ?? '',
+    }
+  } else if (tailObjects.length) {
+    throw new PlanError('bad_plan', 'plan: tail_objects without the tail label')
   }
   const expiresAtMs = timeMs(raw.expires_at, 'expires_at')
   const replanAfterMs = timeMs(raw.replan_after, 'replan_after')
@@ -142,6 +184,10 @@ export function normalizePlan(raw, fetchedAtMs = Date.now()) {
     expiresAtMs, replanAfterMs, fetchedAtMs,
     objects,
     totalBytes: objects.reduce((a, o) => a + o.size, 0),
+    // the basis part's hash (the tail is not in it: CAST 33/34)
+    objectsHash: typeof raw.objects_hash === 'string' ? raw.objects_hash : '',
+    tailObjects,
+    tail,
     unrefined: raw.unrefined ?? 0,
     rules: raw.rules ?? [],
     index: raw.index && typeof raw.index === 'object' ? raw.index : null,
@@ -164,6 +210,7 @@ export async function requestPlan(req, { fetch = globalThis.fetch, now = Date.no
   if (req.traceId) body.trace_id = req.traceId
   if (req.terms && req.terms.length) body.terms = req.terms
   if (req.basis) body.basis = req.basis
+  if (req.tail && req.basis) body.tail = true
   let resp
   try {
     resp = await fetch(req.queryUrl.replace(/\/$/, '') + '/v1/plan', {
@@ -205,27 +252,33 @@ export function planKey(req) {
  * cached plan is still reused only while now < replan_after (X8 rule 1: its
  * URLs expire); `force` asks again (after a failed read). A plan asked at a
  * basis that comes back at another is refused, never cached.
+ *
+ * The tail (D30 amendment) is never cached: a request with `tail` is always
+ * asked, and what is kept of its answer is the basis part alone (the tail
+ * stripped), which is all a later request without tail at the same basis
+ * may be answered with.
  */
 export function cachedPlanner(ask, { now = Date.now } = {}) {
   const cache = new Map()
   let calls = 0
+  const keyOf = req => planKey({ ...req, tail: undefined })
   const plan = async (req, { force = false } = {}) => {
     const pinned = isBasisToken(req.basis)
-    const hit = pinned ? cache.get(planKey(req)) : undefined
+    const hit = pinned && !req.tail ? cache.get(keyOf(req)) : undefined
     if (!force && hit && now() < hit.replanAfterMs) return hit
     calls++
     const p = await ask(req)
     if (pinned && (!p.atBasis || p.basis !== req.basis)) {
       throw new PlanError('bad_plan', 'plan: asked at a basis, answered at another (or at none)')
     }
-    if (p.atBasis) cache.set(planKey({ ...req, basis: p.basis }), p)
+    if (p.atBasis) cache.set(keyOf({ ...req, basis: p.basis }), { ...p, tailObjects: [], tail: null })
     return p
   }
   plan.calls = () => calls
   plan.clear = () => cache.clear()
   /** tests and the "stale plan" demonstration: put a plan in the cache */
-  plan.put = (req, p) => cache.set(planKey(req), p)
-  plan.peek = req => cache.get(planKey(req))
+  plan.put = (req, p) => cache.set(keyOf(req), p)
+  plan.peek = req => cache.get(keyOf(req))
   /** every cached plan (the browser test shifts their times to model a skewed clock) */
   plan.cached = () => [...cache.values()]
   return plan

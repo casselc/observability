@@ -29,7 +29,7 @@
     <label class="custom">From <input id="from" data-testid="from" placeholder="2026-09-28T12:00:00Z" size="24"></label>
     <label class="custom">To <input id="to" data-testid="to" placeholder="2026-09-28T13:00:00Z" size="24"></label>
     <label title="Trace-id and text searches ask the query service to narrow the plan through the lake index; unindexed objects are still read whole"><input type="checkbox" id="use-index" data-testid="use-index" checked> Use the lake index</label>
-    <label title="Each run pins one basis (rows received before a custody time per cluster): its plan, re-plans and reads all use it. Checked, the next run reuses the last run's basis, so it reads exactly the same objects however much data arrived since (and a repeated query is answered from the cache)."><input type="checkbox" id="hold-basis" data-testid="hold-basis"> Hold the basis</label>
+    <label title="Each run pins one basis (rows received before a custody time per cluster): its plan, re-plans and reads all use it. Checked, the next run reuses the last run's basis, so its basis part is exactly the same objects however much data arrived since (answered from the cache when repeated); what arrived since is read as the tail and drawn incomplete, never cached."><input type="checkbox" id="hold-basis" data-testid="hold-basis"> Hold the basis</label>
   </form>
   <nav class="tabs" role="tablist">
     <button role="tab" data-view="logs" aria-selected="true">Logs</button>

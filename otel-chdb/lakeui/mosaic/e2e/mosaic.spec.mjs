@@ -2,13 +2,16 @@
 // LUI_RICH_SPANS=1: the Go edge, the Rust consumer, the query service, a
 // counting pass-through in front of SeaweedFS). Checks and measures:
 //
-//   - range mode (lakeui's range reader → Arrow → DuckDB-WASM): the tables
-//     hold what ClickHouse holds for the window plus the late batch, and the
-//     late rows (and only they) are labelled incomplete; every GET is a
-//     ranged 206; the completeness band is on the time chart;
-//   - url mode (DuckDB reads the presigned URLs): the same tables (compared
-//     column by column; timestamps at µs, which is all DuckDB keeps), read
-//     as whole objects; an expired URL (a real 403) re-plans;
+//   - range mode (lakeui's range reader → Arrow → DuckDB-WASM): at a basis
+//     (D30) with its tail (AMBIGUITY.md #10 (b)), the tables hold what
+//     ClickHouse holds for the window (the basis part) plus the late batch
+//     (the tail), and the late rows (and only they) are labelled
+//     incomplete; every GET is a ranged 206; the completeness band is on
+//     the time chart;
+//   - url mode (DuckDB reads the presigned URLs): at a basis with its tail
+//     too, the same tables (compared column by column; timestamps at µs,
+//     which is all DuckDB keeps), read as whole objects; an expired URL (a
+//     real 403: the plan answers replayed past their expiry) re-plans;
 //   - url mode with the HEAD shim and trusted HEADs: DuckDB fails to open the
 //     files; the page says "not read" and draws nothing;
 //   - cross-filtering: after each brush and click, every chart's total equals
@@ -18,7 +21,8 @@
 //     same view (bytes, time, and a brush's re-read);
 //   - the stale-cube hazard: pre-aggregated tables kept across a reload of
 //     different rows under the same table names answer for the old rows;
-//   - an unknown watermark draws every row grey.
+//   - an unknown watermark draws every row grey (no basis can be issued:
+//     planned unpinned, and said so).
 //
 // Results: test-results/mosaic-e2e.json. MOSAIC_RIG_OUT=<file> reuses a rig
 // already running (its stdout); otherwise the rig is started here.
@@ -167,6 +171,11 @@ test('range mode: plan → range reads → Arrow → DuckDB; counts equal ClickH
   expect(rec.tables.logs.n).toBe(chLogs + info.truth.late_logs)
   expect(rec.tables.logs.n - rec.tables.logs.inc).toBe(await chCount('otel_logs', 'lui-a', from, settled))
   expect(rec.tables.logs.inc).toBe(info.truth.late_logs) // the late batch, and nothing else, is past settled_through
+  // the late batch is the tail: received after the basis, read, never left out
+  expect(rec.logs.basis).toMatch(/^b1\./)
+  expect(rec.logs.tailObjects).toBeGreaterThan(0)
+  expect(rec.logs.tailRows).toBe(info.truth.late_logs)
+  expect(rec.logs.rows - rec.logs.tailRows).toBe(chLogs) // the basis part: what central holds
   expect(rec.tables.spans.n).toBe(chSpans + rec.tables.spans.inc)
   expect(rec.tables.spans.inc).toBeGreaterThan(0)
   expect(Object.keys(taps.statuses)).toEqual(['GET 206 range'])
@@ -199,25 +208,50 @@ test('url mode: DuckDB reads the URLs: the same tables (at µs), whole-object GE
   }
   expect(Object.keys(taps.statuses)).toEqual(['GET 200']) // whole objects, no Range, no HEAD
   expect(taps.bytes).toBe(rec.logs.plannedBytes + rec.spans.plannedBytes)
+  expect(rec.logs.basis).toMatch(/^b1\./) // at a basis, as range mode
+  expect(rec.logs.tailRows).toBe(info.truth.late_logs)
   expectConsistent(await checkAll(page), 'url mode')
   measured.url = { engine: rec.engine, dataMs: rec.dataMs, chartsMs: rec.chartsMs, firstChartMs: rec.firstChartMs, tap: taps, memory: rec.memory,
     ns: { range: rangeTables.logs.fp_ts_ns, url: rec.tables.logs.fp_ts_ns } }
-  // X8 in this mode: the page believes its cached plans valid (replan_after pushed out, as a
-  // page whose clock is behind would); the URLs really expire; DuckDB gets 403s; the page re-plans
-  const expiresAt = await page.evaluate(() => {
-    let e = 0
-    for (const p of window.mos.planner.cached()) {
-      e = Math.max(e, p.expiresAtMs)
-      p.replanAfterMs = Infinity
-    }
-    return e
+  // X8 in this mode: the page believes its plans valid (their times pushed
+  // out, as a page whose clock is behind would); the URLs really expire;
+  // DuckDB gets 403s; the page re-plans. The plans are the tail's too, so
+  // never cached: the stale answers are replayed, once per signal.
+  const answers = new Map()
+  const signalOf = r => JSON.parse(r.postData() ?? '{}').signal
+  const fulfil = async (r, body) => {
+    const resp = await r.fetch() // the real answer's headers (CORS)
+    const headers = resp.headers()
+    delete headers['content-length']
+    const text = await resp.text()
+    await r.fulfill({ status: resp.status(), headers, body: body ?? text })
+    return text
+  }
+  await page.route(u => u.pathname === '/v1/plan', async r => {
+    if (r.request().method() !== 'POST') return r.continue()
+    answers.set(signalOf(r.request()), await fulfil(r))
   })
+  const recorded = await load(page)
+  await page.unrouteAll()
+  expect(recorded.status).toBe('ok')
+  expect([...answers.keys()].sort()).toEqual(['logs', 'traces'])
+  const expiresAt = Math.max(...[...answers.values()].map(b => Date.parse(/"expires_at":"([^"]+)"/.exec(b)[1])))
   await page.waitForTimeout(Math.max(0, expiresAt - Date.now()) + 2000)
+  const later = new Date(Date.now() + 3_600_000).toISOString()
+  const replayed = new Set()
+  await page.route(u => u.pathname === '/v1/plan', async r => {
+    const sig = r.request().method() === 'POST' ? signalOf(r.request()) : null
+    if (!sig || replayed.has(sig)) return r.continue()
+    replayed.add(sig)
+    await fulfil(r, answers.get(sig).replace(/"expires_at":"[^"]+"/, `"expires_at":"${later}"`).replace(/"replan_after":"[^"]+"/, `"replan_after":"${later}"`))
+  })
   await tap('POST')
   const again = await load(page)
+  await page.unrouteAll()
   const t2 = tapSummary(await tap())
   expect(again.status).toBe('ok')
   expect(again.tables.logs.n).toBe(rec.tables.logs.n)
+  expect(again.logs.tailRows).toBe(rec.logs.tailRows)
   expect(t2.statuses['GET 403']).toBeGreaterThan(0)
   expect(again.logs.replans + again.spans.replans).toBeGreaterThan(0)
   measured.urlExpired = { tap: t2, replans: { logs: again.logs.replans, spans: again.spans.replans }, events: again.events.filter(e => e.type !== 'plan').slice(0, 4) }
@@ -367,6 +401,8 @@ test('an unknown watermark: every row and bucket unknown, the whole time axis gr
   try {
     const rec = await load(page)
     expect(rec.status).toBe('ok')
+    expect(rec.logs.basis).toBe(null) // no basis without a watermark: unpinned, and said so
+    expect(rec.logs.unpinned).toBe('basis_unverifiable')
     expect(rec.tables.logs.unk).toBe(rec.tables.logs.n)
     expect(rec.tables.spans.unk).toBe(rec.tables.spans.n)
     await expect(page.locator('#banner')).toHaveAttribute('data-state', 'unknown')

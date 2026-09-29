@@ -4,6 +4,9 @@
 // unchanged, and the completeness layer starts where lakeui's bucket rule
 // says the first unsettled bucket is.
 import { test } from 'node:test'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import fc from 'fast-check'
@@ -94,13 +97,16 @@ test('unknown labels every row and bucket unknown; complete labels none incomple
 
 // DuckDB-WASM in Node (the blocking build; same wasm as the page's eh bundle)
 const require = createRequire(import.meta.url)
-async function duck() {
+async function duckDB() {
   const d = new URL('../node_modules/@duckdb/duckdb-wasm/dist/', import.meta.url).pathname
   const duckdb = require(d + 'duckdb-node-blocking.cjs')
   const db = await duckdb.createDuckDB({ mvp: { mainModule: d + 'duckdb-mvp.wasm', mainWorker: '' }, eh: { mainModule: d + 'duckdb-eh.wasm', mainWorker: '' } },
     new duckdb.VoidLogger(), duckdb.NODE_RUNTIME)
   await db.instantiate()
-  return db.connect()
+  return db
+}
+async function duck() {
+  return (await duckDB()).connect()
 }
 
 test('Arrow IPC → DuckDB-WASM keeps every value (exact ns, states, doubles), and an empty load still makes the table', async () => {
@@ -170,4 +176,95 @@ test('the DuckDB-reads-URLs SQL: exact BigInt literals, states from incompleteSt
   const u = createFromFilesSQL('spans', 'traces', ['x.parquet'], { ...label, state: 'unknown' })
   assert.ok(/'unknown' AS cstate/.test(u) && /'unknown' AS bstate/.test(u))
   assert.throws(() => createFromFilesSQL('logs', 'logs', [], label), /no files/)
+})
+
+// ---- the tail (AMBIGUITY.md #10 (b)) -------------------------------------------------
+
+test('the tail: its rows, and every bucket holding one, are incomplete in the columns; the basis part\'s by the label', async () => {
+  const [lo, hi] = span('logs')
+  const over = { fromNs: lo, toNs: hi + 1n, completeness: 'complete', completeThroughNs: hi + 10n ** 12n, maxLatenessNs: 1n }
+  const s = fakeStore(new Map([['u-a', files.logs], ['u-t', files.logs]]))
+  const plan = { ...planOf([{ key: 'a', url: 'u-a', size: files.logs.length }], { signal: 'logs', ...over }), atBasis: true, basis: 'b1.x.y',
+    tailObjects: [{ key: 't', url: 'u-t', size: files.logs.length, tail: true, minTimeNs: null, maxTimeNs: null }], tail: { objects: 1 } }
+  const q = columnsQuery({ signal: 'logs', fromNs: over.fromNs, toNs: over.toNs })
+  const r = await execute(q, { planner: cachedPlanner(async () => plan), request: { fromNs: over.fromNs, toNs: over.toNs }, fetch: s.fetch, metaCache: new MetaCache() })
+  assert.equal(r.status, 'ok')
+  const c = r.result.columns
+  const n = raw.logs.length
+  assert.equal(r.result.rows, 2 * n)
+  assert.equal(r.result.tailRows, n)
+  assert.equal(c.cstate.filter(x => x === 'incomplete').length, n) // exactly the tail's rows: the label says complete
+  assert.ok(c.bstate.every(x => x === 'incomplete')) // each bucket holds a copy's tail row
+  assert.equal(r.state, 'incomplete')
+  // without a tail, the same rows are all complete
+  const t0 = toColumns('logs', [{ tsNs: lo, service: '', pod: '', cluster: '', severity: 'INFO' }], labelOf(plan), { ...over, stepNs: niceStep(over.fromNs, over.toNs) })
+  assert.deepEqual([t0.columns.cstate[0], t0.columns.bstate[0], t0.tailRows], ['complete', 'complete', 0])
+})
+
+test('the DuckDB-reads-URLs SQL with a tail: its files\' rows and their buckets incomplete, a tail column to count them', () => {
+  const label = { state: 'complete', fromNs: 1790000000123456789n, toNs: 1790000600123456789n, completeThroughNs: 1790009000000000000n,
+    incompleteFromNs: null, maxLatenessNs: 60000000000n, lateObjects: 0, startComplete: true }
+  const plain = createFromFilesSQL('logs', 'logs', ['a.parquet'], label)
+  assert.ok(/'complete' AS cstate/.test(plain) && /'complete' AS bstate/.test(plain) && !plain.includes('filename'))
+  const sql = createFromFilesSQL('logs', 'logs', ['a.parquet', "t'1.parquet"], label, { tailFiles: ["t'1.parquet"] })
+  assert.ok(sql.includes("read_parquet(['a.parquet', 't''1.parquet'], filename = true)"))
+  assert.ok(sql.includes("filename IN ('t''1.parquet') AS tail"))
+  assert.ok(sql.includes("CASE WHEN tail THEN 'incomplete' ELSE 'complete' END AS cstate"))
+  assert.ok(sql.includes('bool_or(tail) OVER (PARTITION BY b0_ns) AS tail_bucket'))
+  assert.ok(sql.includes("CASE WHEN tail_bucket THEN 'incomplete' ELSE 'complete' END AS bstate"))
+  assert.ok(/, tail\nFROM c$/.test(sql))
+  const partial = createFromFilesSQL('logs', 'logs', ['a.parquet', 't.parquet'], { ...label, state: 'partial', incompleteFromNs: 1790000300000000000n },
+    { tailFiles: ['t.parquet'] })
+  assert.ok(partial.includes(`WHEN tail THEN 'incomplete' WHEN ts_ns + 999 >= ${incompleteStart({ ...label, state: 'partial', incompleteFromNs: 1790000300000000000n })}::BIGINT`))
+  const unk = createFromFilesSQL('logs', 'logs', ['a.parquet', 't.parquet'], { ...label, state: 'unknown' }, { tailFiles: ['t.parquet'] })
+  assert.ok(/'unknown' AS cstate/.test(unk) && /'unknown' AS bstate/.test(unk))
+  assert.throws(() => createFromFilesSQL('logs', 'logs', ['a.parquet'], label, { tailFiles: ['t.parquet'] }), /tail file/)
+})
+
+test('url mode with a tail, run in DuckDB: per bucket the same rows, tail rows and states as the range reader\'s columns', async (ctx) => {
+  const db = await duckDB()
+  const conn = db.connect()
+  db.registerFileBuffer('a.parquet', files.logs)
+  // the tail: another object, the fixture's 100 oldest rows (so their buckets
+  // are the early ones), written by DuckDB (in Node, to the real file system)
+  const dir = mkdtempSync(join(tmpdir(), 'mosaic-tail-'))
+  const t = join(dir, 't.parquet')
+  ctx.after(() => rmSync(dir, { recursive: true, force: true }))
+  conn.query(`COPY (SELECT * FROM read_parquet('a.parquet') ORDER BY Timestamp LIMIT 100) TO '${t}' (FORMAT parquet)`)
+  const tailRaw = await parquetReadObjects({ file: ab(new Uint8Array(readFileSync(t))), columns: ['Timestamp'], compressors, parsers })
+  assert.equal(tailRaw.length, 100)
+  const [lo, hi] = span('logs')
+  const over = { fromNs: lo, toNs: hi + 1n, completeThroughNs: hi + 10n ** 12n, maxLatenessNs: 1n }
+  for (const state of ['complete', 'unknown']) {
+    const label = labelOf(planOf([], { ...over, completeness: state }))
+    const stepNs = niceStep(over.fromNs, over.toNs)
+    conn.query(createFromFilesSQL('u', 'logs', ['a.parquet', t], label, { stepNs, tailFiles: [t] }))
+    const got = conn.query(`SELECT epoch_ms(b0)::BIGINT AS b, count(*)::INTEGER AS n, count(*) FILTER (WHERE tail)::INTEGER AS t,
+      count(*) FILTER (WHERE cstate = 'incomplete')::INTEGER AS inc, count(*) FILTER (WHERE cstate = 'unknown')::INTEGER AS unk,
+      min(bstate) AS bmin, max(bstate) AS bmax FROM u GROUP BY 1 ORDER BY 1`).toArray().map(r => r.toJSON())
+    const rows = [...raw.logs.map(r => ({ tsNs: r.Timestamp })), ...tailRaw.map(r => ({ tsNs: r.Timestamp, tail: true }))]
+      .map(r => ({ ...r, service: '', pod: '', cluster: '', severity: '' }))
+    const want = toColumns('logs', rows, label, { ...over, stepNs })
+    const byB = new Map()
+    want.columns.b0.forEach((b, i) => {
+      const x = byB.get(b) ?? { b, n: 0, t: 0, inc: 0, unk: 0, states: new Set() }
+      x.n++
+      if (rows[i].tail) x.t++
+      if (want.columns.cstate[i] === 'incomplete') x.inc++
+      if (want.columns.cstate[i] === 'unknown') x.unk++
+      x.states.add(want.columns.bstate[i])
+      byB.set(b, x)
+    })
+    const exp = [...byB.values()].sort((x, y) => x.b - y.b)
+    assert.equal(got.length, exp.length, state)
+    got.forEach((g, i) => {
+      const e = exp[i]
+      assert.deepEqual([Number(g.b), g.n, g.t, g.inc, g.unk], [e.b, e.n, e.t, e.inc, e.unk], `${state} bucket ${i}`)
+      assert.deepEqual([g.bmin, g.bmax], [[...e.states][0], [...e.states][0]]) // one state per bucket, the same
+    })
+    if (state === 'complete') {
+      assert.equal(got.reduce((a, g) => a + g.inc, 0), 100) // exactly the tail's rows
+      assert.ok(got.some(g => g.bmin === 'complete') && got.some(g => g.bmin === 'incomplete'))
+    }
+  }
 })

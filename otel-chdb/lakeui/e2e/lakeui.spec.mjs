@@ -5,10 +5,15 @@
 // service's own test issuer.
 //
 // Checked: results equal ClickHouse's count for the same scope and window;
-// rows past complete_through are drawn incomplete; a cross-cluster or
+// every run is at a basis (D30) and reads its tail (AMBIGUITY.md #10 (b)):
+// the basis part equals what central holds, the late batch received after
+// it is the tail, counted and drawn incomplete; at a held basis the basis
+// part does not change when more data arrives (/rig/more) and is answered
+// from what was kept, while the tail grows; a cross-cluster or
 // namespace-scoped plan shows as refused, not empty; an expired URL (a real
-// 403 from SeaweedFS) re-plans; persistent failures end as a visible error
-// naming the objects; an unknown watermark shows unknown; a narrow query
+// 403 from SeaweedFS, the plan answer replayed past its expiry) re-plans;
+// persistent failures end as a visible error naming the objects; an unknown
+// watermark shows unknown (planned unpinned: no basis can be issued); a narrow query
 // fetches a fraction of each object (measured by the page and, separately,
 // by a counting pass-through in front of SeaweedFS); the lake index (D27)
 // gives trace-by-id and text search the same answers for fewer bytes, and
@@ -112,6 +117,7 @@ const shot = (p, name) => p.screenshot({ path: join(here, '..', 'test-results', 
 let page
 let ct // complete_through (ns, custody time) as the plans report it
 let settled // complete_through − max_lateness (ns, event time): what the UI may draw as settled
+let centralAll // central's lui-a rows in the whole window: the basis part's
 test('sign in with PKCE, then logs over data before and after complete_through', async ({ browser }) => {
   page = await signedIn(browser, 'alice')
   const s = await runView(page, 'logs', { from: info.truth.at, to: info.truth.late_to })
@@ -128,17 +134,29 @@ test('sign in with PKCE, then logs over data before and after complete_through',
   const central = await chLogCount(fromNs, toNs)
   expect(await chLogCount(ct, toNs)).toBe(0)
   expect(s.count).toBe(central + info.truth.late_logs)
+  // at a basis (D30), its tail read too (AMBIGUITY.md #10 (b)): the basis
+  // part is exactly what central holds, the late batch is the tail
+  expect(s.atBasis).toBe(true)
+  expect(s.basis).toMatch(/^b1\./)
+  expect(s.afterBasis).toBe(0) // nothing received after the basis is left out
+  expect(s.tailObjects).toBeGreaterThan(0)
+  expect(s.tailRows).toBe(info.truth.late_logs)
+  expect(s.count - s.tailRows).toBe(central)
+  centralAll = central
   // the late rows are the incomplete ones
   await expect(page.locator('#banner')).toHaveAttribute('data-state', 'incomplete')
+  await expect(page.locator('#banner')).toContainText(`${info.truth.late_logs} row(s) received after the basis`)
+  await expect(page.locator('[data-testid="basis"]')).toContainText('the tail')
   expect(s.rows.length).toBe(50)
   for (const r of s.rows) expect(r.state).toBe(nsOf(r.ts) >= settled ? 'incomplete' : 'complete')
-  expect(s.rows.every(r => r.state === 'incomplete')).toBe(true) // the newest 50 are late
+  expect(s.rows.every(r => r.state === 'incomplete' && r.tail)).toBe(true) // the newest 50 are late: the tail
   const inc = s.buckets.filter(b => b.state === 'incomplete')
   expect(inc.length).toBeGreaterThan(0)
   expect(s.buckets.filter(b => b.state === 'complete').every(b => nsOf(b.from) < settled)).toBe(true)
   await expect(page.locator('svg [data-marker="complete-through"]')).toHaveCount(1)
   await shot(page, 'logs-partial')
-  measured.full_window = { lake: s.count, central, late: info.truth.late_logs, objects: s.objects, fetched: s.fetchedBytes, planned: s.plannedBytes }
+  measured.full_window = { lake: s.count, basis_part: s.count - s.tailRows, tail: s.tailRows, central, late: info.truth.late_logs, objects: s.objects,
+    basis_objects: s.basisObjects, tail_objects: s.tailObjects, fetched: s.fetchedBytes, planned: s.plannedBytes }
 })
 
 test('a window closed before complete_through − max_lateness is complete and equals ClickHouse, with and without filters', async () => {
@@ -305,42 +323,94 @@ test('cross-cluster and namespace-scoped plans show as refused, not empty', asyn
   measured.refusals = { cross_cluster: s.reason, namespace: s2.reason, fleet_lui_b: { lake: s3.count, central: bCentral } }
 })
 
+// A plan answer with its times replaced (only the times: the ns stay exact
+// in the text), as a page whose clock disagrees with the store's would read it.
+const retimed = (body, replanAfterMs, expiresAtMs) => body
+  .replace(/"expires_at":"[^"]+"/, `"expires_at":"${new Date(expiresAtMs).toISOString()}"`)
+  .replace(/"replan_after":"[^"]+"/, `"replan_after":"${new Date(replanAfterMs).toISOString()}"`)
+const fulfil = async (r, body) => {
+  const resp = await r.fetch() // the real answer's headers (CORS), another body
+  const headers = resp.headers()
+  delete headers['content-length']
+  await r.fulfill({ status: resp.status(), headers, body: body ?? await resp.text() })
+}
+
 test('an expired URL (a real 403) re-plans; a stale plan is renewed before reading', async () => {
   const from = info.truth.at
   const to = info.truth.late_to
+  // the plan answers of one run: a page that kept them past their expiry reads with their URLs
+  const answers = []
+  await page.route(u => u.pathname === '/v1/plan', async r => {
+    if (r.request().method() !== 'POST') return r.continue()
+    const resp = await r.fetch()
+    const body = await resp.text()
+    answers.push(body)
+    const headers = resp.headers()
+    delete headers['content-length']
+    await r.fulfill({ status: resp.status(), headers, body })
+  })
   const first = await runView(page, 'logs', { from, to })
+  await page.unrouteAll()
   expect(first.status).toBe('ok')
-  // wait until every URL of the cached plan has really expired at the store
-  const plans = await page.evaluate(() => window.lakeui.planner.cached().map(p => p.expiresAtMs))
-  const wait = Math.max(...plans) - Date.now() + 2000
+  expect(answers.length).toBeGreaterThan(0)
+  // wait until every URL of those answers has really expired at the store
+  const expiresAt = Math.max(...answers.map(b => Date.parse(/"expires_at":"([^"]+)"/.exec(b)[1])))
+  const wait = expiresAt - Date.now() + 2000
   await page.waitForTimeout(Math.max(0, wait))
-  // a browser whose clock is behind still thinks the plan is valid: model it
-  await page.evaluate(() => { for (const p of window.lakeui.planner.cached()) p.replanAfterMs = Date.now() + 3_600_000 })
+  // a browser whose clock is behind still thinks the first answer valid: it is
+  // the next plan's answer (once), its times pushed out; nothing kept from the
+  // first run, so every object is read with its expired URL
+  let replayed = 0
+  await page.route(u => u.pathname === '/v1/plan', async r => {
+    if (r.request().method() !== 'POST' || replayed++ > 0) return r.continue()
+    await fulfil(r, retimed(answers[0], Date.now() + 3_600_000, Date.now() + 3_600_000))
+  })
+  await page.evaluate(() => window.lakeui.results.clear())
   await tap('POST')
   const s = await runView(page, 'logs', { from, to })
+  await page.unrouteAll()
   const forbidden = s.events.filter(e => e.type === 'read_error' && e.status === 403)
   expect(forbidden.length).toBeGreaterThan(0)
   expect(s.events.some(e => e.type === 'replan' && e.why === 'read_error')).toBe(true)
   expect(s.status).toBe('ok')
   expect(s.replans).toBe(1)
   expect(s.count).toBe(first.count)
+  expect(s.tailRows).toBe(first.tailRows)
+  expect(s.basis).toBe(first.basis) // the re-plan asks at the basis the stale answer named
   expect(s.requestId).not.toBe(first.requestId)
   const t = await tap()
   expect(t.filter(e => e.status === 403).length).toBe(forbidden.length) // the store really said 403
   measured.expiry = { url_ttl_s: info.url_ttl_s, waited_ms: wait, forbidden: forbidden.length, replans: s.replans, count: s.count, tap403: t.filter(e => e.status === 403).length }
-  // the plan is now fresh; mark it past replan_after (the clock caught up): it is replaced before any read
-  await page.evaluate(() => { for (const p of window.lakeui.planner.cached()) p.replanAfterMs = Date.now() - 1 })
+  // a fresh answer that the page reads as past replan_after (the clock caught up): replaced before any read
+  replayed = 0
+  let staleId = ''
+  await page.route(u => u.pathname === '/v1/plan', async r => {
+    if (r.request().method() !== 'POST' || replayed++ > 0) return r.continue()
+    const resp = await r.fetch()
+    const body = await resp.text()
+    staleId = /"request_id":"([^"]+)"/.exec(body)[1]
+    const headers = resp.headers()
+    delete headers['content-length']
+    await r.fulfill({ status: resp.status(), headers, body: retimed(body, Date.now() - 1000, Date.now() + 3_600_000) })
+  })
   await tap('POST')
   const s2 = await runView(page, 'logs', { from, to })
+  await page.unrouteAll()
   expect(s2.status).toBe('ok')
-  expect(s2.requestId).not.toBe(s.requestId)
+  expect(s2.count).toBe(first.count)
+  const firstRead = s2.events.findIndex(e => e.type === 'read')
+  const renewed = s2.events.findIndex(e => e.type === 'replan' && e.why === 'replan_after')
+  expect(renewed).toBeGreaterThanOrEqual(0)
+  expect(firstRead === -1 || renewed < firstRead).toBe(true) // renewed before any read
+  expect(s2.requestId).not.toBe(staleId)
   expect((await tap()).filter(e => e.status === 403).length).toBe(0)
 })
 
 test('persistent read failures: bounded re-plans, then a visible error naming the objects', async () => {
   const tapHost = new URL(info.tap).host
   let planCalls = 0
-  await page.evaluate(() => window.lakeui.planner.clear()) // the first plan is asked for too
+  // the first plan is asked for too, and nothing kept answers for an object
+  await page.evaluate(() => { window.lakeui.planner.clear(); window.lakeui.results.clear() })
   await page.route(u => u.host === tapHost, r => r.abort('connectionreset'))
   await page.route(u => u.pathname === '/v1/plan', async r => { planCalls++; await r.continue() })
   const s = await runView(page, 'logs', { from: info.truth.at, to: info.truth.late_to })
@@ -364,6 +434,10 @@ test('no watermark: completeness is unknown and nothing is drawn as settled', as
     await page.evaluate(() => window.lakeui.planner.clear())
     const s = await runView(page, 'logs', { from: info.truth.at, to: info.truth.late_to })
     expect(s.status).toBe('ok')
+    // no basis can be issued without a watermark: planned unpinned, and said so
+    expect(s.atBasis).toBe(false)
+    expect(s.unpinned).toBe('basis_unverifiable')
+    await expect(page.locator('[data-testid="basis"]')).toContainText('no basis could be issued')
     expect(s.completeness).toBe('unknown')
     expect(s.state).toBe('unknown')
     await expect(page.locator('#banner')).toHaveAttribute('data-state', 'unknown')
@@ -372,5 +446,64 @@ test('no watermark: completeness is unknown and nothing is drawn as settled', as
     await shot(page, 'unknown')
   } finally {
     await fetch(new URL('/rig/watermark?op=restore', info.page), { method: 'POST' })
+  }
+})
+
+// Last: /rig/more adds lui-a rows that central never gets, which the tests
+// above compare against. At a held basis the basis part is the same objects
+// (objects_hash), answered from what was kept, with the same count as
+// central; the new rows are the tail, drawn incomplete although their event
+// time is long settled.
+test('more data after the basis: at a held basis the basis part is unchanged and kept, the tail grows and is drawn incomplete', async () => {
+  const from = info.truth.at
+  const to = info.truth.late_to
+  await page.fill('#log-text', '')
+  await page.uncheck('#hold-basis')
+  const s0 = await runView(page, 'logs', { from, to })
+  expect(s0.status).toBe('ok')
+  await page.check('#hold-basis')
+  try {
+    await tap('POST')
+    const s1 = await runView(page, 'logs', { from, to })
+    expect(s1.basis).toBe(s0.basis)
+    expect(s1.basisHash).toBe(s0.basisHash)
+    expect(s1.cachedParts).toBe(s1.basisObjects) // the basis part from what was kept
+    const got = new Set((await tap()).filter(e => e.method === 'GET').map(e => e.key.split('/').slice(2).join('/')))
+    for (const k of got) expect(s1.tailKeys, `read ${k}`).toContain(k) // only the tail is read again
+    expect(s1.count).toBe(s0.count)
+    expect(s1.count - s1.tailRows).toBe(centralAll)
+    const bucketOf = ns => s1.buckets.find(b => nsOf(b.from) <= ns && ns < nsOf(b.from) + (nsOf(s1.buckets[1].from) - nsOf(s1.buckets[0].from)))
+
+    const more = await (await fetch(new URL('/rig/more', info.page), { method: 'POST' })).json()
+    expect(more.logs).toBeGreaterThan(0)
+    const moreNs = nsOf(more.from)
+    expect(moreNs < settled).toBe(true) // event time long settled
+    expect(bucketOf(moreNs).state).toBe('complete')
+
+    const s2 = await runView(page, 'logs', { from, to })
+    expect(s2.status).toBe('ok')
+    expect(s2.basis).toBe(s0.basis)
+    expect(s2.basisHash).toBe(s0.basisHash) // the same basis part: objects_hash
+    expect(s2.objectsHash).toBe(s0.objectsHash)
+    expect(s2.basisObjects).toBe(s0.basisObjects)
+    expect(s2.cachedParts).toBe(s2.basisObjects)
+    expect(s2.count - s2.tailRows).toBe(centralAll) // 18,000 before, 18,000 now
+    expect(s2.tailRows).toBe(info.truth.late_logs + more.logs)
+    expect(s2.count).toBe(centralAll + info.truth.late_logs + more.logs)
+    expect(s2.tailObjects).toBeGreaterThan(s1.tailObjects)
+    expect(s2.state).toBe('incomplete')
+    // the new rows' buckets: settled by the label, incomplete by the tail
+    const b = s2.buckets.find(x => x.from === bucketOf(moreNs).from)
+    expect(b.state).toBe('incomplete')
+    expect(nsOf(b.from) + 1n < settled).toBe(true)
+    // central does not have them: they are only in the lake
+    expect(await chLogCount(nsOf(from), nsOf(to))).toBe(centralAll)
+    await shot(page, 'tail-more')
+
+    measured.tail = { basis_part: s2.count - s2.tailRows, central: centralAll, tail_before: s1.tailRows, more: more.logs, tail_after: s2.tailRows,
+      count_after: s2.count, basis_objects: s2.basisObjects, tail_objects: { before: s1.tailObjects, after: s2.tailObjects }, kept_parts: s2.cachedParts,
+      objects_hash_same: s2.basisHash === s0.basisHash }
+  } finally {
+    await page.uncheck('#hold-basis')
   }
 })

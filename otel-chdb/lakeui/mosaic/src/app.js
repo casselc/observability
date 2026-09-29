@@ -20,7 +20,7 @@ import { bannerText, incompleteStart, labelOf, niceStep, settledThrough } from '
 import { execute, sharedMeta } from '../../src/engine.js'
 import { formatTimeNs, parseTimeNs, shortTime } from '../../src/ns.js'
 import { authorizeURL, claimsOf, discover, exchangeCode, parseRedirect, pkcePair, randomString, secondsLeft } from '../../src/oidc.js'
-import { cachedPlanner, PlanError, requestPlan } from '../../src/planclient.js'
+import { cachedPlanner, PlanError, requestPlan, unpinnable } from '../../src/planclient.js'
 import { logSearch } from '../../src/queries.js'
 import { replaceTable } from './arrow.js'
 import { columnsQuery, toColumns } from './columns.js'
@@ -174,8 +174,8 @@ async function loadRange(signal, table, w, clusters, onEvent) {
   if (out.status !== 'ok') return { failed: true, out }
   const t0 = performance.now()
   await replaceTable(state.engine.conn, f, table, out.result)
-  return { plan: out.plan, label: out.label, rows: out.result.rows, stepNs: q.q.stepNs, fetchedBytes: out.stats.bytes,
-    requests: out.stats.requests, replans: out.replans, insertMs: performance.now() - t0 }
+  return { plan: out.plan, label: out.label, rows: out.result.rows, tailRows: out.result.tailRows ?? 0, stepNs: q.q.stepNs, fetchedBytes: out.stats.bytes,
+    requests: out.stats.requests, replans: out.replans, insertMs: performance.now() - t0, basis: out.basis, unpinned: out.unpinned }
 }
 
 /** Plans and lets DuckDB read the URLs (whole objects, as it does). Re-plans on any failure, 3 times. */
@@ -185,28 +185,53 @@ async function loadURL(signal, table, w, clusters, onEvent) {
   const stepNs = niceStep(w.fromNs, w.toNs, 60)
   let force = false
   let lastErr = null
+  // D30 as the range mode keeps it (engine.js): one basis per load, the
+  // tail asked with it (AMBIGUITY.md #10 (b)), unpinned only when "latest"
+  // cannot be issued
+  let basis = 'latest'
+  let unpinned = ''
+  const ask = async () => {
+    try {
+      return await planner({ ...req, basis: basis ?? undefined, tail: basis ? true : undefined }, { force })
+    } catch (e) {
+      if (basis !== 'latest' || !unpinnable(e)) throw e
+      basis = null
+      unpinned = e.reason
+      return planner(req, { force })
+    }
+  }
   for (let attempt = 0; attempt <= 3; attempt++) {
-    const plan = await planner(req, { force })
-    onEvent({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length })
+    const plan = await ask()
+    if (basis === 'latest') basis = plan.atBasis ? plan.basis : null
+    else if (basis && (!plan.atBasis || plan.basis !== basis)) throw new PlanError('bad_plan', 'plan: not at the pinned basis')
+    const all = [...plan.objects, ...(plan.tailObjects ?? [])]
+    onEvent({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length, tail: all.length - plan.objects.length })
     force = true
     // X8 rule 1 as far as this mode can keep it: no statement STARTS past
     // replan_after; the engine then reads every object inside one statement
     if (Date.now() >= plan.replanAfterMs) continue
     const label = labelOf(plan)
     const names = []
+    const tailFiles = []
+    let tailRows = 0
     try {
-      if (!plan.objects.length) {
+      if (!all.length) {
         await replaceTable(conn, f, table, toColumns(signal, [], label, { ...w, stepNs }))
       } else {
-        for (const o of plan.objects) {
+        for (const o of all) {
           const n = `p${seq++}.parquet`
           await db.registerFileURL(n, o.url, duckdb.DuckDBDataProtocol.HTTP, false)
           names.push(n)
+          if (o.tail) tailFiles.push(n)
         }
-        await conn.query(createFromFilesSQL(table, signal, names, label, { stepNs }))
+        await conn.query(createFromFilesSQL(table, signal, names, label, { stepNs, tailFiles }))
+        if (tailFiles.length) {
+          tailRows = (await conn.query(`SELECT count(*)::INTEGER AS n FROM "${table}" WHERE tail`)).toArray()[0].n
+          await conn.query(`ALTER TABLE "${table}" DROP COLUMN tail`)
+        }
       }
       const rows = (await conn.query(`SELECT count(*)::INTEGER AS n FROM "${table}"`)).toArray()[0].n
-      return { plan, label, rows, stepNs, fetchedBytes: null, requests: null, replans: attempt }
+      return { plan, label, rows, tailRows, stepNs, fetchedBytes: null, requests: null, replans: attempt, basis, unpinned }
     } catch (e) {
       lastErr = e
       onEvent({ type: 'read_error', message: String(e?.message ?? e).slice(0, 300) })
@@ -276,8 +301,8 @@ async function load() {
     rec.tables = await tableFacts(conn)
     rec.queries = connector.log.map(q => ({ type: q.type, ms: Math.round(q.ms * 10) / 10, sql: q.sql.slice(0, 2000), error: q.error }))
     rec.memory = await memory()
-    const bl = bannerText(logs.label, {}, shortTime)
-    const bs = bannerText(spans.label, {}, shortTime)
+    const bl = bannerText(logs.label, { tailRows: logs.tailRows }, shortTime)
+    const bs = bannerText(spans.label, { tailRows: spans.tailRows }, shortTime)
     const worst = [bl.state, bs.state].includes('unknown') ? 'unknown' : [bl.state, bs.state].includes('incomplete') ? 'incomplete' : 'complete'
     setBanner(worst, `logs: <span data-testid="logs-count">${rec.logs.rows}</span> rows · ${esc(bl.text)}<br>spans: <span data-testid="spans-count">${rec.spans.rows}</span> rows · ${esc(bs.text)}`)
     $('stats').textContent = statsLine(rec)
@@ -300,8 +325,10 @@ async function load() {
 
 function summary(logs, spans) {
   const one = r => ({
-    rows: Number(r.rows), requestId: r.plan.requestId, completeness: r.plan.completeness, objects: r.plan.objects.length,
-    plannedBytes: r.plan.totalBytes, fetchedBytes: r.fetchedBytes, requests: r.requests, replans: r.replans,
+    rows: Number(r.rows), tailRows: Number(r.tailRows ?? 0), requestId: r.plan.requestId, completeness: r.plan.completeness,
+    objects: r.plan.objects.length + (r.plan.tailObjects?.length ?? 0), basisObjects: r.plan.objects.length, tailObjects: r.plan.tailObjects?.length ?? 0,
+    basis: r.basis ?? null, unpinned: r.unpinned ?? '', basisHash: r.plan.objectsHash ?? '',
+    plannedBytes: r.plan.totalBytes + (r.plan.tailObjects ?? []).reduce((a, o) => a + o.size, 0), fetchedBytes: r.fetchedBytes, requests: r.requests, replans: r.replans,
     completeThrough: r.plan.completeThroughNs === null ? null : formatTimeNs(r.plan.completeThroughNs),
     settledThrough: settledThrough(r.label) === null ? null : formatTimeNs(settledThrough(r.label)),
     incompleteFrom: incompleteStart(r.label) === null ? null : formatTimeNs(incompleteStart(r.label)),
@@ -403,7 +430,7 @@ const mos = {
     const t0 = performance.now()
     const out = await execute(logSearch({ ...w, limit: 0 }), { planner, request: { ...w, clusters: cl ? [cl] : [] } })
     return { ms: Math.round(performance.now() - t0), status: out.status, count: out.result?.count ?? null, fetchedBytes: out.stats.bytes,
-      requests: out.stats.requests, plannedBytes: out.plan.totalBytes, objects: out.plan.objects.length, jsHeap: performance.memory?.usedJSHeapSize ?? null }
+      requests: out.stats.requests, plannedBytes: out.plan.totalBytes + (out.plan.tailObjects ?? []).reduce((a, o) => a + o.size, 0), objects: out.plan.objects.length + (out.plan.tailObjects?.length ?? 0), tailRows: out.tailRows, jsHeap: performance.memory?.usedJSHeapSize ?? null }
   },
   /** replace both tables by `n` copies of themselves (same distributions, n× rows) and rebuild */
   async scale(n) {

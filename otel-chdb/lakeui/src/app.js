@@ -3,7 +3,7 @@
 // beside this one; this file only wires them to the DOM.
 
 import { bannerText, incompleteStart, settledThrough } from './completeness.js'
-import { execute } from './engine.js'
+import { execute, sharedResults } from './engine.js'
 import { histogramSVG, legendHTML, lineSVG, waterfallHTML, esc } from './charts.js'
 import { formatTimeNs, msToNs, parseTimeNs, shortTime } from './ns.js'
 import { authorizeURL, claimsOf, discover, exchangeCode, parseRedirect, pkcePair, randomString, secondsLeft } from './oidc.js'
@@ -56,6 +56,7 @@ function setToken(t) {
   if (t) store.set('lakeui.token', t)
   else store.del('lakeui.token')
   planner.clear()
+  sharedResults.clear() // kept answers are the old scope's
   showWho()
 }
 
@@ -146,10 +147,17 @@ function setBanner(st, html) {
   $('banner').innerHTML = html
 }
 
+/** The plan's objects and bytes: the basis part's and the tail's. */
+function planned(p) {
+  const tail = p.tailObjects ?? []
+  return { objects: p.objects.length + tail.length, bytes: p.totalBytes + tail.reduce((a, o) => a + o.size, 0), tail: tail.length }
+}
+
 function statsLine(out) {
   const p = out.plan
-  const pct = p.totalBytes ? ((100 * out.stats.bytes) / p.totalBytes).toFixed(1) : '0'
-  return `source ${esc(p.source)} · plan ${esc(p.requestId.slice(0, 8))} · ${p.objects.length} object(s), ${p.totalBytes} B planned · fetched ${out.stats.bytes} B (${pct}%) in ${out.stats.requests} range GET(s) · ${out.replans} re-plan(s) · ${out.elapsedMs} ms` +
+  const pl = planned(p)
+  const pct = pl.bytes ? ((100 * out.stats.bytes) / pl.bytes).toFixed(1) : '0'
+  return `source ${esc(p.source)} · plan ${esc(p.requestId.slice(0, 8))} · ${pl.objects} object(s)${pl.tail ? ` (${pl.tail} in the tail)` : ''}, ${pl.bytes} B planned · fetched ${out.stats.bytes} B (${pct}%) in ${out.stats.requests} range GET(s) · ${out.replans} re-plan(s) · ${out.elapsedMs} ms` +
     ` · ${p.snapshot ? 'snapshot ' + esc(p.snapshot) : 'no snapshot (lanes listed ' + esc(p.listedAt.slice(11, 19)) + ')'}` +
     basisLine(out) + indexLine(p)
 }
@@ -157,9 +165,14 @@ function statsLine(out) {
 /** Which basis the run read at (D30): never hidden. */
 function basisLine(out) {
   const p = out.plan
-  if (!p.atBasis) return ' · <span class="warn" data-testid="basis">not at a basis: this service does not pin one; a re-run may read other objects</span>'
+  if (!p.atBasis) {
+    const why = out.unpinned ? `no basis could be issued (${esc(out.unpinned)})` : 'this service does not pin one'
+    return ` · <span class="warn" data-testid="basis">not at a basis: ${why}; a re-run may read other objects</span>`
+  }
   const cl = (p.basisInfo?.clusters ?? []).map(c => `${c.cluster === '*' ? 'all clusters' : esc(c.cluster)} before ${esc(shortTime(BigInt(c.received_before_ns)))}`).join(', ')
   return ` · <span data-testid="basis">basis: rows received ${cl || '(bounds not shown)'}${out.cached ? ' (cached: the same answer at the same basis)' : ''}` +
+    `${p.tail ? `; the tail: ${p.tailObjects.length} object(s) received after it, read and drawn incomplete, never cached` : ''}` +
+    `${out.stats.cachedParts ? `; ${out.stats.cachedParts} object(s) of the basis part answered from the cache` : ''}` +
     `${p.afterBasis ? `; ${p.afterBasis} newer object(s) left out` : ''}${out.stats.basisExcluded ? `; ${out.stats.basisExcluded} left out by their footer` : ''}</span>`
 }
 
@@ -167,7 +180,7 @@ function basisLine(out) {
 function indexLine(p) {
   const ix = p.index
   if (!ix) return ''
-  const hit = p.objects.filter(o => o.index === 'hit').length
+  const hit = [...p.objects, ...(p.tailObjects ?? [])].filter(o => o.index === 'hit').length
   const errs = ix.errors?.length ? ` · <span class="warn">index errors: ${esc(ix.errors.join('; '))} (those objects were read whole)</span>` : ''
   return ` · index: ${hit} narrowed, ${ix.scan ?? 0} not indexed (read whole), ${ix.pruned ?? 0} ruled out; the service read ${ix.bytes ?? 0} B of index in ${ix.requests ?? 0} request(s)` + errs
 }
@@ -183,7 +196,7 @@ function render(view, q, out) {
       `No result is shown: a query that could not read every planned object is not an answer.<ul class="missing" data-testid="missing">${lines}</ul>`)
     return rec
   }
-  const b = bannerText(out.label, {}, shortTime)
+  const b = bannerText(out.label, { tailRows: out.tailRows }, shortTime)
   const r = out.result
   if (view === 'logs') {
     setBanner(b.state, `<span data-testid="count">${r.count}</span> matching row(s) · ${esc(b.text)}${r.count === 0 && b.state === 'complete' ? ' · none: every planned object was read' : ''}`)
@@ -216,6 +229,8 @@ function renderError(e) {
 function summaryOf(out) {
   const r = out.result
   const p = out.plan
+  const pl = planned(p)
+  const all = [...p.objects, ...(p.tailObjects ?? [])]
   return {
     status: out.status, state: out.state, requestId: p.requestId, completeness: p.completeness,
     completeThrough: p.completeThroughNs === null ? null : formatTimeNs(p.completeThroughNs),
@@ -225,15 +240,21 @@ function summaryOf(out) {
     lateObjects: p.lateObjects ?? 0,
     index: p.index ? { covered: p.index.covered, scan: p.index.scan, pruned: p.index.pruned, segments: p.index.segments,
       bytes: p.index.bytes, requests: p.index.requests, errors: p.index.errors ?? [] } : null,
-    objects: p.objects.length, plannedBytes: p.totalBytes, fetchedBytes: out.stats.bytes, requests: out.stats.requests,
-    perObject: [...out.stats.perKey].map(([k, v]) => ({ key: k, bytes: v.bytes, requests: v.requests, size: p.objects.find(o => o.key === k)?.size ?? null })),
+    objects: pl.objects, plannedBytes: pl.bytes, fetchedBytes: out.stats.bytes, requests: out.stats.requests,
+    perObject: [...out.stats.perKey].map(([k, v]) => ({ key: k, bytes: v.bytes, requests: v.requests, size: all.find(o => o.key === k)?.size ?? null })),
     replans: out.replans, missing: out.missing, reason: out.reason ?? '',
-    basis: out.basis ?? null, atBasis: p.atBasis === true, cached: out.cached === true, afterBasis: p.afterBasis ?? 0,
-    objectsHash: [...p.objects].map(o => o.key).sort().join(','),
+    basis: out.basis ?? null, atBasis: p.atBasis === true, cached: out.cached === true, cachedParts: out.stats.cachedParts ?? 0,
+    afterBasis: p.afterBasis ?? 0, unpinned: out.unpinned ?? '',
+    // the basis part (D30: the same at the same basis) and the tail (AMBIGUITY.md #10 (b))
+    basisObjects: p.objects.length, basisHash: p.objectsHash ?? '', objectsHash: [...p.objects].map(o => o.key).sort().join(','),
+    tailObjects: pl.tail, tailKeys: (p.tailObjects ?? []).map(o => o.key).sort(), tail: p.tail ? { objects: p.tail.objects, unplaced: p.tail.unplaced,
+      completeness: 'incomplete', receivedThrough: p.tail.receivedThrough } : null,
+    tailRows: out.tailRows ?? 0,
     count: r?.count ?? r?.spans?.length ?? r?.points ?? null,
     sum: r?.sum ?? null,
     buckets: r?.buckets?.map(b => ({ from: formatTimeNs(b.fromNs), count: b.count ?? null, state: b.state })) ?? null,
-    rows: r?.rows?.map(x => ({ ts: formatTimeNs(x.ts), state: x.state, body: x.body ?? null })) ?? r?.spans?.map(s => ({ ts: formatTimeNs(s.ts), state: s.state, key: s.key })) ?? null,
+    rows: r?.rows?.map(x => ({ ts: formatTimeNs(x.ts), state: x.state, tail: x.tail === true, body: x.body ?? null })) ??
+      r?.spans?.map(s => ({ ts: formatTimeNs(s.ts), state: s.state, tail: s.tail === true, key: s.key })) ?? null,
     events: out.events.map(e => ({ ...e })),
   }
 }
@@ -263,5 +284,5 @@ async function main() {
   document.body.dataset.ready = '1'
 }
 
-window.lakeui = { state, planner, run, selectView }
+window.lakeui = { state, planner, results: sharedResults, run, selectView }
 main()

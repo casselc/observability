@@ -18,14 +18,16 @@
  * @param {(req: any, opts: {force: boolean}) => Promise<any>} o.plan     returns a normalised plan
  * @param {any} o.request
  * @param {(obj: any, plan: any) => Promise<T>} o.read                    reads one object
- * @param {(plan: any) => any[]} [o.select]                               the objects this pass needs (default: all)
+ * @param {(plan: any) => any[]} [o.select]                               the objects this pass needs (default: all, the tail's too)
  * @param {() => number} [o.now]
  * @param {number} [o.maxReplans]
  * @param {number} [o.concurrency]
  * @param {(ev: object) => void} [o.onEvent]
  * @param {Map<string, T>} [o.done]                                       results by key from an earlier pass
  */
-export async function runPlanned({ plan: getPlan, request, read, select = p => p.objects, now = Date.now,
+export const allObjects = p => (p.tailObjects && p.tailObjects.length ? [...p.objects, ...p.tailObjects] : p.objects)
+
+export async function runPlanned({ plan: getPlan, request, read, select = allObjects, now = Date.now,
   maxReplans = 3, concurrency = 6, onEvent = () => {}, done = new Map() }) {
   const results = new Map(done)
   const errors = new Map() // key -> last error
@@ -38,7 +40,7 @@ export async function runPlanned({ plan: getPlan, request, read, select = p => p
   let skippedForExpiry = 0
   let planError = null
   let plan = await getPlan(request, { force: false }) // PlanError propagates: a refusal is the answer
-  emit({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length, replanAfterMs: plan.replanAfterMs })
+  emit({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length, tail: plan.tailObjects?.length ?? 0, replanAfterMs: plan.replanAfterMs })
   for (;;) {
     const todo = select(plan).filter(o => !results.has(o.key))
     if (todo.length === 0) return finish()
@@ -88,7 +90,7 @@ export async function runPlanned({ plan: getPlan, request, read, select = p => p
       emit({ type: 'replan_error', kind: e?.kind ?? 'error', status: e?.status ?? 0, message: String(e?.message ?? e) })
       return false
     }
-    emit({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length, replanAfterMs: plan.replanAfterMs })
+    emit({ type: 'plan', requestId: plan.requestId, objects: plan.objects.length, tail: plan.tailObjects?.length ?? 0, replanAfterMs: plan.replanAfterMs })
     return true
   }
 

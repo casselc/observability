@@ -3,7 +3,9 @@
 // column chunks of the planned objects that the charts need, and nothing
 // else, as plain columns. The completeness of every row and bucket is decided
 // HERE, in exact BigInt nanoseconds, by lakeui's completeness.js; DuckDB only
-// ever sees the decision (`cstate`, `bstate`), never the rule.
+// ever sees the decision (`cstate`, `bstate`), never the rule. Rows of the
+// plan's tail (received after the basis: the engine marks their parts) are
+// incomplete, and so is every bucket holding one (completeness.js).
 //
 // Pure apart from the reads it is handed (lakeui/src/parquet.js).
 
@@ -63,17 +65,19 @@ export function columnsQuery({ signal, fromNs, toNs, stepNs }) {
       }
       return { key: obj.key, rows }
     },
-    /** Columns for Arrow, every row labelled by the plan's label. */
+    /** Columns for Arrow, every row labelled by the plan's label (and the tail's rows incomplete). */
     merge(parts, label) {
-      return toColumns(signal, parts.flatMap(p => p.rows), label, q)
+      return toColumns(signal, parts.flatMap(p => (p.tail ? p.rows.map(r => ({ ...r, tail: true })) : p.rows)), label, q)
     },
   }
 }
 
-/** Rows → columns; ts/b0/b1 in ms (for the charts), ts_ns exact, states from the label. */
+/** Rows → columns; ts/b0/b1 in ms (for the charts), ts_ns exact, states from the label; `tail` rows incomplete. */
 export function toColumns(signal, rows, label, q) {
   const cols = emptyColumns(signal)
   const extra = Object.keys(SIGNALS[signal].extra)
+  const tailB = new Set()
+  for (const r of rows) if (r.tail) tailB.add(bucketIndex(q, q.stepNs, r.tsNs))
   for (const r of rows) {
     const b = bucketIndex(q, q.stepNs, r.tsNs)
     const b0 = q.fromNs + BigInt(b) * q.stepNs
@@ -85,11 +89,11 @@ export function toColumns(signal, rows, label, q) {
     cols.service.push(r.service)
     cols.pod.push(r.pod)
     cols.cluster.push(r.cluster)
-    cols.cstate.push(rowState(label, r.tsNs))
-    cols.bstate.push(bucketState(label, b0, b1))
+    cols.cstate.push(rowState(label, r.tsNs, r.tail === true))
+    cols.bstate.push(bucketState(label, b0, b1, tailB.has(b)))
     for (const k of extra) cols[k].push(r[k])
   }
-  return { signal, rows: rows.length, columns: cols, q }
+  return { signal, rows: rows.length, tailRows: rows.filter(r => r.tail).length, columns: cols, q }
 }
 
 /** ms for a chart axis; floor, so a row is never drawn after its instant. */

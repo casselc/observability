@@ -12,6 +12,12 @@
 // A read that failed makes the whole result incomplete whatever the label
 // (X8 rule 2); `resultState` folds that in.
 //
+// The tail (D30 amendment, AMBIGUITY.md #10 (b)): rows of objects received
+// at or after the plan's basis. They are not part of the basis, so the
+// label, which is the basis's, says nothing about them: a tail row, and any
+// bucket holding one, is incomplete whatever its event time (unknown stays
+// unknown), and a result with any tail row is incomplete.
+//
 // Two clocks (STPA CAST row 26): complete_through is CUSTODY time (rows
 // received before it are in); the window and the rows' timestamps are EVENT
 // time. The service bridges them with max_lateness: event time is settled
@@ -81,9 +87,10 @@ export function segments(label) {
   return out
 }
 
-/** One row at event time ts. */
-export function rowState(label, ts) {
+/** One row at event time ts; `tail`: the row is in the tail (received after the basis). */
+export function rowState(label, ts, tail = false) {
   if (label.state === 'unknown') return 'unknown'
+  if (tail) return 'incomplete'
   const s = incompleteStart(label)
   return s !== null && ts >= s ? 'incomplete' : 'complete'
 }
@@ -91,22 +98,25 @@ export function rowState(label, ts) {
 /**
  * A bucket [b0, b1): complete only if it ends at or before the incomplete
  * region starts; any overlap with it makes the bucket incomplete (its count
- * may still grow).
+ * may still grow). `tail`: the bucket holds a tail row (incomplete).
  */
-export function bucketState(label, b0, b1) {
+export function bucketState(label, b0, b1, tail = false) {
   if (label.state === 'unknown') return 'unknown'
+  if (tail) return 'incomplete'
   const s = incompleteStart(label)
   return s !== null && b1 > s ? 'incomplete' : 'complete'
 }
 
 /**
  * The whole result's state: unknown dominates, then any failed read or an
- * unsettled window (or a start GC truncated) makes it incomplete.
- * @param {{missing?: string[]}} [read]
+ * unsettled window (or a start GC truncated) makes it incomplete, and so
+ * does any row of the tail (`tailRows`: rows received after the basis).
+ * @param {{missing?: string[], tailRows?: number}} [read]
  */
 export function resultState(label, read = {}) {
   if (read.missing && read.missing.length) return 'incomplete'
   if (label.state === 'unknown') return 'unknown'
+  if (read.tailRows > 0) return 'incomplete'
   if (!label.startComplete) return 'incomplete'
   return incompleteStart(label) === null ? 'complete' : 'incomplete'
 }
@@ -167,6 +177,9 @@ export function bannerText(label, read = {}, fmt = String) {
     } else {
       parts.push(`receive time; event time settled through ${fmt(settledThrough(label))} (max lateness ${Number(label.maxLatenessNs) / 1e9} s)`)
     }
+  }
+  if (read.tailRows > 0) {
+    parts.push(`${read.tailRows} row(s) received after the basis (the tail): drawn incomplete whatever their time, not part of the basis, never cached`)
   }
   if (label.lateObjects > 0) parts.push(`${label.lateObjects} object(s) arrived later than max lateness: late data, which a result drawn earlier did not have`)
   if (!label.startComplete) parts.push('the start of the window may be missing (GC): older rows are in central')

@@ -1,0 +1,12 @@
+# Presentation only: which components, in which row and column. Boxes, edges and every label
+# come from the records. Levels top-down as in the STPA Handbook.
+id: view-ad8fbf
+type: control-structure
+title: "Data plane: controllers act on S3 and the stores; operators get feedback"
+columns: 3
+rows:
+  - [{ref: component-71fede, span: 3}]   # Platform operators
+  - [component-fe59f7, component-fc8476] # Edge collectors, Entity controllers
+  - [{ref: component-21e324, span: 3}]   # S3 lanes and control objects
+  - [component-8020ed, component-72ab73, component-ac2fd1] # Consumer workers, Central aggregator, GC
+  - [component-ed00c7, component-ce1c77, component-b29392] # Central ClickHouse, Entity catalog, Lake snapshots

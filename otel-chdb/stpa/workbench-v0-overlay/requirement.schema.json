@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:requirement",
+  "title": "Overlay (otel-chdb) record: requirement",
+  "description": "A derived requirement: what the design must do, traced to the findings it answers. Distinct from a v0 constraint in that it may derive from any analysis record and carries a priority.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^requirement-[0-9a-f]{6}$"
+    },
+    "kind": {
+      "const": "requirement"
+    },
+    "statement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "priority": {
+      "enum": [
+        "P0",
+        "P1",
+        "P2"
+      ]
+    },
+    "derived_from": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(constraint|scenario|uca|ucca|hazard|incident|requirement)-[0-9a-f]{6}$"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state",
+    "statement",
+    "derived_from"
+  ],
+  "additionalProperties": false
+}

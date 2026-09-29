@@ -1,0 +1,9 @@
+id: view-000001
+type: control-structure
+title: "Mini: a writer, a janitor and a store"
+columns: 3
+rows:
+  - [{ref: component-000b01, span: 3}]
+  - [component-000b02]
+  - [{ref: component-000b03, span: 3}]
+  - [{ref: component-000b04, col: 2}]

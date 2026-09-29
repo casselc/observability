@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:constraint",
+  "title": "STPA Workbench record: constraint",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "id": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-constraint"
+    },
+    "kind": {
+      "const": "constraint"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "addresses": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-scenario"
+          },
+          {
+            "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-uca"
+          },
+          {
+            "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-ucca"
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "required_condition": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The behavior or condition the system must satisfy. Not the mechanism that achieves it."
+    },
+    "conflicts_with": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-constraint"
+      },
+      "description": "Constraints that cannot both be satisfied as stated. Linking is allowed without resolving."
+    },
+    "hazards": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-hazard"
+      },
+      "description": "Overlay (otel-chdb): the hazards a system-level constraint is the inverse of."
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state",
+    "required_condition"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "addresses"
+      ]
+    },
+    {
+      "required": [
+        "hazards"
+      ]
+    }
+  ],
+  "description": "Overlay (otel-chdb): a system-level constraint addresses hazards."
+}

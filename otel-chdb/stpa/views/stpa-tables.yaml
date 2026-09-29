@@ -1,0 +1,38 @@
+# The tables of STPA.md (and the research notes' STPA sections) as generated sections. `doc`
+# names the hand-kept copy that `stpa compare` checks the generated rows against.
+id: view-b28070
+type: tables
+tables:
+  - {name: losses, kind: loss, labels: '^L-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Loss, value: title}]}
+  - {name: hazards, kind: hazard, labels: '^H-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: Losses, value: losses}]}
+  - {name: constraints, kind: constraint, labels: '^SC-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Constraint, value: title}, {header: Hazard, value: hazards},
+               {header: Enforced today by, value: mechanisms, empty: Nothing yet (new)}]}
+  - {name: ucas, kind: uca, labels: '^UCA-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Controller, value: controller}, {header: Control action, value: action-name},
+               {header: Type, value: type}, {header: Unsafe when, value: context}, {header: Hazards, value: hazards}]}
+  - {name: loss-scenarios, kind: scenario, labels: '^LS-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: UCA, value: findings}, {header: Scenario (why it could happen), value: title},
+               {header: Status, value: resolution}]}
+  - {name: stpa-sec, kind: sec, labels: '^SEC-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Adversary action, value: title},
+               {header: Unsafe control action or feedback, value: unsafe-with-findings}, {header: Hazards, value: hazards},
+               {header: Mitigation, value: mitigation}]}
+  - {name: stpa-teaming, kind: teaming, labels: '^TM-\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Teaming issue, value: title}, {header: What goes wrong, value: text},
+               {header: Hazards, value: hazards}, {header: Requirement, value: requirement}]}
+  - {name: requirements, kind: requirement, labels: '^R-S\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Requirement, value: title-with-priority}, {header: From, value: from}]}
+  - {name: hazards-entra-summary, kind: hazard, labels: '^H-E\d+$', doc: STPA.md,
+     columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: ⊂, value: refines, empty: –}]}
+  - {name: hazards-entra, kind: hazard, labels: '^H-E\d+$', doc: research/entra-ingress.md,
+     columns: [{header: ID, value: label}, {header: Hazard, value: title}, {header: Losses, value: losses},
+               {header: ⊂ system hazard, value: refines, empty: –}]}
+  - {name: cast-initial, kind: incident, batch: initial, doc: STPA.md, columns: &cast
+       [{header: '#', value: number}, {header: Issue, value: title}, {header: Found by, value: found_by},
+        {header: Hazard, value: hazard}, {header: Controller and flawed process model, value: controller},
+        {header: Why it made sense at the time, value: why}, {header: Fix, value: fix}, {header: Lesson, value: lesson}]}
+  - {name: cast-hyperdx-adapter, kind: incident, batch: hyperdx-adapter-2026-09-28, doc: STPA.md, columns: *cast}
+  - {name: cast-ci-sweep-after-d35, kind: incident, batch: ci-sweep-after-d35-2026-09-29, doc: STPA.md, columns: *cast}

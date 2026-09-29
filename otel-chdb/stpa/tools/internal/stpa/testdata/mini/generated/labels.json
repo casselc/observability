@@ -1,0 +1,7 @@
+{
+  "CAST-1": {"id":"incident-000f03","kind":"incident","title":"A slot was deleted under a slow reader","path":"records/incident-000f03.md"},
+  "H-1": {"id":"hazard-000a02","kind":"hazard","title":"Acknowledged data is in no store","path":"records/hazard-000a02.md"},
+  "L-1": {"id":"loss-000a01","kind":"loss","title":"Data is lost","path":"records/loss-000a01.md"},
+  "SC-1": {"id":"constraint-000f01","kind":"constraint","title":"Nothing is deleted that a reader still needs","path":"records/constraint-000f01.md"},
+  "UCA-1": {"id":"uca-000e01","kind":"uca","path":"records/uca-000e01.md"}
+}

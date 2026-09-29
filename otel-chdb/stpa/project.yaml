@@ -1,0 +1,9 @@
+# The STPA of otel-chdb as records: one fact, one home. See README.md.
+schema: otel-chdb/stpa-records-v0
+id: project-592264
+title: otel-chdb telemetry pipeline and UI
+method_profiles:
+  - {name: stpa-core, version: 0}
+  - {name: stpa-sec, version: 0}
+  - {name: stpa-teaming, version: 0}
+  - {name: cast, version: 0}

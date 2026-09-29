@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:incident",
+  "title": "Overlay (otel-chdb) record: incident (a CAST analysis row)",
+  "description": "One CAST analysis of a defect or near miss: what happened, how it was found, the hazard, the controller and its flawed process model, why that made sense, the fix, the lesson.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^incident-[0-9a-f]{6}$"
+    },
+    "kind": {
+      "const": "incident"
+    },
+    "batch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "found_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hazard_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hazards": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-hazard"
+      }
+    },
+    "controller_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fix": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lesson": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state",
+    "found_by",
+    "hazard_text",
+    "controller_text",
+    "why",
+    "fix",
+    "lesson"
+  ],
+  "additionalProperties": false
+}

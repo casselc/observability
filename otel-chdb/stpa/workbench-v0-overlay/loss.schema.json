@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:loss",
+  "title": "STPA Workbench record: loss",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "id": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-loss"
+    },
+    "kind": {
+      "const": "loss"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "stakeholders": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-stakeholder"
+      },
+      "minItems": 1,
+      "description": "Stakeholders who experience this loss."
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state"
+  ],
+  "additionalProperties": false,
+  "description": "Overlay (otel-chdb): stakeholders optional."
+}

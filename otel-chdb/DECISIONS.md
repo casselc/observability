@@ -70,6 +70,7 @@ flowchart TB
 | [D36](#d36-langfuse-shaped-llm-traces-one-store-content-by-reference-facts-resolved-at-a-basis) | Langfuse-shaped LLM traces: OTLP only on the same lanes; the edge offloads large values by per-tenant content hash into a payload part of the same object; LLM spans stay `otel_traces` rows with typed `llm_spans`/`llm_scores` views and `llm_payloads`; scores, corrections and prices as facts resolved at a basis; a separate content right; LLM views in the HyperDX fork | **accepted** (2026-09-29), not built: [research/langfuse.md](research/langfuse.md) (STPA first), spike [`langfuse/spike/`](langfuse/spike/README.md) |
 | [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
 | [D38](#d38-grants-as-explicit-role-cluster-namespace-tuples-environments-as-buckets-cedar-as-the-source-compiled-to-tuples-and-prefixtag-iam-partly-built) | Grants: explicit `(role, cluster, namespace)` tuples combined as a union, never a product (CAST 52; built); environments as a bucket (or account) each with a cluster registry that gates writes; Cedar policies as the source, compiled to per-environment query-service tuples and prefix/principal-tag IAM, other policies refused with a reason and the output checked against Cedar; person facts scoped by a `resolve_person` tuple | **partly built** (2026-09-29): tuples in the query service; `grants/` compiler prototype; the rest proposed: [research/grants.md](research/grants.md) (STPA first) |
+| [D39](#d39-stpa-data-as-normalized-records-tables-and-control-structure-diagrams-generated-from-them-proposed-pilot-built) | STPA data as normalized records (one fact, one home; adapted from stpa-workbench v0, whose strict form is an export): STPA.md's tables, the control-structure diagrams in the PRD style (SVG, the PRD widget, Mermaid) and the label catalogue generated and checked in CI; OSCAL a later export for the assurance half. Proposed; pilot of 95 records built (stpa/) |
 
 ---
 
@@ -3953,6 +3954,37 @@ H-G1..H-G8, UCA-G1..G7, LS-G1..G8, SEC-G1..G8, TM-G1..G5, R-G1..R-G9) proposed f
 AMBIGUITY G1–G5. Nothing run on AWS; the presign session path, break-glass marking, `resolve_person`
 and the environment registry in the consumer are not built. The query service still presigns with its
 own credentials, cut by the tuples.
+
+### D39. STPA data as normalized records; tables and control-structure diagrams generated from them (proposed; pilot built)
+
+**Status:** **proposed**, pilot built (2026-09-29): 95 records in [stpa/](stpa/README.md) (losses,
+hazards H-1..7 and four H-E, three constraints, both control structures, six UCAs, four loss scenarios,
+six STPA-Sec and three STPA-Teaming rows, three requirements, five CAST rows), a Go renderer and checker
+(`stpa/tools`, golden-tested; a CI test fails when a generated file is edited by hand or not
+re-rendered). STPA.md is unchanged until the owner decides.
+
+**Context.** The owner liked the PRD's hand-drawn control-structure diagrams and asked for
+source-maintained diagrams in that style, from a structured STPA format, with stpa-workbench's artifact
+schema v0 as optional prior work; then made normalization the primary criterion (every fact one home)
+and asked for NIST OSCAL to be evaluated. The audit (stpa/README.md §2–§3) found facts kept in two to
+four places that already disagree: extension hazards and requirements in STPA.md and the research
+notes, component descriptions and edge labels across STPA.md's and the PRD's diagrams, UCA controller
+names, TM/SEC requirement texts beside R-S\*, and a hazard H-8 cited by four CAST rows but defined
+nowhere.
+
+**Decision (proposed).** Adapt, not adopt, workbench v0: one record per file, `<kind>-<hex>` ids,
+labels (H-2, UCA-4, CAST-50) as the only citation alias, generated views; minus v0's own copies (no
+`kind:`, no heading, one component per real thing, links on one side, derived values computed). The
+strict v0 form is an export, validated with the workbench's `stpawb` (0 diagnostics). OSCAL is a
+later generated export for the assurance half (requirements as a catalog, mechanisms as component
+definitions, traceability runs as assessment results, known gaps as a POA&M, STPA-Sec ↔ 800-53 as a
+mapping), not the source: it has no STPA semantics and duplicates more than it removes.
+
+**Alternatives.** Keep Markdown tables (the drift continues); adopt v0 as is (keeps its duplicates:
+stpa/workbench-feedback.md); OSCAL as the source (STPA only as opaque props/links).
+
+**Owner decisions needed:** stpa/README.md §8 (adopt and migrate the rest; the canonical wording where
+copies disagree; UCA-10/UCA-12 as control actions or feedback; H-8; OSCAL export).
 
 ## 6. Upstream bugs found
 

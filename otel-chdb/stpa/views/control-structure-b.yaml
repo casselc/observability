@@ -1,0 +1,9 @@
+id: view-54fc98
+type: control-structure
+title: "People and automation: who steers, and what each sees back"
+columns: 3
+rows:
+  - [{ref: component-c6c2a0, span: 2}, component-71fede] # On-call engineers, Platform operators
+  - [component-0e2f45, component-ec2f3e]                 # Telemetry UI, Alerting engine
+  - [{ref: component-2f943e, span: 2}]                   # Query service
+  - [{ref: component-ed00c7, detail: false}, {ref: component-b29392, detail: false}, {ref: component-ce1c77, detail: false}] # Central ClickHouse, Lake snapshots, Entity catalog

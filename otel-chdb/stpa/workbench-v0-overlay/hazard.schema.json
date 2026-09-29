@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:stpa-workbench:schemas:v0:hazard",
+  "title": "STPA Workbench record: hazard",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/schema-tag"
+    },
+    "id": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-hazard"
+    },
+    "kind": {
+      "const": "hazard"
+    },
+    "title": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/title"
+    },
+    "state": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/authoring-state"
+    },
+    "label": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/label"
+    },
+    "applicability": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/applicability"
+    },
+    "implementation": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/implementation"
+    },
+    "evidence": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/evidence-assessment"
+    },
+    "ext": {
+      "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/ext"
+    },
+    "losses": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-loss"
+      },
+      "description": "Losses this hazard can lead to. At least one when accepted."
+    },
+    "system_condition": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The system state or set of conditions that, together with worst-case environmental conditions, leads to a loss. Required when accepted."
+    },
+    "refines": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "urn:stpa-workbench:schemas:v0:common#/$defs/id-hazard"
+      },
+      "description": "Overlay (otel-chdb): the system-level hazards this hazard is a special case of."
+    }
+  },
+  "required": [
+    "schema",
+    "id",
+    "kind",
+    "title",
+    "state"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "state": {
+        "const": "accepted"
+      }
+    },
+    "required": [
+      "state"
+    ]
+  },
+  "then": {
+    "required": [
+      "losses",
+      "system_condition"
+    ],
+    "properties": {
+      "losses": {
+        "type": "array",
+        "minItems": 1
+      }
+    }
+  },
+  "description": "Overlay (otel-chdb): adds refines."
+}

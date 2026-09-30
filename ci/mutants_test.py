@@ -15,8 +15,8 @@ class Keys(unittest.TestCase):
             open(os.path.join(d, 'missed.txt'), 'w').write(
                 'src/gc.rs:12:9: replace < with <= in doomed\nsrc/gc.rs:40:3: replace < with <= in doomed\n')
             open(os.path.join(d, 'timeout.txt'), 'w').write('src/plan.rs:7:1: replace found -> Found with Default::default()\n')
-            self.assertEqual(mutants.rust(d), ['rust src/gc.rs: replace < with <= in doomed',
-                                               'rust src/plan.rs: replace found -> Found with Default::default()'])
+            # the timed-out mutant is caught: only missed ones survive
+            self.assertEqual(mutants.rust(d), ['rust src/gc.rs: replace < with <= in doomed'])
 
     def test_go_keys_name_the_function_not_the_line(self):
         with tempfile.TemporaryDirectory() as d:

@@ -5,8 +5,8 @@
     ci/mutants.py go    GREMLINS_JSON MODULE_DIR > survivors-go.txt
     ci/mutants.py check ci/mutants-baseline.txt survivors-*.txt [--summary FILE]
 
-A survivor is a mutant no test caught: missed or timed out (cargo-mutants), lived or not
-covered (gremlins). Each is written as a key that does not move when lines do:
+A survivor is a mutant no test caught: missed (cargo-mutants; a timeout is a hang the tests
+exposed, so caught), lived or not covered (gremlins). Each is written as a key that does not move when lines do:
 
     rust <file>: <cargo-mutants' description>          e.g. rust src/consumer/gc.rs: replace < with <= in doomed
                                                        (one key for equal descriptions in a file)
@@ -36,7 +36,9 @@ def keyed(pairs):
 
 def rust(outdir):
     pairs = []
-    for name in ('missed.txt', 'timeout.txt'):
+    # a mutant whose tests time out did not pass them (a hang, e.g. a lane looping on one
+    # key): caught, as cargo-mutants' own guidance reads it; only missed.txt is survivors
+    for name in ('missed.txt',):
         p = os.path.join(outdir, name)
         if not os.path.exists(p):
             continue

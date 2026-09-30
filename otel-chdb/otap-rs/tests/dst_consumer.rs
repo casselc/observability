@@ -138,6 +138,22 @@ fn a_server_fenced_announcement_is_not_taken_for_landed() {
     assert!(o.failure.is_none(), "{:?}", o.failure);
 }
 
+/// Regression (found by seed 4709496, nightly run 47): a checkpoint write
+/// with no answer landed late, having compacted the retired epoch E0002
+/// while E0001 (closed, not retired) kept the floor below it. The worker
+/// took the late version back but still knew E0002; absent from the
+/// checkpoint it read as open at slot 0, so the scan tombstoned it at 0 and
+/// the checkpoint closed it there, after its slots had been ingested
+/// (`noCommitAfterClose`). The take-back now forgets what the write
+/// compacted (`worker.rs` `refresh_own_ckpt`).
+#[test]
+fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
+    // TODO(n47): add the CAST id the coordinator assigns.
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "H-2"]);
+    let o = sim::run(4709496, wall0(4709496), false, fleet);
+    assert!(o.failure.is_none(), "{:?}", o.failure);
+}
+
 /// The harness finds the model's mutants (`coord::Mutation`, the bugs the
 /// Quint models were checked against): each must fail some seed.
 #[test]

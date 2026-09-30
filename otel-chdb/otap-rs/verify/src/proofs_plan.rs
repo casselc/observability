@@ -33,10 +33,18 @@ fn obj(seq: u64, received_ns: u64) -> Obj {
         rows: 0,
         received_ns,
         seen_ms: 0,
-        // Neither enters the check range or the scan: listed explicitly (no
-        // `..`) so a new field of Obj makes this harness be looked at again.
-        announce: 0,
-        late: false,
+        // The object's parts (announcements, D36's payload part, the late
+        // part): ANY value, so the harnesses below prove the check range
+        // does not depend on them. `own_range_holds_every_received_day`
+        // pins the range to exactly [min, max] of the received times (or
+        // None), for every value of these fields: a count check reads the
+        // same partitions whether an object carries payloads or not.
+        // Listed explicitly (no `..`) so a new field of Obj stops this crate
+        // compiling and is looked at here (D36's `payloads` did, in nightly
+        // run 47: `verify-typecheck` in ci.yml now catches it on push).
+        announce: kani::any(),
+        payloads: PayloadCounts { carried: kani::any(), refs: kani::any() },
+        late: kani::any(),
     }
 }
 
@@ -210,10 +218,18 @@ fn advance_to_stops_at_the_first_undone_or_gap() {
 fn verdict_is_exact() {
     let (rows, have): (u64, u64) = (kani::any(), kani::any());
     match verdict(rows, have) {
-        Verdict::Absent => assert!(have == 0),
-        Verdict::Present => assert!(have == rows && have > 0),
-        Verdict::Partial(h) => assert!(h == have && 0 < h && h < rows),
-        Verdict::Over(h) => assert!(h == have && h > rows && h > 0),
+        Verdict::Absent => {
+            assert!(have == 0);
+        }
+        Verdict::Present => {
+            assert!(have == rows && have > 0);
+        }
+        Verdict::Partial(h) => {
+            assert!(h == have && 0 < h && h < rows);
+        }
+        Verdict::Over(h) => {
+            assert!(h == have && h > rows && h > 0);
+        }
     }
 }
 
@@ -227,3 +243,9 @@ fn verdict_is_exact() {
 // checkpoint's decision, and plan.rs's unit tests cover the scan.
 // Nor `group` / `fills` (a Vec<Vec<Obj>> of four-String objects), which
 // exceed it already at two objects; plan.rs's unit tests cover them.
+// Nor D36's payloads-first order (payloads into llm_payloads before a
+// lane's rows): it is the worker's sequencing of central statements
+// (worker.rs), not a plan.rs function; the DST fleet checks `payloadsFirst`
+// at every landing and catches mutant `RowsBeforePayloads`. Nor
+// `PayloadCounts::of`, which reads a `HashMap` (hashing is out of reach, as
+// above); sql.rs's unit tests read it from an edge's metadata.

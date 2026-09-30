@@ -1131,9 +1131,21 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 Ok(doc) if doc.ours_landed_late(ls.held.doc.epoch, &ls.ckpt) => {
                     log(&self.cfg, &format!("checkpoint {id}: our write landed late (version {}); taking it", doc.version));
                     self.stats.ckpt_late_taken += 1;
+                    // Forget what that write compacted, as `advance` does when
+                    // its write is answered: epochs leave a checkpoint only by
+                    // compaction (closed, and retired: GC deleted every key),
+                    // and compaction moves the floor only past a contiguous run
+                    // from the bottom. An epoch dropped above the floor (an
+                    // older one not retired yet) and still in `known` read as
+                    // open at slot 0 with nothing listed: the scan tombstoned
+                    // it again and the checkpoint closed it at 0, after its
+                    // slots had been ingested (dst_consumer seed 4709496,
+                    // nightly run 47; `a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it`).
                     let floor = doc.floor.clone();
-                    ls.known.retain(|ep| coord::above_floor(ep, &floor));
-                    ls.last_seen.retain(|ep, _| coord::above_floor(ep, &floor));
+                    let dropped: Vec<String> = ls.ckpt.epochs.keys().filter(|ep| !doc.epochs.contains_key(*ep)).cloned().collect();
+                    let keep = |ep: &String| coord::above_floor(ep, &floor) && !dropped.contains(ep);
+                    ls.known.retain(|ep| keep(ep));
+                    ls.last_seen.retain(|ep, _| keep(ep));
                     for ep in doc.epochs.keys() {
                         let _ = ls.known.insert(ep.clone());
                     }

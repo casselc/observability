@@ -18,9 +18,9 @@ pub mod coord;
 #[path = "../../src/consumer/plan.rs"]
 pub mod plan;
 
-#[cfg(kani)]
+#[cfg(any(kani, feature = "typecheck"))]
 mod proofs_balance;
-#[cfg(kani)]
+#[cfg(any(kani, feature = "typecheck"))]
 mod proofs_lease;
-#[cfg(kani)]
+#[cfg(any(kani, feature = "typecheck"))]
 mod proofs_plan;

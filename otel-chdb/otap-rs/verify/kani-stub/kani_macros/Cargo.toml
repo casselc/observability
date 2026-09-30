@@ -1,0 +1,10 @@
+# The attributes of the `kani` stand-in (../kani): each leaves the item as is.
+[package]
+name = "kani_macros"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[lib]
+proc-macro = true

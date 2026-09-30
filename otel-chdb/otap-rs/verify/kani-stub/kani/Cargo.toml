@@ -1,0 +1,13 @@
+# A stand-in for Kani's `kani` crate, for type-checking the harnesses with
+# plain cargo on every push (`cargo check --features typecheck`, ci.yml
+# `verify-typecheck`). Nothing here runs: the real checks are `cargo kani`
+# in the nightly. See ../../../VERIFY.md.
+[package]
+name = "kani"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+kani_macros = { path = "../kani_macros" }

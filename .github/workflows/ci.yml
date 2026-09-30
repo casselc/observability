@@ -278,6 +278,13 @@ jobs:
         run: ../../ci/clippy.sh
       - name: Traceability record (clippy -D warnings is CAST row 8's control)
         run: python3 ../../ci/trace/trace.py record --test ci/clippy.sh --technique G --ids CAST-8
+      # The Kani harnesses compile only under Kani, which runs nightly: a struct they build that gained a
+      # field (D36's Obj.payloads) failed nightly run 47, a day after the push. This type-checks them
+      # against a stand-in `kani` (verify/kani-stub) in ~10 s; it proves nothing (otap-rs/VERIFY.md).
+      - name: Kani harnesses type-check (verify/, stand-in kani; the proofs run in the nightly)
+        env:
+          RUSTFLAGS: -D warnings
+        run: cargo check --locked --manifest-path verify/Cargo.toml --features typecheck
       - name: Unit tests (lib and bins; the consumer's ClickHouse / S3 tests use the services)
         run: cargo test --release --locked --lib --bins
       - name: Datasets (otlpgen; the Go prototype's layout-B objects)

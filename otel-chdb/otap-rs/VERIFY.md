@@ -34,7 +34,12 @@ cargo kani --features mutants --exact --harness proofs_plan::mutant_wall_range_m
 Kani runs one harness at a time. Most need under 400 MB;
 `own_range_holds_every_received_day_proof` 2.4 GB and
 `check_range_holds_every_copy_within_horizon` 5.6 GB. CI: the `kani` job in
-`.github/workflows/nightly.yml` (too slow for every push).
+`.github/workflows/nightly.yml` (too slow for every push). On every push,
+ci.yml type-checks the harnesses with plain cargo against a stand-in `kani`
+(`verify/kani-stub`: `any`/`assume` that are never called, the attributes as
+no-ops): `cargo check --manifest-path verify/Cargo.toml --features typecheck`,
+~10 s. It proves nothing; it catches a harness that no longer compiles, as
+when D36 added `Obj.payloads` and the nightly (run 47) was the first to see it.
 
 ## What is proved
 

@@ -430,6 +430,61 @@ async fn a_checkpoint_write_landing_late_is_taken_back() {
     }
 }
 
+/// Regression (dst_consumer seed 4709496, nightly run 47): the late
+/// checkpoint write the worker takes back had compacted a retired epoch
+/// (E0002) that sits above the floor, because an older epoch (E0001) is not
+/// retired yet. The worker kept E0002 in the epochs it knows; with no
+/// checkpoint entry it read as open at slot 0, nothing listed (GC had
+/// deleted it), so the scan tombstoned it at 0 and the checkpoint closed it
+/// there: a close at slot 0 of an epoch whose slots had been ingested
+/// (noCommitAfterClose), and a key recreated in an epoch GC had retired.
+#[tokio::test(flavor = "current_thread")]
+async fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
+    // TODO(n47): CAST id from the coordinator.
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "H-2"]);
+    let (b, c, clk) = setup();
+    let lane = "c1/p1/traces";
+    let key = format!("{CTL}/ckpt/{lane}.json");
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 3).await; // E0001/0
+    e.new_epoch();
+    e.commit(&b, "h1", 3).await; // E0002/0
+    e.new_epoch();
+    e.commit(&b, "h2", 3).await; // E0003/0
+    let mut ws = vec![worker("w1", &b, &c, &clk)];
+    run(&mut ws, &clk, 12, 500).await;
+    let held = ws[0].checkpoint(lane).unwrap().clone();
+    assert!(held.closed("E0001") && held.closed("E0002") && !held.closed("E0003"), "{held:?}");
+    assert_eq!((held.next("E0001"), held.next("E0002"), held.next("E0003")), (1, 1, 1));
+    // Checkpoint writes get no answer and do not apply (yet).
+    *b.faults.borrow_mut() = MemFaults { matching: "/ckpt/".into(), drop_every: 1, ..Default::default() };
+    e.commit(&b, "h3", 3).await; // E0003/1
+    run(&mut ws, &clk, 1, 100).await;
+    assert_eq!(c.count("otel_traces", "h3"), 3);
+    assert_eq!(ws[0].checkpoint(lane).unwrap().version, held.version, "the write did not apply");
+    let (_, held_etag) = b.get(&key).await.unwrap().unwrap();
+    // It lands late, and it had compacted E0002 (closed, and retired by
+    // GC): E0001, closed but not retired, keeps the floor below it.
+    *b.faults.borrow_mut() = MemFaults::default();
+    let mut late = held.bumped(held.lease_epoch);
+    late.advance("E0003", 2);
+    let _ = late.epochs.remove("E0002");
+    assert!(late.floor.is_empty());
+    let put = b.put(&key, Bytes::from(serde_json::to_vec(&late).unwrap()), Cond::IfMatch(&held_etag), &BTreeMap::new()).await;
+    assert!(matches!(put, Put::Ok(_)), "{put:?}");
+    // GC had deleted every key of E0002, its tombstone included.
+    let gone: Vec<String> = (0..2).map(|s| proto::slot_key(&e.prefix(), "E0002", s)).collect();
+    let _ = b.delete(&gone).await;
+    e.commit(&b, "h4", 3).await; // E0003/2
+    run(&mut ws, &clk, 12, 500).await;
+    assert_eq!(ws[0].stats.ckpt_late_taken, 1);
+    assert_eq!(c.count("otel_traces", "h4"), 3, "the lane went on");
+    let now = ws[0].checkpoint(lane).unwrap().clone();
+    assert!(!now.epochs.contains_key("E0002"), "the compacted epoch is not reopened: {now:?}");
+    assert!(b.get(&gone[0]).await.unwrap().is_none(), "no tombstone recreated in a retired epoch");
+    assert_eq!(ws[0].stats.tombstones_won, 2, "E0001 and E0002 once each");
+}
+
 /// A worker holding one lane whose lease renewal (due at 3 s) gets no
 /// answer and reads back unchanged, then lands late, before the probe at
 /// `probe_ms` (the old window ends at 8 s, the late renewal's at 11 s).

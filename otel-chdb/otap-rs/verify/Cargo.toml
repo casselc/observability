@@ -23,12 +23,19 @@ serde = { version = "1.0.228", features = ["derive"] }
 rand = "0.10.1"
 blake3 = "1.5.5"
 hex = "0.4.3"
+# Only with `typecheck` (never under `cargo kani`, which brings its own).
+kani = { path = "kani-stub/kani", optional = true }
 
 [features]
 # Harnesses that run a mutant (Mutation::WallRange, NoTimeBound, a slack
 # above the margin) and are expected to FAIL: evidence that the properties
 # can see the bug. Off by default and in CI; see ../VERIFY.md.
 mutants = []
+# Type-checks the harnesses with plain cargo against a stand-in `kani`
+# (kani-stub/): `cargo check --features typecheck`. Catches a harness that
+# no longer compiles (a new field of a struct it builds: nightly run 47) on
+# every push instead of in the nightly. Proves nothing.
+typecheck = ["dep:kani"]
 
 [package.metadata.kani.unstable]
 # `#[kani::stub]` (the harnesses stub `format!` out of Timing::check's error path).

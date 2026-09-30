@@ -568,6 +568,135 @@ async fn a_renewal_meeting_our_own_late_renewal_keeps_the_lane() {
     assert_eq!(c.count("otel_traces", "h1"), 0);
 }
 
+/// A free lane (no lease object yet) with a batch waiting, and worker w1
+/// whose take (a create) gets no answer and does not apply yet: the
+/// read-back finds no lease, so w1 holds nothing. Returns w1, central, the
+/// clock, the bucket and the time of the take; the take is still held.
+async fn unanswered_take(m: Mutation) -> (W, Rc<MemCentral>, FakeClock, Rc<MemBucket>, u64) {
+    let (b, c, clk) = setup();
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 5).await;
+    let mut cf = cfg("w1");
+    cf.timing.mutation = m;
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };
+    let t0 = clk.0.get();
+    let _ = w.step().await;
+    assert!(w.held_lanes().is_empty(), "an unanswered take holds nothing");
+    assert_eq!(b.held.borrow().len(), 1, "the take is stuck on the way");
+    *b.faults.borrow_mut() = MemFaults::default();
+    (w, c, clk, b, t0)
+}
+
+/// Regression (STPA.md CAST-83, tagged H-2 until the record exists;
+/// ../../model/s3InlineConsumer.qnt `lateTakeLostBreaksTest`): a take that
+/// got no answer, and read back the version it was conditional on, landed
+/// later. The store named the worker holder while it held nothing: nobody,
+/// itself included, could take the lane before that version was ttl +
+/// margin old, and the lane idled ~10 s (95 s in production). Now the
+/// worker keeps the take pending, reads the lease back at its next step and
+/// adopts it (`refresh_own_takes`, `coord::own_late_take`).
+#[tokio::test(flavor = "current_thread")]
+async fn a_lease_take_landing_late_is_adopted() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    for m in [Mutation::None, Mutation::LateTakeLost] {
+        let (mut w, c, clk, b, t0) = unanswered_take(m).await;
+        assert!(matches!(b.land_held(), Some(Put::Ok(_))), "the take lands, unheard");
+        clk.0.set(t0 + 500);
+        let _ = w.step().await;
+        if m == Mutation::None {
+            // The design: adopted at the next step, the checkpoint fenced, h0 in at once.
+            assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+            assert_eq!((w.stats.take_late_taken, w.stats.take_late_released, w.stats.lanes_taken), (1, 0, 1), "{:?}", w.stats);
+            assert_eq!(c.count("otel_traces", "h0"), 5);
+            assert_eq!(w.checkpoint(lane).map(|k| k.lease_epoch), Some(1), "the checkpoint is fenced under the adopted lease");
+            continue;
+        }
+        // The code before: the lease, its own, first seen at 0.5 s, may be taken only 10 s later.
+        assert!(w.held_lanes().is_empty());
+        while clk.0.get() < t0 + 10_000 {
+            clk.0.set(clk.0.get() + 500);
+            let _ = w.step().await;
+            assert_eq!(c.count("otel_traces", "h0"), 0, "the lane idles until the late take is ttl + margin old");
+        }
+        let mut ws = vec![w];
+        run(&mut ws, &clk, 4, 500).await;
+        assert_eq!(c.count("otel_traces", "h0"), 5, "taken once it expired");
+        assert_eq!(ws[0].stats.take_late_taken, 0);
+    }
+}
+
+/// The late take lands while the worker takes again: on a retry's PUT (it
+/// meets the late take's 412, and the read-back shows the take of ours:
+/// `LeaseMiss::Other`), or before try_take reads the lease (it finds its
+/// own take, first seen now). Both adopt it at once; the code before gave
+/// up the lane, its own in the store.
+#[tokio::test(flavor = "current_thread")]
+async fn a_take_meeting_our_own_late_take_holds_the_lane() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    // "/lease/": it lands on the retry's own PUT; "/workers/": on the
+    // heartbeat, before discovery lists the lease and try_take reads it.
+    for (on, m) in [("/lease/", Mutation::None), ("/workers/", Mutation::None), ("/lease/", Mutation::LateTakeLost)] {
+        let (mut w, c, clk, b, t0) = unanswered_take(m).await;
+        *b.faults.borrow_mut() = MemFaults { matching: on.into(), land_held_on_put: true, ..Default::default() };
+        clk.0.set(t0 + 100);
+        let _ = w.step().await;
+        assert!(b.held.borrow().is_empty(), "{on}: the late take has landed");
+        if m == Mutation::None {
+            assert_eq!(w.held_lanes(), vec![lane.to_string()], "{on}");
+            assert_eq!((w.stats.take_late_taken, w.stats.lanes_taken), (1, 1), "{on}: {:?}", w.stats);
+            assert_eq!(c.count("otel_traces", "h0"), 5, "{on}");
+        } else {
+            assert!(w.held_lanes().is_empty());
+            assert_eq!((w.stats.take_late_taken, c.count("otel_traces", "h0")), (0, 0));
+        }
+    }
+}
+
+/// A take that lands later than its own window (ttl − margin = 8 s after
+/// it was sent) cannot be held: adopted, it would lapse at once and the
+/// lane, the worker's in the store, would idle until it expired. It is
+/// given back at once (a release), and the lane is taken afresh.
+#[tokio::test(flavor = "current_thread")]
+async fn a_late_take_found_after_its_window_is_given_back() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
+    clk.0.set(t0 + 8_500);
+    assert!(matches!(b.land_held(), Some(Put::Ok(_))));
+    let _ = w.step().await;
+    assert_eq!((w.stats.take_late_taken, w.stats.take_late_released), (1, 1), "{:?}", w.stats);
+    assert_eq!(w.held_lanes(), vec![lane.to_string()], "released, then taken afresh in the same step");
+    assert_eq!(c.count("otel_traces", "h0"), 5);
+    let key = format!("{CTL}/lease/{lane}.json");
+    let (body, _) = b.get(&key).await.unwrap().unwrap();
+    let doc: super::coord::LeaseDoc = serde_json::from_slice(&body).unwrap();
+    assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 3), "take (1), release (2), take (3)");
+}
+
+/// Another worker takes the lane between w1's unanswered take and its
+/// landing: the late take's CAS fails (the version it was conditional on is
+/// gone), w1's read-back sees another's lease and adopts nothing, and there
+/// is one holder: the batch goes in once.
+#[tokio::test(flavor = "current_thread")]
+async fn a_late_take_after_another_worker_took_the_lane_is_not_adopted() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (w1, c, clk, b, t0) = unanswered_take(Mutation::None).await;
+    let mut ws = vec![w1, worker("w2", &b, &c, &clk)];
+    clk.0.set(t0 + 100);
+    let _ = ws[1].step().await;
+    assert_eq!(ws[1].held_lanes(), vec![lane.to_string()]);
+    assert!(matches!(b.land_held(), Some(Put::Conflict)), "the late take's CAS fails");
+    run(&mut ws, &clk, 6, 500).await;
+    assert!(ws[0].held_lanes().is_empty());
+    assert_eq!(ws[1].held_lanes(), vec![lane.to_string()]);
+    assert_eq!((ws[0].stats.take_late_taken, ws[0].stats.take_late_released), (0, 0));
+    assert_eq!(c.count("otel_traces", "h0"), 5, "one holder: in once");
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn series_lane_needs_no_check() {
     let (b, c, clk) = setup();
@@ -768,7 +897,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
         // three minutes before midnight (UTC day 20,000)
         clk.0.set(20_000 * 86_400_000 - 180_000);
     }
-    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false };
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false, land_held_on_put: false };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
     c.late_every.set(11);

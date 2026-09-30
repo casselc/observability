@@ -274,6 +274,10 @@ pub struct MemFaults {
     /// (`MemBucket::held`) and applies when the test says (`land_held`),
     /// after its client gave up (a write applied after the reader's check).
     pub hold: bool,
+    /// Before a matching PUT is taken, every PUT held so far lands
+    /// (`land_held`): a write given up on arrives while its client goes on,
+    /// e.g. between a retry's decision and the retry itself.
+    pub land_held_on_put: bool,
 }
 
 /// A PUT stuck on the way (`MemFaults::hold`): key, body, condition
@@ -351,6 +355,9 @@ impl Bucket for MemBucket {
         } else {
             0
         };
+        if faulty && f.land_held_on_put {
+            while self.land_held().is_some() {}
+        }
         if faulty && f.drop_every > 0 && n % f.drop_every == 0 {
             if f.hold {
                 let c = match cond {

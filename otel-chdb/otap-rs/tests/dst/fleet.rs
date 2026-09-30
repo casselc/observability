@@ -211,6 +211,8 @@ pub struct Tally {
     pub edge_restarts: u64,
     /// Late renewals of their own that workers adopted (CAST-74).
     pub lease_adopted: u64,
+    /// Late takes of their own that workers adopted (CAST-83).
+    pub take_adopted: u64,
     pub ckpt_checks: u64,
     pub gc_runs: u64,
     pub gc_deleted: u64,
@@ -252,6 +254,10 @@ pub struct World {
     /// Per (process, lease key): what its last GET of that key returned
     /// (None: it failed, or no object), for `on_log`'s late-renewal check.
     pub lease_reads: RefCell<BTreeMap<(String, String), Option<Bytes>>>,
+    /// Takes that landed after their worker gave up on them (a late PUT
+    /// that replaced another epoch's lease with one naming its sender):
+    /// (process, lease key, body), for `on_log`'s late-take check.
+    pub late_takes: RefCell<BTreeSet<(String, String, Bytes)>>,
     /// The resource each content key's rows use (traces, logs).
     pub res_of: RefCell<BTreeMap<String, String>>,
     /// Committed data objects that announce a resource: slot -> resource.
@@ -308,6 +314,9 @@ pub enum Forced {
     /// The same for the next lease PUT only (a renewal, CAST-74's shape;
     /// `PutLate` mostly meets heartbeats).
     LeasePutLate(u64),
+    /// The same for the next take only (a lease PUT naming its sender that
+    /// replaces another epoch's lease, or creates one: CAST-83's shape).
+    LeaseTakeLate(u64),
     /// The next GET, HEAD or LIST answers 503.
     Read503,
     /// The next statement: refused before writing (TOO_MANY_PARTS).
@@ -326,7 +335,7 @@ pub enum Forced {
 
 impl Forced {
     fn is_put(self) -> bool {
-        matches!(self, Forced::PutDrop | Forced::PutLost | Forced::PutOwn412 | Forced::PutLate(_) | Forced::LeasePutLate(_))
+        matches!(self, Forced::PutDrop | Forced::PutLost | Forced::PutOwn412 | Forced::PutLate(_) | Forced::LeasePutLate(_) | Forced::LeaseTakeLate(_))
     }
     fn is_stmt(self) -> bool {
         matches!(self, Forced::StmtSettledErr | Forced::StmtPartial | Forced::StmtLost | Forced::StmtLate | Forced::StmtTimeoutCommit)
@@ -674,12 +683,19 @@ impl SimBucket {
         let w = self.w.clone();
         let conditional = !matches!(cond, Cond::None);
         let lease = key.starts_with(&format!("{CTL}/lease/"));
-        let forced = self.p.take(|x| x.is_put() && (x != Forced::PutOwn412 || conditional) && (lease || !matches!(x, Forced::LeasePutLate(_))));
+        // A take: a lease naming its sender, over another epoch's lease or none.
+        let take = lease && is_take(&w.mem, key, &body);
+        let forced = self.p.take(|x| {
+            x.is_put()
+                && (x != Forced::PutOwn412 || conditional)
+                && (lease || !matches!(x, Forced::LeasePutLate(_)))
+                && (take || !matches!(x, Forced::LeaseTakeLate(_)))
+        });
         let (drop, lose, own412, late, forced_late) = match forced {
             Some(Forced::PutDrop) => (true, false, false, false, None),
             Some(Forced::PutLost) => (false, true, false, false, None),
             Some(Forced::PutOwn412) => (false, false, true, false, None),
-            Some(Forced::PutLate(ms) | Forced::LeasePutLate(ms)) => (true, false, false, true, Some(ms)),
+            Some(Forced::PutLate(ms) | Forced::LeasePutLate(ms) | Forced::LeaseTakeLate(ms)) => (true, false, false, true, Some(ms)),
             _ => {
                 let drop = w.fault(w.p.put_drop);
                 let lose = !drop && w.fault(w.p.put_lost);
@@ -725,9 +741,14 @@ impl SimBucket {
             let delay = w.p.s3_timeout_ms + forced_late.unwrap_or_else(|| w.sim.range(0, w.p.put_late_ms));
             let what2 = what.clone();
             let name = self.p.name.clone();
+            let (w2, key2, body2) = (w.clone(), key.to_string(), body.clone());
             std::mem::drop(tokio::task::spawn_local(async move {
                 sleep_ms(delay).await;
+                let take = is_take(&w2.mem, &key2, &body2);
                 let r = apply();
+                if take && matches!(r, Put::Ok(_)) {
+                    let _ = w2.late_takes.borrow_mut().insert((name.clone(), key2, body2));
+                }
                 trace(format!("{name} {what2} -> {r:?} (landed late, after the client gave up)"));
             }));
             let _ = self.req(&what, true, false, || ()).await;
@@ -1278,6 +1299,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
         edge_backlog: Cell::new(0),
         lease_puts: RefCell::new(BTreeMap::new()),
         lease_reads: RefCell::new(BTreeMap::new()),
+        late_takes: RefCell::new(BTreeSet::new()),
         res_of: RefCell::new(BTreeMap::new()),
         ann_of: RefCell::new(BTreeMap::new()),
         pay_of: RefCell::new(BTreeMap::new()),
@@ -1617,6 +1639,7 @@ impl World {
         edge_backlog: Cell::new(0),
             lease_puts: RefCell::new(BTreeMap::new()),
             lease_reads: RefCell::new(BTreeMap::new()),
+            late_takes: RefCell::new(BTreeSet::new()),
             res_of: RefCell::new(BTreeMap::new()),
             ann_of: RefCell::new(BTreeMap::new()),
             pay_of: RefCell::new(BTreeMap::new()),
@@ -1640,9 +1663,28 @@ impl World {
         let Some(rest) = line.strip_prefix("consumer ") else { return };
         let Some((worker, msg)) = rest.split_once(": ") else { return };
         if msg.contains("landed late") && msg.ends_with("adopting it") {
-            self.tally.borrow_mut().lease_adopted += 1;
+            if msg.contains("our take") {
+                self.tally.borrow_mut().take_adopted += 1;
+            } else {
+                self.tally.borrow_mut().lease_adopted += 1;
+            }
         }
         let Some(m) = msg.strip_prefix("lease ") else { return };
+        // noLateTakeStall (STPA.md CAST-83): a worker that finds the store
+        // naming it holder of a lane it does not hold, where the stored lease
+        // is a take of its own that landed after it gave up on it, could have
+        // adopted it; the lane, its own in the store, idles until it expires.
+        if let Some((lane, r)) = m.split_once(": the store names us holder (") {
+            let key = format!("{}.json", join(&join(CTL, "lease"), lane));
+            let stored = self.mem.objs.borrow().get(&key).map(|o| o.body.clone());
+            if let Some(cur) = stored {
+                if self.late_takes.borrow().contains(&(worker.to_string(), key.clone(), cur)) {
+                    let v = r.split_once(')').map_or(r, |x| x.0);
+                    self.violation(format!("noLateTakeStall: {worker} left {lane} idle although the store holds its own take ({v}) that landed late"));
+                }
+            }
+            return;
+        }
         let (lane, held, failed) = if let Some((lane, r)) = m.split_once(": renewal failed (") {
             (lane, r.strip_suffix("), dropping the lane"), true)
         } else if let Some((lane, r)) = m.split_once(" lapsed by our clock (") {
@@ -1656,6 +1698,9 @@ impl World {
             Some((e.parse::<u64>().ok()?, b.parse::<u64>().ok()?))
         });
         let key = format!("{}.json", join(&join(CTL, "lease"), lane));
+        // (it held the lane: a late take of its own stored now is one it
+        // adopted or heard, then let lapse or lost; not a stall of CAST-83's)
+        self.late_takes.borrow_mut().retain(|(w, k, _)| !(w == worker && *k == key));
         let stored = self.mem.objs.borrow().get(&key).map(|o| o.body.clone());
         if failed {
             let sent = self.lease_puts.borrow().get(&(worker.to_string(), key.clone())).cloned();
@@ -1676,6 +1721,14 @@ impl World {
             }
         }
     }
+}
+
+/// Is a PUT of `body` to `key` a take: a lease naming its sender (not a
+/// release) over another epoch's lease, or over none?
+fn is_take(mem: &MemBucket, key: &str, body: &Bytes) -> bool {
+    let Ok(d) = serde_json::from_slice::<LeaseDoc>(body) else { return false };
+    let before = mem.objs.borrow().get(key).and_then(|o| serde_json::from_slice::<LeaseDoc>(&o.body).ok());
+    !d.owner.is_empty() && before.is_none_or(|b| b.epoch != d.epoch)
 }
 
 /// Wall clock at the start: some seeds start three minutes before a UTC

@@ -569,6 +569,14 @@ impl FleetMachine {
         self.force_worker(&tc, Forced::LeasePutLate(ms));
     }
 
+    /// S1 on a take (STPA.md CAST-83): the worker's next take is stuck and
+    /// lands after it gave up and read back the version it took it from.
+    #[rule]
+    fn lease_take_late(&mut self, tc: TestCase) {
+        let ms = tc.draw(gs::integers::<u64>().max_value(LATE_MS));
+        self.force_worker(&tc, Forced::LeaseTakeLate(ms));
+    }
+
     /// S5-S6: the next GET, HEAD or LIST answers 503.
     #[rule]
     fn read_503(&mut self, tc: TestCase) {
@@ -635,6 +643,7 @@ fn mutant_named(name: &str) -> Mutation {
         "error_settles" => Mutation::ErrorSettles,
         "early_compact" => Mutation::EarlyCompact,
         "late_renewal_lost" => Mutation::LateRenewalLost,
+        "late_take_lost" => Mutation::LateTakeLost,
         "" | "none" => Mutation::None,
         other => panic!("unknown HEGEL_DST_MUTANT {other}"),
     }
@@ -727,7 +736,7 @@ fn hegel_dst_finds_mutants() {
     let budget: u64 = std::env::var("HEGEL_DST_MUTANT_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000);
     let only = std::env::var("HEGEL_DST_MUTANT").ok();
     let mut survived = Vec::new();
-    for name in ["backdate_observations", "renew_only_at_insert", "own_412_is_takeover", "no_time_bound", "no_verify", "release_in_flight", "error_settles", "early_compact", "late_renewal_lost"] {
+    for name in ["backdate_observations", "renew_only_at_insert", "own_412_is_takeover", "no_time_bound", "no_verify", "release_in_flight", "error_settles", "early_compact", "late_renewal_lost", "late_take_lost"] {
         if only.as_deref().is_some_and(|o| o != name) {
             continue;
         }
@@ -885,6 +894,75 @@ fn regression_a_late_renewal_is_adopted_not_dropped() {
         assert_eq!(dropped, want_drop, "{m:?}: {out}");
         if !want_drop {
             assert!(out.starts_with("adopted ") && !out.starts_with("adopted 0;"), "the design adopted its late renewal: {out}");
+        }
+        drop(sim);
+    }
+}
+
+/// Regression (STPA.md CAST-83, tagged H-2 until the record exists;
+/// ../model/s3InlineConsumer.qnt `lateTakeLostBreaksTest`), as plain
+/// steps: one worker holds the lanes and is killed; its next incarnation
+/// takes them once the dead leases expire, and its first take is stuck on
+/// the way and lands 20 ms after it gave up on it (no answer, the
+/// read-back showed the dead lease; a retry at its next step would have
+/// won the lane first). The code before forgot the take: the
+/// store named the new incarnation holder of a lane it did not hold, and
+/// nobody could take that lane for ttl + margin (`noLateTakeStall`, from
+/// the fleet's log check). The design adopts it at its next step.
+#[test]
+fn regression_a_late_take_is_adopted_not_forgotten() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["H-2"]);
+    for (m, want_stall) in [(Mutation::None, false), (Mutation::LateTakeLost, true)] {
+        let s = Setup {
+            seed: 0,
+            workers: 1,
+            producers: 1,
+            lat_ms: 1,
+            s3_timeout_ms: 1_000,
+            scale: false,
+            zombie_ms: 3_000,
+            server_skew_ms: 0,
+            worker_skew_ms: vec![0],
+            mutant: m,
+        };
+        let sim = SimThread::start(s);
+        let out = sim.run(|f| async move {
+            f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
+            let _ = f.edges[0].0.send(EdgeCmd::Write(2));
+            let mut held = false;
+            for _ in 0..200 {
+                if f.w.leases.borrow().values().any(|(d, _)| d.owner == f.slots.borrow()[0].proc.name) {
+                    held = true;
+                    break;
+                }
+                sleep_ms(50).await;
+            }
+            assert!(held, "the worker never took a lane");
+            {
+                let mut slots = f.slots.borrow_mut();
+                trace(format!("KILL {}", slots[0].proc.name));
+                if let Some(h) = slots[0].handle.take() {
+                    h.abort();
+                }
+                let inc = slots[0].inc + 1;
+                slots[0] = spawn_worker(&f.w, 0, inc);
+                // (before the new incarnation's first step: its first take is late)
+                // (20 ms: after its read-back, before its next step could retry)
+                slots[0].proc.forced.borrow_mut().push(Forced::LeaseTakeLate(20));
+            }
+            trace("RULE the next incarnation's first take lands late");
+            // The dead leases expire (ttl + margin from the new process's
+            // first look), the take goes out, times out (1 s) and lands just after.
+            sleep_ms(T.ttl_ms + T.margin_ms + 5_000).await;
+            let adopted = f.w.tally.borrow().take_adopted;
+            let v = f.w.violations.borrow().clone();
+            Ok(format!("adopted {adopted}; violations {v:?}"))
+        });
+        eprintln!("{m:?}: {out}");
+        let stalled = out.contains("noLateTakeStall");
+        assert_eq!(stalled, want_stall, "{m:?}: {out}");
+        if !want_stall {
+            assert!(out.starts_with("adopted 1;") && out.ends_with("violations []"), "the design adopted its late take: {out}");
         }
         drop(sim);
     }

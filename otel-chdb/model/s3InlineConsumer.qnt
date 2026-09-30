@@ -169,7 +169,26 @@
  *    Mutation LEASE_REFRESH = false (lateLeaseLost, the code before): the
  *    early lapse (noLateLeaseStall, lateLeaseLostBreaksTest,
  *    lateLeaseDropBreaksTest).
- * The take, release, checkpoint fence and tombstone close stay atomic.
+ *  - TAKE_AMBIG (2026-09-30, the take half of LATE_CAS; STPA.md CAST-83):
+ *    the take is a PUT If-Match on the version the worker judged expired
+ *    too (wTakeSend, wCasLand, wTakeAnswer, wTakeTimeout; the atomic
+ *    wAcquire stays, as the case where all three happen at once). A take
+ *    whose answer timed out and whose read-back showed the old version
+ *    lands later just the same: the store names the worker holder, the
+ *    worker holds nothing, and nobody, itself included, may take the lane
+ *    before the version is TTL + MARGIN old. The design (TAKE_REFRESH,
+ *    worker.rs `take_unsure` / `refresh_own_takes`) keeps each such take in
+ *    `tpend` (its lease record: owner, epoch, send time; the code's owner
+ *    incarnation, epoch and beat, never the ETag) with the version it was
+ *    conditional on (`tbase`), and at its next step, or when a later
+ *    take's read-back shows it, adopts the stored lease iff it is exactly
+ *    one of those (`coord::own_late_take`): it then holds the lane from that
+ *    take's send time and fences the checkpoint, as after a 200
+ *    (`gainWorkers`); a take whose window is already over when the worker
+ *    learns of it is given back at once (a release). Mutation
+ *    TAKE_REFRESH = false (lateTakeLost, the code before): the idle lane
+ *    (noLateTakeStall, lateTakeLostBreaksTest, lateTakeDropBreaksTest).
+ * The release, checkpoint fence and tombstone close stay atomic.
  */
 module s3InlineConsumer {
   const TIME_BOUND: bool
@@ -201,6 +220,8 @@ module s3InlineConsumer {
   const LATE_CAS: bool         // the environment: a write's answer times out while it is in flight; it applies after the read-back (CAST-50)
   const CKPT_REFRESH: bool     // the design: after such a read-back, read the checkpoint back before the next step, take it if ours (false: lateCkptLost)
   const LEASE_REFRESH: bool    // the design: the same for a renewal: read the lease back before lapsing or renewing, adopt it if ours (false: lateLeaseLost)
+  const TAKE_AMBIG: bool       // the environment: a take is request, effect, answer too (and may land after its read-back, with LATE_CAS)
+  const TAKE_REFRESH: bool     // the design: keep a take read back unchanged as pending, adopt it when stored (false: lateTakeLost)
 
   import s3Inline(PAYLOADS = Set(1, 2), MAX_EPOCH = 2, MAX_SLOT = 3,
     AMBIGUOUS = WRITER_FAULTS, ZOMBIES = WRITER_FAULTS, CONSUMER_CRASH = false,
@@ -237,6 +258,10 @@ module s3InlineConsumer {
     // LEASE_REFRESH: the send times of its renewals that timed out and read
     // back unchanged (worker.rs `lease_unsure`): each may still land
     pend: Set[int],
+    // TAKE_REFRESH: the takes it sent that timed out (or got no answer) and
+    // read back unchanged (worker.rs `take_unsure`), each may still land;
+    // and the version they were conditional on (NOLEASE: none)
+    tpend: Set[Lease], tbase: Lease,
   }
   type Stmt = { worker: int, inc: int, objs: Set[Obj], fence: int }
   pure val DAYS: Set[int] = 0.to(MAX_DAY)
@@ -247,7 +272,8 @@ module s3InlineConsumer {
   // failed (someone else wrote); CLost: it never applies. CLate
   // (LATE_CAS): still in flight, but its answer timed out and the worker
   // has moved on; it may still apply, unheard.
-  type CasKind = CRenew | CAdvance
+  // (CTake, TAKE_AMBIG: `prev` is the version it is conditional on, `lease` the take)
+  type CasKind = CRenew | CAdvance | CTake
   type CasSt = CPending | CApplied | CRejected | CLost | CLate
   type CasAns = A200 | ANone | A412
   type Write = { worker: int, inc: int, kind: CasKind, st: CasSt,
@@ -336,7 +362,15 @@ module s3InlineConsumer {
   pure def keptScan(wk: Worker, e: int, from: int, n: int): int -> int =
     wk.scanned.set(e, if (wk.scanned.get(e) > n - from) wk.scanned.get(e) - (n - from) else 0)
   // The worker's process state once it no longer holds the lane.
-  pure def dropped(wk: Worker): Worker = { ...idle(wk), holds: false, scanned: NOSCAN, work: 0, unsure: false, pend: Set() }
+  pure def dropped(wk: Worker): Worker = { ...idle(wk), holds: false, scanned: NOSCAN, work: 0, unsure: false, pend: Set(),
+                                           tpend: Set(), tbase: NOLEASE }
+  // The worker's process state once it holds lease l (a take: wAcquire, a
+  // take's 200 or read-back, or its adoption) with checkpoint view nc: the
+  // same bookkeeping on every path (STPA.md CAST-75's lesson). Takes it gave
+  // up on can only meet a 412 now (their version is gone).
+  pure def holding(wk: Worker, l: Lease, nc: Ckpt): Worker =
+    { ...idle(wk), holds: true, leaseEpoch: l.epoch, sent: l.sent, view: nc,
+      scanned: NOSCAN, work: 0, unsure: false, pend: Set(), tpend: Set(), tbase: NOLEASE }
   // Its lease is still the one it wrote (a CAS on it would succeed).
   def current(w: int): bool =
     lease == { owner: w, epoch: workers.get(w).leaseEpoch, sent: workers.get(w).sent }
@@ -357,6 +391,37 @@ module s3InlineConsumer {
   // 200 for it; the others it gave up on were conditional on the same
   // version, now replaced, and can only meet a 412.
   pure def adopted(wk: Worker, l: Lease): Worker = { ...wk, sent: l.sent, work: 0, pend: Set() }
+
+  // TAKE_REFRESH (coord.rs `own_late_take`): the stored lease is one of the
+  // takes this worker sent and gave up on: exactly that record (in the code:
+  // its owner incarnation, the epoch and the beat it wrote; never the ETag).
+  // A take by anyone else in between made that take's CAS fail, so the store
+  // can hold it only if nobody took the lane since.
+  def takeAdoptable(w: int): bool = {
+    val wk = workers.get(w)
+    TAKE_REFRESH and not(wk.holds) and lease.owner == w and wk.tpend.contains(lease)
+  }
+  // A take the worker gave up on, read back unchanged: kept (the design),
+  // with the version it was conditional on; the ones kept for an older
+  // version are dead (that version is gone for good).
+  pure def pended(wk: Worker, q: Write): Worker =
+    if (TAKE_REFRESH) { ...wk, tpend: (if (q.prev == wk.tbase) wk.tpend else Set()).union(Set(q.lease)), tbase: q.prev }
+    else wk
+  // Worker w learns that the store holds l, a take of its own (a 200, a
+  // read-back equal to it, or the adoption of a take it gave up on). Inside
+  // the take's window (from its send time) it holds the lane and fences the
+  // checkpoint, as the code does after any take (worker.rs `install_take`).
+  // Past it (the take landed, or was heard of, more than TTL - MARGIN after
+  // it was sent) it gives the lane back at once, a release CAS on l (it
+  // fails if someone has taken the lane since), so that nobody waits for l
+  // to expire.
+  def gainOver(l: Lease): bool = TIME_BOUND and time >= l.sent + TTL - MARGIN
+  def gainLease(l: Lease): Lease = if (gainOver(l) and lease == l) { owner: 0, epoch: l.epoch + 1, sent: time } else lease
+  def gainCkpt(l: Lease): Ckpt = if (gainOver(l)) ckpt else { ...ckpt, version: ckpt.version + 1, leaseEpoch: l.epoch }
+  def gainWorkers(w: int, l: Lease): int -> Worker =
+    if (gainOver(l)) (if (lease == l) seeAll(workers.set(w, dropped(workers.get(w)))) else workers.set(w, dropped(workers.get(w))))
+    else workers.set(w, holding(workers.get(w), l, gainCkpt(l)))
+  def gainEvents(l: Lease): Set[str] = if (gainOver(l)) Set("takeLateReleased") else Set()
 
   // An object's received day: what its incarnation stamped it with.
   def dayOf(o: Obj): int = oDay.get(o.epoch).get(o.payload)
@@ -467,11 +532,11 @@ module s3InlineConsumer {
     val ne = lease.epoch + 1
     val nc = { ...ckpt, version: ckpt.version + 1, leaseEpoch: ne }
     all {
-      not(wk.holds), wk.phase == WIdle, takeable(w), not(blocked(w)),
+      // (a take of its own in the store is adopted first: wTakeRefresh)
+      not(wk.holds), wk.phase == WIdle, takeable(w), not(blocked(w)), not(takeAdoptable(w)),
       lease' = { owner: w, epoch: ne, sent: time },
       ckpt' = nc,
-      workers' = seeAll(workers.set(w, { ...idle(wk), holds: true, leaseEpoch: ne, sent: time, view: nc,
-                                          scanned: NOSCAN, work: 0, unsure: false, pend: Set() })),
+      workers' = seeAll(workers.set(w, holding(wk, { owner: w, epoch: ne, sent: time }, nc))),
       // liveTakeover: the version it replaces is younger than TTL + MARGIN
       // (its holder may still be inside its window): noLiveTakeover.
       cevents' = cevents.union(if (lease.owner != 0) Set("takeover") else Set()).union(
@@ -633,7 +698,8 @@ module s3InlineConsumer {
   action wCrash(w: int): bool = {
     val wk = workers.get(w)
     all {
-      wk.holds or wk.phase != WIdle or wk.listing,
+      // (TAKE_AMBIG: also one waiting for a take's answer, or with takes pending)
+      wk.holds or wk.phase != WIdle or wk.listing or blocked(w) or wk.tpend != Set(),
       // (a write it has in flight may still apply: wCasLand of an orphan)
       workers' = workers.set(w, { ...dropped(wk), inc: wk.inc + 1, seen: time, obs: NOLEASE, listing: false }),
       cevents' = cevents.union(Set("workerCrash")),
@@ -726,16 +792,25 @@ module s3InlineConsumer {
   // may still apply (a late effect); nobody hears its answer. Nor the
   // answer to a CLate write, whose worker read back before it applied.
   action wCasLand(q: Write): bool = {
-    val ok = if (q.kind == CRenew) lease == q.prev else ckpt.version == q.base
+    val ok = if (q.kind == CAdvance) ckpt.version == q.base else lease == q.prev
     val orphan = workers.get(q.worker).inc != q.inc
+    val take = q.kind == CTake and ok
     all {
       writes.contains(q), q.st == CPending or q.st == CLate,
-      lease' = if (ok and q.kind == CRenew) q.lease else lease,
+      lease' = if (ok and q.kind != CAdvance) q.lease else lease,
       ckpt' = if (ok and q.kind == CAdvance) q.ckpt else ckpt,
-      workers' = if (ok and q.kind == CRenew) seeAll(workers) else workers,
+      workers' = if (ok and q.kind != CAdvance) seeAll(workers) else workers,
       writes' = writes.exclude(Set(q)).union(if (orphan or q.st == CLate) Set() else Set({ ...q, st: if (ok) CApplied else CRejected })),
+      // A take replaces the version it judged expired (as wAcquire does).
+      // lateTakeLost: a take its worker gave up on lands, and the worker
+      // (still the same process) no longer counts it as pending: the store
+      // names it holder of a lane it does not hold, and cannot recognise.
       cevents' = cevents.union(if (orphan and ok) Set("orphanWrite") else Set()).union(
-        if (q.st == CLate and ok) Set("lateLanded") else Set()),
+        if (q.st == CLate and ok) Set("lateLanded") else Set()).union(
+        if (take and q.prev.owner != 0) Set("takeover") else Set()).union(
+        if (take and q.prev.owner != 0 and time < q.prev.sent + TTL + MARGIN) Set("liveTakeover") else Set()).union(
+        if (take and q.st == CLate) Set("lateTakeLanded") else Set()).union(
+        if (take and q.st == CLate and not(orphan) and not(workers.get(q.worker).tpend.contains(q.lease))) Set("lateTakeLost") else Set()),
       time' = time, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
     }
   }
@@ -773,7 +848,7 @@ module s3InlineConsumer {
     val adopt = q.kind == CRenew and ans != A200 and not(readBack) and not(prevHeld) and adoptable(q.worker)
     val keep = if (ans == A200) true else if (ans == A412 and OWN412_TAKEOVER) false else readBack or prevHeld or adopt
     all {
-      writes.contains(q), q.st != CPending, q.st != CLate, wk.inc == q.inc,
+      writes.contains(q), q.kind != CTake, q.st != CPending, q.st != CLate, wk.inc == q.inc,
       ans == A200 implies q.st == CApplied, q.st == CLost implies ans == ANone,
       writes' = writes.exclude(Set(q)),
       workers' = workers.set(q.worker,
@@ -809,7 +884,7 @@ module s3InlineConsumer {
     val prevHeld = if (q.kind == CRenew) lease == q.prev else ckpt.version == q.base
     val adopt = q.kind == CRenew and not(prevHeld) and adoptable(q.worker)
     all {
-      LATE_CAS, writes.contains(q), q.st == CPending, wk.inc == q.inc,
+      LATE_CAS, writes.contains(q), q.kind != CTake, q.st == CPending, wk.inc == q.inc,
       writes' = writes.exclude(Set(q)).union(Set({ ...q, st: CLate })),
       workers' = workers.set(q.worker,
         if (adopt) adopted(wk, lease)
@@ -857,6 +932,91 @@ module s3InlineConsumer {
       workers' = workers.set(w, if (adoptable(w)) adopted(wk, lease) else { ...wk, pend: Set() }),
       cevents' = cevents.union(if (adoptable(w)) Set("leaseLateTaken") else Set()),
       time' = time, lease' = lease, ckpt' = ckpt, central' = central, stmts' = stmts, writes' = writes,
+      keepL, keepSeries, keepDays, crows' = crows,
+    }
+  }
+
+  // ---- ambiguous takes (TAKE_AMBIG; STPA.md CAST-83) ------------------------------------------
+  // The take's PUT If-Match on the version the worker judged expired (the
+  // code's try_take: GET, Observer::may_take, then write_lease); its window
+  // will count from now. The worker waits for the answer (`blocked`).
+  action wTakeSend(w: int): bool = {
+    val wk = workers.get(w)
+    all {
+      TAKE_AMBIG, not(wk.holds), wk.phase == WIdle, takeable(w), not(blocked(w)), not(takeAdoptable(w)),
+      val q = { worker: w, inc: wk.inc, kind: CTake, st: CPending, prev: lease,
+                lease: { owner: w, epoch: lease.epoch + 1, sent: time }, base: 0, ckpt: C0, epoch: 0, from: 0 }
+      and { not(inFlight(q)), writes' = writes.union(Set(q)) },
+      time' = time, lease' = lease, workers' = workers, ckpt' = ckpt, central' = central, stmts' = stmts, cevents' = cevents,
+      keepL, keepSeries, keepDays, crows' = crows,
+    }
+  }
+  // The answer (as wCasAnswer): a 200, or a read-back equal to the take,
+  // and the worker holds the lane (`gainWorkers`). A read-back that still
+  // shows the version it was conditional on (a lost request, or one still in
+  // flight): the design keeps the take as pending (`pended`). One that shows
+  // an earlier take of its own, landed late (this one then met a 412):
+  // adopted. Anything else: someone else took the lane; the takes it kept
+  // for the old version are dead.
+  action wTakeAnswer(q: Write, ans: CasAns): bool = {
+    val wk = workers.get(q.worker)
+    val gain = ans == A200 or lease == q.lease
+    val adopt = not(gain) and takeAdoptable(q.worker)
+    val l = if (gain) q.lease else lease
+    all {
+      TAKE_AMBIG, writes.contains(q), q.kind == CTake, q.st != CPending, q.st != CLate, wk.inc == q.inc,
+      ans == A200 implies q.st == CApplied, q.st == CLost implies ans == ANone,
+      writes' = writes.exclude(Set(q)),
+      if (gain or adopt) all {
+        lease' = gainLease(l), ckpt' = gainCkpt(l), workers' = gainWorkers(q.worker, l),
+        cevents' = cevents.union(gainEvents(l)).union(if (adopt) Set("takeLateTaken") else Set()),
+      } else all {
+        lease' = lease, ckpt' = ckpt,
+        workers' = workers.set(q.worker, if (lease == q.prev) pended(wk, q) else { ...wk, tpend: Set(), tbase: NOLEASE }),
+        cevents' = cevents.union(if (lease == q.prev) Set("takeUnsure") else Set("takeLost")),
+      },
+      time' = time, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
+    }
+  }
+  // LATE_CAS: the answer times out while the take is still in flight; the
+  // read-back finds the version it was conditional on (the take has not
+  // applied yet): the design keeps it pending; the code before forgot it.
+  // One that finds an earlier take of its own is adopted; anything else:
+  // someone else took the lane. The request stays in flight, as CLate.
+  action wTakeTimeout(q: Write): bool = {
+    val wk = workers.get(q.worker)
+    val prevHeld = lease == q.prev
+    val adopt = not(prevHeld) and takeAdoptable(q.worker)
+    all {
+      LATE_CAS, TAKE_AMBIG, writes.contains(q), q.kind == CTake, q.st == CPending, wk.inc == q.inc,
+      writes' = writes.exclude(Set(q)).union(Set({ ...q, st: CLate })),
+      if (adopt) all {
+        lease' = gainLease(lease), ckpt' = gainCkpt(lease), workers' = gainWorkers(q.worker, lease),
+        cevents' = cevents.union(gainEvents(lease)).union(Set("takeLateTaken")),
+      } else all {
+        lease' = lease, ckpt' = ckpt,
+        workers' = workers.set(q.worker, if (prevHeld) pended(wk, q) else { ...wk, tpend: Set(), tbase: NOLEASE }),
+        cevents' = cevents.union(if (prevHeld) Set("lateTimeout") else Set("takeLost")),
+      },
+      time' = time, central' = central, stmts' = stmts, keepL, keepSeries, keepDays, crows' = crows,
+    }
+  }
+  // TAKE_REFRESH (worker.rs `refresh_own_takes`): a worker with takes it
+  // gave up on reads the lease back at the start of its step (and try_take
+  // does, before it judges the lane someone else's). One of them, stored,
+  // is adopted; any other version ends the doubt (their CAS can only fail
+  // now). (Unchanged, the read is a no-op: not a step here.)
+  action wTakeRefresh(w: int): bool = {
+    val wk = workers.get(w)
+    all {
+      TAKE_REFRESH, not(wk.holds), wk.tpend != Set(), not(blocked(w)), lease != wk.tbase,
+      if (takeAdoptable(w)) all {
+        lease' = gainLease(lease), ckpt' = gainCkpt(lease), workers' = gainWorkers(w, lease),
+        cevents' = cevents.union(gainEvents(lease)).union(Set("takeLateTaken")),
+      } else all {
+        lease' = lease, ckpt' = ckpt, workers' = workers.set(w, { ...wk, tpend: Set(), tbase: NOLEASE }), cevents' = cevents,
+      },
+      time' = time, central' = central, stmts' = stmts, writes' = writes,
       keepL, keepSeries, keepDays, crows' = crows,
     }
   }
@@ -934,7 +1094,7 @@ module s3InlineConsumer {
     workers' = WORKERS.mapBy(_ => { holds: false, inc: 0, leaseEpoch: 0, sent: 0, seen: 0, view: C0,
                                      phase: WIdle, epoch: 0, objs: Set(), pending: Set(),
                                      obs: NOLEASE, listing: false, listAt: 0, scanned: NOSCAN, work: 0, unsure: false,
-                                     pend: Set() }),
+                                     pend: Set(), tpend: Set(), tbase: NOLEASE }),
     ckpt' = C0,
     central' = L::PAYLOADS.mapBy(_ => 0),
     crows' = L::PAYLOADS.mapBy(_ => DAYS.mapBy(_ => 0)),
@@ -963,9 +1123,10 @@ module s3InlineConsumer {
       wAcquire(w), wRenew(w), wLapse(w), wRelease(w), wCheck(w, e, k), wSend(w), wAdvance(w), wSeeTomb(w, e), wCrash(w),
       wTomb(w, e, workers.get(w).view.next.get(e)),
       wListReq(w), wListAnswer(w), wHead(w, e), wRenewSend(w), wAdvanceSend(w), wRefresh(w), wLeaseRefresh(w),
+      wTakeSend(w), wTakeRefresh(w),
       all { writes != Set(), nondet q = writes.oneOf() all {
         nondet ans = Set(A200, ANone, A412).oneOf()
-        any { wCasLand(q), wCasLose(q), wCasAnswer(q, ans), wCasTimeout(q) } } },
+        any { wCasLand(q), wCasLose(q), wCasAnswer(q, ans), wCasTimeout(q), wTakeAnswer(q, ans), wTakeTimeout(q) } } },
       all { stmts != Set(), nondet q = stmts.oneOf() all {
         nondet sub = q.objs.powerset().oneOf()
         any { cApply(q, sub), cDrop(q) } } },
@@ -1072,12 +1233,22 @@ module s3InlineConsumer {
   //    next read-back, never its window.
   def leaseStall(w: int): bool = lateOwn(w) and not(blocked(w)) and not(adoptable(w))
   val noLateLeaseStall: bool = WORKERS.forall(w => not(leaseStall(w))) and not(cevents.contains("lateOwnDrop"))
+  //  - noLateTakeStall (CAST-83), its sibling for takes: no take a worker
+  //    gave up on lands while the worker (the same process) has stopped
+  //    counting it as pending (`lateTakeLost`, raised by wCasLand). The
+  //    store would name it holder of a lane it does not hold and cannot
+  //    recognise as its own, and the lane would idle until that version is
+  //    TTL + MARGIN old. A pending take is adopted at the worker's next step
+  //    (wTakeRefresh) or by a later take's read-back, or, if its window is
+  //    already over, given back at once; oneHolder (below) checks that
+  //    adopting it never makes a second holder.
+  val noLateTakeStall: bool = not(cevents.contains("lateTakeLost"))
   //  - oneHolder: no two workers inside their windows at once (by their own
   //    clocks): what makes adopting a late renewal safe, stated directly
   //    (noLiveTakeover implies it; adoption must not break it).
   def inWindow(w: int): bool = workers.get(w).holds and not(lapsed(workers.get(w)))
   val oneHolder: bool = WORKERS.forall(a => WORKERS.forall(b => (a != b and inWindow(a)) implies not(inWindow(b))))
-  val slowSafety: bool = and { safety, workFitsWindow, noOwnDrop, noGapStall, noLateLeaseStall, oneHolder }
+  val slowSafety: bool = and { safety, workFitsWindow, noOwnDrop, noGapStall, noLateLeaseStall, noLateTakeStall, oneHolder }
 
   // ---- witnesses ------------------------------------------------------------------------------------
   val wTakeover: bool = cevents.contains("takeover")
@@ -1127,6 +1298,11 @@ module s3InlineConsumer {
   val wLateTaken: bool = cevents.contains("lateTaken")
   // ... and a holder adopted its own late renewal (LEASE_REFRESH).
   val wLeaseLateTaken: bool = cevents.contains("leaseLateTaken")
+  // TAKE_AMBIG: a take given up on landed later ...
+  val wLateTakeLanded: bool = cevents.contains("lateTakeLanded")
+  // ... and its worker adopted it (TAKE_REFRESH), or gave it back, its window over.
+  val wTakeLateTaken: bool = cevents.contains("takeLateTaken")
+  val wTakeLateReleased: bool = cevents.contains("takeLateReleased")
 
   // ---- scripted scenarios (s3InlineConsumer_test.sh) -------------------------------------
   // Each mutant's counterexample as a fixed run (`*BreaksTest`: run on the
@@ -1396,6 +1572,81 @@ module s3InlineConsumer {
     lateLeaseDropPrefix.then(answerOf(1, A412))
       .expect(and { not(workers.get(1).holds), cevents.contains("lateOwnDrop"), lease.owner == 1,
                     WORKERS.forall(x => not(takeable(x))), not(noLateLeaseStall), safety })
+
+  // A take applied after the reader's check (TAKE_AMBIG, LATE_CAS, TTL 6;
+  // STPA.md CAST-83). The lane is free (no owner); w1 sends its take at 0;
+  // the answer times out in flight and the read-back finds the free lease,
+  // so w1 holds nothing. The take then applies: the store names w1 holder
+  // (epoch 1, sent 0), while w1 holds nothing.
+  action takeTimeoutOf(w: int): bool = all {
+    writes.exists(q => q.worker == w and q.kind == CTake and q.st == CPending),
+    nondet q = writes.filter(x => x.worker == w and x.kind == CTake and x.st == CPending).oneOf() wTakeTimeout(q)
+  }
+  action takeAnswerOf(w: int, a: CasAns): bool = all {
+    writes.exists(q => q.worker == w and q.kind == CTake and q.st != CPending and q.st != CLate),
+    nondet q = writes.filter(x => x.worker == w and x.kind == CTake and x.st != CPending and x.st != CLate).oneOf() wTakeAnswer(q, a)
+  }
+  // (SLOW_OBS: a take is a CAS on the version a LIST showed)
+  action takeSendRun(w: int): bool = if (SLOW_OBS) listRun(w).then(wTakeSend(w)) else wTakeSend(w)
+  pure val TAKE1: Lease = { owner: 1, epoch: 1, sent: 0 }
+  run lateTakePrefix =
+    init.then(lCommit(1, 1)).then(takeSendRun(1)).then(takeTimeoutOf(1))
+      .expect(and { not(workers.get(1).holds), lease.owner == 0, not(blocked(1)) })
+      .then(lateLandOf(1))
+      .expect(and { wLateTakeLanded, lease == TAKE1, not(workers.get(1).holds) })
+  // The design: the take is pending; the next step reads the lease back,
+  // adopts it (holding from its send time, 0) and fences the checkpoint,
+  // and the lane goes on at once.
+  run lateTakeDesignTest =
+    lateTakePrefix.expect(and { workers.get(1).tpend == Set(TAKE1), noLateTakeStall })
+      .then(wTakeRefresh(1))
+      .expect(and { wTakeLateTaken, workers.get(1).holds, current(1), workers.get(1).sent == 0, ckpt.leaseEpoch == 1,
+                    workers.get(1).view == ckpt, workers.get(1).tpend == Set(), slowSafety })
+      .then(headOrTick(1, 1)).then(wCheck(1, 1, 1)).then(wSend(1)).then(cLand(1)).then(advanceRun(1))
+      .expect(and { central.get(1) == 1, ckpt.next.get(1) == 1, current(1), slowSafety })
+  // lateTakeLost (the code before): w1 forgot its take; the store names it
+  // holder and nobody, w1 included, may take the lane before 0 + TTL +
+  // MARGIN = 7: nobody works it.
+  run lateTakeLostBreaksTest =
+    lateTakePrefix.expect(and { workers.get(1).tpend == Set(), not(noLateTakeStall), safety })
+      .then(6.reps(_ => tick))
+      .expect(and { time == 6, WORKERS.forall(x => not(workers.get(x).holds) and not(takeable(x))), ckpt.leaseEpoch == 0, safety })
+      .then(tick)
+      .expect(and { time == 7, WORKERS.forall(x => takeable(x)) })
+  // The same, the late take landing while a retry is in flight: the retry
+  // (at 1, on the same free version) meets a 412, and the read-back shows
+  // the take of 0, neither the retry nor the version it was conditional on.
+  run lateTakeDropPrefix =
+    init.then(lCommit(1, 1)).then(takeSendRun(1)).then(takeTimeoutOf(1)).then(tick)
+      .then(takeSendRun(1)).then(lateLandOf(1)).then(landOf(1))
+      .expect(and { wLateTakeLanded, lease == TAKE1, blocked(1), not(workers.get(1).holds) })
+  // The design adopts the take of 0 ...
+  run lateTakeDropDesignTest =
+    lateTakeDropPrefix.then(takeAnswerOf(1, A412))
+      .expect(and { workers.get(1).holds, wTakeLateTaken, current(1), workers.get(1).sent == 0, ckpt.leaseEpoch == 1, slowSafety })
+  // ... the code before took the 412 for another's take: the lane idles until 7.
+  run lateTakeDropBreaksTest =
+    lateTakeDropPrefix.then(takeAnswerOf(1, A412))
+      .expect(and { not(workers.get(1).holds), lease.owner == 1, not(noLateTakeStall),
+                    WORKERS.forall(x => not(takeable(x))), safety })
+  // Another worker takes the lane between w1's take and its landing: the
+  // late take's CAS fails (the version it was conditional on is gone), and
+  // w1's read-back ends its doubt without adopting anything: one holder.
+  run lateTakeRaceDesignTest =
+    init.then(lCommit(1, 1)).then(takeSendRun(1)).then(takeTimeoutOf(1)).then(takeRun(2)).then(lateLandOf(1))
+      .expect(and { lease.owner == 2, workers.get(2).holds, not(workers.get(1).holds), not(wLateTakeLanded), noLateTakeStall })
+      .then(wTakeRefresh(1))
+      .expect(and { workers.get(1).tpend == Set(), not(workers.get(1).holds), current(2), not(wTakeLateTaken), oneHolder, slowSafety })
+  // A take that lands after its own window (sent at 0, landed at 5 = 0 +
+  // TTL - MARGIN): adopting it would lapse at once, and the lane would idle
+  // until 12. The design gives it back (a release): anyone may take it now.
+  run lateTakeReleaseDesignTest =
+    init.then(lCommit(1, 1)).then(takeSendRun(1)).then(takeTimeoutOf(1)).then(5.reps(_ => tick)).then(lateLandOf(1))
+      .expect(and { lease == TAKE1, time == 5 })
+      .then(wTakeRefresh(1))
+      .expect(and { wTakeLateReleased, lease.owner == 0, lease.epoch == 2, not(workers.get(1).holds), slowSafety })
+      .then(takeRun(2))
+      .expect(and { workers.get(2).holds, current(2), oneHolder, slowSafety })
 }
 
 // The design, in the full hostile environment.
@@ -1405,7 +1656,8 @@ module s3InlineConsumerDesign {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // The design in the mutants' narrower environment (must pass too).
 module designQuiet {
@@ -1414,7 +1666,8 @@ module designQuiet {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // ... and with the mutants' short lease.
 module designShortLease {
@@ -1423,7 +1676,8 @@ module designShortLease {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // ... and with writer faults (copies of a request in a later epoch, on a
 // later day), the short lease, and no series lane. (Before GC_KEEP this
@@ -1434,7 +1688,8 @@ module designCopies {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // The same at the MBT's lease (TTL 6: tests/mbt_s3inline_consumer.rs has one timing).
 module designDays {
@@ -1443,7 +1698,8 @@ module designDays {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: no lease time bound (and no server-side fence).
 module noTimeBound {
@@ -1452,7 +1708,8 @@ module noTimeBound {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: the checkpoint advances past a statement without verifying it.
 module noVerify {
@@ -1461,7 +1718,8 @@ module noVerify {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: GC deletes a closed epoch's tombstone (a zombie writer is needed).
 module gcTombs {
@@ -1470,7 +1728,8 @@ module gcTombs {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: the edge announces a series when it sends the series object.
 module announceEarly {
@@ -1479,7 +1738,8 @@ module announceEarly {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: a worker releases its lane while its statement may still land.
 module releaseInFlight {
@@ -1488,7 +1748,8 @@ module releaseInFlight {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: a commit outlives the margin (SLACK 2 > MARGIN 1).
 module keeperOverrun {
@@ -1497,7 +1758,8 @@ module keeperOverrun {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: the check reads only the objects' own day (no copy horizon),
 // and senders resend requests (new custody, a later day).
@@ -1507,7 +1769,8 @@ module noHorizon {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: the check reads today's partition by the worker's clock.
 module wallRange {
@@ -1516,7 +1779,8 @@ module wallRange {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: GC deletes the slot below the checkpoint (as before 2026-09-26).
 module gcReopens {
@@ -1525,7 +1789,8 @@ module gcReopens {
     MAX_DAY = 0, GC_KEEP = false, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: an error answer ends a statement that may still land (the code
 // before 2026-09-26 took any error answer for the end of its statement).
@@ -1535,7 +1800,8 @@ module errorSettles {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = true,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // The design needs no horizon for edge replays: without sender resends every
 // copy of a request carries its custody day, the original's partition.
@@ -1545,7 +1811,8 @@ module noHorizonReplays {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation: the edge before 8efc34f: a replay is stamped with its
 // incarnation's day, and with no copy horizon it is ingested twice (no
@@ -1556,7 +1823,8 @@ module restamp {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = true, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // ---- durations (2026-09-27): the DST CAST's gaps, STPA.md issues 13 and 14,
 // and AMBIGUITY.md S3's own-write 412. Every instance below has all three
@@ -1570,7 +1838,8 @@ module designSlow {
     MAX_DAY = 1, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = true).*
 }
 // ... in the mutants' quiet environment, at TTL 6 (observeAtRequest's twin) ...
 module designSlowQuiet {
@@ -1579,7 +1848,8 @@ module designSlowQuiet {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = true).*
 }
 // ... and at TTL 3 (renewOnlyAtInsert's and own412IsTakeover's twin).
 module designSlowShort {
@@ -1588,7 +1858,8 @@ module designSlowShort {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = true).*
 }
 // Mutation (the code before 6b1a5f5): a listed lease version is dated when
 // the discovery round started. A renewal the answer carries is backdated,
@@ -1599,7 +1870,8 @@ module observeAtRequest {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = true, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation (the code before 6b1a5f5): the scan covers the whole backlog
 // (count-bounded) and the lease is renewed only at a step's start or the
@@ -1610,7 +1882,8 @@ module renewOnlyAtInsert {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = false, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation (the code before 034f577): a 412 on a lease or checkpoint write
 // means the lane is lost, even when it is object_store's retry meeting our
@@ -1621,7 +1894,8 @@ module own412IsTakeover {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = true,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // ---- a write applied after the reader's check (2026-09-29, STPA.md CAST-50).
 // designSlow* above have LATE_CAS on too; these two drop the slow LISTs and
@@ -1634,7 +1908,8 @@ module designLate {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true).*
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = true).*
 }
 // Mutation (the code before 397456b): after a checkpoint write timed out
 // and read back unchanged, the worker is sure of its view; the write lands
@@ -1646,7 +1921,8 @@ module lateCkptLost {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = false, LEASE_REFRESH = true).*
+    LATE_CAS = true, CKPT_REFRESH = false, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
 }
 // Mutation (the code before 2026-09-30, STPA.md CAST-74): after a renewal
 // timed out and read back unchanged, the holder is sure of its old version;
@@ -1660,5 +1936,19 @@ module lateLeaseLost {
     MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = false,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = false).*
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = false,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).*
+}
+// Mutation (the code before 2026-09-30, STPA.md CAST-83): a take that timed
+// out and read back unchanged is forgotten; it lands later, and the store
+// names the worker holder of a lane it does not hold: nobody works the lane
+// until that version is TTL + MARGIN old (noLateTakeStall). designLate's twin.
+module lateTakeLost {
+  import s3InlineConsumer(TIME_BOUND = true, VERIFY = true, GC_TOMBS = false, ANNOUNCE_EARLY = false,
+    WRITER_FAULTS = false, SERIES = false, TTL = 6, SLACK = 1, RELEASE_GUARD = true, HORIZON = 1, WALL_RANGE = false,
+    MAX_DAY = 0, GC_KEEP = true, ERROR_SETTLES = false,
+    RESTAMP = false, RESENDS = false,
+    SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = false).*
 }

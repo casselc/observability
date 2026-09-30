@@ -249,6 +249,11 @@ pub struct Stats {
     /// Lease renewals of ours that landed after reading back unchanged,
     /// adopted (`refresh_own_lease`, or on the next renewal's 412).
     pub lease_late_taken: u64,
+    /// Takes of ours that landed after reading back unchanged: adopted
+    /// (`refresh_own_takes`, try_take's read, or a later take's 412), or,
+    /// found after their window, given back at once (`take_late_released`).
+    pub take_late_taken: u64,
+    pub take_late_released: u64,
     /// Epochs dropped from checkpoints by compaction (retired by GC).
     pub epochs_compacted: u64,
     /// Full listings of a lane (from its floor).
@@ -432,6 +437,16 @@ pub struct Worker<B: Bucket, C: Central, K: Clock> {
     /// recorded in `{ctl}/quarantine/{lane}.json`, never inserted.
     below: HashSet<SlotId>,
     quarantined: Vec<Obj>,
+    /// Takes of ours that got no answer and read back the version they were
+    /// conditional on (`LeaseMiss::Unchanged`): each may still land, and the
+    /// store then names us holder of a lane we do not hold. Per lane: that
+    /// version's ETag (None: no lease object yet) and the `Held` each take
+    /// would have installed (no ETag: none was seen; distinct beats,
+    /// `coord::take_after`). Until one is found stored (and adopted) or the
+    /// lease is seen at another version (then they can only fail),
+    /// each step starts by reading the lease back (`refresh_own_takes`), and try_take
+    /// looks for them before it judges the lane someone else's.
+    take_unsure: BTreeMap<String, (Option<String>, Vec<Held>)>,
 }
 
 fn log(cfg: &Config, msg: &str) {
@@ -471,6 +486,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             wake_at: None,
             below: HashSet::new(),
             quarantined: Vec::new(),
+            take_unsure: BTreeMap::new(),
         }
     }
 
@@ -511,6 +527,9 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         self.wake_at = None;
         self.below.clear();
         self.quarantined.clear();
+        // (once a step: a take pending on a version nobody replaces costs a
+        // GET per poll until someone takes the lane, us included)
+        self.refresh_own_takes().await;
         self.maintain().await;
         let now = self.clock.mono();
         if self.last_discover.is_none_or(|t| now >= t + self.cfg.discover_ms) {
@@ -739,6 +758,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     // (what is stored instead: the caller may know it for one of its own)
                     d => return Err(LeaseMiss::Other(d.map(|d| (d, e)))),
                 },
+                // (a create: still no lease object, the version it was conditional on)
+                Ok(None) if etag.is_none() => return Err(LeaseMiss::Unchanged),
                 _ => return Err(LeaseMiss::Other(None)),
             },
         };
@@ -1001,6 +1022,17 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                         let now = if t.mutation == Mutation::BackdateObservations { asked } else { self.clock.mono() };
                         self.obs.observe(id, Some(&etag), now);
                         let Ok(doc) = serde_json::from_slice::<LeaseDoc>(&body) else { return false };
+                        // A take of ours we gave up on, stored: the lane is
+                        // ours. Adopted before the lane is judged someone
+                        // else's (a version first seen now, not expired).
+                        if let Some(held) = self.late_take(id, Some((&doc, &etag))) {
+                            return self.install_take(id, lane, held, true).await;
+                        }
+                        if doc.owner == self.cfg.worker {
+                            // (a lease of ours we let lapse or lost; or, before
+                            // CAST-83's fix, a take of ours that landed unheard)
+                            log(&self.cfg, &format!("lease {id}: the store names us holder (epoch {}, beat {}), but not as a take of ours to adopt; taken like anyone's once it expires", doc.epoch, doc.beat));
+                        }
                         // (A lease this worker let lapse still names it as
                         // owner: it is taken again like anyone else's, after
                         // expiry. Skipping "our own" leases here orphaned
@@ -1015,14 +1047,113 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 }
             }
         };
-        let doc = coord::take(id, prev.as_ref().map(|p| &p.0), &self.cfg.worker, t.ttl_ms, self.clock.wall());
-        let Ok(held) = self.write_lease(&lane, &doc, prev.as_ref().map(|p| p.1.as_str())).await else { return false };
+        let base = prev.as_ref().map(|p| p.1.clone());
+        // (a beat above the takes of ours still pending on this same version)
+        let pending = self.take_unsure.get(id).filter(|(b, _)| *b == base).map_or(&[][..], |(_, v)| &v[..]);
+        let doc = coord::take_after(id, prev.as_ref().map(|p| &p.0), &self.cfg.worker, t.ttl_ms, self.clock.wall(), pending);
+        // (the instant `write_lease` counts the window from)
+        let (sent_ms, sent_wall_ms) = (self.clock.mono(), self.clock.wall());
+        match self.write_lease(&lane, &doc, base.as_deref()).await {
+            Ok(held) => self.install_take(id, lane, held, false).await,
+            // Our take has not applied: the lease is still the version we
+            // took it from. It may apply later all the same (a write
+            // applied after our read-back, STPA.md CAST-83): the store would
+            // then name us holder of a lane we do not hold, and nobody would
+            // work it until that version expired. Until we know, each
+            // step reads the lease back (`refresh_own_takes`). The same when
+            // the read-back itself failed (`Other(None)`): the take may have
+            // applied, or may still.
+            Err(LeaseMiss::Unchanged | LeaseMiss::Other(None)) => {
+                if t.mutation != Mutation::LateTakeLost {
+                    let e = self.take_unsure.entry(id.to_string()).or_insert_with(|| (base.clone(), Vec::new()));
+                    if e.0 != base {
+                        // (kept for a version that is gone: they can only fail)
+                        *e = (base, Vec::new());
+                    }
+                    e.1.push(Held { doc, etag: String::new(), sent_ms, sent_wall_ms });
+                }
+                false
+            }
+            // The read-back shows an earlier take of ours that landed late
+            // (this one met its 412): the lane is ours. Anything else:
+            // someone else has it.
+            Err(LeaseMiss::Other(Some((d, e)))) => match self.late_take(id, Some((&d, &e))) {
+                Some(held) => self.install_take(id, lane, held, true).await,
+                None => false,
+            },
+        }
+    }
+
+    /// What a read-back of lane `id`'s lease (`stored`: its doc and ETag,
+    /// None: no lease object) says about takes of ours given up on
+    /// (`take_unsure`): one of them, stored, is returned to be adopted
+    /// (`coord::own_late_take`, held with the stored ETag); the version they
+    /// were conditional on, still stored, keeps them pending; any other
+    /// version ends the doubt (their CAS can only fail now).
+    fn late_take(&mut self, id: &str, stored: Option<(&LeaseDoc, &str)>) -> Option<Held> {
+        let (base, pending) = self.take_unsure.get(id)?;
+        if stored.map(|(_, e)| e) == base.as_deref() {
+            return None;
+        }
+        let own = stored.and_then(|(d, e)| coord::own_late_take(d, &self.cfg.worker, pending).map(|p| p.landed(e)));
+        let _ = self.take_unsure.remove(id);
+        own
+    }
+
+    /// Reads back, at the start of a step, the lease of every lane with
+    /// takes of ours still pending (`take_unsure`), and adopts one found
+    /// stored (`late_take`). Without
+    /// this a take that landed after its read-back left the store naming us
+    /// holder of a lane we did not hold, and nobody, ourselves included,
+    /// could take it before that version was ttl + margin old (STPA.md
+    /// CAST-83; `a_lease_take_landing_late_is_adopted`).
+    async fn refresh_own_takes(&mut self) {
+        let ids: Vec<String> = self.take_unsure.keys().cloned().collect();
+        for id in ids {
+            // (a lane a listing missed this time keeps its takes pending)
+            let Some(lane) = self.lanes.get(&id).cloned() else { continue };
+            let got = match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
+                Ok(Some((body, e))) => match serde_json::from_slice::<LeaseDoc>(&body) {
+                    Ok(d) => Some((d, e)),
+                    Err(_) => continue, // unreadable: try again next time
+                },
+                Ok(None) => None,
+                Err(_) => continue,
+            };
+            if let Some(held) = self.late_take(&id, got.as_ref().map(|(d, e)| (d, e.as_str()))) {
+                let _ = self.install_take(&id, lane, held, true).await;
+            }
+        }
+    }
+
+    /// We hold `held`, a take of ours the store holds (a 200, a read-back
+    /// equal to it, or `late` the adoption of one we gave up on): fence the
+    /// checkpoint and hold the lane from the take's send time. The same
+    /// bookkeeping on every path (STPA.md CAST-75's lesson). A take whose
+    /// window is already over (its answer, or its landing, came later than
+    /// ttl − margin after it was sent) would lapse at once and leave the
+    /// lane, ours in the store, idle until it expired: it is given back at
+    /// once instead (a release CAS on it: anyone may take the lane now).
+    async fn install_take(&mut self, id: &str, lane: Lane, held: Held, late: bool) -> bool {
+        let t = self.cfg.timing;
+        let _ = self.take_unsure.remove(id);
+        if late {
+            self.stats.take_late_taken += 1;
+            log(&self.cfg, &format!("lease {id}: our take landed late (epoch {}, beat {}); adopting it", held.doc.epoch, held.doc.beat));
+        }
+        if held.lapsed(self.clock.mono(), &t) {
+            self.stats.take_late_released += 1;
+            log(&self.cfg, &format!("lease {id}: our take's window is already over (epoch {}); giving it back", held.doc.epoch));
+            let rel = coord::release(&held.doc, self.clock.wall());
+            let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
+            return false;
+        }
         // Fence the checkpoint: rewrite it under our lease epoch.
-        match self.fence_checkpoint(&lane, doc.epoch).await {
+        match self.fence_checkpoint(&lane, held.doc.epoch).await {
             Some((ck, etag)) => {
                 self.stats.lanes_taken += 1;
                 if self.cfg.verbose {
-                    log(&self.cfg, &format!("took {id} (lease epoch {}, workers {})", doc.epoch, self.live_workers));
+                    log(&self.cfg, &format!("took {id} (lease epoch {}, workers {})", held.doc.epoch, self.live_workers));
                 }
                 let now = self.clock.mono();
                 let win = self.cfg.balance.window_ms;
@@ -1032,7 +1163,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 true
             }
             None => {
-                let rel = coord::release(&doc, self.clock.wall());
+                let rel = coord::release(&held.doc, self.clock.wall());
                 let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
                 false
             }
@@ -2231,7 +2362,7 @@ pub enum TombResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LeaseMiss {
     /// The version we held is still stored: our request has not applied
-    /// (it may still: `LaneState::lease_unsure`).
+    /// (it may still: `LaneState::lease_unsure`, `Worker::take_unsure`).
     Unchanged,
     /// Anything else, with what the read-back found (a doc and its ETag),
     /// if it could read one.

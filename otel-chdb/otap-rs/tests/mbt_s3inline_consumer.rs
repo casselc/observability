@@ -25,6 +25,7 @@
 //! | `wRenewSend`, `wAdvanceSend`, `wCasLand`, `wCasLose`, `wCasAnswer` (`designSlow`) | the lease renewal (`coord::renew`) and the checkpoint write as PUT If-Match: applied only if the ETag still matches; on a 412 or no answer the doc is read back and the lane kept iff it equals ours (`write_lease` / `write_ckpt` since 034f577), or still has the ETag the write was conditional on (a lost request: kept on the old window, and written again; `NotWritten::Unchanged` since 2026-09-27, found by this driver, seed 0x29e8aebd) |
 //! | `wCasTimeout`, `wRefresh` (`designSlow`, `designLate`; STPA.md CAST-50) | a write applied after the reader's check: the answer times out while the PUT is in flight, the read-back finds the ETag it was conditional on (`NotWritten::Unchanged`), and a checkpoint write marks the lane `ckpt_unsure`; the PUT may apply later, unheard. At its next step an unsure worker reads the checkpoint back and takes it iff `CkptDoc::ours_landed_late` (`refresh_own_ckpt`, 397456b) |
 //! | `wLeaseRefresh`, and a renewal's `wCasTimeout` / `wCasAnswer` (the same instances; STPA.md CAST-74) | a renewal read back unchanged goes to `lease_unsure` (the model's `pend`, projected as the renewals' send times; its beat from `coord::renew_after`); a read-back of the lease (at `maintain`'s start, or after a timeout or 412) that shows one of them adopts it iff `coord::own_late_renewal` (`Held::landed`, the stored ETag), else the doubt ends or the lane goes; a lapse must find none of them stored (the code reads back first) |
+//! | `wTakeSend`, a take's `wCasLand`, `wTakeAnswer`, `wTakeTimeout`, `wTakeRefresh` (`designSlow`, `designSlowQuiet`, `designLate`; STPA.md CAST-83) | the take as PUT If-Match on the version the observer judged expired (`coord::take_after`: a beat above the takes still pending on it); a 200 or a read-back equal to it holds the lane (`install_take`: the checkpoint fence, or a release if the take's window is already over); a read-back still showing the old version keeps the take in `take_unsure` (the model's `tpend`, projected as the takes' lease records); a read-back (at the step's start, or after a later take's timeout or 412) that shows one of them adopts it iff `coord::own_late_take`, any other version ends the doubt |
 //!
 //! After every step the implementation's state is projected onto the
 //! model's variables (the log, the lease, each worker's lease view,
@@ -59,7 +60,7 @@
 //! `CkptDoc::compact` would drop, run on a copy of the checkpoint.
 //!
 //!   cargo test --release --test mbt_s3inline_consumer -- --nocapture
-//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact|release_in_flight|wall_range|late_renewal_lost cargo test --release --test mbt_s3inline_consumer   # must fail
+//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact|release_in_flight|wall_range|late_renewal_lost|late_take_lost cargo test --release --test mbt_s3inline_consumer   # must fail
 
 #[path = "../src/consumer/mod.rs"]
 #[allow(dead_code, unused_imports)]
@@ -95,6 +96,7 @@ fn timing() -> Timing {
             Ok("release_in_flight") => Mutation::ReleaseInFlight,
             Ok("wall_range") => Mutation::WallRange,
             Ok("late_renewal_lost") => Mutation::LateRenewalLost,
+            Ok("late_take_lost") => Mutation::LateTakeLost,
             _ => Mutation::None,
         },
     }
@@ -156,6 +158,18 @@ pub struct WorkerM {
     /// `lease_unsure`). Absent in the compaction model: none.
     #[serde(default)]
     pend: BTreeSet<i64>,
+    /// The takes it gave up on (worker.rs `take_unsure`), as lease records.
+    /// Absent in the compaction model: none.
+    #[serde(default)]
+    tpend: BTreeSet<LeaseM>,
+    /// The version they were conditional on (not compared: the code keeps
+    /// its ETag, and uses it only as the model does, to tell a changed lease).
+    #[serde(default = "nolease")]
+    tbase: LeaseM,
+}
+
+fn nolease() -> LeaseM {
+    LeaseM { owner: -1, epoch: -1, sent: -1 }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -163,6 +177,7 @@ pub struct WorkerM {
 pub enum CasKindM {
     CRenew,
     CAdvance,
+    CTake,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -341,7 +356,7 @@ impl From<Raw> for Spec {
             None => r.central.iter().filter(|(_, n)| **n > 0).map(|(p, n)| ((*p, 0), *n)).collect(),
         };
         let writes = r.writes.or(r.late_writes).unwrap_or_default().iter().map(|q| (q.worker, q.inc, q.kind, q.st, q.base, q.lease.sent)).collect();
-        let workers = r.workers.into_iter().map(|(w, x)| (w, WorkerM { obs: None, ..x })).collect();
+        let workers = r.workers.into_iter().map(|(w, x)| (w, WorkerM { obs: None, tbase: nolease(), ..x })).collect();
         Spec {
             log: r.l_log,
             writers: r.l_writers,
@@ -392,6 +407,10 @@ struct Worker {
     unsure: bool,
     /// worker.rs `lease_unsure`: renewals of ours that may still land.
     lease_unsure: Vec<Held>,
+    /// worker.rs `take_unsure`: takes of ours that may still land, and the
+    /// ETag of the version they were conditional on.
+    take_unsure: Vec<Held>,
+    take_base: Option<String>,
 }
 
 /// A lease or checkpoint PUT If-Match of the driver's, in flight or unanswered.
@@ -436,9 +455,11 @@ impl Worker {
             scanned: BTreeMap::new(),
             unsure: false,
             lease_unsure: Vec::new(),
+            take_unsure: Vec::new(),
+            take_base: None,
         }
     }
-    /// It no longer holds the lane (its HEADs go with it).
+    /// It no longer holds the lane (its HEADs go with it), and has no take pending.
     fn drop_lane(&mut self) {
         self.idle();
         self.holds = false;
@@ -446,6 +467,8 @@ impl Worker {
         self.scanned.clear();
         self.unsure = false;
         self.lease_unsure.clear();
+        self.take_unsure.clear();
+        self.take_base = None;
     }
     /// HEADs above the new checkpoint are kept (a slot there never changes).
     fn keep_heads(&mut self, e: i64, from: u64, n: u64) {
@@ -681,25 +704,167 @@ impl ConsumerDriver {
         let now = self.now();
         let may = self.may_take(w);
         assert!(may, "the model lets worker {w} take the lane at {now}; its observer wouldn't");
+        assert!(self.own_late_take(w).is_none(), "the model takes; the code adopts its own late take first");
         let doc = coord::take(LANE, self.lease.as_ref().map(|l| &l.0), &format!("w{w}"), t.ttl_ms, now);
         let etag = self.etag();
         self.lease = Some((doc.clone(), etag.clone()));
         self.observe_all(&etag);
+        self.gain(w, Held { doc, etag, sent_ms: now, sent_wall_ms: now });
+    }
+
+    /// Worker `w` learns that the store holds `h`, a take of its own (a 200,
+    /// a read-back equal to it, or its adoption: worker.rs `install_take`).
+    /// Inside the take's window it holds the lane from the take's send time
+    /// and fences the checkpoint; past it, it gives the lane back at once (a
+    /// release CAS on `h`).
+    fn gain(&mut self, w: i64, h: Held) {
+        let t = timing();
+        let now = self.now();
+        if h.lapsed(now, &t) {
+            if self.lease.as_ref().map(|l| &l.1) == Some(&h.etag) {
+                let doc = coord::release(&h.doc, now);
+                let etag = self.etag();
+                self.lease = Some((doc, etag.clone()));
+                self.observe_all(&etag);
+            }
+            self.w(w).drop_lane();
+            return;
+        }
         // the checkpoint fence
-        self.ckpt = self.ckpt.bumped(doc.epoch);
+        self.ckpt = self.ckpt.bumped(h.doc.epoch);
         self.ckpt_etag += 1;
-        let (ck, ce, time) = (self.ckpt.clone(), self.ckpt_etag, self.time);
+        let (ck, ce) = (self.ckpt.clone(), self.ckpt_etag);
         let x = self.w(w);
-        x.idle();
-        x.scanned.clear();
-        x.unsure = false;
-        x.lease_unsure.clear();
+        x.drop_lane();
         x.holds = true;
-        x.lease_epoch = doc.epoch as i64;
-        x.sent = time;
-        x.held = Some(Held { doc, etag, sent_ms: now, sent_wall_ms: now });
+        x.lease_epoch = h.doc.epoch as i64;
+        x.sent = h.sent_ms as i64;
+        x.held = Some(h);
         x.view = ck;
         x.view_etag = ce;
+    }
+
+    /// The stored lease, if it is one of worker `w`'s takes given up on
+    /// (`coord::own_late_take`), held as the code adopts it (`Held::landed`).
+    fn own_late_take(&self, w: i64) -> Option<Held> {
+        if timing().mutation == Mutation::LateTakeLost {
+            return None;
+        }
+        let x = &self.workers[&w];
+        if x.holds {
+            return None;
+        }
+        let (doc, etag) = self.lease.as_ref()?;
+        coord::own_late_take(doc, &format!("w{w}"), &x.take_unsure).map(|p| p.landed(etag))
+    }
+
+    /// A take read back unchanged is kept (worker.rs try_take's
+    /// `LeaseMiss::Unchanged`); those kept for another version are dead.
+    fn pend_take(&mut self, w: i64, p: &PendW) {
+        if timing().mutation == Mutation::LateTakeLost {
+            return;
+        }
+        let x = self.w(w);
+        if x.take_unsure.is_empty() || x.take_base != p.prev_etag {
+            x.take_unsure.clear();
+            x.take_base = p.prev_etag.clone();
+        }
+        x.take_unsure.push(Held { doc: p.lease.clone().expect("doc"), etag: String::new(), sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
+    }
+
+    /// The take's PUT If-Match (on the version the observer judged expired,
+    /// or a create) goes out; its window will count from now.
+    fn take_send(&mut self, w: i64) {
+        let t = timing();
+        let now = self.now();
+        assert!(self.may_take(w), "the model sends worker {w}'s take at {now}; its observer wouldn't");
+        assert!(self.own_late_take(w).is_none(), "the model sends a take; the code adopts its own late take first");
+        let base = self.lease.as_ref().map(|l| l.1.clone());
+        let x = &self.workers[&w];
+        let pending = if !x.take_unsure.is_empty() && x.take_base == base { &x.take_unsure[..] } else { &[][..] };
+        let doc = coord::take_after(LANE, self.lease.as_ref().map(|l| &l.0), &format!("w{w}"), t.ttl_ms, now, pending);
+        let p = PendW {
+            worker: w,
+            inc: x.inc,
+            kind: CasKindM::CTake,
+            st: CasStM::CPending,
+            lease: Some(doc),
+            prev_etag: base,
+            etag: None,
+            ckpt: None,
+            base_etag: 0,
+            ckpt_etag: 0,
+            epoch: 0,
+            from: 0,
+            sent: self.time,
+            base_version: 0,
+        };
+        self.writes.push(p);
+    }
+
+    /// The take's answer (worker.rs try_take / `write_lease`): a 200 or a
+    /// read-back equal to it holds the lane; a read-back still showing the
+    /// version it was conditional on keeps it pending; one showing an
+    /// earlier take of ours adopts that; anything else ends the doubt.
+    fn take_answer(&mut self, q: &WriteM, ans: CasAnsM) {
+        let i = self.write_index(q);
+        let p = self.writes.remove(i);
+        let doc = p.lease.clone().expect("doc");
+        let read_back = self.lease.as_ref().filter(|(d, _)| *d == doc).map(|(_, e)| e.clone());
+        if ans == CasAnsM::A200 {
+            assert_eq!(p.st, CasStM::CApplied, "a 200 for a take that did not apply");
+        }
+        if ans == CasAnsM::A200 || read_back.is_some() {
+            let etag = if ans == CasAnsM::A200 { p.etag.clone() } else { read_back }.expect("applied");
+            self.gain(p.worker, Held { doc, etag, sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
+            return;
+        }
+        self.take_miss(&p);
+    }
+
+    /// No take of ours installed by this answer (worker.rs
+    /// `LeaseMiss::Unchanged` / `LeaseMiss::Other`).
+    fn take_miss(&mut self, p: &PendW) {
+        if self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref() {
+            self.pend_take(p.worker, p);
+            return;
+        }
+        match self.own_late_take(p.worker) {
+            Some(h) => self.gain(p.worker, h),
+            None => {
+                let x = self.w(p.worker);
+                x.take_unsure.clear();
+                x.take_base = None;
+            }
+        }
+    }
+
+    /// The take's answer times out while it is in flight; the read-back is
+    /// resolved as any unanswered take's (`take_miss`), and the PUT may
+    /// apply later, unheard.
+    fn take_timeout(&mut self, q: &WriteM) {
+        let i = self.write_index(q);
+        assert_eq!(self.writes[i].st, CasStM::CPending, "a timeout of a take that is no longer in flight");
+        let p = self.writes[i].clone();
+        self.writes[i].st = CasStM::CLate;
+        self.take_miss(&p);
+    }
+
+    /// `refresh_own_takes`: a worker with takes it gave up on reads the
+    /// lease back at the start of its step (the model: only once it
+    /// changed); one of them is adopted, anything else ends the doubt.
+    fn take_refresh(&mut self, w: i64) {
+        let x = &self.workers[&w];
+        assert!(!x.holds && !x.take_unsure.is_empty(), "the model reads the lease back for worker {w}; the code has no take pending");
+        assert_ne!(self.lease.as_ref().map(|l| l.1.clone()), x.take_base, "the model reads back a changed lease; the driver's is unchanged");
+        match self.own_late_take(w) {
+            Some(h) => self.gain(w, h),
+            None => {
+                let x = self.w(w);
+                x.take_unsure.clear();
+                x.take_base = None;
+            }
+        }
     }
 
     fn renew(&mut self, w: i64) {
@@ -962,7 +1127,7 @@ impl ConsumerDriver {
             .position(|p| {
                 (p.worker, p.inc, p.kind, p.st) == (q.worker, q.inc, q.kind, q.st)
                     && match p.kind {
-                        CasKindM::CRenew => p.sent == q.lease.sent,
+                        CasKindM::CRenew | CasKindM::CTake => p.sent == q.lease.sent,
                         CasKindM::CAdvance => p.base_version == q.base,
                     }
             })
@@ -1039,12 +1204,12 @@ impl ConsumerDriver {
         let i = self.write_index(q);
         let mut p = self.writes.remove(i);
         let ok = match p.kind {
-            CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
+            CasKindM::CRenew | CasKindM::CTake => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
             CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
         };
         if ok {
             match p.kind {
-                CasKindM::CRenew => {
+                CasKindM::CRenew | CasKindM::CTake => {
                     let etag = self.etag();
                     self.lease = Some((p.lease.clone().expect("doc"), etag.clone()));
                     self.observe_all(&etag);
@@ -1082,10 +1247,11 @@ impl ConsumerDriver {
     /// request was lost: `NotWritten::Unchanged`, since 2026-09-27; the
     /// worker keeps its old window and writes again).
     fn cas_answer(&mut self, q: &WriteM, ans: CasAnsM) {
+        assert_ne!(q.kind, CasKindM::CTake, "a take's answer is wTakeAnswer");
         let i = self.write_index(q);
         let p = self.writes.remove(i);
         let read_back = match p.kind {
-            CasKindM::CRenew => self.lease.as_ref().filter(|(d, _)| Some(d) == p.lease.as_ref()).map(|(_, e)| e.clone()),
+            CasKindM::CRenew | CasKindM::CTake => self.lease.as_ref().filter(|(d, _)| Some(d) == p.lease.as_ref()).map(|(_, e)| e.clone()),
             CasKindM::CAdvance => (Some(&self.ckpt) == p.ckpt.as_ref()).then(|| format!("{}", self.ckpt_etag)),
         };
         let keep = match ans {
@@ -1096,7 +1262,7 @@ impl ConsumerDriver {
             CasAnsM::ANone | CasAnsM::A412 => read_back.is_some(),
         };
         let unchanged = match p.kind {
-            CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
+            CasKindM::CRenew | CasKindM::CTake => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
             CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
         };
         if !keep && unchanged {
@@ -1116,7 +1282,7 @@ impl ConsumerDriver {
             return;
         }
         match p.kind {
-            CasKindM::CRenew => {
+            CasKindM::CRenew | CasKindM::CTake => {
                 let doc = p.lease.expect("doc");
                 // (the 200's ETag, or the one read back)
                 let etag = if ans == CasAnsM::A200 { p.etag } else { read_back }.expect("applied");
@@ -1149,12 +1315,13 @@ impl ConsumerDriver {
     /// `ckpt_unsure`). Anything else: the lane is dropped. The PUT stays in
     /// flight, and may apply later, unheard.
     fn cas_timeout(&mut self, q: &WriteM) {
+        assert_ne!(q.kind, CasKindM::CTake, "a take's timeout is wTakeTimeout");
         let i = self.write_index(q);
         assert_eq!(self.writes[i].st, CasStM::CPending, "a timeout of a write that is no longer in flight");
         let p = self.writes[i].clone();
         self.writes[i].st = CasStM::CLate;
         let unchanged = match p.kind {
-            CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
+            CasKindM::CRenew | CasKindM::CTake => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
             CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
         };
         if !unchanged && p.kind == CasKindM::CRenew {
@@ -1167,7 +1334,7 @@ impl ConsumerDriver {
         let x = self.w(p.worker);
         match (unchanged, p.kind) {
             (false, _) => x.drop_lane(),
-            (true, CasKindM::CRenew) => {
+            (true, CasKindM::CRenew | CasKindM::CTake) => {
                 if !late_lost {
                     let doc = p.lease.expect("doc");
                     x.lease_unsure.push(Held { doc, etag: String::new(), sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
@@ -1273,6 +1440,10 @@ impl Driver for ConsumerDriver {
             wCasTimeout(q: WriteM) => self.cas_timeout(&q),
             wRefresh(w: i64) => self.refresh(w),
             wLeaseRefresh(w: i64) => self.lease_refresh(w),
+            wTakeSend(w: i64) => self.take_send(w),
+            wTakeAnswer(q: WriteM, ans: CasAnsM) => self.take_answer(&q, ans),
+            wTakeTimeout(q: WriteM) => self.take_timeout(&q),
+            wTakeRefresh(w: i64) => self.take_refresh(w),
             wCompact(w: i64) => self.compact(w),
             sPush => {},
             sResend => {},
@@ -1324,6 +1495,12 @@ impl State<ConsumerDriver> for Spec {
                     obs: None,
                     unsure: x.unsure,
                     pend: x.lease_unsure.iter().map(|h| h.sent_ms as i64).collect(),
+                    tpend: x
+                        .take_unsure
+                        .iter()
+                        .map(|h| LeaseM { owner: *w, epoch: h.doc.epoch as i64, sent: h.doc.wall_ms as i64 })
+                        .collect(),
+                    tbase: nolease(),
                 })
             })
             .collect();
@@ -1361,7 +1538,7 @@ impl State<ConsumerDriver> for Spec {
                 .writes
                 .iter()
                 .map(|p| match p.kind {
-                    CasKindM::CRenew => (p.worker, p.inc, p.kind, p.st, 0, p.sent),
+                    CasKindM::CRenew | CasKindM::CTake => (p.worker, p.inc, p.kind, p.st, 0, p.sent),
                     CasKindM::CAdvance => (p.worker, p.inc, p.kind, p.st, p.base_version, -1),
                 })
                 .collect(),

@@ -16,7 +16,8 @@ module wideDesign {
     MAX_DAY = 2, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = false, OBSERVE_AT_REQUEST = false, SCAN = false, SCAN_BY_TIME = true, CAS_AMBIG = false, OWN412_TAKEOVER = false,
-    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true).* from "./s3InlineConsumer"
+    LATE_CAS = false, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = false, TAKE_REFRESH = true).* from "./s3InlineConsumer"
 }
 // The design with every duration (slow LISTs, HEADs that cost time,
 // ambiguous and late lease and checkpoint writes), over three days.
@@ -26,5 +27,6 @@ module wideSlow {
     MAX_DAY = 2, GC_KEEP = true, ERROR_SETTLES = false,
     RESTAMP = false, RESENDS = true,
     SLOW_OBS = true, OBSERVE_AT_REQUEST = false, SCAN = true, SCAN_BY_TIME = true, CAS_AMBIG = true, OWN412_TAKEOVER = false,
-    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true).* from "./s3InlineConsumer"
+    LATE_CAS = true, CKPT_REFRESH = true, LEASE_REFRESH = true,
+    TAKE_AMBIG = true, TAKE_REFRESH = true).* from "./s3InlineConsumer"
 }

@@ -57,7 +57,7 @@ for m in releaseInFlight keeperOverrun noHorizon restamp wallRange gcReopens err
 # Durations (2026-09-27, the DST CAST: STPA.md issues 13 and 14; AMBIGUITY.md S3):
 # slow LIST answers, HEADs that cost time, ambiguous lease / checkpoint writes.
 # slowSafety = safety (with noLiveTakeover) + workFitsWindow + noOwnDrop + noGapStall
-# + noLateLeaseStall + oneHolder.
+# + noLateLeaseStall + noLateTakeStall + oneHolder.
 for m in designSlow designSlowQuiet designSlowShort; do sim $C $m slowSafety 5000 60 ok; done
 for w in wListRace wRenewMidScan wOwn412Kept wOrphanWrite wCasLost wTakeover wPrevKept; do
   sim $C designSlow "not($w)" 20000 60 VIOLATED
@@ -99,6 +99,16 @@ sim $C lateLeaseLost noLateLeaseStall 5000 60 VIOLATED
 sim $C lateLeaseLost safety 5000 60 ok
 for m in designLate designSlow designSlowQuiet; do runs $m "lateLease(Drop)?DesignTest" all-pass; done
 runs lateLeaseLost "lateLease(Lost|Drop)BreaksTest" all-pass
+# A take applied after the reader's check (2026-09-30, STPA.md CAST-83; TAKE_AMBIG, TAKE_REFRESH):
+# the worker keeps a take read back unchanged as pending and adopts it when the store holds it
+# (owner, epoch, the take's own send time / beat), holding from its send time and fencing the
+# checkpoint; one found after its window is given back at once. slowSafety (designLate,
+# designSlow*) includes noLateTakeStall and oneHolder.
+for w in wLateTakeLanded wTakeLateTaken; do sim $C designLate "not($w)" 20000 60 VIOLATED; done
+sim $C lateTakeLost noLateTakeStall 5000 60 VIOLATED
+sim $C lateTakeLost safety 5000 60 ok
+for m in designLate designSlow designSlowQuiet designSlowShort; do runs $m "lateTake(Drop|Race|Release)?DesignTest" all-pass; done
+runs lateTakeLost "lateTake(Lost|Drop)BreaksTest" all-pass
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

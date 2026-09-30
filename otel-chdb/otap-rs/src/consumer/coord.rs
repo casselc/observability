@@ -106,7 +106,41 @@ pub fn own_late_renewal<'a>(stored: &LeaseDoc, held: &LeaseDoc, pending: &'a [He
     if stored.owner != held.owner || stored.epoch != held.epoch || stored.beat <= held.beat {
         return None;
     }
+    own_pending(stored, pending)
+}
+
+/// The one of our unresolved lease writes (`pending`: renewals or takes)
+/// that `stored` is: the very doc we wrote, owner, epoch, beat and wall
+/// time. Never matched by ETag, which we never saw for a write whose answer
+/// was lost (STPA.md CAST-73).
+fn own_pending<'a>(stored: &LeaseDoc, pending: &'a [Held]) -> Option<&'a Held> {
     pending.iter().find(|p| p.doc == *stored)
+}
+
+/// A take of `lane` for `me` while takes of ours on the same version are
+/// still unresolved (`pending`: each got no answer and read back that
+/// version unchanged, so each may still land): a beat above all of theirs,
+/// so that every take this worker sends on one version carries its own
+/// beat (`own_late_take` tells them apart, as `renew_after` does renewals).
+pub fn take_after(lane: &str, prev: Option<&LeaseDoc>, me: &str, ttl_ms: u64, wall: u64, pending: &[Held]) -> LeaseDoc {
+    let beat = pending.iter().map(|p| p.doc.beat.saturating_add(1)).max().unwrap_or(0);
+    LeaseDoc { beat, ..take(lane, prev, me, ttl_ms, wall) }
+}
+
+/// Is the stored lease `stored` one of our takes that landed after we gave
+/// up on it (no answer, then a read-back that showed the version we took it
+/// from unchanged)? Only if it names us (`me`, unique per incarnation) and
+/// is exactly one of those docs (`pending`: the epoch and beat we wrote).
+/// A take by anyone else in between made ours fail (it was conditional on
+/// the version it replaced), so a stored take of ours means nobody took the
+/// lane since. The worker adopts it (`Held::landed`) rather than leave the
+/// lane, its own in the store, idle until the version expires (STPA.md
+/// CAST-83; ../../model/s3InlineConsumer.qnt `wTakeRefresh`).
+pub fn own_late_take<'a>(stored: &LeaseDoc, me: &str, pending: &'a [Held]) -> Option<&'a Held> {
+    if stored.owner != me {
+        return None;
+    }
+    own_pending(stored, pending)
 }
 
 /// Gives the lane up (the holder has nothing in flight): anyone may take it at once.
@@ -197,6 +231,12 @@ pub enum Mutation {
     /// next renewal meets a 412, while the store holds its own newer version
     /// (the model's `lateLeaseLost`).
     LateRenewalLost,
+    /// A take that got no answer and read back the version it was
+    /// conditional on is forgotten (the code before 2026-09-30, STPA.md
+    /// CAST-83): when it lands later, the store names the worker holder of a
+    /// lane it does not hold, and nobody works the lane until that version
+    /// expires (the model's `lateTakeLost`).
+    LateTakeLost,
     /// Statements mix late parts and bulk objects (`plan::group` without
     /// its per-part buckets, DECISIONS.md D34): a squashed statement then
     /// writes two partitions per day, and is no longer one part.
@@ -286,8 +326,8 @@ impl Timing {
 }
 
 impl Held {
-    /// A renewal of ours found stored after we gave up on it
-    /// (`own_late_renewal`), held as if its 200 had come: its window counts
+    /// A renewal or take of ours found stored after we gave up on it
+    /// (`own_late_renewal`, `own_late_take`), held as if its 200 had come: its window counts
     /// from when it was sent, and the ETag is the one the read-back showed,
     /// the stored one (never an ETag of a write whose answer we lost:
     /// CAST-73's lesson).
@@ -871,6 +911,43 @@ mod tests {
         let other_epoch = LeaseDoc { epoch: r1.epoch + 1, ..r1.clone() };
         let listed = vec![Held { doc: other_epoch.clone(), etag: String::new(), sent_ms: 300, sent_wall_ms: 10 }];
         assert!(own_late_renewal(&other_epoch, &held.doc, &listed).is_none(), "nor one of another epoch");
+    }
+
+    /// STPA.md CAST-83 (tagged H-2 until the record exists): a take given up
+    /// on is ours only as the exact doc we wrote, and only if it names us.
+    #[test]
+    fn a_late_take_is_ours_only_by_owner_epoch_and_beat() {
+        let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+        let prev = take("l", None, "w0-0000", T.ttl_ms, 0);
+        // Two takes of the same version given up on: distinct beats, even at the same wall ms.
+        let t1 = take_after("l", Some(&prev), "w1-abcd", T.ttl_ms, 10, &[]);
+        assert_eq!((t1.owner.as_str(), t1.epoch, t1.beat, t1.wall_ms, t1.ttl_ms), ("w1-abcd", prev.epoch + 1, 0, 10, T.ttl_ms));
+        assert_eq!(t1, take("l", Some(&prev), "w1-abcd", T.ttl_ms, 10), "with nothing pending, a take is a plain take");
+        let p1 = Held { doc: t1.clone(), etag: String::new(), sent_ms: 100, sent_wall_ms: 10 };
+        let t2 = take_after("l", Some(&prev), "w1-abcd", T.ttl_ms, 10, std::slice::from_ref(&p1));
+        let p2 = Held { doc: t2.clone(), etag: String::new(), sent_ms: 200, sent_wall_ms: 10 };
+        let t3 = take_after("l", Some(&prev), "w1-abcd", T.ttl_ms, 10, &[p2.clone(), p1.clone()]);
+        assert_eq!((t2.beat, t3.beat), (1, 2), "a retry's beat is above every pending take's, whatever their order");
+        let pending = vec![p1, p2];
+        let got = own_late_take(&t2, "w1-abcd", &pending).expect("ours");
+        assert_eq!(got.sent_ms, 200, "the take's own window");
+        assert_eq!(own_late_take(&t1, "w1-abcd", &pending).map(|p| p.sent_ms), Some(100));
+        assert_eq!(got.landed("e9").etag, "e9", "held with the stored ETag");
+        // Not ours: the version we took from, another worker's take, a
+        // release, a take of ours we never sent (another beat or wall time).
+        assert!(own_late_take(&prev, "w1-abcd", &pending).is_none());
+        let other = take("l", Some(&prev), "w2-ffff", T.ttl_ms, 10);
+        assert!(own_late_take(&other, "w1-abcd", &pending).is_none());
+        assert!(own_late_take(&release(&prev, 10), "w1-abcd", &pending).is_none());
+        assert!(own_late_take(&LeaseDoc { beat: 5, ..t1.clone() }, "w1-abcd", &pending).is_none());
+        assert!(own_late_take(&LeaseDoc { wall_ms: 11, ..t1.clone() }, "w1-abcd", &pending).is_none());
+        // The owner guard stands on its own (CAST-82's lesson): a doc of
+        // another owner, or of a previous incarnation of ours, is refused even
+        // if it were listed as pending.
+        let foreign = LeaseDoc { owner: "w2-ffff".into(), ..t1.clone() };
+        let listed = vec![Held { doc: foreign.clone(), etag: String::new(), sent_ms: 300, sent_wall_ms: 10 }];
+        assert!(own_late_take(&foreign, "w1-abcd", &listed).is_none(), "another owner's lease is never ours");
+        assert!(own_late_take(&foreign, "w2-ffff", &listed).is_some(), "(the same doc is its owner's)");
     }
 
     #[test]

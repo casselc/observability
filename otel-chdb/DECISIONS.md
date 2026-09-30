@@ -697,6 +697,23 @@ through S3 objects written with conditional requests:
 Taking a lane rewrites its checkpoint first, so every later CAS by the old
 holder fails. Expiry is judged on the observer's own monotonic clock.
 
+**Ambiguous renewals (2026-09-30, STPA.md CAST-74).** A renewal whose
+answer is lost and whose read-back shows the held version unchanged has not
+applied *yet*; it may apply later. The holder keeps it as unsure and, before
+its lapse check and its next renewal, reads the lease back; a stored doc
+that is exactly one of its unsure renewals (owner, which names the
+incarnation; lease epoch; beat, unique per renewal sent under one version)
+is adopted, its window counting from that renewal's send, its ETag the
+stored one. Identity is never the ETag: we never saw the ETag of a write
+whose answer was lost (CAST-73). Adoption cannot make two holders: the
+store names us, a takeover or release changes owner and epoch, and an
+observer's expiry clock restarts no earlier than the late version applied,
+after it was sent. What stays: a renewal that lands *after* the holder's
+window ended (in flight for longer than the rest of the window) still costs
+the lane up to TTL + margin, as does a take whose answer is lost (the take
+is not retried from its pending doc), and an ambiguous release must not be
+undone (it may land and let another worker in).
+
 **Fleet scale (2026-09-26):**
 
 - **Load is balanced by weight,** not lane count: a base per lane plus its

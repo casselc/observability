@@ -1554,7 +1554,17 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   write that installed its version, so its window (`sent + ttl − margin`)
   always closes 2 × margin before anyone may take over, whatever the clocks'
   offsets. Renewal is a CAS every TTL/3; a failed renewal or a lapsed window
-  (own clock) drops the lane at once.
+  (own clock) drops the lane at once. A renewal with no answer whose
+  read-back still shows the held version keeps the lane on its old window,
+  but may land later (2026-09-30, STPA.md CAST-74): the worker keeps it as
+  unsure (`lease_unsure`), gives each retry a beat above every unsure one,
+  and before its lapse check and its next renewal reads the lease back; a
+  stored doc that is exactly one of those renewals (our owner id, which
+  carries the incarnation, our epoch, its beat) is adopted, with the
+  stored ETag and that renewal's own send time (`coord::own_late_renewal`,
+  `Held::landed`). Before, the holder lapsed on the older window, or
+  dropped the lane when its retry met the late renewal's 412, and the lane,
+  its own in the store, idled up to TTL + margin. Stat `lease_late_taken`.
 - **The time bound on inserts.** A statement starts only if
   `now + budget ≤ safe_until` for every lane it contains, and runs with
   `max_execution_time = budget`. For a process paused between that check

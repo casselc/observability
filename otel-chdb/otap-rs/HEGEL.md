@@ -135,7 +135,9 @@ skews within the D9 bound. Hegel's rules are then the environment's moves:
   late: CAST #13's shape), `slow_s3` (every S3 answer late for a while), and
   a `gc` step.
 - **The fault menu (AMBIGUITY.md), one rule per fault:** `put_drop`,
-  `put_lost`, `put_own_412` (CAST #15's shape), `put_late`, `read_503`,
+  `put_lost`, `put_own_412` (CAST #15's shape), `put_late`,
+  `lease_put_late` (a worker's next lease PUT lands after it gave up and
+  read back its old version: CAST-74's shape), `read_503`,
   `stmt_settled_err`, `stmt_partial`, `stmt_lost`, `stmt_late`,
   `stmt_timeout_commit`, `check_err`. Each queues the fault for one
   process's next matching request.
@@ -198,6 +200,7 @@ seed's trace length.
 | `release_in_flight` | 43 | 9 s | 2 rules, 180 lines, 27 s | seed 1, 1,506 lines |
 | `error_settles` | 3 | 6 s | 2 rules, 173 lines, 26 s | seed 3, 2,772 lines |
 | `early_compact` | 31 | 18 s | 3 rules, 2,023 lines, 84 s | seed 4, 7,978 lines |
+| `late_renewal_lost` (CAST-74; 2026-09-30, 400-case budget) | 7 | 16 s | 3 rules, 73 lines, 4 s | **not found** (the seeded fleet has no `on_log` check) |
 
 "Execution" counts every run of the test body, shrink attempts included, so
 the first failure is found within that many cases. The shrunk size is the

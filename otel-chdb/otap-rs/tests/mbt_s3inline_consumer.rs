@@ -24,6 +24,7 @@
 //! | `wHead` (`designSlow`) | a HEAD costs a tick; `Held::renew_due` must be false (the scan stops once the renewal is due) |
 //! | `wRenewSend`, `wAdvanceSend`, `wCasLand`, `wCasLose`, `wCasAnswer` (`designSlow`) | the lease renewal (`coord::renew`) and the checkpoint write as PUT If-Match: applied only if the ETag still matches; on a 412 or no answer the doc is read back and the lane kept iff it equals ours (`write_lease` / `write_ckpt` since 034f577), or still has the ETag the write was conditional on (a lost request: kept on the old window, and written again; `NotWritten::Unchanged` since 2026-09-27, found by this driver, seed 0x29e8aebd) |
 //! | `wCasTimeout`, `wRefresh` (`designSlow`, `designLate`; STPA.md CAST-50) | a write applied after the reader's check: the answer times out while the PUT is in flight, the read-back finds the ETag it was conditional on (`NotWritten::Unchanged`), and a checkpoint write marks the lane `ckpt_unsure`; the PUT may apply later, unheard. At its next step an unsure worker reads the checkpoint back and takes it iff `CkptDoc::ours_landed_late` (`refresh_own_ckpt`, 397456b) |
+//! | `wLeaseRefresh`, and a renewal's `wCasTimeout` / `wCasAnswer` (the same instances; STPA.md CAST-74) | a renewal read back unchanged goes to `lease_unsure` (the model's `pend`, projected as the renewals' send times; its beat from `coord::renew_after`); a read-back of the lease (at `maintain`'s start, or after a timeout or 412) that shows one of them adopts it iff `coord::own_late_renewal` (`Held::landed`, the stored ETag), else the doubt ends or the lane goes; a lapse must find none of them stored (the code reads back first) |
 //!
 //! After every step the implementation's state is projected onto the
 //! model's variables (the log, the lease, each worker's lease view,
@@ -58,7 +59,7 @@
 //! `CkptDoc::compact` would drop, run on a copy of the checkpoint.
 //!
 //!   cargo test --release --test mbt_s3inline_consumer -- --nocapture
-//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact|release_in_flight|wall_range cargo test --release --test mbt_s3inline_consumer   # must fail
+//!   OTAPRS_CONSUMER_MUTANT=no_time_bound|no_verify|early_compact|release_in_flight|wall_range|late_renewal_lost cargo test --release --test mbt_s3inline_consumer   # must fail
 
 #[path = "../src/consumer/mod.rs"]
 #[allow(dead_code, unused_imports)]
@@ -93,6 +94,7 @@ fn timing() -> Timing {
             Ok("early_compact") => Mutation::EarlyCompact,
             Ok("release_in_flight") => Mutation::ReleaseInFlight,
             Ok("wall_range") => Mutation::WallRange,
+            Ok("late_renewal_lost") => Mutation::LateRenewalLost,
             _ => Mutation::None,
         },
     }
@@ -150,6 +152,10 @@ pub struct WorkerM {
     /// (worker.rs `ckpt_unsure`). Absent in the compaction model: false.
     #[serde(default)]
     unsure: bool,
+    /// The send times of its renewals given up on (worker.rs
+    /// `lease_unsure`). Absent in the compaction model: none.
+    #[serde(default)]
+    pend: BTreeSet<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -384,6 +390,8 @@ struct Worker {
     scanned: BTreeMap<i64, u64>,
     /// worker.rs `ckpt_unsure`: a checkpoint write of ours may still land.
     unsure: bool,
+    /// worker.rs `lease_unsure`: renewals of ours that may still land.
+    lease_unsure: Vec<Held>,
 }
 
 /// A lease or checkpoint PUT If-Match of the driver's, in flight or unanswered.
@@ -427,6 +435,7 @@ impl Worker {
             listed: None,
             scanned: BTreeMap::new(),
             unsure: false,
+            lease_unsure: Vec::new(),
         }
     }
     /// It no longer holds the lane (its HEADs go with it).
@@ -436,6 +445,7 @@ impl Worker {
         self.held = None;
         self.scanned.clear();
         self.unsure = false;
+        self.lease_unsure.clear();
     }
     /// HEADs above the new checkpoint are kept (a slot there never changes).
     fn keep_heads(&mut self, e: i64, from: u64, n: u64) {
@@ -683,6 +693,7 @@ impl ConsumerDriver {
         x.idle();
         x.scanned.clear();
         x.unsure = false;
+        x.lease_unsure.clear();
         x.holds = true;
         x.lease_epoch = doc.epoch as i64;
         x.sent = time;
@@ -712,7 +723,42 @@ impl ConsumerDriver {
         let now = self.now();
         let x = self.w(w);
         assert!(x.held.as_ref().is_some_and(|h| h.lapsed(now, &t)), "the model lapses worker {w}; its clock says the window is open");
-        x.drop_lane();
+        // (`maintain` reads the lease back first while renewals may land)
+        let adoptable = self.own_late(w).is_some();
+        assert!(!adoptable, "the model lapses worker {w}; the code's read-back finds its own late renewal and adopts it");
+        self.w(w).drop_lane();
+    }
+
+    /// The stored lease, if it is one of worker `w`'s renewals given up on
+    /// (`coord::own_late_renewal`), held as the code adopts it (`Held::landed`).
+    fn own_late(&self, w: i64) -> Option<Held> {
+        if timing().mutation == Mutation::LateRenewalLost {
+            return None;
+        }
+        let x = &self.workers[&w];
+        let (doc, etag) = self.lease.as_ref()?;
+        coord::own_late_renewal(doc, &x.held.as_ref()?.doc, &x.lease_unsure).map(|p| p.landed(etag))
+    }
+
+    /// Worker `w` adopts `h` (its own late renewal).
+    fn adopt(&mut self, w: i64, h: Held) {
+        let x = self.w(w);
+        x.sent = h.sent_ms as i64;
+        x.held = Some(h);
+        x.lease_unsure.clear();
+    }
+
+    /// `refresh_own_lease`: a holder with renewals it gave up on reads the
+    /// lease back (the model: only once it changed); one of them is adopted,
+    /// anything else ends the doubt.
+    fn lease_refresh(&mut self, w: i64) {
+        let x = &self.workers[&w];
+        assert!(x.holds && !x.lease_unsure.is_empty(), "the model reads the lease back for worker {w}; the code has no renewal pending");
+        assert_ne!(self.lease.as_ref().map(|l| &l.1), x.held.as_ref().map(|h| &h.etag), "the model reads back a changed lease; the driver's is unchanged");
+        match self.own_late(w) {
+            Some(h) => self.adopt(w, h),
+            None => self.w(w).lease_unsure.clear(),
+        }
     }
 
     fn check(&mut self, w: i64, e: i64, k: i64) {
@@ -936,7 +982,7 @@ impl ConsumerDriver {
             inc: x.inc,
             kind: CasKindM::CRenew,
             st: CasStM::CPending,
-            lease: Some(coord::renew(&h.doc, now)),
+            lease: Some(if t.mutation == Mutation::LateRenewalLost { coord::renew(&h.doc, now) } else { coord::renew_after(&h.doc, &x.lease_unsure, now) }),
             prev_etag: Some(h.etag),
             etag: None,
             ckpt: None,
@@ -1056,6 +1102,13 @@ impl ConsumerDriver {
         if !keep && unchanged {
             return;
         }
+        // (the read-back shows an earlier renewal of ours, landed late: adopted)
+        if !keep && p.kind == CasKindM::CRenew {
+            if let Some(h) = self.own_late(p.worker) {
+                self.adopt(p.worker, h);
+                return;
+            }
+        }
         let ce = self.ckpt_etag;
         let x = self.w(p.worker);
         if !keep {
@@ -1069,6 +1122,8 @@ impl ConsumerDriver {
                 let etag = if ans == CasAnsM::A200 { p.etag } else { read_back }.expect("applied");
                 x.sent = p.sent;
                 x.held = Some(Held { doc, etag, sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
+                // (the ones given up on were conditional on the version this replaced)
+                x.lease_unsure.clear();
             }
             CasKindM::CAdvance => {
                 let ck = p.ckpt.expect("doc");
@@ -1102,10 +1157,22 @@ impl ConsumerDriver {
             CasKindM::CRenew => self.lease.as_ref().map(|l| &l.1) == p.prev_etag.as_ref(),
             CasKindM::CAdvance => self.ckpt_etag == p.base_etag,
         };
+        if !unchanged && p.kind == CasKindM::CRenew {
+            if let Some(h) = self.own_late(p.worker) {
+                self.adopt(p.worker, h);
+                return;
+            }
+        }
+        let late_lost = timing().mutation == Mutation::LateRenewalLost;
         let x = self.w(p.worker);
         match (unchanged, p.kind) {
             (false, _) => x.drop_lane(),
-            (true, CasKindM::CRenew) => {}
+            (true, CasKindM::CRenew) => {
+                if !late_lost {
+                    let doc = p.lease.expect("doc");
+                    x.lease_unsure.push(Held { doc, etag: String::new(), sent_ms: p.sent as u64, sent_wall_ms: p.sent as u64 });
+                }
+            }
             (true, CasKindM::CAdvance) => {
                 x.idle();
                 x.unsure = true;
@@ -1205,6 +1272,7 @@ impl Driver for ConsumerDriver {
             wCasAnswer(q: WriteM, ans: CasAnsM) => self.cas_answer(&q, ans),
             wCasTimeout(q: WriteM) => self.cas_timeout(&q),
             wRefresh(w: i64) => self.refresh(w),
+            wLeaseRefresh(w: i64) => self.lease_refresh(w),
             wCompact(w: i64) => self.compact(w),
             sPush => {},
             sResend => {},
@@ -1255,6 +1323,7 @@ impl State<ConsumerDriver> for Spec {
                     pending: x.pending.iter().copied().collect(),
                     obs: None,
                     unsure: x.unsure,
+                    pend: x.lease_unsure.iter().map(|h| h.sent_ms as i64).collect(),
                 })
             })
             .collect();

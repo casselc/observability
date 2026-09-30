@@ -209,6 +209,8 @@ pub struct Tally {
     pub kills: u64,
     pub cuts: u64,
     pub edge_restarts: u64,
+    /// Late renewals of their own that workers adopted (CAST-74).
+    pub lease_adopted: u64,
     pub ckpt_checks: u64,
     pub gc_runs: u64,
     pub gc_deleted: u64,
@@ -247,6 +249,9 @@ pub struct World {
     /// Per (process, lease key): the body of its last lease PUT, and whether
     /// a read of that key failed since (for `on_log`'s lane-drop check).
     pub lease_puts: RefCell<BTreeMap<(String, String), (Bytes, bool)>>,
+    /// Per (process, lease key): what its last GET of that key returned
+    /// (None: it failed, or no object), for `on_log`'s late-renewal check.
+    pub lease_reads: RefCell<BTreeMap<(String, String), Option<Bytes>>>,
     /// The resource each content key's rows use (traces, logs).
     pub res_of: RefCell<BTreeMap<String, String>>,
     /// Committed data objects that announce a resource: slot -> resource.
@@ -300,6 +305,9 @@ pub enum Forced {
     /// The next PUT is stuck on the way: no answer, and it lands this many
     /// ms after the client gave up.
     PutLate(u64),
+    /// The same for the next lease PUT only (a renewal, CAST-74's shape;
+    /// `PutLate` mostly meets heartbeats).
+    LeasePutLate(u64),
     /// The next GET, HEAD or LIST answers 503.
     Read503,
     /// The next statement: refused before writing (TOO_MANY_PARTS).
@@ -318,7 +326,7 @@ pub enum Forced {
 
 impl Forced {
     fn is_put(self) -> bool {
-        matches!(self, Forced::PutDrop | Forced::PutLost | Forced::PutOwn412 | Forced::PutLate(_))
+        matches!(self, Forced::PutDrop | Forced::PutLost | Forced::PutOwn412 | Forced::PutLate(_) | Forced::LeasePutLate(_))
     }
     fn is_stmt(self) -> bool {
         matches!(self, Forced::StmtSettledErr | Forced::StmtPartial | Forced::StmtLost | Forced::StmtLate | Forced::StmtTimeoutCommit)
@@ -665,12 +673,13 @@ impl SimBucket {
     async fn put_inner(&self, key: &str, body: Bytes, cond: Cond<'_>, meta: &BTreeMap<String, String>) -> Put {
         let w = self.w.clone();
         let conditional = !matches!(cond, Cond::None);
-        let forced = self.p.take(|x| x.is_put() && (x != Forced::PutOwn412 || conditional));
+        let lease = key.starts_with(&format!("{CTL}/lease/"));
+        let forced = self.p.take(|x| x.is_put() && (x != Forced::PutOwn412 || conditional) && (lease || !matches!(x, Forced::LeasePutLate(_))));
         let (drop, lose, own412, late, forced_late) = match forced {
             Some(Forced::PutDrop) => (true, false, false, false, None),
             Some(Forced::PutLost) => (false, true, false, false, None),
             Some(Forced::PutOwn412) => (false, false, true, false, None),
-            Some(Forced::PutLate(ms)) => (true, false, false, true, Some(ms)),
+            Some(Forced::PutLate(ms) | Forced::LeasePutLate(ms)) => (true, false, false, true, Some(ms)),
             _ => {
                 let drop = w.fault(w.p.put_drop);
                 let lose = !drop && w.fault(w.p.put_lost);
@@ -743,6 +752,10 @@ impl Bucket for SimBucket {
             if let Some(e) = self.w.lease_puts.borrow_mut().get_mut(&(self.p.name.clone(), key.to_string())) {
                 e.1 = true;
             }
+        }
+        if key.starts_with(&format!("{CTL}/lease/")) {
+            let got = r.as_ref().ok().and_then(|o| o.as_ref().map(|(b, _)| b.clone()));
+            let _ = self.w.lease_reads.borrow_mut().insert((self.p.name.clone(), key.to_string()), got);
         }
         r
     }
@@ -1264,6 +1277,7 @@ pub async fn fleet_with(sim: Rc<Sim>, p: Profile) -> String {
         n_content: Cell::new(0),
         edge_backlog: Cell::new(0),
         lease_puts: RefCell::new(BTreeMap::new()),
+        lease_reads: RefCell::new(BTreeMap::new()),
         res_of: RefCell::new(BTreeMap::new()),
         ann_of: RefCell::new(BTreeMap::new()),
         pay_of: RefCell::new(BTreeMap::new()),
@@ -1602,6 +1616,7 @@ impl World {
             n_content: Cell::new(0),
         edge_backlog: Cell::new(0),
             lease_puts: RefCell::new(BTreeMap::new()),
+            lease_reads: RefCell::new(BTreeMap::new()),
             res_of: RefCell::new(BTreeMap::new()),
             ann_of: RefCell::new(BTreeMap::new()),
             pay_of: RefCell::new(BTreeMap::new()),
@@ -1615,16 +1630,49 @@ impl World {
     /// holds exactly the doc its last lease PUT sent and no read of the
     /// lease failed since, the drop was spurious (it could have read the
     /// lease back: CAST #15, a 412 for our own write taken as a takeover).
+    ///
+    /// And (STPA.md CAST-74, `noLateLeaseStall`) that a worker never gives a
+    /// lane up, by a lapse or a failed renewal, after reading back a later
+    /// renewal of its own in the store (its owner, the epoch it held, a
+    /// higher beat) that is still there: it could have adopted it, and the
+    /// lane, its own in the store, idles until that version expires.
     pub fn on_log(&self, line: &str) {
         let Some(rest) = line.strip_prefix("consumer ") else { return };
         let Some((worker, msg)) = rest.split_once(": ") else { return };
-        let Some(lane) = msg.strip_prefix("lease ").and_then(|m| m.strip_suffix(": renewal failed, dropping the lane")) else { return };
+        if msg.contains("landed late") && msg.ends_with("adopting it") {
+            self.tally.borrow_mut().lease_adopted += 1;
+        }
+        let Some(m) = msg.strip_prefix("lease ") else { return };
+        let (lane, held, failed) = if let Some((lane, r)) = m.split_once(": renewal failed (") {
+            (lane, r.strip_suffix("), dropping the lane"), true)
+        } else if let Some((lane, r)) = m.split_once(" lapsed by our clock (") {
+            (lane, r.strip_suffix("): dropping it"), false)
+        } else {
+            return;
+        };
+        // "epoch E, beat B": the version the worker held
+        let held = held.and_then(|h| {
+            let (e, b) = h.strip_prefix("epoch ")?.split_once(", beat ")?;
+            Some((e.parse::<u64>().ok()?, b.parse::<u64>().ok()?))
+        });
         let key = format!("{}.json", join(&join(CTL, "lease"), lane));
-        let sent = self.lease_puts.borrow().get(&(worker.to_string(), key.clone())).cloned();
         let stored = self.mem.objs.borrow().get(&key).map(|o| o.body.clone());
-        if let (Some((body, read_failed)), Some(cur)) = (sent, stored) {
-            if cur == body && !read_failed {
-                self.violation(format!("{worker} dropped {lane} although the lease in the store is the one it just wrote (a spurious lane loss)"));
+        if failed {
+            let sent = self.lease_puts.borrow().get(&(worker.to_string(), key.clone())).cloned();
+            if let (Some((body, read_failed)), Some(cur)) = (sent, stored.clone()) {
+                if cur == body && !read_failed {
+                    self.violation(format!("{worker} dropped {lane} although the lease in the store is the one it just wrote (a spurious lane loss)"));
+                }
+            }
+        }
+        let read = self.lease_reads.borrow().get(&(worker.to_string(), key.clone())).cloned().flatten();
+        let doc = stored.as_ref().and_then(|b| serde_json::from_slice::<LeaseDoc>(b).ok());
+        if let (Some((e, b)), Some(d), Some(cur), Some(read)) = (held, doc, stored, read) {
+            if d.owner == worker && d.epoch == e && d.beat > b && read == cur {
+                self.violation(format!(
+                    "noLateLeaseStall: {worker} gave up {lane} (held epoch {e}, beat {b}) after reading back its own later renewal (beat {}) in the store",
+                    d.beat
+                ));
             }
         }
     }

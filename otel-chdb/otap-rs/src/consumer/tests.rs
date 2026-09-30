@@ -430,6 +430,90 @@ async fn a_checkpoint_write_landing_late_is_taken_back() {
     }
 }
 
+/// A worker holding one lane whose lease renewal (due at 3 s) gets no
+/// answer and reads back unchanged, then lands late, before the probe at
+/// `probe_ms` (the old window ends at 8 s, the late renewal's at 11 s).
+/// Returns the worker, central and the time of the probe.
+async fn late_renewal(m: Mutation, probe_ms: u64) -> (W, Rc<MemCentral>, FakeClock, Edge, Rc<MemBucket>, u64) {
+    let (b, c, clk) = setup();
+    let lane = "c1/p1/traces";
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 5).await;
+    let mut cf = cfg("w1");
+    cf.timing.mutation = m;
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    let t0 = clk.0.get();
+    let _ = w.step().await;
+    assert_eq!((w.held_lanes(), c.count("otel_traces", "h0")), (vec![lane.to_string()], 5));
+    // The renewal (and its retry in the same step) get no answer and do not
+    // apply yet: the read-back shows the version of t0.
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };
+    clk.0.set(t0 + 3_000);
+    let _ = w.step().await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()], "an unchanged read-back keeps the lane");
+    assert!(!b.held.borrow().is_empty(), "the renewal is stuck on the way");
+    *b.faults.borrow_mut() = MemFaults::default();
+    // The first renewal lands, unheard (the others, on the same version, could only meet a 412).
+    assert!(matches!(b.land_held(), Some(Put::Ok(_))));
+    b.held.borrow_mut().clear();
+    e.commit(&b, "h1", 5).await;
+    clk.0.set(t0 + probe_ms);
+    let _ = w.step().await;
+    (w, c, clk, e, b, t0)
+}
+
+/// Regression (STPA.md CAST-74; ../../model/s3InlineConsumer.qnt
+/// `lateLeaseLostBreaksTest`): a lease renewal that got no answer, and read
+/// back unchanged, landed later. The holder went on counting its window from
+/// the older version and lapsed on it (8 s), while the store held its own
+/// newer version (sent at 3 s): nobody, itself included, could take the lane
+/// before that version was ttl + margin old, and the lane idled ~10 s. Now
+/// the holder reads the lease back before its lapse check and adopts its own
+/// late renewal (`refresh_own_lease`, `coord::own_late_renewal`).
+#[tokio::test(flavor = "current_thread")]
+async fn a_lease_renewal_landing_late_is_adopted() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    // The design: at 8.5 s (the old window is over) the lane is still held,
+    // by the adopted version, and h1 goes in at once.
+    let (w, c, ..) = late_renewal(Mutation::None, 8_500).await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lapsed, w.stats.lanes_lost_cas), (1, 0, 0), "{:?}", w.stats);
+    assert_eq!(c.count("otel_traces", "h1"), 5);
+    // The code before: it lapses at 8.5 s on the old window, and the lease,
+    // its own, first seen changed at 8.5 s, may be taken only 10 s later.
+    let (mut w, c, clk, _e, _b, t0) = late_renewal(Mutation::LateRenewalLost, 8_500).await;
+    assert!(w.held_lanes().is_empty());
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lapsed), (0, 1));
+    while clk.0.get() < t0 + 18_000 {
+        clk.0.set(clk.0.get() + 500);
+        let _ = w.step().await;
+        assert_eq!(c.count("otel_traces", "h1"), 0, "the lane idles until the late version is ttl + margin old");
+    }
+    let mut ws = vec![w];
+    run(&mut ws, &clk, 4, 500).await;
+    assert_eq!(c.count("otel_traces", "h1"), 5, "taken back once it expired");
+}
+
+/// The same with a renewal in between (at 5 s): the code before retried on
+/// the old version, met the late one's 412, read back a lease that was
+/// neither its retry nor its old version, and dropped the lane, its own
+/// (`lateLeaseDropBreaksTest`'s shape). The design adopts it at that
+/// maintain's read-back.
+#[tokio::test(flavor = "current_thread")]
+async fn a_renewal_meeting_our_own_late_renewal_keeps_the_lane() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (w, c, ..) = late_renewal(Mutation::None, 5_000).await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lost_cas), (1, 0));
+    assert_eq!(c.count("otel_traces", "h1"), 5);
+    let (w, c, ..) = late_renewal(Mutation::LateRenewalLost, 5_000).await;
+    assert!(w.held_lanes().is_empty());
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lost_cas), (0, 1), "{:?}", w.stats);
+    assert_eq!(c.count("otel_traces", "h1"), 0);
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn series_lane_needs_no_check() {
     let (b, c, clk) = setup();
@@ -630,7 +714,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
         // three minutes before midnight (UTC day 20,000)
         clk.0.set(20_000 * 86_400_000 - 180_000);
     }
-    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13 };
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
     c.late_every.set(11);

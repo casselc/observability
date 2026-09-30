@@ -246,6 +246,9 @@ pub struct Stats {
     /// Checkpoint writes of ours that landed after reading back unchanged,
     /// taken back by `refresh_own_ckpt`.
     pub ckpt_late_taken: u64,
+    /// Lease renewals of ours that landed after reading back unchanged,
+    /// adopted (`refresh_own_lease`, or on the next renewal's 412).
+    pub lease_late_taken: u64,
     /// Epochs dropped from checkpoints by compaction (retired by GC).
     pub epochs_compacted: u64,
     /// Full listings of a lane (from its floor).
@@ -339,6 +342,14 @@ struct LaneState {
     /// checkpoint may be ahead of `ckpt`, and GC deletes by the stored one;
     /// `scan` reads it back first (`refresh_own_ckpt`).
     ckpt_unsure: bool,
+    /// Renewals of ours that got no answer and read back unchanged
+    /// (`NotWritten::Unchanged`): each may still land. Until one is found
+    /// stored (and adopted) or a later renewal succeeds (after which they can
+    /// only meet a 412), `maintain` reads the lease back before its lapse
+    /// check and its renewal (`refresh_own_lease`). Each is the `Held` it
+    /// would have installed (no ETag: none was seen); the beats differ
+    /// (`coord::renew_after`).
+    lease_unsure: Vec<Held>,
 }
 
 impl LaneState {
@@ -364,6 +375,7 @@ impl LaneState {
             full_listed: None,
             pending_reborn: None,
             ckpt_unsure: false,
+            lease_unsure: Vec::new(),
         }
     }
 }
@@ -602,11 +614,16 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let t = self.cfg.timing;
         let ids: Vec<String> = self.held.keys().cloned().collect();
         for id in ids {
+            // A renewal of ours may have landed after we gave up on it: read
+            // the lease back before judging the window by the older version.
+            if self.held.get(&id).is_some_and(|l| !l.lease_unsure.is_empty()) {
+                self.refresh_own_lease(&id).await;
+            }
             let now = self.clock.mono();
             let h = self.held[&id].held.clone();
             if h.lapsed(now, &t) {
                 self.stats.lanes_lapsed += 1;
-                log(&self.cfg, &format!("lease {id} lapsed by our clock (epoch {}): dropping it", h.doc.epoch));
+                log(&self.cfg, &format!("lease {id} lapsed by our clock (epoch {}, beat {}): dropping it", h.doc.epoch, h.doc.beat));
                 let _ = self.held.remove(&id);
                 continue;
             }
@@ -614,34 +631,89 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 continue;
             }
             let lane = self.held[&id].lane.clone();
-            let doc = coord::renew(&h.doc, self.clock.wall());
+            let late_lost = t.mutation == Mutation::LateRenewalLost;
+            let doc = if late_lost { coord::renew(&h.doc, self.clock.wall()) } else { coord::renew_after(&h.doc, &self.held[&id].lease_unsure, self.clock.wall()) };
+            // (the instant `write_lease` counts the window from)
+            let (sent_ms, sent_wall_ms) = (self.clock.mono(), self.clock.wall());
             match self.write_lease(&lane, &doc, Some(&h.etag)).await {
                 Ok(held) => {
                     self.stats.renewals += 1;
                     if let Some(ls) = self.held.get_mut(&id) {
                         ls.held = held;
+                        // (the ones we gave up on were conditional on the
+                        // version this one replaced: they can only meet a 412)
+                        ls.lease_unsure.clear();
                     }
                 }
-                // Our request never applied: the lease is still the version
-                // we hold, on its old window (the lapse check above still
-                // counts from it). The next maintain retries.
-                Err(NotWritten::Unchanged) => {
-                    log(&self.cfg, &format!("lease {id}: renewal not applied, still ours; retrying"));
+                // Our request has not applied: the lease is still the
+                // version we hold, on its old window (the lapse check above
+                // still counts from it). It may apply later all the same (a
+                // write applied after our read-back, STPA.md CAST-74): until
+                // we know, the next maintain reads the lease back first. And
+                // it retries.
+                Err(LeaseMiss::Unchanged) => {
+                    log(&self.cfg, &format!("lease {id}: renewal not applied (yet), still ours; retrying"));
+                    if let Some(ls) = self.held.get_mut(&id).filter(|_| !late_lost) {
+                        ls.lease_unsure.push(Held { doc, etag: String::new(), sent_ms, sent_wall_ms });
+                    }
                 }
-                Err(NotWritten::Other) => {
-                    // Taken over (or unresolvable): stop at once. A lost answer
-                    // that actually applied is harmless: the lease expires.
+                Err(LeaseMiss::Other(stored)) => {
+                    // The read-back shows an earlier renewal of ours that
+                    // landed late (this one met its 412): the lane is ours.
+                    let ls = self.held.get_mut(&id).expect("held");
+                    let own = stored.as_ref().filter(|_| !late_lost).and_then(|(d, e)| coord::own_late_renewal(d, &ls.held.doc, &ls.lease_unsure).map(|p| p.landed(e)));
+                    if let Some(held) = own {
+                        self.stats.lease_late_taken += 1;
+                        log(&self.cfg, &format!("lease {id}: our earlier renewal landed late (beat {}); adopting it", held.doc.beat));
+                        ls.held = held;
+                        ls.lease_unsure.clear();
+                        continue;
+                    }
+                    // Taken over (or unresolvable): stop at once.
                     self.stats.lanes_lost_cas += 1;
-                    log(&self.cfg, &format!("lease {id}: renewal failed, dropping the lane"));
+                    log(&self.cfg, &format!("lease {id}: renewal failed (epoch {}, beat {}), dropping the lane", h.doc.epoch, h.doc.beat));
                     let _ = self.held.remove(&id);
                 }
             }
         }
     }
 
+    /// Reads the lane's lease back while renewals of ours may still land
+    /// (`lease_unsure`), and adopts it if it is one of them
+    /// (`coord::own_late_renewal`: our owner id, our lease epoch, one of the
+    /// beats we sent). Without this a renewal that landed after its
+    /// read-back left the holder counting from the older version: it lapsed
+    /// early, or dropped the lane when its next renewal met a 412, and the
+    /// lane, its own in the store, idled until the late version was ttl +
+    /// margin old (STPA.md CAST-74; `a_lease_renewal_landing_late_is_adopted`).
+    async fn refresh_own_lease(&mut self, id: &str) {
+        let Some(ls) = self.held.get(id) else { return };
+        let key = ls.lane.lease_key(&self.cfg.ctl);
+        let got = self.bucket.get(&key).await;
+        let Some(ls) = self.held.get_mut(id) else { return };
+        match got {
+            Ok(Some((_, e))) if e == ls.held.etag => {} // not landed (yet)
+            Ok(Some((body, e))) => {
+                let doc = serde_json::from_slice::<LeaseDoc>(&body).ok();
+                match doc.as_ref().and_then(|d| coord::own_late_renewal(d, &ls.held.doc, &ls.lease_unsure)).map(|p| p.landed(&e)) {
+                    Some(held) => {
+                        log(&self.cfg, &format!("lease {id}: our renewal landed late (beat {}); adopting it", held.doc.beat));
+                        self.stats.lease_late_taken += 1;
+                        ls.held = held;
+                        ls.lease_unsure.clear();
+                    }
+                    // Not ours: the lane changed hands; the next renewal's CAS
+                    // drops it (or the window ends first).
+                    None => ls.lease_unsure.clear(),
+                }
+            }
+            _ => {} // unreadable or gone: try again next time
+        }
+    }
+
     /// PUT a lease doc (If-Match `etag`, or create), resolving a lost answer
     /// by reading it back. The window starts when the PUT was sent.
-    async fn write_lease(&self, lane: &Lane, doc: &LeaseDoc, etag: Option<&str>) -> Result<Held, NotWritten> {
+    async fn write_lease(&self, lane: &Lane, doc: &LeaseDoc, etag: Option<&str>) -> Result<Held, LeaseMiss> {
         let key = lane.lease_key(&self.cfg.ctl);
         let body = Bytes::from(serde_json::to_vec(doc).expect("lease json"));
         let (sent_ms, sent_wall_ms) = (self.clock.mono(), self.clock.wall());
@@ -654,16 +726,20 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         // wall time) was written by us.
         let etag = match self.bucket.put(&key, body, cond, &BTreeMap::new()).await {
             Put::Ok(e) => e,
-            Put::Conflict if self.cfg.timing.mutation == Mutation::Own412IsTakeover => return Err(NotWritten::Other),
+            Put::Conflict if self.cfg.timing.mutation == Mutation::Own412IsTakeover => return Err(LeaseMiss::Other(None)),
             r @ (Put::Conflict | Put::Unknown(_)) => match self.bucket.get(&key).await {
-                Ok(Some((b, e))) if serde_json::from_slice::<LeaseDoc>(&b).ok().as_ref() == Some(doc) => {
-                    if r == Put::Conflict {
-                        log(&self.cfg, &format!("lease {}: 412, but the lease is ours (our earlier attempt applied)", lane.id()));
+                Ok(Some((b, e))) => match serde_json::from_slice::<LeaseDoc>(&b).ok() {
+                    Some(d) if d == *doc => {
+                        if r == Put::Conflict {
+                            log(&self.cfg, &format!("lease {}: 412, but the lease is ours (our earlier attempt applied)", lane.id()));
+                        }
+                        e
                     }
-                    e
-                }
-                Ok(Some((_, e))) if etag == Some(e.as_str()) => return Err(NotWritten::Unchanged),
-                _ => return Err(NotWritten::Other),
+                    _ if etag == Some(e.as_str()) => return Err(LeaseMiss::Unchanged),
+                    // (what is stored instead: the caller may know it for one of its own)
+                    d => return Err(LeaseMiss::Other(d.map(|d| (d, e)))),
+                },
+                _ => return Err(LeaseMiss::Other(None)),
             },
         };
         Ok(Held { doc: doc.clone(), etag, sent_ms, sent_wall_ms })
@@ -2139,6 +2215,17 @@ pub enum TombResult {
 
 /// Why a lease or checkpoint PUT If-Match did not take (read back after a
 /// 412 or no answer).
+/// Why a lease PUT did not install our doc (`write_lease`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LeaseMiss {
+    /// The version we held is still stored: our request has not applied
+    /// (it may still: `LaneState::lease_unsure`).
+    Unchanged,
+    /// Anything else, with what the read-back found (a doc and its ETag),
+    /// if it could read one.
+    Other(Option<(LeaseDoc, String)>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NotWritten {
     /// The object still has the ETag we sent in If-Match: our request did

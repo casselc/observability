@@ -56,7 +56,8 @@ runs noHorizon restampDesignTest all-pass
 for m in releaseInFlight keeperOverrun noHorizon restamp wallRange gcReopens errorSettles; do runs $m "${m}BreaksTest" all-pass; done
 # Durations (2026-09-27, the DST CAST: STPA.md issues 13 and 14; AMBIGUITY.md S3):
 # slow LIST answers, HEADs that cost time, ambiguous lease / checkpoint writes.
-# slowSafety = safety (with noLiveTakeover) + workFitsWindow + noOwnDrop.
+# slowSafety = safety (with noLiveTakeover) + workFitsWindow + noOwnDrop + noGapStall
+# + noLateLeaseStall + oneHolder.
 for m in designSlow designSlowQuiet designSlowShort; do sim $C $m slowSafety 5000 60 ok; done
 for w in wListRace wRenewMidScan wOwn412Kept wOrphanWrite wCasLost wTakeover wPrevKept; do
   sim $C designSlow "not($w)" 20000 60 VIOLATED
@@ -89,6 +90,15 @@ sim $C lateCkptLost noGapStall 5000 60 VIOLATED
 sim $C lateCkptLost safety 5000 60 ok
 for m in designLate designSlow designSlowQuiet; do runs $m lateCkptDesignTest all-pass; done
 runs lateCkptLost lateCkptLostBreaksTest all-pass
+# A lease renewal applied after the reader's check (2026-09-30, STPA.md CAST-74; LEASE_REFRESH):
+# the holder adopts its own late renewal (owner, epoch, the renewal's own send time / beat)
+# instead of lapsing on, or dropping the lane from, the older version. slowSafety (above,
+# designLate and designSlow*) includes noLateLeaseStall and oneHolder.
+sim $C designLate "not(wLeaseLateTaken)" 20000 60 VIOLATED
+sim $C lateLeaseLost noLateLeaseStall 5000 60 VIOLATED
+sim $C lateLeaseLost safety 5000 60 ok
+for m in designLate designSlow designSlowQuiet; do runs $m "lateLease(Drop)?DesignTest" all-pass; done
+runs lateLeaseLost "lateLease(Lost|Drop)BreaksTest" all-pass
 sim $K compactDesign compactSafety 5000 60 ok
 sim $K compactQuiet compactSafety 5000 60 ok
 sim $K compactQuiet "not(wReleased)" 20000 60 VIOLATED

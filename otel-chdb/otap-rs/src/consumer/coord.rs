@@ -81,6 +81,34 @@ pub fn renew(doc: &LeaseDoc, wall: u64) -> LeaseDoc {
     LeaseDoc { beat: doc.beat + 1, wall_ms: wall, ..doc.clone() }
 }
 
+/// The next renewal of `held` when renewals of ours are still unresolved
+/// (`pending`: each got no answer and read back `held` unchanged, so each
+/// may still land): a beat above all of them, so that every renewal this
+/// holder sends under one version carries its own beat. With the owner
+/// (the worker's incarnation) and the epoch, the beat is what tells one of
+/// our renewals from another (`own_late_renewal`), not the ETag, which we
+/// never saw for a write whose answer was lost.
+pub fn renew_after(held: &LeaseDoc, pending: &[Held], wall: u64) -> LeaseDoc {
+    let beat = pending.iter().map(|p| p.doc.beat).fold(held.beat, u64::max);
+    LeaseDoc { beat: beat.saturating_add(1), wall_ms: wall, ..held.clone() }
+}
+
+/// Is the stored lease `stored` one of our renewals that landed after we
+/// gave up on it (no answer, then a read-back that showed `held`
+/// unchanged)? Only if it is exactly one of those docs (`pending`): our
+/// owner id (unique per incarnation), our lease epoch and a later beat
+/// than `held`. A takeover or release changes the owner and the epoch, so
+/// nobody else's lease ever matches. The holder adopts it (`Held::landed`)
+/// rather than lapse on `held`'s older window, or drop the lane when its
+/// next renewal meets the late one's 412, while the store says the lane is
+/// ours (STPA.md CAST-74; ../../model/s3InlineConsumer.qnt `wLeaseRefresh`).
+pub fn own_late_renewal<'a>(stored: &LeaseDoc, held: &LeaseDoc, pending: &'a [Held]) -> Option<&'a Held> {
+    if stored.owner != held.owner || stored.epoch != held.epoch || stored.beat <= held.beat {
+        return None;
+    }
+    pending.iter().find(|p| p.doc == *stored)
+}
+
 /// Gives the lane up (the holder has nothing in flight): anyone may take it at once.
 pub fn release(doc: &LeaseDoc, wall: u64) -> LeaseDoc {
     LeaseDoc { owner: String::new(), epoch: doc.epoch + 1, beat: 0, wall_ms: wall, ..doc.clone() }
@@ -163,6 +191,12 @@ pub enum Mutation {
     /// another worker's write, not read back (the code before the audit fix,
     /// CAST #15): the lane is dropped although the lease is ours.
     Own412IsTakeover,
+    /// A renewal that got no answer and read back unchanged is forgotten
+    /// (the code before 2026-09-30, STPA.md CAST-74): when it lands later,
+    /// the holder lapses on its older window, or drops the lane when its
+    /// next renewal meets a 412, while the store holds its own newer version
+    /// (the model's `lateLeaseLost`).
+    LateRenewalLost,
     /// Statements mix late parts and bulk objects (`plan::group` without
     /// its per-part buckets, DECISIONS.md D34): a squashed statement then
     /// writes two partitions per day, and is no longer one part.
@@ -248,6 +282,17 @@ impl Timing {
     /// 10 / 10 until the replicated run measured commits 19 s past the budget.
     pub const fn production() -> Timing {
         Timing { ttl_ms: 75_000, margin_ms: 20_000, budget_ms: 10_000, slack_ms: 20_000, mutation: Mutation::None }
+    }
+}
+
+impl Held {
+    /// A renewal of ours found stored after we gave up on it
+    /// (`own_late_renewal`), held as if its 200 had come: its window counts
+    /// from when it was sent, and the ETag is the one the read-back showed,
+    /// the stored one (never an ETag of a write whose answer we lost:
+    /// CAST-73's lesson).
+    pub fn landed(&self, stored_etag: &str) -> Held {
+        Held { etag: stored_etag.to_string(), ..self.clone() }
     }
 }
 
@@ -776,6 +821,37 @@ mod tests {
         assert!(r.released() && r.epoch == 2);
         assert!(o.may_take("l", "e9", &r, 0, T.margin_ms));
         assert_eq!(take("l", Some(&r), "w2", 1, 0).epoch, 3);
+    }
+
+    #[test]
+    fn a_late_renewal_is_ours_only_by_owner_epoch_and_beat() {
+        let d0 = take("l", None, "w1-abcd", T.ttl_ms, 0);
+        let held = Held { doc: d0.clone(), etag: "e0".into(), sent_ms: 0, sent_wall_ms: 0 };
+        // Two renewals given up on (no answer, read back unchanged): distinct beats.
+        let r1 = renew_after(&d0, &[], 10);
+        let p1 = Held { doc: r1.clone(), etag: String::new(), sent_ms: 100, sent_wall_ms: 10 };
+        let r2 = renew_after(&d0, std::slice::from_ref(&p1), 10);
+        assert_eq!((r1.beat, r2.beat), (1, 2), "a retry never repeats a pending renewal's beat, even at the same wall ms");
+        let p2 = Held { doc: r2.clone(), etag: String::new(), sent_ms: 200, sent_wall_ms: 10 };
+        let pending = vec![p1, p2];
+        // The stored lease is the first one: adopted, with its own send time.
+        let got = own_late_renewal(&r1, &held.doc, &pending).expect("ours");
+        assert_eq!(got.sent_ms, 100);
+        let h = got.landed("e7");
+        assert_eq!((h.etag.as_str(), h.sent_ms, h.doc.beat), ("e7", 100, 1), "the stored ETag, the renewal's own window");
+        assert_eq!(own_late_renewal(&r2, &held.doc, &pending).map(|p| p.sent_ms), Some(200));
+        // Not ours: another owner (a takeover), a released lease, another
+        // epoch, the version we hold, or a doc we never sent.
+        let other = take("l", Some(&d0), "w2-ffff", T.ttl_ms, 20);
+        assert!(own_late_renewal(&other, &held.doc, &pending).is_none());
+        assert!(own_late_renewal(&release(&d0, 20), &held.doc, &pending).is_none());
+        let same_owner_new_epoch = take("l", Some(&d0), "w1-abcd", T.ttl_ms, 10);
+        assert!(own_late_renewal(&LeaseDoc { beat: 1, ..same_owner_new_epoch }, &held.doc, &pending).is_none());
+        assert!(own_late_renewal(&d0, &held.doc, &pending).is_none());
+        assert!(own_late_renewal(&renew(&d0, 11), &held.doc, &pending).is_none(), "same beat, another wall time: not one we sent");
+        // A previous incarnation of the same worker has another owner id.
+        let prev = LeaseDoc { owner: "w1-0000".into(), ..r1.clone() };
+        assert!(own_late_renewal(&prev, &held.doc, &pending).is_none());
     }
 
     #[test]

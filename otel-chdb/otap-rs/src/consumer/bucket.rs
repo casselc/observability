@@ -270,7 +270,15 @@ pub struct MemFaults {
     /// Conflict: the store answered an error (5xx, or 409 on AWS) after it
     /// applied, and object_store's retry met our own write (412).
     pub own_conflict_every: u64,
+    /// A dropped PUT is not lost but stuck on the way: it is kept
+    /// (`MemBucket::held`) and applies when the test says (`land_held`),
+    /// after its client gave up (a write applied after the reader's check).
+    pub hold: bool,
 }
+
+/// A PUT stuck on the way (`MemFaults::hold`): key, body, condition
+/// (None: plain; Some(None): create; Some(Some(etag))), metadata.
+pub type HeldPut = (String, Bytes, Option<Option<String>>, BTreeMap<String, String>);
 
 #[derive(Default)]
 pub struct MemBucket {
@@ -281,6 +289,8 @@ pub struct MemBucket {
     pub clock: std::rc::Rc<Cell<u64>>,
     pub n: Cell<u64>,
     pub puts: Cell<u64>,
+    /// PUTs stuck on the way, oldest first (`MemFaults::hold`).
+    pub held: RefCell<Vec<HeldPut>>,
 }
 
 impl MemBucket {
@@ -294,6 +304,29 @@ impl MemBucket {
     }
     pub fn keys(&self) -> Vec<String> {
         self.objs.borrow().keys().cloned().collect()
+    }
+    /// The oldest PUT stuck on the way arrives now, on its own condition
+    /// (nobody hears the answer). None: nothing held.
+    pub fn land_held(&self) -> Option<Put> {
+        let (key, body, cond, meta) = {
+            let mut h = self.held.borrow_mut();
+            if h.is_empty() {
+                return None;
+            }
+            h.remove(0)
+        };
+        let cur = self.objs.borrow().get(&key).map(|o| o.etag.clone());
+        let ok = match &cond {
+            None => true,
+            Some(None) => cur.is_none(),
+            Some(Some(e)) => cur.as_ref() == Some(e),
+        };
+        if !ok {
+            return Some(Put::Conflict);
+        }
+        let e = self.next_etag();
+        let _ = self.objs.borrow_mut().insert(key, MemObj { body, meta, etag: e.clone(), modified_ms: self.clock.get() });
+        Some(Put::Ok(e))
     }
 }
 
@@ -319,6 +352,14 @@ impl Bucket for MemBucket {
             0
         };
         if faulty && f.drop_every > 0 && n % f.drop_every == 0 {
+            if f.hold {
+                let c = match cond {
+                    Cond::None => None,
+                    Cond::Create => Some(None),
+                    Cond::IfMatch(e) => Some(Some(e.to_string())),
+                };
+                self.held.borrow_mut().push((key.to_string(), body, c, meta.clone()));
+            }
             return Put::Unknown("dropped (injected)".into());
         }
         let cur = self.objs.borrow().get(key).map(|o| o.etag.clone());

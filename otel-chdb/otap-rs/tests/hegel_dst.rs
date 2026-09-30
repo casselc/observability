@@ -561,6 +561,14 @@ impl FleetMachine {
         self.force(&tc, t, Forced::PutLate(ms));
     }
 
+    /// S1 on a lease renewal (STPA.md CAST-74): the worker's next lease PUT
+    /// is stuck and lands after it gave up and read back its old version.
+    #[rule]
+    fn lease_put_late(&mut self, tc: TestCase) {
+        let ms = tc.draw(gs::integers::<u64>().max_value(LATE_MS));
+        self.force_worker(&tc, Forced::LeasePutLate(ms));
+    }
+
     /// S5-S6: the next GET, HEAD or LIST answers 503.
     #[rule]
     fn read_503(&mut self, tc: TestCase) {
@@ -626,6 +634,7 @@ fn mutant_named(name: &str) -> Mutation {
         "release_in_flight" => Mutation::ReleaseInFlight,
         "error_settles" => Mutation::ErrorSettles,
         "early_compact" => Mutation::EarlyCompact,
+        "late_renewal_lost" => Mutation::LateRenewalLost,
         "" | "none" => Mutation::None,
         other => panic!("unknown HEGEL_DST_MUTANT {other}"),
     }
@@ -718,7 +727,7 @@ fn hegel_dst_finds_mutants() {
     let budget: u64 = std::env::var("HEGEL_DST_MUTANT_CASES").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000);
     let only = std::env::var("HEGEL_DST_MUTANT").ok();
     let mut survived = Vec::new();
-    for name in ["backdate_observations", "renew_only_at_insert", "own_412_is_takeover", "no_time_bound", "no_verify", "release_in_flight", "error_settles", "early_compact"] {
+    for name in ["backdate_observations", "renew_only_at_insert", "own_412_is_takeover", "no_time_bound", "no_verify", "release_in_flight", "error_settles", "early_compact", "late_renewal_lost"] {
         if only.as_deref().is_some_and(|o| o != name) {
             continue;
         }
@@ -822,4 +831,61 @@ fn regression_finish_waits_for_a_copys_announcement() {
         violations(&f)
     });
     let _ = sim.run(finish);
+}
+
+/// Regression (STPA.md CAST-74; ../model/s3InlineConsumer.qnt
+/// `lateLeaseDrop*Test`), as plain steps: one worker holds its lane; its
+/// next two lease renewals are stuck on the way and land 500 ms after it
+/// gave up on each. The first gets no answer and reads back the old
+/// version (kept, on the old window); the retry does too, but its
+/// read-back, 1 s later, finds the first renewal landed. The code before
+/// dropped the lane there (it was neither the retry's doc nor the old
+/// version), while the store said it was the worker's own, and nobody could
+/// take it for ttl + margin (`noLateLeaseStall`); the design adopts it.
+#[test]
+fn regression_a_late_renewal_is_adopted_not_dropped() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["H-2"]);
+    for (m, want_drop) in [(Mutation::None, false), (Mutation::LateRenewalLost, true)] {
+        let s = Setup {
+            seed: 0,
+            workers: 1,
+            producers: 1,
+            lat_ms: 1,
+            s3_timeout_ms: 1_000,
+            scale: false,
+            zombie_ms: 3_000,
+            server_skew_ms: 0,
+            worker_skew_ms: vec![0],
+            mutant: m,
+        };
+        let sim = SimThread::start(s);
+        let out = sim.run(|f| async move {
+            f.w.edge_backlog.set(f.w.edge_backlog.get() + 1);
+            let _ = f.edges[0].0.send(EdgeCmd::Write(2));
+            // Until the worker holds a lane (it renews each within ttl / 3).
+            let mut held = false;
+            for _ in 0..200 {
+                if f.w.leases.borrow().values().any(|(d, _)| d.owner == f.slots.borrow()[0].proc.name) {
+                    held = true;
+                    break;
+                }
+                sleep_ms(50).await;
+            }
+            assert!(held, "the worker never took a lane");
+            let p = f.slots.borrow()[0].proc.clone();
+            p.forced.borrow_mut().extend([Forced::LeasePutLate(500), Forced::LeasePutLate(500)]);
+            trace("RULE two late lease PUTs");
+            sleep_ms(T.ttl_ms + T.margin_ms).await;
+            let adopted = f.w.tally.borrow().lease_adopted;
+            let v = f.w.violations.borrow().clone();
+            Ok(format!("adopted {adopted}; violations {v:?}"))
+        });
+        eprintln!("{m:?}: {out}");
+        let dropped = out.contains("noLateLeaseStall");
+        assert_eq!(dropped, want_drop, "{m:?}: {out}");
+        if !want_drop {
+            assert!(out.starts_with("adopted ") && !out.starts_with("adopted 0;"), "the design adopted its late renewal: {out}");
+        }
+        drop(sim);
+    }
 }

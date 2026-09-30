@@ -440,8 +440,7 @@ async fn a_checkpoint_write_landing_late_is_taken_back() {
 /// (noCommitAfterClose), and a key recreated in an epoch GC had retired.
 #[tokio::test(flavor = "current_thread")]
 async fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
-    // TODO(n47): CAST id from the coordinator.
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "CAST-75", "H-2"]);
     let (b, c, clk) = setup();
     let lane = "c1/p1/traces";
     let key = format!("{CTL}/ckpt/{lane}.json");

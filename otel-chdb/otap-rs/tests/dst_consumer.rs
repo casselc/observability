@@ -148,8 +148,7 @@ fn a_server_fenced_announcement_is_not_taken_for_landed() {
 /// compacted (`worker.rs` `refresh_own_ckpt`).
 #[test]
 fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
-    // TODO(n47): add the CAST id the coordinator assigns.
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-50", "CAST-75", "H-2"]);
     let o = sim::run(4709496, wall0(4709496), false, fleet);
     assert!(o.failure.is_none(), "{:?}", o.failure);
 }

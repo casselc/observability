@@ -1676,9 +1676,8 @@ jobs:
       - name: Resource log
         run: |
           (while sleep 60; do echo "resources: $(df -h / | tail -1 | awk '{print $4}') free disk, $(free -m | awk '/Mem/{print $7}') MB available"; done) &
-      # --timeout 120 (the unmutated tests take ~16 s): run 43's consumer shard 5 lost its
-      # runner twice at the same mutant, a runaway test that exhausted the runner before
-      # 600 s; a mutant that makes the tests hang is caught by the timeout.
+      # --timeout 120 (the unmutated tests take ~16 s): a mutant that makes the tests hang
+      # is caught by the timeout.
       # --in-place: the crate reads files beside it (include_str! of ../../parquetgo/testdata,
       # the .upstream link), which a copy in a temp dir does not have. Exit 0: all caught,
       # 2: some missed, 3: some timed out; anything else (4: the unmutated tree failed) tested nothing.
@@ -1696,6 +1695,11 @@ jobs:
           fi
           out="$RUNNER_TEMP/mutants/${{ matrix.set }}-${{ matrix.shard }}"
           mkdir -p "$out"
+          # A mutant whose tests allocate without bound took the runner itself down (run 43
+          # shard consumer 5, run 45 shard consumer 6: "the runner has received a shutdown
+          # signal"): cap the address space of everything this step starts (rustc and the
+          # tests fit well inside it), so such a test dies on its own allocation instead.
+          ulimit -v 12000000
           set +e
           cargo mutants --in-place --no-shuffle --shard "${{ matrix.shard }}/8" --profile mutants --timeout 120 --build-timeout 1200 \
             --output "$out" "${files[@]}" -- "${args[@]}"

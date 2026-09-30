@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // Answers of statements with an order-undefined aggregate.
@@ -102,6 +104,7 @@ func longestArray(c canon) int {
 // The nightly run 22 failure, as data: the answers the chain and ClickHouse
 // gave for rwproxy statement #331 differed only in array order.
 func TestUnorderedAggregateAnswersCompareAsSets(t *testing.T) {
+	tracetag.Covers(t, "D", "CAST-77", "H-5")
 	const uniq20 = "WITH s AS (SELECT a AS p0, b AS p1 FROM t LIMIT 10) SELECT groupUniqArray(20)(p0) AS p0, groupUniqArray(20)(p1) AS p1 FROM s FORMAT JSON"
 	cols := []string{"p0 Array(String)", "p1 Array(String)"}
 	via := canon{cols: cols, rows: []string{`[["INFO","ERROR"],["","cart-77aa-2","frontend-f778-0","payment-5c9d-1"]]`}}

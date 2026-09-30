@@ -2102,6 +2102,7 @@ async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
 /// canonical key (`proto::slot_key`) is read, ingested or collected.
 #[tokio::test(flavor = "current_thread")]
 async fn a_second_spelling_of_a_slot_key_is_not_a_slot() {
+    let _trace = otap_s3pq::oscope_trace::covers("P", &["CAST-78", "H-2"]);
     let (b, c, clk) = setup();
     let mut w = worker("w1", &b, &c, &clk);
     let prefix = format!("{ROOT}/c1/p1/traces");

@@ -2,6 +2,8 @@ package commit
 
 import (
 	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // A slot has one key: ParseSlotKey accepts exactly what SlotKey writes, so
@@ -9,6 +11,7 @@ import (
 // padding, 21 digits) is not a slot (the Rust consumer's parse_slot_key
 // agrees; otap-rs a_second_spelling_of_a_slot_key_is_not_a_slot).
 func TestParseSlotKeyAcceptsOnlyTheSlotsKey(t *testing.T) {
+	tracetag.Covers(t, "P", "CAST-78", "H-2")
 	const p = "r/c1/p1/traces"
 	for _, seq := range []uint64{0, 7, 1<<64 - 1} {
 		k := SlotKey(p, "E1", seq)

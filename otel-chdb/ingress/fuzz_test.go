@@ -143,6 +143,7 @@ func FuzzBody(f *testing.F) {
 // "200 and no new object" is a resend, not a lost request. The fuzz oracle
 // tells the two apart by the content it ACKed before.
 func TestAResendIsACKedWithoutASecondObject(t *testing.T) {
+	tracetag.Covers(t, "FZ", "CAST-80")
 	lim := DefaultLimits()
 	lim.RequestsPerMinute, lim.DecodedBytesPerMinute = 1e12, 1e15
 	r := newRig(t, "ingress-0", nil, nil, &lim)

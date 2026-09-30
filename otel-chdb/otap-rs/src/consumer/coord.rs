@@ -861,6 +861,16 @@ mod tests {
         // A previous incarnation of the same worker has another owner id.
         let prev = LeaseDoc { owner: "w1-0000".into(), ..r1.clone() };
         assert!(own_late_renewal(&prev, &held.doc, &pending).is_none());
+        // The owner guard stands on its own: a doc of another owner, same epoch,
+        // a later beat, is refused even if it were listed as pending (nightly
+        // `mutants` run 48: `||` -> `&&` at the owner test survived, because
+        // every pending doc above carries our owner and `find` refused it too).
+        let foreign = LeaseDoc { owner: "w2-ffff".into(), ..r1.clone() };
+        let listed = vec![Held { doc: foreign.clone(), etag: String::new(), sent_ms: 300, sent_wall_ms: 10 }];
+        assert!(own_late_renewal(&foreign, &held.doc, &listed).is_none(), "another owner's lease is never ours");
+        let other_epoch = LeaseDoc { epoch: r1.epoch + 1, ..r1.clone() };
+        let listed = vec![Held { doc: other_epoch.clone(), etag: String::new(), sent_ms: 300, sent_wall_ms: 10 }];
+        assert!(own_late_renewal(&other_epoch, &held.doc, &listed).is_none(), "nor one of another epoch");
     }
 
     #[test]

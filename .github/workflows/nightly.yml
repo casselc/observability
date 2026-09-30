@@ -1619,7 +1619,10 @@ jobs:
   # Mutation testing (owner decision 2026-09-29; VERIFICATION.md §7): cargo-mutants
   # over the consumer's lease, plan and collection code and the slot protocol, and
   # the Rust edge's commit, in eight shards each (`mutants-rust`; four took up
-  # to five hours on the consumer set); then gremlins over
+  # to five hours on the consumer set; eight take ~2.5 h), and over the consumer's
+  # worker (worker.rs, owner decision 2026-09-30: the lease take, renewal and
+  # checkpoint adoption live there) in sixteen, judged by the consumer's unit
+  # tests and the fleet DST (`--test dst_consumer`); then gremlins over
   # the Go edge's commit and lane code and the check (`mutants`). The surviving
   # mutants are the `mutants` artifact and the job summary; the job fails only on a
   # survivor ci/mutants-baseline.txt does not accept (ci/mutants.py), or on a run
@@ -1632,8 +1635,26 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        set: [consumer, commit]
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        set: [consumer, commit, worker]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        # (consumer and commit: eight shards; worker: sixteen)
+        exclude:
+          - {set: consumer, shard: 8}
+          - {set: consumer, shard: 9}
+          - {set: consumer, shard: 10}
+          - {set: consumer, shard: 11}
+          - {set: consumer, shard: 12}
+          - {set: consumer, shard: 13}
+          - {set: consumer, shard: 14}
+          - {set: consumer, shard: 15}
+          - {set: commit, shard: 8}
+          - {set: commit, shard: 9}
+          - {set: commit, shard: 10}
+          - {set: commit, shard: 11}
+          - {set: commit, shard: 12}
+          - {set: commit, shard: 13}
+          - {set: commit, shard: 14}
+          - {set: commit, shard: 15}
     env:
       UPSTREAM_DIR: ${{ github.workspace }}/.ci/otel-arrow
       CARGO_MUTANTS_VERSION: "27.1.0"
@@ -1681,18 +1702,22 @@ jobs:
       # --in-place: the crate reads files beside it (include_str! of ../../parquetgo/testdata,
       # the .upstream link), which a copy in a temp dir does not have. Exit 0: all caught,
       # 2: some missed, 3: some timed out; anything else (4: the unmutated tree failed) tested nothing.
-      - name: cargo mutants (${{ matrix.set }}, shard ${{ matrix.shard }}/8)
+      - name: cargo mutants (${{ matrix.set }}, shard ${{ matrix.shard }})
         working-directory: otel-chdb/otap-rs
         run: |
           # The consumer's modules are the `consume` binary's (src/bin/consume.rs, #[path]),
           # so cargo-mutants sees them as src/bin/../consumer/*.rs: match by file name
           # (run 40's `--file src/consumer/coord.rs` matched nothing). proto.rs and
           # store.rs are the library's, judged by its tests.
-          if [ "${{ matrix.set }}" = consumer ]; then
-            files=(--file coord.rs --file plan.rs --file gc.rs); args=(--bin consume)
-          else
-            files=(--file src/store.rs --file src/proto.rs); args=(--lib)
-          fi
+          # worker.rs: its unit tests, and the fleet DST (tests/dst_consumer.rs mounts the
+          # same consumer/*.rs, so it sees the mutant), whose seeds and log checks
+          # (noLateLeaseStall, noLateTakeStall) exercise the lease paths.
+          shards=8; timeout=120
+          case "${{ matrix.set }}" in
+            consumer) files=(--file coord.rs --file plan.rs --file gc.rs); args=(--bin consume) ;;
+            worker) files=(--file worker.rs); args=(--bin consume --test dst_consumer); shards=16; timeout=240 ;;
+            *) files=(--file src/store.rs --file src/proto.rs); args=(--lib) ;;
+          esac
           out="$RUNNER_TEMP/mutants/${{ matrix.set }}-${{ matrix.shard }}"
           mkdir -p "$out"
           # A mutant whose tests allocate without bound took the runner itself down (run 43
@@ -1701,7 +1726,7 @@ jobs:
           # tests fit well inside it), so such a test dies on its own allocation instead.
           ulimit -v 12000000
           set +e
-          cargo mutants --in-place --no-shuffle --shard "${{ matrix.shard }}/8" --profile mutants --timeout 120 --build-timeout 1200 \
+          cargo mutants --in-place --no-shuffle --shard "${{ matrix.shard }}/$shards" --profile mutants --timeout "$timeout" --build-timeout 1200 \
             --output "$out" "${files[@]}" -- "${args[@]}"
           rc=$?
           set -e
@@ -1760,8 +1785,8 @@ jobs:
       - name: every shard reported (a missing one is an untested set, not a green one)
         run: |
           n=$(ls "$RUNNER_TEMP"/mutants/survivors-rust-*.txt 2>/dev/null | wc -l)
-          echo "$n of 16 cargo-mutants shards reported"
-          [ "$n" -eq 16 ] || { echo "::error::only $n of 16 cargo-mutants shards reported survivors"; exit 1; }
+          echo "$n of 32 cargo-mutants shards reported"
+          [ "$n" -eq 32 ] || { echo "::error::only $n of 32 cargo-mutants shards reported survivors"; exit 1; }
       - name: survivors against ci/mutants-baseline.txt
         run: python3 ci/mutants.py check ci/mutants-baseline.txt "$RUNNER_TEMP"/mutants/survivors-*.txt --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7

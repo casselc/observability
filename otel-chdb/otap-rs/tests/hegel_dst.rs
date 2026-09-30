@@ -844,7 +844,7 @@ fn regression_finish_waits_for_a_copys_announcement() {
 /// take it for ttl + margin (`noLateLeaseStall`); the design adopts it.
 #[test]
 fn regression_a_late_renewal_is_adopted_not_dropped() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["CAST-74", "H-2"]);
     for (m, want_drop) in [(Mutation::None, false), (Mutation::LateRenewalLost, true)] {
         let s = Setup {
             seed: 0,

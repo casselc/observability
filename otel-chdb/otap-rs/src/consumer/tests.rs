@@ -472,7 +472,7 @@ async fn late_renewal(m: Mutation, probe_ms: u64) -> (W, Rc<MemCentral>, FakeClo
 /// late renewal (`refresh_own_lease`, `coord::own_late_renewal`).
 #[tokio::test(flavor = "current_thread")]
 async fn a_lease_renewal_landing_late_is_adopted() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-74", "H-2"]);
     let lane = "c1/p1/traces";
     // The design: at 8.5 s (the old window is over) the lane is still held,
     // by the adopted version, and h1 goes in at once.
@@ -502,7 +502,7 @@ async fn a_lease_renewal_landing_late_is_adopted() {
 /// maintain's read-back.
 #[tokio::test(flavor = "current_thread")]
 async fn a_renewal_meeting_our_own_late_renewal_keeps_the_lane() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-74", "H-2"]);
     let lane = "c1/p1/traces";
     let (w, c, ..) = late_renewal(Mutation::None, 5_000).await;
     assert_eq!(w.held_lanes(), vec![lane.to_string()]);

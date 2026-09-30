@@ -832,6 +832,8 @@ mod tests {
         let p1 = Held { doc: r1.clone(), etag: String::new(), sent_ms: 100, sent_wall_ms: 10 };
         let r2 = renew_after(&d0, std::slice::from_ref(&p1), 10);
         assert_eq!((r1.beat, r2.beat), (1, 2), "a retry never repeats a pending renewal's beat, even at the same wall ms");
+        // the renewal carries the writer's wall clock (nightly `mutants`: dropping it survived)
+        assert_eq!((r1.wall_ms, renew_after(&d0, &[], 77).wall_ms), (10, 77));
         let p2 = Held { doc: r2.clone(), etag: String::new(), sent_ms: 200, sent_wall_ms: 10 };
         let pending = vec![p1, p2];
         // The stored lease is the first one: adopted, with its own send time.
@@ -849,6 +851,13 @@ mod tests {
         assert!(own_late_renewal(&LeaseDoc { beat: 1, ..same_owner_new_epoch }, &held.doc, &pending).is_none());
         assert!(own_late_renewal(&d0, &held.doc, &pending).is_none());
         assert!(own_late_renewal(&renew(&d0, 11), &held.doc, &pending).is_none(), "same beat, another wall time: not one we sent");
+        // A pending renewal older than the version held (it was adopted past, or
+        // held landed later): one we sent, same owner and epoch, but not later
+        // than held, so never adopted back (nightly `mutants`: `||` -> `&&` in
+        // the guard survived; the owner and epoch alone match here).
+        let held2 = Held { doc: r2.clone(), etag: "e2".into(), sent_ms: 200, sent_wall_ms: 10 };
+        assert!(own_late_renewal(&r1, &held2.doc, &pending).is_none(), "an older renewal of ours is not adopted over a newer one");
+        assert!(own_late_renewal(&r2, &held2.doc, &pending).is_none(), "nor the version held itself");
         // A previous incarnation of the same worker has another owner id.
         let prev = LeaseDoc { owner: "w1-0000".into(), ..r1.clone() };
         assert!(own_late_renewal(&prev, &held.doc, &pending).is_none());

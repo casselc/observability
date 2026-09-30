@@ -6,7 +6,7 @@ description: leases, time-bound inserts, count check and repair
 component_type: software
 process_model:
 - name: lease
-  meaning: "Whether this worker holds the lane's lease, its epoch, and until when it is safe to act (safe_until, on its own monotonic clock); and its renewals that got no answer and read back unchanged, which may still land (unsure: before its lapse check and next renewal it reads the lease back and adopts one it finds stored, by owner, epoch and beat, CAST-74)"
+  meaning: "Whether this worker holds the lane's lease, its epoch, and until when it is safe to act (safe_until, on its own monotonic clock); and its renewals that got no answer and read back unchanged, which may still land (unsure: before its lapse check and next renewal it reads the lease back and adopts one it finds stored, by owner, epoch and beat, CAST-74); and its takes that got no answer and read back the version they were conditional on, which may still land and make the store name it holder of a lane it does not hold (unsure: at each step's start, in try_take's read and on a later take's 412 it reads the lease back and adopts one it finds stored, by owner, epoch and beat, holding from the take's send and fencing the checkpoint, or gives it back if its window is over, CAST-83)"
   updated_by: [consumer->s3/feedback/list]
 - name: fence
   meaning: "The deadline a statement carries, evaluated on ClickHouse's clock: sent + ttl - margin - budget (D9)"

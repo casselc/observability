@@ -157,7 +157,7 @@ actions on 2026-09-27; the last two columns are the durations above
 | same | INSERT (`wSend`) | ✓ `cDrop` | ✓ `cApply` up to `landBy` | ✓ (answers are not modelled: the worker waits `landBy`) | ✓ (retry, repair) | – | instant (the budget bounds it) |
 | `s3InlineConsumer.qnt` | lease discovery (LIST, `try_take`'s GET) | – | – | – | – | ✓ `wListReq`/`wListAnswer` (`SLOW_OBS`; mutant `observeAtRequest`) | – |
 | `s3InlineConsumer.qnt` | the step's scan (HEADs) | – | – | – | – | – | ✓ `wHead` costs a tick (`SCAN`; mutant `renewOnlyAtInsert`) |
-| `s3InlineConsumer.qnt` | lease renewal, checkpoint advance (CAS) | ✓ `wCasLose` | ✓ `wCasLand` after the answer, a dead process's included | ✓ `wCasAnswer` none / 412 for our own write (`CAS_AMBIG`; mutant `own412IsTakeover`); ✓ `wCasTimeout`: no answer while the request is in flight, read back before it applies, then `wCasLand` of the CLate write (`LATE_CAS`, CAST-50; `wRefresh` takes it back; mutant `lateCkptLost`; for a renewal, CAST-74: `wLeaseRefresh` adopts it, mutant `lateLeaseLost`) | – | – | – |
+| `s3InlineConsumer.qnt` | lease take (`TAKE_AMBIG`: `wTakeSend`, `wTakeAnswer`, `wTakeTimeout`; CAST-83: `wTakeRefresh` adopts a late one, mutant `lateTakeLost`), lease renewal, checkpoint advance (CAS) | ✓ `wCasLose` | ✓ `wCasLand` after the answer, a dead process's included | ✓ `wCasAnswer` none / 412 for our own write (`CAS_AMBIG`; mutant `own412IsTakeover`); ✓ `wCasTimeout`: no answer while the request is in flight, read back before it applies, then `wCasLand` of the CLate write (`LATE_CAS`, CAST-50; `wRefresh` takes it back; mutant `lateCkptLost`; for a renewal, CAST-74: `wLeaseRefresh` adopts it, mutant `lateLeaseLost`) | – | – | – |
 | same, and `…Compact.qnt` | lease take and release, checkpoint fence, tombstone close, compaction (CAS) | atomic (`wAcquire`, `wRelease`, `wTomb`, `wSeeTomb`, `wCompact`) | atomic | atomic (the code reads back the same way since 034f577) | – | – | – |
 | `…Compact.qnt` | lease renewal, checkpoint advance, lease discovery | atomic | atomic | atomic | – | instant | instant |
 | same | GC delete | atomic (`gc`) | – | – | – | – | – |
@@ -172,7 +172,7 @@ actions on 2026-09-27; the last two columns are the durations above
 | `retention.qnt` | – (a sizing rule) | – | – | – | – | – | – |
 | `partLifetime.qnt` | – (reads) | – | – | – | – | – | – |
 
-Open, in model terms: the consumer's remaining CAS writes (take, release,
+Open, in model terms: the consumer's remaining CAS writes (release,
 fence, close, compaction, `gc.json`) and the sealer's snapshot commit need
 `applyAnswerLost`; `…Compact.qnt` has none of the durations; the consumer model's
 count check reads central exactly (no stale replica, no partial result: the

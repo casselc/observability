@@ -697,7 +697,7 @@ through S3 objects written with conditional requests:
 Taking a lane rewrites its checkpoint first, so every later CAS by the old
 holder fails. Expiry is judged on the observer's own monotonic clock.
 
-**Ambiguous renewals (2026-09-30, STPA.md CAST-74).** A renewal whose
+**Ambiguous takes and renewals (2026-09-30, STPA.md CAST-74, CAST-83).** A renewal whose
 answer is lost and whose read-back shows the held version unchanged has not
 applied *yet*; it may apply later. The holder keeps it as unsure and, before
 its lapse check and its next renewal, reads the lease back; a stored doc
@@ -708,11 +708,26 @@ stored one. Identity is never the ETag: we never saw the ETag of a write
 whose answer was lost (CAST-73). Adoption cannot make two holders: the
 store names us, a takeover or release changes owner and epoch, and an
 observer's expiry clock restarts no earlier than the late version applied,
-after it was sent. What stays: a renewal that lands *after* the holder's
-window ended (in flight for longer than the rest of the window) still costs
-the lane up to TTL + margin, as does a take whose answer is lost (the take
-is not retried from its pending doc), and an ambiguous release must not be
-undone (it may land and let another worker in).
+after it was sent. The same for a take (CAST-83): a take whose answer is
+lost and whose read-back shows the version it was conditional on (or no
+lease, for a create; or a read-back that failed) is kept as unsure with that
+version's ETag; a retry takes a beat above every unsure take
+(`coord::take_after`). At the start of every step, in try_take's own read
+before it judges the lane someone else's, and on a later take's 412, a
+stored lease that is exactly one of them (our owner, which names the
+incarnation, and the doc we wrote: epoch, beat, wall time;
+`coord::own_late_take`) is adopted: held from that take's send, the
+checkpoint fenced as after any take (`install_take`, the one path every take
+goes through). Any other version ends the doubt: the take was conditional
+on the version it replaced, so once that is gone it can only fail, and a
+stored take of ours means nobody took the lane since, so adoption cannot
+make two holders (the model's `oneHolder`). A take heard of after its own
+window ended (sent more than TTL − margin ago) is given back at once, a
+release CAS on it, instead of lapsing and idling the lane. What stays: a
+renewal that lands *after* the holder's window ended still costs the lane up
+to TTL + margin (the lapsed holder no longer tracks it), as does a take
+pending in a process that dies; and an ambiguous release must not be undone
+(it may land and let another worker in).
 
 **Fleet scale (2026-09-26):**
 

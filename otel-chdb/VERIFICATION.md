@@ -121,10 +121,10 @@ identity (D1); OTAP conversion (patch 0005).
 
 | Req | Component | Status | Evidence / gap |
 |---|---|---|---|
-| MN + M | consumer | ✅ | `s3InlineConsumer.qnt` + `Compact`; mutants `errorSettles`, `releaseInFlight`, `keeperOverrun`, `noHorizon`, `restamp`, `observeAtRequest`, `renewOnlyAtInsert`, `own412IsTakeover`, `lateCkptLost`, `lateLeaseLost`; N `model` |
+| MN + M | consumer | ✅ | `s3InlineConsumer.qnt` + `Compact`; mutants `errorSettles`, `releaseInFlight`, `keeperOverrun`, `noHorizon`, `restamp`, `observeAtRequest`, `renewOnlyAtInsert`, `own412IsTakeover`, `lateCkptLost`, `lateLeaseLost`, `lateTakeLost`; N `model` |
 | MBT | consumer | ✅ | `mbt_s3inline_consumer` (designSlow found #20); N `rust-mbt` |
 | DST | consumer | ✅ | level 1 + 2; `fleet_catches_mutants` (5), `net_catches_mutants` (3); regressions for #13, #14, #42; PR (40 + 8 seeds) + N (10,000 + 200) |
-| SM | consumer | ✅ | `hegel_dst`; `hegel_dst_finds_mutants` (9 planted incl. #13–15 and `late_renewal_lost`, CAST-74, via the `lease_put_late` rule and the `noLateLeaseStall` log check); PR 100 cases, N 3,000 |
+| SM | consumer | ✅ | `hegel_dst`; `hegel_dst_finds_mutants` (10 planted incl. #13–15, `late_renewal_lost`, CAST-74, via the `lease_put_late` rule and the `noLateLeaseStall` log check, and `late_take_lost`, CAST-83, via the `lease_take_late` rule and the `noLateTakeStall` log check); PR 100 cases, N 3,000 |
 | CC | S3 conditional writes | ✅ | `hegel_race` (mutant `racy_conditional`), N; `s3cas` races, PR |
 | K | lease window, check range | ✅ | 18 harnesses + 4 mutant harnesses (VERIFY.md); N `kani` |
 | FI | consumer on real ClickHouse | partial | `faults.sh`, `consumer_soak.sh` (N `faults-soak`); `refused_credentials_are_unsettled_and_redacted` (real CH + S3, PR). Replicated central (#2, #5, #6: Keeper, replica lag) is in **no job** (`clickhouse-replicated` is opt-in; `keeper_faults.sh` is manual) |
@@ -562,7 +562,16 @@ closes H-2 × MN. CAST-74's (2026-09-30: LEASE_REFRESH, `lateLeaseLostBreaksTest
 the same way; its Rust regressions (`a_lease_renewal_landing_late_is_adopted`,
 `a_renewal_meeting_our_own_late_renewal_keeps_the_lane`, Hegel
 `regression_a_late_renewal_is_adopted_not_dropped`) carry H-2 until the CAST-74
-record exists, then CAST-74 too. Apalache rows and random mutant simulations are not tagged:
+record exists, then CAST-74 too. CAST-83's (2026-09-30: TAKE_AMBIG and
+TAKE_REFRESH, `lateTakeLostBreaksTest`, `lateTakeDropBreaksTest`,
+`lateTake(Drop|Race|Release)?DesignTest`; the property `noLateTakeStall` with
+`oneHolder` in `slowSafety`) is tagged the same way, and its Rust regressions
+(`a_lease_take_landing_late_is_adopted`,
+`a_take_meeting_our_own_late_take_holds_the_lane`,
+`a_late_take_found_after_its_window_is_given_back`,
+`a_late_take_after_another_worker_took_the_lane_is_not_adopted`, Hegel
+`regression_a_late_take_is_adopted_not_forgotten`) carry H-2 until the CAST-83
+record exists. Apalache rows and random mutant simulations are not tagged:
 a run that reaches its time limit (UNKNOWN, recorded skipped) or a mutant
 simulation does not reach is an unknown, not evidence.
 
@@ -577,7 +586,7 @@ simulation restating the model's properties; *cites* = a comment only.
 | Tool | Where | CI |
 |---|---|---|
 | Hegel `hegeltest` 0.47.4: properties | `tests/hegel_props.rs` (17 properties, 3 regressions) | PR (ci profile), N |
-| Hegel stateful + swarm | `tests/hegel_dst.rs` (fleet machine, 9 planted mutants) | PR, N (mutant finder) |
+| Hegel stateful + swarm | `tests/hegel_dst.rs` (fleet machine, 10 planted mutants) | PR, N (mutant finder) |
 | Hegel concurrent | `tests/hegel_race.rs` (emulator, SeaweedFS, `racy_conditional`) | N only |
 | quint-connect 0.1.2 MBT | `tests/mbt_s3inline.rs`, `mbt_s3inline_metrics.rs`, `mbt_s3inline_consumer.rs` | N `rust-mbt` ×3 |
 | DST level 1 (paused tokio) | `tests/dst_consumer.rs`, `tests/dst/{fleet,retire,sim}.rs` | PR (40 seeds), N (10,000) |

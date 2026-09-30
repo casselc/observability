@@ -1565,6 +1565,16 @@ prototype's layout, and its flags `--signal S --table db.t` still work:
   `Held::landed`). Before, the holder lapsed on the older window, or
   dropped the lane when its retry met the late renewal's 412, and the lane,
   its own in the store, idled up to TTL + margin. Stat `lease_late_taken`.
+  The same for a take (2026-09-30, STPA.md CAST-83): a take with no answer
+  whose read-back shows the version it was conditional on may land later,
+  and the store then names the worker holder of a lane it does not hold.
+  The worker keeps it as unsure (`take_unsure`, with that version's ETag;
+  a retry takes a beat above every unsure take), and at the start of each
+  step, in try_take's read and on a later take's 412 it adopts a stored
+  lease that is exactly one of them (`coord::own_late_take`): held from the
+  take's send time, the checkpoint fenced (`install_take`). One found after
+  its window is given back at once (a release). Before, the lane idled up to
+  TTL + margin. Stats `take_late_taken`, `take_late_released`.
 - **The time bound on inserts.** A statement starts only if
   `now + budget ≤ safe_until` for every lane it contains, and runs with
   `max_execution_time = budget`. For a process paused between that check

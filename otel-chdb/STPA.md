@@ -101,7 +101,7 @@ flowchart TB
   nfe59f7["Edge collectors<br/>agents, publishers, buffer; commit protocol per lane<br/><i>algorithm: 4 rules · process model: 4 variables</i>"]
   n8020ed["Consumer workers<br/>leases, time-bound inserts, count check and repair<br/><i>algorithm: 4 rules · process model: 8 variables</i>"]
   n72ab73["Central aggregator<br/>merges and versions; flags catalog gaps<br/><i>algorithm: 1 rule · process model: 2 variables</i>"]
-  nac2fd1["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots<br/><i>algorithm: 2 rules · process model: 4 variables</i>"]
+  nac2fd1["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots<br/><i>algorithm: 2 rules · process model: 5 variables</i>"]
   n21e324[("S3 lanes and control objects<br/>telemetry and entity objects; leases, checkpoints, tombstones, GC marks")]
   ndf7b55[("Telemetry producers<br/>workloads and agents sending OTLP to their edge")]
   ned00c7[("Central ClickHouse<br/>tables, rollups, indexes")]
@@ -144,7 +144,7 @@ flowchart TB
   nc6c2a0["On-call engineers<br/>choose scope, time range and snapshot; write alert rules; ack, silence, escalate<br/><i>algorithm: 4 rules · process model: 4 variables</i>"]
   n0e2f45["Telemetry UI<br/>results with source and mode; scope bar, snapshot picker<br/><i>algorithm: 1 rule · process model: 4 variables</i>"]
   nec2f3e["Alerting engine<br/>evaluates complete windows; pages on-call<br/><i>algorithm: 1 rule · process model: 4 variables</i>"]
-  n2f943e["Query service<br/>resolves entities; routes to central or the lake; returns a complete-through time with every result<br/><i>algorithm: 3 rules · process model: 5 variables</i>"]
+  n2f943e["Query service<br/>resolves entities; routes to central or the lake; returns a complete-through time with every result<br/><i>algorithm: 3 rules · process model: 6 variables</i>"]
   ned00c7[("Central ClickHouse")]
   nb29392[("Lake snapshots")]
   nce1c77[("Entity catalog")]
@@ -184,10 +184,10 @@ detail diagrams below show their content.
 | Entity controllers | `pods` (no feedback: a watch on its own cluster's Kubernetes API, outside this structure); `cluster` (no feedback: its configuration and its credentials' cluster tag (D18)) | **entity records** when a pod appears, changes version or goes |
 | Consumer workers | `lease`, `checkpoint`, `pending_objects`, `complete_through`, `lane_closed` ← "list, get"; `fence` (no feedback: computed from the lease write's send time, the TTL and the margin (at least 20 s, checked against the Keeper session at start)); `statement` ← "answers"; `row_counts` ← "counts" | **checkpoints**, **CAS leases** when the lane's lease is free or expired on this worker's own clock and the fair share wants it; or the held lease is due for renewal; **insert** when the lease is held, now + budget <= safe_until, objects are pending and no statement of the lane is unresolved; **repair** when a settled statement's objects are short in central's counts; **checkpoints** when every statement of a prefix is settled and counted: advance the checkpoint (and the watermark); a lane whose custody is proved empty is retired |
 | Central aggregator | `entity_records` ← "read records"; `catalog_version` (no feedback: its own earlier upserts; nothing reads the catalog back) | **upsert** when a record is newer than the catalog's version of its entity and comes from its writer's own cluster |
-| GC, audit, sealer | `positions`, `epochs`, `quarantined` ← "checkpoints, marks"; `lake_snapshot` ← "snapshots" | **delete** when a slot is below every reader's position marked at least the delay ago, its epoch has retired, and it is not quarantined; **seal**, **commit** when objects below the watermark are not yet in the lake's latest snapshot |
+| GC, audit, sealer | `positions`, `epochs`, `quarantined`, `watermark_history` ← "checkpoints, marks"; `lake_snapshot` ← "snapshots" | **delete** when a slot is below every reader's position marked at least the delay ago, its epoch has retired, and it is not quarantined; **seal**, **commit** when objects below the watermark are not yet in the lake's latest snapshot |
 | Telemetry UI | `source`, `complete_through`, `basis` ← "complete-through"; `scope` (no feedback: the on-call engineers' queries and snapshot choice) | **requests** when the scope, range or snapshot changes, or a view refreshes |
 | Alerting engine | `completeness`, `evaluation_state`, `firing` ← "values"; `rules` (no feedback: the on-call engineers' rules, acks and silences) | **evaluate** when a rule's window has ended and the query service labels it complete |
-| Query service | `grants` (no feedback: the operators' access configuration and the caller's verified token); `complete_through`, `basis` ← "rows, status"; `source_coverage` ← "rows, status", "rows"; `entities` ← "entities" | **SQL** when a request or an evaluation arrives within the caller's grants and central covers its range; **plans, reads** when the range is older than central keeps, or central is degraded: route to the lake and say so; **lookups** when a query names entities |
+| Query service | `grants` (no feedback: the operators' access configuration and the caller's verified token); `complete_through`, `basis` ← "rows, status"; `complete_through_history` (no feedback: the watermark documents' open and frozen hours and the sealed history hours the consumer writes create-only); `source_coverage` ← "rows, status", "rows"; `entities` ← "entities" | **SQL** when a request or an evaluation arrives within the caller's grants and central covers its range; **plans, reads** when the range is older than central keeps, or central is degraded: route to the lake and say so; **lookups** when a query names entities |
 <!-- stpa:end controllers -->
 
 Each controller drawn as the STPA Handbook draws one (control algorithm left, process model right; control

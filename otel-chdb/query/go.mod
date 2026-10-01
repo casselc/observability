@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/aws/smithy-go v1.28.1
+	github.com/casselc/observability/otel-chdb/entities/bitemp v0.0.0-00010101000000-000000000000
 	github.com/casselc/observability/otel-chdb/testgate v0.0.0-00010101000000-000000000000
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/parquet-go/parquet-go v0.23.0
@@ -45,3 +46,5 @@ require (
 )
 
 replace github.com/casselc/observability/otel-chdb/testgate => ../testgate
+
+replace github.com/casselc/observability/otel-chdb/entities/bitemp => ../entities/bitemp

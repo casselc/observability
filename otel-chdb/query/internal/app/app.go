@@ -23,6 +23,7 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/central"
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
 	"github.com/casselc/observability/otel-chdb/query/internal/lake"
+	"github.com/casselc/observability/otel-chdb/query/internal/persons"
 	"github.com/casselc/observability/otel-chdb/query/internal/server"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/casselc/observability/otel-chdb/query/internal/store"
@@ -59,8 +60,11 @@ type Config struct {
 		DefaultRows int64 `json:"default_rows"`
 		MaxRows     int64 `json:"max_rows"`
 	} `json:"sample"`
-	Limits    server.Limits  `json:"limits"`
-	Catalog   catalog.Config `json:"catalog"`
+	Limits  server.Limits  `json:"limits"`
+	Catalog catalog.Config `json:"catalog"`
+	// Persons: the D32 person events table, for /v1/persons (O-G9); no
+	// database: not configured. Self-resolution needs claims.sub = "oid".
+	Persons   persons.Config `json:"persons"`
 	S3        store.S3Config `json:"s3"`
 	Lake      lake.Config    `json:"lake"`
 	Watermark struct {
@@ -259,6 +263,10 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 	if err != nil {
 		return nil, err
 	}
+	ps, err := persons.NewStore(c.Persons, ch)
+	if err != nil {
+		return nil, err
+	}
 	st, err := store.NewS3(ctx, c.S3)
 	if err != nil {
 		return nil, err
@@ -289,6 +297,9 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 		Performance: c.Central.PerformanceSettings, SampleDefaultRows: c.Sample.DefaultRows, SampleMaxRows: c.Sample.MaxRows}
 	if c.LakeEnabled {
 		s.Planner = lake.New(lc, st, wm)
+	}
+	if ps != nil {
+		s.Persons = ps
 	}
 	s.Init()
 	return s, nil

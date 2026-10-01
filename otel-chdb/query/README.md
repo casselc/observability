@@ -622,6 +622,30 @@ C}` for a fleet caller), the signals it was taken for, and the
 - **Audit**: decisions at a basis record its bounds (`basis`, and
   `basis_from` for a delta).
 
+### 2.4a `POST /v1/persons` (role `resolve_person`; yourself without it)
+
+Entra object ids (the `user.id` the ingress stamps, D37) to display names, from
+the D32 person events table (`persons` in the config: `database`, `table`
+default `person_events`, `tenant`, `max_oids` default 100; `claims.sub` should
+be `oid` so a caller resolves themselves). Body: `{"oids": [...],
+"valid_at_ms"?, "as_of_ms"?}` (defaults: now). An oid resolves for the caller
+themselves and for a holder of `resolve_person` on a `(cluster, namespace)`
+the oid was seen in (research/grants.md §9.3); any other oid, and an unknown
+one, answer the same `{"oid", "resolved": false}` (SEC-G7). **Departure
+(O-G9, DECISIONS D38 items 11–17):** once a `pseudonymise` correction is
+stored, the answer is the pseudonym (`"pseudonymised": true,
+"pseudonymised_at"`) at every `as_of_ms`, also one before the correction;
+the lifecycle state is unchanged. The audit records the oids asked
+(`oids`), never a name or pseudonym.
+
+`cmd/personctl` is the steward's command (`init`, `show`, `pseudonymise
+-oid … -reason TICKET [-yes]`): it reads first, prints the name it will
+hide, writes the correction with a deterministic deduplication token, and
+reads it back; no answer is never taken for "not applied" (exit 3: unknown,
+run the same command again; AMBIGUITY G6). The pseudonym is
+`departed-` + 16 base32 characters of HMAC-SHA256(key, tenant/oid), stored in
+the correction; the first correction wins.
+
 ### 2.5 `/healthz`, `/metrics`
 
 `GET /healthz` is liveness: 200 with the watermark's status and age (a stale

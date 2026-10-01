@@ -60,6 +60,9 @@ type Record struct {
 	TailBytes       int64  `json:"tail_bytes,omitempty"`
 	TailObjectsHash string `json:"tail_objects_hash,omitempty"`
 
+	// persons (/v1/persons, O-G9): the oids asked, never a name or a pseudonym
+	OIDs []string `json:"oids,omitempty"`
+
 	// outcome
 	Status    int     `json:"status,omitempty"`
 	Rows      int64   `json:"rows,omitempty"`

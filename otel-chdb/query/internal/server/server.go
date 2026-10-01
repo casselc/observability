@@ -31,6 +31,7 @@ import (
 	"github.com/casselc/observability/otel-chdb/query/internal/completeness"
 	"github.com/casselc/observability/otel-chdb/query/internal/lake"
 	"github.com/casselc/observability/otel-chdb/query/internal/metrics"
+	"github.com/casselc/observability/otel-chdb/query/internal/persons"
 	"github.com/casselc/observability/otel-chdb/query/internal/sqlscope"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -75,6 +76,9 @@ type Server struct {
 	Central   Querier
 	Catalog   *catalog.Catalog // nil: none configured
 	Planner   *lake.Planner    // nil: no lake
+	// Persons resolves oids to names (D32 person, O-G9); nil: /v1/persons
+	// answers not_configured.
+	Persons   *persons.Store
 	Watermark *completeness.Reader
 	Limits    Limits
 	Origins   []string
@@ -173,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/query", s.cors(s.handleQuery))
 	mux.HandleFunc("/v1/plan", s.cors(s.handlePlan))
 	mux.HandleFunc("/v1/basis", s.cors(s.handleBasis))
+	mux.HandleFunc("/v1/persons", s.cors(s.handlePersons))
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -278,7 +283,7 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request, endpoint, 
 	if err != nil {
 		return deny(http.StatusUnauthorized, "bad_token", err.Error(), nil)
 	}
-	if !p.Has(role) {
+	if !p.Has(role) && !(role == auth.RolePerson && endpoint == "persons") { // anyone may resolve themselves
 		return deny(http.StatusForbidden, "role_missing", "the token does not grant role "+role, p)
 	}
 	rq.p, rq.all = p.For(role), p

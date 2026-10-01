@@ -4019,7 +4019,13 @@ split a cluster's lanes by namespace without a writer per namespace; D1/D19).
 
 **Owner decision O-G9, 2026-09-29:** **pseudonymise on departure.** When a person leaves, their catalog record (D32 person entity) is replaced by a stable pseudonym as a bitemporal correction; telemetry stays, attribution to the named person does not.
 
-**O-G9 design (proposed, 2026-10-01; [research/grants.md §9.6](research/grants.md)).**
+**O-G9 design (proposed, 2026-10-01; [research/grants.md §9.6](research/grants.md)).** **Built and tested (2026-10-01):** the
+model (`model/bitemporalCatalog.qnt`: six properties, four witnesses, mutants `basisScoped`, `lastWins`,
+`asAssert` each with a scripted run), the resolver (`entities/bitemp/pseudonym.go`, rapid properties and the
+model's traces replayed), the query service's `POST /v1/persons` with the `resolve_person` role
+(`query/internal/persons`, `internal/server/persons.go`) and the steward's `personctl` (`query/cmd/personctl`;
+its store tested against ClickHouse). **Not built:** the person controller and its Graph sweep (item 15's
+automatic trigger), the aggregator's ingest of the person lane, the KMS key, the ingress change of O-G9e.
 
 11. **Where a person's identity is, and what happens to each.** (a) The D32 person events (name facts
     from Graph, team membership, `seen` announcements): the name is replaced by the pseudonym; membership

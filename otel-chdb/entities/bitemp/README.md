@@ -133,6 +133,19 @@ overseer event; a gap hides an older assertion; an announcement is
 overridden; history is corrected after S while the answer at S is kept; the
 current partition drops an event still valid now.
 
+**Pseudonymise on departure (O-G9, DECISIONS D38 items 11–17).** A steward
+event (`kind: "pseudonymise"`, the pseudonym as its version) is an overlay,
+not a lifecycle event: the replay ignores it; every assertion of the entity
+shows the first correction's pseudonym at every basis, also one before the
+correction. Properties: `pseudonymHidesName`, `noNameAtOrAfter`,
+`monotoneRedacted`, `pseudonymStable`, `idempotent`, `stateUnchanged`
+(`strict` checks `d32Safety` only: O-G9 does not depend on W); witnesses
+`wPseudonymised`, `wOldBasisRedacted`, `wLateNameHidden`, `wDuplicate`;
+mutants `basisScoped` (pure bitemporal: only bases at or after the
+correction), `lastWins`, `asAssert` (the correction as a controller
+assertion: a later Graph delta wins the name back), each with a scripted
+`*BreaksTest`. The trace export carries `rview` (the pseudonymised answers).
+
 ## 4. The resolver (Go, pure)
 
 ```go
@@ -172,6 +185,13 @@ that mistake).
   announcements under authority asserts; eff without W; unknown closing
   like a definite event) each fail a property test.
 - `TestFromLanes`, `TestFromAnnouncements`: the mapping (§5's cases).
+- O-G9 (`pseudonym.go`: `Steward`, `Pseudonymise`, `FirstCorrection`,
+  `Redact`, `ResolveNamed`, `RowsNamed`; `Current` keeps corrections
+  unpruned): `TestPseudonymHidesNameAtEveryBasis`,
+  `TestPseudonymiseIsIdempotent` (duplicates, re-keyed signals, late names,
+  any order), `TestCurrentIsPseudonymised`, `TestDepartureScenario`;
+  `TestModelTraces` replays the model's `rview` through `ResolveNamed` and
+  `RowsNamed`.
 
 ## 5. Today's inputs as events, and the fleet replay
 

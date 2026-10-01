@@ -69,7 +69,14 @@ type Mapping struct {
 const (
 	RoleQuery = "query" // POST /v1/query (central)
 	RolePlan  = "plan"  // POST /v1/plan (lake)
+	// RolePerson: POST /v1/persons may show the names (or pseudonyms, O-G9)
+	// of oids seen in the granted (cluster, namespace) pairs (D38 item 10,
+	// research/grants.md §9.3). Query-service only: no IAM path.
+	RolePerson = "resolve_person"
 )
+
+// knownRole reports whether r is a role the service knows.
+func knownRole(r string) bool { return r == RoleQuery || r == RolePlan || r == RolePerson }
 
 // Principal is who is asking and what they may see. Grants is the truth;
 // Clusters / Namespaces / All* are its projections over the roles of this
@@ -124,12 +131,12 @@ func (m *Mapping) Principal(c jwt.MapClaims) (*Principal, error) {
 	roles := map[string]bool{}
 	add := func(g Grant) {
 		for _, r := range g.Roles {
-			if r = strings.TrimSpace(r); r == RoleQuery || r == RolePlan {
+			if r = strings.TrimSpace(r); knownRole(r) {
 				roles[r] = true
 			}
 		}
 		for _, t := range g.Tuples {
-			if t.Role == RoleQuery || t.Role == RolePlan {
+			if knownRole(t.Role) {
 				roles[t.Role] = true
 			}
 		}
@@ -146,11 +153,11 @@ func (m *Mapping) Principal(c jwt.MapClaims) (*Principal, error) {
 	}
 	p := &Principal{Subject: sub, Groups: uniq(groups)}
 	for _, t := range ts {
-		if (t.Role == RoleQuery || t.Role == RolePlan) && t.Cluster != "" && t.Namespace != "" {
+		if knownRole(t.Role) && t.Cluster != "" && t.Namespace != "" {
 			p.Grants = append(p.Grants, t)
 		}
 	}
-	for _, r := range []string{RolePlan, RoleQuery} { // sorted
+	for _, r := range []string{RolePlan, RoleQuery, RolePerson} { // sorted
 		if roles[r] {
 			p.Roles = append(p.Roles, r)
 		}

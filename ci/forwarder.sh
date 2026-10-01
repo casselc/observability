@@ -51,18 +51,18 @@ run_tests() {
   return $rc
 }
 
-pids=()
+pids=() # macOS runs bash 3.2: an empty array under set -u is "unbound", hence ${pids[@]+...}
 stop_stack() {
   local p
   # The forwarders first, by name: under strace, $! is strace's pid, not the forwarder's.
   if [ -z "$exe" ]; then pkill -TERM -f oscope-forwarder-e2e.dll 2>/dev/null || true; fi
-  for p in "${pids[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
+  for p in ${pids[@]+"${pids[@]}"}; do kill -TERM "$p" 2>/dev/null || true; done
   if [ -n "$exe" ]; then
     # Windows: no SIGTERM for native processes; end them, and do not wait on them
     taskkill //F //IM ingress-e2e.exe >/dev/null 2>&1 || true
-    for p in "${pids[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
+    for p in ${pids[@]+"${pids[@]}"}; do kill -KILL "$p" 2>/dev/null || true; done
   else
-    for p in "${pids[@]}"; do wait "$p" 2>/dev/null || true; done
+    for p in ${pids[@]+"${pids[@]}"}; do wait "$p" 2>/dev/null || true; done
   fi
   pids=()
 }
@@ -91,7 +91,8 @@ start_stack() {
   export OSCOPE_E2E_MAX_QUEUE_BYTES=1048576
   local queue='{"maxQueueBytes":1048576,"maxEntries":256,"maxEntryBytes":262144,"maxAttempts":40,"maxAge":"00:01:30","backoffBase":"00:00:00.0500000","backoffCap":"00:00:01","maxRetryAfter":"00:00:01","maxInFlight":2,"refusalRetryAfter":"00:00:01"}'
   local pump='{"tokenTimeout":"00:00:05","attemptTimeout":"00:00:20","drainTimeout":"00:00:02","reportInterval":"00:00:00","accountRefresh":"00:00:00.2000000","maxIdle":"00:00:00.1000000"}'
-  local pump_reporting=${pump/\"reportInterval\":\"00:00:00\"/\"reportInterval\":\"00:00:01\"}
+  local pump_reporting
+  pump_reporting=$(printf '%s' "$pump" | sed 's/"reportInterval":"00:00:00"/"reportInterval":"00:00:01"/')
   local -a run=(dotnet "$host_dll")
   if [ "$1" = 1 ]; then
     run=(strace -f -qq -o "$out/strace.txt" -e trace=open,openat,creat,mkdir,mkdirat,rename,renameat,renameat2,unlink,unlinkat,link,linkat,symlink,symlinkat,truncate "${run[@]}")

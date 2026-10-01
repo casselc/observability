@@ -36,6 +36,9 @@ public sealed record ForwarderOptions
     /// <summary>The Retry-After the tool is given when the queue is full or no account is signed in.</summary>
     public TimeSpan RefusalRetryAfter { get; init; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>The consumer's copy horizon (3 days, D11) less a day.</summary>
+    public static readonly TimeSpan CopyHorizonMargin = TimeSpan.FromDays(2);
+
     /// <summary>Throws if the bounds cannot work together.</summary>
     public ForwarderOptions Validate()
     {
@@ -47,6 +50,9 @@ public sealed record ForwarderOptions
         if (MaxAttempts < 2) errors.Add("MaxAttempts must be >= 2 (a 401 needs one refreshed retry)");
         if (BackoffBase <= TimeSpan.Zero || BackoffCap < BackoffBase) errors.Add("want 0 < BackoffBase <= BackoffCap");
         if (MaxAge <= BackoffCap) errors.Add("MaxAge must exceed BackoffCap (else an entry expires before its first capped retry)");
+        // A retry is a copy the consumer skips only within D11's 3-day horizon (AMBIGUITY E8);
+        // a day of margin for the ingress's clock, as O-E8 asked.
+        if (MaxAge > CopyHorizonMargin) errors.Add("MaxAge must be at most 2 days (D11's copy horizon minus a day: AMBIGUITY E8)");
         if (MaxRetryAfter <= TimeSpan.Zero) errors.Add("MaxRetryAfter must be > 0");
         if (MaxInFlight <= 0 || MaxInFlight > MaxEntries) errors.Add("MaxInFlight must be in 1..MaxEntries");
         if (RefusalRetryAfter <= TimeSpan.Zero) errors.Add("RefusalRetryAfter must be > 0");

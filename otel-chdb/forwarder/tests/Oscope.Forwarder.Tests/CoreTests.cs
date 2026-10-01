@@ -184,11 +184,12 @@ public class CoreTests
     [Fact]
     public void Options_that_cannot_work_together_are_refused()
     {
-        OscopeTrace.Covers("P", "CAST-25 CAST-5");
+        OscopeTrace.Covers("P", "CAST-25 CAST-5 H-E6");
         Assert.Throws<ArgumentException>(() => new ForwarderOptions { MaxEntryBytes = 2, MaxQueueBytes = 1 }.Validate());
         Assert.Throws<ArgumentException>(() => new ForwarderOptions { MaxAge = TimeSpan.FromSeconds(1) }.Validate());
         Assert.Throws<ArgumentException>(() => new ForwarderOptions { MaxAttempts = 1 }.Validate());
         Assert.Throws<ArgumentException>(() => new ForwarderOptions { MaxInFlight = 0 }.Validate());
+        Assert.Throws<ArgumentException>(() => new ForwarderOptions { MaxAge = TimeSpan.FromDays(3) }.Validate()); // past D11's copy horizon
         new ForwarderOptions().Validate();
     }
 

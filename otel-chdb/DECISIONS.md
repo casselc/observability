@@ -71,6 +71,7 @@ flowchart TB
 | [D37](#d37-the-tenant-from-a-users-entra-identity-for-producers-outside-kubernetes-a-device-forwarder-and-an-authenticated-ingress-proposed) | Producers outside Kubernetes (developer tools on Windows/Mac, later CI/serverless): a device forwarder gets an Entra token through the platform broker (MSAL.NET); a Go ingress verifies it, maps the identity to `(devtools, dev-<team>)` by policy, stamps tenant and person over producer claims deterministically, and commits as an edge with its own lanes (D11 copies, D35 close); per-user caps; query grants as `(cluster, namespace)` pairs | **proposed** (2026-09-29); ingress prototype built and tested against a fake issuer: [research/entra-ingress.md](research/entra-ingress.md) (STPA first), [`ingress/`](ingress/README.md) |
 | [D38](#d38-grants-as-explicit-role-cluster-namespace-tuples-environments-as-buckets-cedar-as-the-source-compiled-to-tuples-and-prefixtag-iam-partly-built) | Grants: explicit `(role, cluster, namespace)` tuples combined as a union, never a product (CAST 52; built); environments as a bucket (or account) each with a cluster registry that gates writes; Cedar policies as the source, compiled to per-environment query-service tuples and prefix/principal-tag IAM, other policies refused with a reason and the output checked against Cedar; person facts scoped by a `resolve_person` tuple | **partly built** (2026-09-29): tuples in the query service; `grants/` compiler prototype; the rest proposed: [research/grants.md](research/grants.md) (STPA first) |
 | [D39](#d39-stpa-data-as-normalized-records-the-control-structure-as-one-document-tables-and-diagrams-generated-from-them-accepted-built) | STPA data as normalized records (one fact, one home; adapted from stpa-workbench v0, whose strict form is an export) and the control structure as one document where duplicate links cannot be written; controllers hold their process model and control algorithm; STPA.md's tables, the diagrams (overview plus a detail per controller, in the PRD style) and the label catalogue generated and checked in CI; UCA-10/12 feedback flaws; H-8 the availability hazard; OSCAL a later export | **accepted; built** (2026-09-29): 222 records, stpa/structure.yaml |
+| [D40](#d40-the-device-forwarder-as-built-the-tools-200-means-held-in-memory-a-pure-queue-core-yarp-for-each-attempt-proposed) | The device forwarder (D37 as revised): the tool is answered at once from a bounded in-memory queue (200 = held, best effort); a pure queue core with every outcome classified (a lost answer is unknown); YARP sends each attempt; MSAL broker behind an interface; tested on three OSes and end to end against the Go ingress | **proposed** (2026-10-01); built and tested in CI with the broker faked: [`forwarder/`](forwarder/README.md), research/entra-ingress.md §10b |
 
 ---
 
@@ -3884,8 +3885,9 @@ and ABAC (see the grants design, D38 when written). Also: **all Go modules and C
 of the gosim fork on the edge commit path is approved.
 
 **Status:** **proposed** (2026-09-29). Ingress prototype built and tested against a fake Entra
-issuer ([`ingress/`](ingress/README.md), `go test` passes); the device forwarder is designed, not
-built; nothing verified against a real tenant or device
+issuer ([`ingress/`](ingress/README.md), `go test` passes); the device forwarder is built
+(2026-10-01, D40: [`forwarder/`](forwarder/README.md), CI on Linux, Windows and macOS with the
+broker faked, end to end against the ingress); nothing verified against a real tenant or device
 ([deploy/validation/entra-ingress.md](deploy/validation/entra-ingress.md)). Research and STPA:
 [research/entra-ingress.md](research/entra-ingress.md).
 
@@ -4206,6 +4208,54 @@ stpa/workbench-feedback.md); OSCAL as the source (STPA only as opaque props/link
 as records with a uniqueness check (duplicates representable, then reported, instead of unwritable);
 controller internals inside the structure document (rejected by the owner's decomposition: a
 controller's view of its links belongs to the controller).
+
+### D40. The device forwarder as built: the tool's 200 means held in memory; a pure queue core; YARP for each attempt (proposed)
+
+**Context.** D37 as revised by the owner (2026-09-29): a YARP pass-through with a small bounded
+in-memory queue, no disk, drops counted, the tool never blocked; MSAL.NET with the broker. Built
+verification-first (research/entra-ingress.md §10a, §10b).
+
+**Decision (proposed).**
+
+1. **The tool's answer is immediate**: 200 when the request enters the queue (*held, best
+   effort*: AMBIGUITY E11), 503 + `Retry-After` when the queue is full, nobody is signed in, or the
+   forwarder stops. Waiting for the ingress's verdict would hold the tool for Entra and the edge's
+   commit (H-E9).
+2. **A pure core** (`ForwarderCore`) holds the queue and the retry policy; the shell (`Pump`)
+   does I/O under one lock. Outcomes: 2xx committed; 401 refresh once at once, then back off;
+   429 back off per `Retry-After`; 403 and other 4xx dropped and counted; 5xx, a lost answer, a
+   timeout: **unknown**, retried with the same byte array, a later drop counted apart as
+   `dropped_maybe_landed`; no connection or no token: not sent, retried. Bounds (defaults): 32 MiB,
+   1024 entries, 16 MiB per request, 12 attempts, 10 min (validated ≤ 2 days: no device retry
+   past D11's horizon, E8), back-off 0.5–30 s with jitter, `Retry-After` up to 60 s, 2 in flight.
+3. **An entry is sent only under the account it was accepted under** (broker account at intake);
+   when the broker answers for another person, the entry is dropped and counted (LS-E5).
+4. **YARP** (`IHttpForwarder`) sends each attempt from a request context over the entry's bytes,
+   with a transform that drops every request header and sets the bearer token and the configured
+   `X-Oscope-Namespace`. Nothing the tool sent is forwarded but the body, content type and
+   encoding.
+5. **The broker behind `ITokenAcquirer`**, silent only; the MSAL implementation lives in the app
+   (`Oscope.Forwarder.App`), so test hosts never carry it. Interactive sign-in is for the status
+   item only (not built).
+6. **Counters** (`/status`, and an `oscope.forwarder.counters` OTLP/JSON log record every 5 min
+   through the same queue): the ledger `accepted = committed + dropped + held` holds at all
+   times. A crash loses the queue uncounted; the last report's `held_entries` shows it.
+
+**Alternatives.** Answer the tool with the ingress's verdict when it comes within a short bound
+(a 200 that more often means committed; the tool waits up to the bound; two meanings of 200).
+Hold 403s until `maxAge` (a person added to a team in the meantime is sent; a queue full of
+refusals pushes back on the tool). Persist only the counters, so a crash's loss is counted on
+the next start (a file on disk, against "nothing persisted"). A plain `HttpClient` send instead
+of YARP (fewer moving parts: the synthetic request context YARP needs is the one unusual piece).
+
+**Consequences.** Tested in CI (`ci.yml` `forwarder` on ubuntu, windows, macos;
+`nightly.yml` `forwarder-stress`): stateful model-based tests against a reference model,
+in-process fault tests through YARP, end to end against the Go ingress
+(`ingress/cmd/ingress-e2e`), a no-disk check under strace, a stress run with rotating faults.
+Not verified: the broker on real devices (deploy/validation/entra-ingress.md, ENT-F). Not
+built: the status item, sign-in UI, packaging and signing, the signed-defaults config check.
+Owner decisions: the meaning of the tool's 200 (E11), 403 handling, the default bounds, crash
+counting (above).
 
 ## 6. Upstream bugs found
 

@@ -15,9 +15,10 @@ ingress image digest, the forwarder build, OS versions and the date (row 12).
 | ENT-3 | Windows: MSAL.NET + WAM acquires silently for a signed-in, compliant user; prompts only from the status item | §4.1, TM-E2 | §4 |
 | ENT-4 | macOS: MSAL.NET ≥ 4.73.1 + Enterprise SSO plug-in (and Platform SSO where enrolled) acquires silently; the signed-bundle and main-thread requirements hold | §4.1 | §5 |
 | ENT-5 | The three Langfuse integrations send through the forwarder unchanged, and the committed rows carry the stamped tenant and person | §2, §5.3 | §6 |
-| ENT-6 | Buffer fates: offline, sign-out, account switch, non-compliance, TTL; drops counted and reported | R-E7, E9 | §7 |
+| ENT-6 | The in-memory queue's fates (D37: no disk buffer): brief network loss ridden over; a long outage, sign-out, account switch, non-compliance dropped and counted; nothing on disk | R-E7, E9 | §7 |
 | ENT-7 | Retries across replicas are copies in central; the drain's close retires lanes | R-E4, R-E5, D35 | §8 |
 | ENT-8 | Query scoping: a devtools reader sees only their pairs (after the pair-grant change) | R-E8 | §9 |
+| ENT-F1..F7 | The forwarder's broker paths, which CI cannot run (no interactive account, no enrolled device): silent acquisition, refresh, sign-out and switch, CA refusal, sleep, the macOS bundle and main thread | R-E6, R-E9, H-E9, TM-E2 | §10 |
 
 ## 0. Environment
 
@@ -45,8 +46,9 @@ ingress image digest, the forwarder build, OS versions and the date (row 12).
 
 ## 2. ENT-1: a real token
 
-On the Windows device, with the forwarder signed in, `oscope-forwarder token --decode` (prints
-claims, never the token). Expect `ver` 2.0, `iss` = `https://login.microsoftonline.com/<tid>/v2.0`,
+On the Windows device, with the forwarder signed in, decode a token from a small MSAL script
+with the forwarder's client id (prints claims, never the token; the forwarder itself has no
+command that prints a token). Expect `ver` 2.0, `iss` = `https://login.microsoftonline.com/<tid>/v2.0`,
 `aud` = the API client id, `azp` = the forwarder, `scp` contains `Telemetry.Write`, `roles`
 contains the user's team role, `idtyp` = `user`. Fetch
 `https://login.microsoftonline.com/common/discovery/v2.0/keys` and record whether the signing
@@ -88,15 +90,25 @@ in the tool's `OTEL_RESOURCE_ATTRIBUTES` and confirm they appear only under
 `oscope.ingress.claimed.*`. From the same Mac as a second local user, post to user 1's forwarder
 port without the key → refused.
 
-## 7. ENT-6: buffer fates
+## 7. ENT-6: the in-memory queue's fates
 
-Offline for an hour (Wi-Fi off) while using a tool: the tool is never slowed; the buffer grows;
-reconnect: sent, 200s, buffer empty. Mark the device non-compliant (an Intune compliance policy
-requiring an OS version it lacks): CA refuses the token; the forwarder holds and shows it; set the
-TTL to 10 min in the config profile and confirm the drop and the `oscope.forwarder.dropped`
-record after compliance returns. Switch accounts: user 1's entries are deleted, never sent under
-user 2 (check `user.id` in central). Inspect the buffer files: no plaintext span content, no token
-(`strings`, `grep` for a known prompt).
+The forwarder keeps no disk buffer (D37, owner revision; R-E7): a bounded queue in memory that
+rides over token refreshes and brief network loss. Read `GET http://127.0.0.1:<port>/status`
+(with the local key) before and after each step; `balances` must stay `true`.
+
+- Wi-Fi off for 2 minutes while using a tool: the tool is never slowed; `held_entries` grows;
+  reconnect: sent, `held_entries` back to 0, nothing dropped.
+- Wi-Fi off for longer than `queue.maxAge` (default 10 min): the tool is answered 503 once the
+  queue is full (its own client drops or retries); after reconnecting, `dropped.expired` (or
+  `dropped_maybe_landed.expired`) counts what aged out, and the next `oscope.forwarder.counters`
+  record in central shows it.
+- Mark the device non-compliant: CA refuses the token; `token_failures.interactionrequired`
+  grows, entries age out and are counted; the tool is never prompted.
+- Switch accounts: held entries of user 1 are dropped as `account_changed`, never sent under
+  user 2 (check `user.id` in central).
+- Nothing on disk: on the Mac, `sudo fs_usage -w -f filesys oscope-forwarder` during a session
+  shows no write; on Windows, Process Monitor filtered to the process shows no `WriteFile` or
+  `CreateFile` with write access outside the system's own (the CI check is strace on Linux).
 
 ## 8. ENT-7: copies and the close
 
@@ -113,7 +125,23 @@ After the pair-grant change (DECISIONS D37 O-E6): a reader granted `devtools/dev
 (and the scope error, not an empty success, if the service distinguishes them). Before the change,
 record that the crossed pairs ARE granted (the finding), with the query and its result.
 
-## 10. Cleanup
+## 10. ENT-F: the forwarder's broker paths (manual: CI has no interactive account)
+
+CI runs the forwarder's code on ubuntu, windows and macos with the broker replaced by a fake
+(`ITokenAcquirer`) and, end to end, by the Go harness's broker model. What only a real device
+and a person can show, with the forwarder from `src/Oscope.Forwarder.App` (`oscope-forwarder`):
+
+| Step | Do | Expect | Record |
+|---|---|---|---|
+| ENT-F1 | `oscope-forwarder --init-keys`; set the printed variables for the tools; start with the MDM config | `keys.json` readable only by the user (`icacls` / `ls -l`); `/status` without the key → 401 | OS, MSAL.NET version, build |
+| ENT-F2 | Windows: signed in to Windows with the work account, start the forwarder, send one span | no prompt; `/status.account` = the user's object id; a commit in central with that `user.id` | WAM account type (OperatingSystemAccount or listed) |
+| ENT-F3 | macOS: the signed, notarised bundle (`codesign -dv --verbose=4`, `spctl -a -vv`), Company Portal and the SSO extension profile | silent acquisition; with Platform SSO, whether the first call prompts | macOS, Company Portal versions; the unsigned-binary failure text |
+| ENT-F4 | leave a tool running across a token's lifetime (60–90 min), then across a night's sleep | no prompt; `token_failures` empty or transient; nothing dropped but what aged out while asleep (counted) | the counters before and after |
+| ENT-F5 | remove the work account (Windows settings / Company Portal sign-out) while entries are held (Wi-Fi off) | `account_changed` drops; `/status.account` null; tools answered 503 `no_account` | the counters |
+| ENT-F6 | make the device non-compliant (ENT-6) | silent refusal (`interaction_required`), never a prompt on the tool's path | AADSTS code in the forwarder log (no token in it) |
+| ENT-F7 | debug build: call `AcquireTokenSilent` off the main thread on macOS | the documented failure (the requirement holds) | the error |
+
+## 11. Cleanup
 
 Delete the `ent-` prefix, the test registrations and the CA policy, the test users; unenrol the
 devices from the test compliance policy.

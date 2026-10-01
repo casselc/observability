@@ -37,9 +37,10 @@ date the page was last updated, or the date it was read), [Q] model, [E] estimat
 - **Built and tested [M]:** token validation against a fake multi-tenant Entra issuer (20 refused
   token shapes), mapping, stamping, per-user caps and rates, gzip-bomb and size caps, retries as
   copies across replicas, 503 on an unresolved commit, the D35 drain-and-close, heartbeats.
-  **Not built:** the device forwarder (design only), the query-service pair grants. **Not
-  verified:** anything against a real Entra tenant or a real device (runbook:
-  `deploy/validation/entra-ingress.md`).
+  **Built 2026-10-01:** the device forwarder (§10b: MSAL.NET + YARP, in memory only; tested in
+  CI on Linux, Windows and macOS with the broker faked, end to end against the Go ingress).
+  **Not built:** the query-service pair grants. **Not verified:** anything against a real Entra
+  tenant or a real device (runbook: `deploy/validation/entra-ingress.md`, ENT-F for the broker).
 
 ## 1. STPA
 
@@ -543,6 +544,53 @@ Conditional Access need a real tenant and enrolled devices: they stay in the val
 committed or counted; sent only under the producer's own identity; deleted on sign-out; liveness: the tool is
 answered within a bound); (2) the simulation harness (fake time, fake file system, fake network, Coyote);
 (3) the forwarder, test-first; (4) the OS matrix in CI; (5) the runbook on real devices.
+
+## 10b. The forwarder as built (2026-10-01) and its stress plan
+
+Built in [`forwarder/`](../forwarder/README.md) to the owner's revision of D37 (YARP, in memory
+only), verification first:
+
+- **The core** (`ForwarderCore`): the queue and retry policy as a pure state machine, called by
+  the I/O shell under one lock. Bounded in bytes and entries, in flight included; a request
+  beyond the bound is refused (503 + `Retry-After`), never buffered; an attempt carries the
+  accepted byte array itself (LS-E3); a lost answer, a timeout or a 5xx is **unknown** and a
+  later drop is counted apart as maybe-landed (CAST rows 50, 74, 83); 401 refreshes once at
+  once, then backs off; retries bounded by attempts and age (CAST 39); sent only under the
+  account the request was accepted under (R-E6, LS-E5); time is an age clock that only
+  advances (CAST 26, 34). The ledger `accepted = committed + dropped + held` is checked after
+  every step of the stateful tests against an independently written reference model
+  (CsCheck, swarm faults).
+- **The pass-through**: YARP's `IHttpForwarder` sends each attempt from a request context over
+  the entry's bytes, with a transform that drops every header and sets the bearer token (and
+  the MDM-configured namespace choice). A hand-written `HttpClient` call would have been as
+  short; YARP brings its forwarding client settings and error classification, at the cost of a
+  synthetic `HttpContext` per attempt (§8's concern about two acknowledgement meanings does not
+  arise: there is one path, queue then send).
+- **The tool's answer** is given at once from memory: 200 means *held, best effort*, not
+  committed (AMBIGUITY E11). This is what D37's "never blocks the tool" requires; a forwarder
+  that waited for the ingress's verdict would hold the tool for the edge's commit and for Entra.
+- **Not built:** the status item, the interactive sign-in UI, packaging and signing, the
+  config's signed-defaults check (§4.5). **Not verified** in CI: anything of the broker (ENT-F).
+
+**Stress plan, correlated to the STPA and the CAST record** (nightly `forwarder-stress`,
+`jobs=forwarder-stress`, bounded by `stress_seconds` and a 30-minute job): six tools send
+through one forwarder process to the Go ingress harness (`ingress/cmd/ingress-e2e`: the real
+handler, a fake Entra, a broker model, an in-memory store) while a chaos loop rotates:
+
+| Fault injected | What it threatens | Checked |
+|---|---|---|
+| answers lost after the commit | H-E6, LS-E3; CAST 50, 74, 83 (a lost answer read as failure, or a re-cut retry) | ingress `ok` ≥ forwarder `committed`; `committed_after_unknown` counted; E2E: one content key |
+| the store loses PUTs (the edge answers 503 unresolved) | R-E5; CAST 15, 39 (unbounded or unclassified retries) | everything drains once healed; drops counted |
+| 429 and 503 before handling | H-E5; CAST 35, 39 | back-off honours `Retry-After` up to the cap; no hot loop |
+| a slow ingress (400 ms per request) | R-E7, H-E9; CAST 38 (a shared resource without a bound) | held bytes ≤ bound; the process's resident memory under a bound independent of bytes sent; every tool answered < 2 s |
+| tokens that expire in flight (the broker lies about expiry) | R-E6, H-E9, UCA-E8 | 401 → one forced refresh → committed; never a prompt |
+| the broker unavailable | H-E9, H-E4 | entries held then aged out and counted; the tool answered |
+| another person signs in | H-E1, LS-E5 | held entries dropped as `account_changed`, never sent under the new person |
+| six concurrent tools | CAST 21 (deployed parallelism), CAST 38 | the intake bound refuses (503 busy) instead of queuing reads |
+
+Throughout: the ledger balances (H-E4). At the end, faults cleared: the forwarder drains to
+zero held. The summary (answers by status, drops by reason, latency percentiles, peak held
+bytes and resident memory, faults run) is the job's step summary.
 
 ## 11. Owner decisions
 

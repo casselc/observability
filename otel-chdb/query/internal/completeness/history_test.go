@@ -16,18 +16,6 @@ import (
 
 const hkey = "r/_consumer/watermark.json"
 
-// histWorld is a history as the consumer leaves it: steps (monotone in
-// stamp and value) split by hour, the hours before the open one sealed as
-// objects or still frozen in the document, each hour carrying the last step
-// before it.
-type histWorld struct {
-	steps   []HistStep
-	objs    map[string][]byte
-	doc     *History
-	openH   int64
-	cluster map[string]*History // a cluster's document history (its steps in objs too)
-}
-
 // draw is a source of ints in [0, n).
 type draw func(n int) int
 

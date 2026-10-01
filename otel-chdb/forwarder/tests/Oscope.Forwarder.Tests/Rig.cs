@@ -54,8 +54,8 @@ public sealed class FakeIngress : IAsyncDisposable
             else if (self.Default is { } d) await d(ctx, seen);
             else ctx.Response.StatusCode = 200;
         });
+        await app.StartAsync(); // the TestServer hands out a handler only once started
         self = new FakeIngress(app);
-        await app.StartAsync();
         return self;
     }
 

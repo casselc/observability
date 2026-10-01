@@ -278,6 +278,9 @@ pub struct MemFaults {
     /// (`land_held`): a write given up on arrives while its client goes on,
     /// e.g. between a retry's decision and the retry itself.
     pub land_held_on_put: bool,
+    /// The first this-many matching PUTs pass untouched (counted from the
+    /// installation of these faults).
+    pub skip_first: u64,
 }
 
 /// A PUT stuck on the way (`MemFaults::hold`): key, body, condition
@@ -358,7 +361,7 @@ impl Bucket for MemBucket {
         if faulty && f.land_held_on_put {
             while self.land_held().is_some() {}
         }
-        if faulty && f.drop_every > 0 && n % f.drop_every == 0 {
+        if faulty && f.drop_every > 0 && n > f.skip_first && n % f.drop_every == 0 {
             if f.hold {
                 let c = match cond {
                     Cond::None => None,

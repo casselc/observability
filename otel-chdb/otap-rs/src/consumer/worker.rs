@@ -447,6 +447,12 @@ pub struct Worker<B: Bucket, C: Central, K: Clock> {
     /// each step starts by reading the lease back (`refresh_own_takes`), and try_take
     /// looks for them before it judges the lane someone else's.
     take_unsure: BTreeMap<String, (Option<String>, Vec<Held>)>,
+    /// Takes of ours we are giving back whose release got no answer (and
+    /// read back our take, or nothing readable): the release may still land
+    /// on that very version, so we never hold it again. Each step reads the
+    /// lease back and sends the release again while our take is stored;
+    /// any other version ends it (`refresh_own_takes`, `give_back`).
+    giving_back: BTreeMap<String, Held>,
 }
 
 fn log(cfg: &Config, msg: &str) {
@@ -487,6 +493,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             below: HashSet::new(),
             quarantined: Vec::new(),
             take_unsure: BTreeMap::new(),
+            giving_back: BTreeMap::new(),
         }
     }
 
@@ -1012,6 +1019,10 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         let t = self.cfg.timing;
         let asked = self.clock.mono();
         let Some(lane) = self.lanes.get(id).cloned() else { return false };
+        // (our release of it may still land: not before it is resolved)
+        if self.giving_back.contains_key(id) {
+            return false;
+        }
         let prev = match self.lease_etags.get(id) {
             None => None,
             Some(_) => {
@@ -1108,6 +1119,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     /// could take it before that version was ttl + margin old (STPA.md
     /// CAST-83; `a_lease_take_landing_late_is_adopted`).
     async fn refresh_own_takes(&mut self) {
+        // Releases with no known outcome first: our take still stored means
+        // the release has not applied (yet): send it again.
+        for (id, held) in self.giving_back.clone() {
+            let Some(lane) = self.lanes.get(&id).cloned() else { continue };
+            match self.bucket.get(&lane.lease_key(&self.cfg.ctl)).await {
+                Ok(Some((_, e))) if e == held.etag => self.give_back(&id, &lane, held).await,
+                Ok(_) => {
+                    let _ = self.giving_back.remove(&id);
+                }
+                Err(_) => {}
+            }
+        }
         let ids: Vec<String> = self.take_unsure.keys().cloned().collect();
         for id in ids {
             // (a lane a listing missed this time keeps its takes pending)
@@ -1169,18 +1192,25 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
     }
 
     /// Releases `held`, a take of ours the store holds that we will not
-    /// work. If the release itself is not known to have applied (no answer
-    /// and our take still stored, or an unreadable read-back), the take is
-    /// kept pending, with no base: the next read-back that finds it stored
-    /// adopts it again and gives it back again. Forgotten here, the store
-    /// would name us holder of a lane we do not hold until it expired
-    /// (hegel nightly 51: the release of a take found after its window was
-    /// dropped).
+    /// work. If the release is not known to have applied (no answer and our
+    /// take still stored, or an unreadable read-back), it is kept in
+    /// `giving_back`: each step reads the lease back and, while our take is
+    /// still stored, sends the release again. Forgotten, the store would
+    /// name us holder of a lane we do not hold until it expired (hegel
+    /// nightly 51). Never adopted again: the release may still land on that
+    /// very version, and a holder working it would then work a released
+    /// lane, beside its next taker (nightly 53, dst seeds 5307618, 5307784,
+    /// 5309558: 0902ec1 re-adopted it).
     async fn give_back(&mut self, id: &str, lane: &Lane, held: Held) {
         let rel = coord::release(&held.doc, self.clock.wall());
-        if let Err(LeaseMiss::Unchanged | LeaseMiss::Other(None)) = self.write_lease(lane, &rel, Some(&held.etag)).await {
-            log(&self.cfg, &format!("lease {id}: giving our take back got no answer; it stays pending"));
-            let _ = self.take_unsure.insert(id.to_string(), (None, vec![Held { etag: String::new(), ..held }]));
+        match self.write_lease(lane, &rel, Some(&held.etag)).await {
+            Err(LeaseMiss::Unchanged | LeaseMiss::Other(None)) => {
+                log(&self.cfg, &format!("lease {id}: giving our take back got no answer; sending it again while our take is stored"));
+                let _ = self.giving_back.insert(id.to_string(), held);
+            }
+            _ => {
+                let _ = self.giving_back.remove(id);
+            }
         }
     }
 

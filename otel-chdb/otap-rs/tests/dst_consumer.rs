@@ -153,6 +153,22 @@ fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
     assert!(o.failure.is_none(), "{:?}", o.failure);
 }
 
+/// Regression (nightly 53, three of 10,000 level-1 seeds; a bug of
+/// 0902ec1): a take given back with no answer (its checkpoint fence had
+/// failed) was adopted again at the next step while its release was still
+/// on the way; the release landed, another worker took the lane, and two
+/// workers inserted under it ("statement ... issued while the lease is
+/// ..."). A take being given back is now only released again
+/// (`worker.rs` `giving_back`).
+#[test]
+fn a_take_given_back_is_not_held_while_its_release_may_land() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    for seed in [5307618, 5307784, 5309558] {
+        let o = sim::run(seed, wall0(seed), false, fleet);
+        assert!(o.failure.is_none(), "seed {seed}: {:?}", o.failure);
+    }
+}
+
 /// The harness finds the model's mutants (`coord::Mutation`, the bugs the
 /// Quint models were checked against): each must fail some seed.
 #[test]

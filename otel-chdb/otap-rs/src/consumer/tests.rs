@@ -676,10 +676,10 @@ async fn a_late_take_found_after_its_window_is_given_back() {
     assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 3), "take (1), release (2), take (3)");
 }
 
-/// The same, and the release itself gets no answer and is lost: the take
-/// stays pending (`give_back`), so the next step finds it stored again,
-/// gives it back again and takes the lane afresh. Forgotten, it named w1
-/// holder of a lane nobody worked until it expired (hegel nightly 51).
+/// The same, and the release itself gets no answer and is lost: the
+/// release is sent again at the next step, while our take is still stored
+/// (`giving_back`), and then the lane is taken afresh. Forgotten, it named
+/// w1 holder of a lane nobody worked until it expired (hegel nightly 51).
 #[tokio::test(flavor = "current_thread")]
 async fn a_late_take_whose_release_is_lost_is_given_back_again() {
     let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
@@ -691,9 +691,7 @@ async fn a_late_take_whose_release_is_lost_is_given_back_again() {
     *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, ..Default::default() };
     let _ = w.step().await;
     assert!(w.held_lanes().is_empty());
-    // (refresh_own_takes gave it back, then try_take's own read found it and gave it back again)
-    let r1 = w.stats.take_late_released;
-    assert!(r1 >= 1, "{:?}", w.stats);
+    assert_eq!((w.stats.take_late_taken, w.stats.take_late_released), (1, 1), "{:?}", w.stats);
     let key = format!("{CTL}/lease/{lane}.json");
     let (body, _) = b.get(&key).await.unwrap().unwrap();
     let doc: super::coord::LeaseDoc = serde_json::from_slice(&body).unwrap();
@@ -701,8 +699,52 @@ async fn a_late_take_whose_release_is_lost_is_given_back_again() {
     *b.faults.borrow_mut() = MemFaults::default();
     clk.0.set(t0 + 9_000);
     let _ = w.step().await;
-    assert_eq!((w.stats.take_late_taken, w.stats.take_late_released), (r1 + 1, r1 + 1), "{:?}", w.stats);
-    assert_eq!(w.held_lanes(), vec![lane.to_string()], "given back, then taken afresh");
+    assert_eq!(w.held_lanes(), vec![lane.to_string()], "given back again, then taken afresh");
+    let (body, _) = b.get(&key).await.unwrap().unwrap();
+    let doc: super::coord::LeaseDoc = serde_json::from_slice(&body).unwrap();
+    assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 3), "take (1), release (2), take (3)");
+    assert_eq!(c.count("otel_traces", "h0"), 5);
+}
+
+/// Regression (nightly 53, dst seeds 5307618, 5307784, 5309558; a bug of
+/// 0902ec1): a take whose checkpoint fence failed is given back; the
+/// release gets no answer and is stuck on the way. The worker must not
+/// hold that take again while the release may land: 0902ec1 re-adopted it
+/// at the next step, fenced, and inserted; the release landed, another
+/// worker took the lane, and both inserted under it. Now the release is
+/// only sent again, and the lane is taken afresh once it has applied.
+#[tokio::test(flavor = "current_thread")]
+async fn a_take_whose_release_may_still_land_is_not_held_again() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let key = format!("{CTL}/lease/{lane}.json");
+    let (b, c, clk) = setup();
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 5).await;
+    let mut w = worker("w1", &b, &c, &clk);
+    // The heartbeat and the take pass; the three fence attempts and the
+    // release are stuck on the way.
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), drop_every: 1, hold: true, skip_first: 2, ..Default::default() };
+    let t0 = clk.0.get();
+    let _ = w.step().await;
+    assert!(w.held_lanes().is_empty(), "the fence failed: given back");
+    let release = b.held.borrow_mut().drain(..).filter(|(k, ..)| *k == key).collect::<Vec<_>>();
+    assert_eq!(release.len(), 1, "the release is stuck; the fence attempts are lost");
+    *b.faults.borrow_mut() = MemFaults::default();
+    // The next step sends the release again (our take is still stored), and
+    // only then takes the lane, afresh: epoch 3, never the take of epoch 1.
+    clk.0.set(t0 + 100);
+    let _ = w.step().await;
+    let (body, _) = b.get(&key).await.unwrap().unwrap();
+    let doc: super::coord::LeaseDoc = serde_json::from_slice(&body).unwrap();
+    assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 3), "take (1), release (2), take (3)");
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+    // The stuck release lands: it is conditional on the take of epoch 1, gone.
+    b.held.borrow_mut().extend(release);
+    assert!(matches!(b.land_held(), Some(Put::Conflict)));
+    clk.0.set(t0 + 200);
+    let _ = w.step().await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
     assert_eq!(c.count("otel_traces", "h0"), 5);
 }
 
@@ -927,7 +969,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
         // three minutes before midnight (UTC day 20,000)
         clk.0.set(20_000 * 86_400_000 - 180_000);
     }
-    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false, land_held_on_put: false };
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false, land_held_on_put: false, skip_first: 0 };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
     c.late_every.set(11);

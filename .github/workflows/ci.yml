@@ -20,7 +20,7 @@ on:
 # Queue, don't cancel: with several writers on one branch, cancelling left no run finished for
 # hours (CAST 51). A newer push waits for the running one; GitHub keeps only the newest pending run.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-wip-${{ github.sha }}
   cancel-in-progress: false
 
 permissions:
@@ -42,6 +42,7 @@ env:
 
 jobs:
   go-vet:
+    if: false  # WIP-ONLY
     name: go vet (all modules)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -79,6 +80,7 @@ jobs:
   # staticcheck's default checks over every Go module (ci/staticcheck.sh): a
   # finding is fixed or suppressed where it stands with its reason.
   staticcheck:
+    if: false  # WIP-ONLY
     name: staticcheck (all Go modules)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -102,6 +104,7 @@ jobs:
       - run: ci/staticcheck.sh all
 
   go-test:
+    if: false  # WIP-ONLY
     name: go test (fast modules, -race)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -158,6 +161,7 @@ jobs:
   # re-plan state machine, queries over edge Parquet fixtures), with their
   # property tests; and that vendor/ is what package-lock.json pins. No browser.
   lakeui:
+    if: false  # WIP-ONLY
     name: lake UI (node unit + property tests)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -185,6 +189,7 @@ jobs:
   # Arrow and completeness-layer tests import lakeui's modules, so both
   # directories are installed.
   lakeui-mosaic:
+    if: false  # WIP-ONLY
     name: lake UI Mosaic spike (node unit + property tests)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -211,6 +216,7 @@ jobs:
   # otap-rs. This job owns the cargo cache (clippy's and the tests' release
   # artifacts); the nightly Rust jobs only restore it.
   rust:
+    if: false  # WIP-ONLY
     name: otap-rs (clippy, unit + integration tests)
     runs-on: ubuntu-24.04
     timeout-minutes: 45

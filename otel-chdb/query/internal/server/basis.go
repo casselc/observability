@@ -256,6 +256,10 @@ type BasisRequest struct {
 	// Signals: the lane namespaces the basis will be used for (default:
 	// every signal, which is valid for any table and is the lowest value).
 	Signals []string `json:"signals"`
+	// AsOf (RFC 3339, or Unix ns as a number): mint the basis the
+	// watermark's history says was complete at that wall time, not the
+	// current one (D29 amendment 2026-10-01). At most now.
+	AsOf json.RawMessage `json:"as_of,omitempty"`
 }
 
 // BasisResponse is its answer.
@@ -263,6 +267,85 @@ type BasisResponse struct {
 	RequestID string `json:"request_id"`
 	basis.Answer
 	Watermark completeness.WmInfo `json:"watermark"`
+	// AsOf: for a request with as_of, what was complete then, per cluster,
+	// the step each value comes from, and whether the answer is final.
+	AsOf *completeness.AsOfInfo `json:"as_of,omitempty"`
+}
+
+// parseAsOf reads as_of: an RFC 3339 string or Unix ns.
+func parseAsOf(raw json.RawMessage) (time.Time, error) {
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return time.Parse(time.RFC3339Nano, str)
+	}
+	var ns int64
+	if err := json.Unmarshal(raw, &ns); err != nil {
+		return time.Time{}, fmt.Errorf("as_of: want an RFC 3339 time or Unix ns")
+	}
+	return time.Unix(0, ns), nil
+}
+
+func (s *Server) historyLookback() int {
+	if s.HistoryLookbackH <= 0 {
+		return completeness.DefaultLookback
+	}
+	return s.HistoryLookbackH
+}
+
+// asOfBasis mints a basis from the watermark's history as of at: per
+// cluster of the scope (asked, else the caller's; a fleet caller: the
+// fleet) the value then. Every value in the history was published, so it is
+// at or below the current one (never basis_ahead); retention is checked as
+// for any basis.
+func (s *Server) asOfBasis(ctx context.Context, p *auth.Principal, asked []string, signals []string, at time.Time) (*resolvedBasis, *completeness.AsOfInfo, *basis.Refusal) {
+	if s.Bases == nil {
+		return nil, nil, &basis.Refusal{Status: http.StatusNotImplemented, Reason: "basis_disabled", Detail: "this service has no basis key"}
+	}
+	now := s.Now()
+	if at.After(now) {
+		return nil, nil, &basis.Refusal{Status: http.StatusBadRequest, Reason: "as_of_future", Detail: "as_of is after now: the history only says what was complete"}
+	}
+	var clusters []string
+	switch {
+	case len(asked) > 0:
+		clusters = asked
+	case !p.AllClusters:
+		clusters = p.Clusters
+	}
+	sc := completeness.Scope{Clusters: clusters, Signals: signals}
+	info, err := s.Watermark.AsOf(ctx, sc, at.UnixMilli(), s.historyLookback())
+	switch {
+	case errors.Is(err, completeness.ErrNoHistory):
+		return nil, nil, &basis.Refusal{Status: http.StatusNotFound, Reason: "as_of_unknown",
+			Detail: err.Error() + fmt.Sprintf(" (looked back %d h; before the history began, or the consumer published nothing then)", s.historyLookback())}
+	case err != nil:
+		return nil, nil, &basis.Refusal{Status: http.StatusServiceUnavailable, Reason: "watermark_history_unreadable", Detail: err.Error()}
+	}
+	b := &basis.Basis{Version: basis.Version, IssuedNs: now.UnixNano(), Clusters: map[string]uint64{}, MaxLatenessNs: int64(max(s.Watermark.MaxLateness(), 0))}
+	if len(signals) > 0 {
+		b.Signals = slices.Clone(signals)
+		slices.Sort(b.Signals)
+		b.Signals = slices.Compact(b.Signals)
+	}
+	if clusters == nil {
+		b.Clusters[basis.Fleet] = info.CompleteThroughNs
+	} else {
+		for _, cv := range info.By {
+			b.Clusters[cv.Cluster] = cv.CompleteThroughNs
+		}
+	}
+	tok, err := s.Bases.Mint(ctx, b)
+	if err != nil {
+		if errors.Is(err, basis.ErrUnavailable) {
+			return nil, nil, signerRefusal(err)
+		}
+		return nil, nil, &basis.Refusal{Status: http.StatusInternalServerError, Reason: basis.ReasonInvalid, Detail: "the basis could not be encoded: " + err.Error()}
+	}
+	rb := &resolvedBasis{b: b, token: tok, clusters: clusters}
+	if rf := basis.CheckExpiry(b, clusters, now, s.retention(), nil, s.basisSkew()); rf != nil {
+		return nil, nil, rf
+	}
+	return rb, info, nil
 }
 
 // handleBasis mints a basis for a scope without running anything: a
@@ -309,13 +392,30 @@ func (s *Server) handleBasis(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rb, rf := s.useBasis(r.Context(), p, Latest, body.Clusters, body.Signals, true, nil)
+	var (
+		rb   *resolvedBasis
+		info *completeness.AsOfInfo
+		rf   *basis.Refusal
+	)
+	if len(body.AsOf) > 0 && string(body.AsOf) != "null" {
+		at, err := parseAsOf(body.AsOf)
+		if err != nil {
+			deny(http.StatusBadRequest, "bad_as_of", err.Error())
+			return
+		}
+		rb, info, rf = s.asOfBasis(r.Context(), p, body.Clusters, body.Signals, at)
+	} else {
+		rb, rf = s.useBasis(r.Context(), p, Latest, body.Clusters, body.Signals, true, nil)
+	}
 	if rf != nil {
 		deny(rf.Status, rf.Reason, rf.Detail)
 		return
 	}
 	allow := base
 	allow.Decision, allow.Basis = "allow", rb.b.Clusters
+	if info != nil {
+		allow.Detail = "as_of " + info.At
+	}
 	if !s.write(allow) {
 		s.fail(w, ep, rq.id, http.StatusServiceUnavailable, "audit_unavailable", "the decision could not be recorded")
 		return
@@ -324,7 +424,7 @@ func (s *Server) handleBasis(w http.ResponseWriter, r *http.Request) {
 	lbl := completeness.MakeLabel("basis", st, nil, s.Now(), s.Watermark.Key(), p.MayCluster, s.Watermark.MaxLateness())
 	tok := rb.token
 	s.reply(w, ep, http.StatusOK, BasisResponse{RequestID: rq.id, Answer: basis.Answer{Basis: &tok, BasisInfo: rb.b.View()},
-		Watermark: lbl.Watermark})
+		Watermark: lbl.Watermark, AsOf: info})
 }
 
 // authenticateAny is authenticate for an endpoint either role may call.

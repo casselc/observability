@@ -95,6 +95,9 @@ type Server struct {
 	// is basis_expired (default DefaultRetention). BasisSkew: how early a
 	// row may be received before its event time (default DefaultBasisSkew).
 	Retention, BasisSkew time.Duration
+	// HistoryLookbackH: how far before T POST /v1/basis's as_of looks for
+	// a step of the watermark's history (default completeness.DefaultLookback).
+	HistoryLookbackH int
 	// Performance is the allow-list of settings a caller may set per
 	// statement (central.performance_settings; D33). Empty: none.
 	Performance central.SettingsPolicy

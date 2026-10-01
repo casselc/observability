@@ -78,6 +78,9 @@ type Config struct {
 		// CountLate: a windowed /v1/query counts rows later than
 		// MaxLatenessS (default true).
 		CountLate *bool `json:"count_late"`
+		// HistoryLookbackH: how many hours before T a basis "as of T" looks
+		// for a step of the watermark's history (default 48; D29 amendment).
+		HistoryLookbackH int `json:"history_lookback_h"`
 	} `json:"watermark"`
 	// Basis (D30): the keys basis tokens are minted and verified with, and
 	// how old a basis may be.
@@ -294,7 +297,8 @@ func Build(ctx context.Context, c *Config, verifier server.TokenVerifier, sink a
 		Retention: time.Duration(c.Basis.RetentionS) * time.Second, BasisSkew: time.Duration(c.Basis.SkewS) * time.Second,
 		Watermark: wm, Limits: c.Limits, Origins: c.CORSOrigins, MaxBody: c.MaxBodyBytes,
 		NoLateCount: c.Watermark.CountLate != nil && !*c.Watermark.CountLate,
-		Performance: c.Central.PerformanceSettings, SampleDefaultRows: c.Sample.DefaultRows, SampleMaxRows: c.Sample.MaxRows}
+		Performance: c.Central.PerformanceSettings, SampleDefaultRows: c.Sample.DefaultRows, SampleMaxRows: c.Sample.MaxRows,
+		HistoryLookbackH: c.Watermark.HistoryLookbackH}
 	if c.LakeEnabled {
 		s.Planner = lake.New(lc, st, wm)
 	}

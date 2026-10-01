@@ -53,6 +53,9 @@ type Doc struct {
 	Clusters          map[string]uint64 `json:"clusters,omitempty"`
 	Signals           map[string]uint64 `json:"signals,omitempty"`
 	UnlistedSignalsNs uint64            `json:"unlisted_signals_ns,omitempty"`
+	// History: the fleet's open hour and frozen hours (history.go; absent
+	// from a consumer before the D29 amendment of 2026-10-01).
+	History *History `json:"history,omitempty"`
 }
 
 // ClusterDoc is {ctl}/watermark/{cluster}.json (D29): one cluster's values.
@@ -70,6 +73,8 @@ type ClusterDoc struct {
 	LaneWm  map[string]uint64 `json:"lane_wm"`
 	Holding []LaneWm          `json:"holding"`
 	Stale   []LaneWm          `json:"stale"`
+	// History: the cluster's open hour and frozen hours (history.go).
+	History *History `json:"history,omitempty"`
 }
 
 // Status of the watermark as the service sees it.
@@ -96,6 +101,10 @@ type Reader struct {
 	mu       sync.Mutex
 	state    State
 	clusters map[string]*clusterState
+	// hours: sealed history hours read (immutable; history.go).
+	hours hourCache
+	// mutant: a deliberate bug of the history reader (tests only; 0).
+	mutant int
 }
 
 // clusterState is one cluster document's cache entry.

@@ -225,7 +225,7 @@ public class ForwarderFaultTests
     public async Task A_connection_that_never_opened_is_not_sent_and_anything_later_is_unknown()
     {
         OscopeTrace.Covers("FI", "CAST-50 CAST-2");
-        using var client = new HttpMessageInvoker(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(2) });
+        using var client = new HttpMessageInvoker(new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(20) } // Windows answers a closed port only after ~2 s of SYN retries);
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(services);
         Microsoft.Extensions.DependencyInjection.ReverseProxyServiceCollectionExtensions.AddHttpForwarder(services);

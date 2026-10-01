@@ -130,6 +130,7 @@ func (p *Planner) resolveIndex(ctx context.Context, req Request, kept []keptObje
 			rep.Constraints = r.Constraints
 		}
 		rep.Segments += r.Segments
+		rep.DaySegments += r.DaySegments
 		rep.Requests += r.Requests
 		rep.Bytes += r.Bytes
 		rep.CacheHits += r.CacheHits

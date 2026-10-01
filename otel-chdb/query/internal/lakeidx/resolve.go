@@ -53,6 +53,9 @@ type Report struct {
 	Terms       []string `json:"terms,omitempty"`
 	Constraints []string `json:"constraints,omitempty"`
 	Segments    int      `json:"segments"`
+	// DaySegments: per-day shards read (day.go); their objects needed no
+	// hourly LIST, header or block.
+	DaySegments int      `json:"day_segments,omitempty"`
 	Requests    int      `json:"requests"`
 	Bytes       int64    `json:"bytes"`
 	CacheHits   int      `json:"cache_hits"`
@@ -74,6 +77,8 @@ type ResolverConfig struct {
 	CacheBytes   int64
 	HeaderCacheN int
 	Concurrency  int
+	// NoDays: never use the per-day level (day.go).
+	NoDays bool
 }
 
 // Resolver resolves filters against the index, caching headers and blocks.
@@ -82,6 +87,7 @@ type Resolver struct {
 	st     store.Store
 	hdrs   *HeaderCache
 	blocks *blockCache
+	mut    int // a deliberate bug of the day path (tests only; day.go)
 }
 
 // NewResolver returns a resolver reading through st.
@@ -145,8 +151,29 @@ func (r *Resolver) Resolve(ctx context.Context, cluster, signal string, objs []s
 		return out, rep
 	}
 	bud := &budget{left: r.cfg.MaxBytesPerPlan}
+	var mu sync.Mutex
+	fail := func(format string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(rep.Errors) < 20 {
+			rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...))
+		}
+	}
+	// a trace id alone: the day level first, for the objects its manifests
+	// cover; everything else (and anything it could not read) hourly
+	days := map[string]bool{}
+	if f.TraceID != "" && len(cons) == 0 && !r.cfg.NoDays {
+		res, n := r.resolveDays(ctx, cluster, signal, objs, f.TraceID, bud, fail)
+		for k, v := range res {
+			out[k], days[k] = v, true
+		}
+		rep.DaySegments = n
+	}
 	byBucket := map[string][]store.Object{}
 	for _, o := range objs {
+		if days[o.Key] {
+			continue
+		}
 		b := BucketOf(o.LastModified)
 		byBucket[b] = append(byBucket[b], o)
 	}
@@ -156,14 +183,6 @@ func (r *Resolver) Resolve(ctx context.Context, cluster, signal string, objs []s
 		keys []string
 	}
 	var jobs []job
-	var mu sync.Mutex
-	fail := func(format string, a ...any) {
-		mu.Lock()
-		defer mu.Unlock()
-		if len(rep.Errors) < 20 {
-			rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...))
-		}
-	}
 	for _, bk := range sortedKeys(byBucket) {
 		segs, err := r.segments(ctx, cluster, signal, bk, bud, fail)
 		if err != nil {

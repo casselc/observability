@@ -52,6 +52,14 @@ type Config struct {
 	SkewS   int         `json:"skew_s"`
 	ListMax int         `json:"list_max"`
 	Build   BuildConfig `json:"build"`
+	// The per-day trace-id level (day.go): built MergeAfterS after a day
+	// ends, for days at most DayLookbackD old (default 3); shards of at
+	// most DayShardBytes (default 8 MiB), at least 2^DayMinBits of them
+	// (default 2: 4 shards). NoDays turns it off.
+	NoDays        bool  `json:"no_days"`
+	DayLookbackD  int   `json:"day_lookback_d"`
+	DayShardBytes int64 `json:"day_shard_bytes"`
+	DayMinBits    *int  `json:"day_min_bits"`
 }
 
 func (c *Config) defaults() {
@@ -76,6 +84,16 @@ func (c *Config) defaults() {
 	}
 	if c.ListMax <= 0 {
 		c.ListMax = 100_000
+	}
+	if c.DayLookbackD <= 0 {
+		c.DayLookbackD = 3
+	}
+	if c.DayShardBytes <= 0 {
+		c.DayShardBytes = 8 << 20
+	}
+	if c.DayMinBits == nil {
+		two := 2
+		c.DayMinBits = &two
 	}
 	if c.Build.Builder == "" {
 		c.Build.Builder = "lakeindex/1"
@@ -109,6 +127,7 @@ type Stats struct {
 	Rows                                                                                   int64
 	BuildNs                                                                                int64
 	SegmentBytes                                                                           int64
+	Days                                                                                   int64 // day manifests written
 }
 
 // New returns an indexer over b.
@@ -148,6 +167,7 @@ type PassReport struct {
 	Indexed          int
 	Segments         []string
 	Merged           []string
+	Days             []string // day manifests written (day.go)
 	Unindexable      []string
 	IndexedThroughMs int64
 }
@@ -333,6 +353,10 @@ func (ix *Indexer) Pass(ctx context.Context, cluster, signal string) (PassReport
 	}
 	merged, err := ix.mergeHours(ctx, cluster, signal, traceCol, textCol)
 	rep.Merged = merged
+	if err != nil {
+		return rep, err
+	}
+	rep.Days, err = ix.buildDays(ctx, cluster, signal, traceCol)
 	return rep, err
 }
 

@@ -114,6 +114,14 @@ type Header struct {
 	RowGroups   int           `json:"row_groups"`
 	Trace       *TraceSection `json:"trace,omitempty"`
 	Terms       *TermSection  `json:"terms,omitempty"`
+	// Day: a per-day manifest (level 2, day.go): the day's covered objects
+	// (global row-group ordinals across the day) and its trace-id shards.
+	Day *DayInfo `json:"day,omitempty"`
+	// Shard: one per-day trace-id shard (level 2, day.go): no objects of
+	// its own; its ordinals are its manifest's, whose SourcesHash and
+	// RowGroups it carries, and it holds exactly the fingerprints whose top
+	// Bits bits are Prefix.
+	Shard *ShardInfo `json:"shard,omitempty"`
 }
 
 // TokenizerName names Fold's semantics (fold.go); a reader refuses a term
@@ -192,6 +200,11 @@ type Builder struct {
 	terms    map[string][]uint32
 	long     []uint32
 	scratch  []byte
+	// a per-day shard or manifest (day.go)
+	shard        *ShardInfo
+	shardSources string
+	shardRGs     uint32
+	day          *DayInfo
 }
 
 // NewBuilder starts a segment; traceCol / termCol name the indexed columns
@@ -276,11 +289,15 @@ func appendUnique(dst, rgs []uint32) []uint32 {
 
 // Build encodes the segment.
 func (b *Builder) Build(cluster, signal, bucket string, level int) ([]byte, *Header, error) {
-	if len(b.objs) == 0 {
+	if len(b.objs) == 0 && b.shard == nil {
 		return nil, nil, errors.New("lakeidx: empty segment")
 	}
 	h := &Header{Format: FormatVersion, Cluster: cluster, Signal: signal, Bucket: bucket, Level: level, Builder: b.cfg.Builder,
-		Objects: b.objs, SourcesHash: SourcesHash(b.objs), RowGroups: int(b.rgs)}
+		Objects: b.objs, SourcesHash: SourcesHash(b.objs), RowGroups: int(b.rgs), Day: b.day}
+	if b.shard != nil {
+		sh := *b.shard
+		h.Objects, h.SourcesHash, h.RowGroups, h.Shard = []SegObject{}, b.shardSources, int(b.shardRGs), &sh
+	}
 	out := append([]byte{}, magic...)
 	if b.traceCol != "" {
 		sort.Slice(b.fps, func(i, j int) bool {
@@ -456,18 +473,29 @@ func ParseTail(tail []byte, size int64) (h *Header, need int64, err error) {
 // check validates the header's internal consistency: ordinals tile, blocks
 // lie inside the body in order.
 func (h *Header) check(bodyEnd int64) error {
-	var base uint32
-	for i, o := range h.Objects {
-		if o.Base != base {
-			return corrupt("object %d base %d, want %d", i, o.Base, base)
+	if h.Shard != nil {
+		if err := h.checkShard(); err != nil {
+			return err
 		}
-		base += uint32(len(o.RowGroups))
+	} else {
+		var base uint32
+		for i, o := range h.Objects {
+			if o.Base != base {
+				return corrupt("object %d base %d, want %d", i, o.Base, base)
+			}
+			base += uint32(len(o.RowGroups))
+		}
+		if int(base) != h.RowGroups {
+			return corrupt("row groups %d, objects hold %d", h.RowGroups, base)
+		}
+		if SourcesHash(h.Objects) != h.SourcesHash {
+			return corrupt("sources hash")
+		}
 	}
-	if int(base) != h.RowGroups {
-		return corrupt("row groups %d, objects hold %d", h.RowGroups, base)
-	}
-	if SourcesHash(h.Objects) != h.SourcesHash {
-		return corrupt("sources hash")
+	if h.Day != nil {
+		if err := h.checkDay(); err != nil {
+			return err
+		}
 	}
 	end := int64(len(magic))
 	inBody := func(off, n int64) bool {

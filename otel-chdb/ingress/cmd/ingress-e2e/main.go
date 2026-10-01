@@ -6,7 +6,7 @@
 // anyone who asks, so it binds to loopback only.
 //
 //	GET  /_e2e/token?oid=<guid>&role=Team.Payments&lifetime_s=N   a v2.0 access token (JSON)
-//	GET  /_e2e/broker/token?expected=<oid>&force=0|1               the device broker's answer (below)
+//	GET  /_e2e/broker/token?client=C&expected=<oid>&force=0|1      the broker's answer on device C (below)
 //	POST /_e2e/broker?oid=&role=&lifetime_s=&lie_s=&mode=          sign in as another person, shorten tokens, lie about
 //	     their expiry by lie_s (a token that expires mid-flight), or fail (mode=interaction_required|unavailable)
 //	GET  /_e2e/sample?format=proto|json&n=K&seed=S                an OTLP traces body that claims another tenant
@@ -93,8 +93,8 @@ type broker struct {
 	lifetime time.Duration
 	lie      time.Duration
 	mode     string
-	tok      string
-	exp      time.Time
+	tok      map[string]string // per device (?client=): each forwarder has its own broker cache
+	exp      map[string]time.Time
 	hits     int
 }
 
@@ -141,7 +141,8 @@ func main() {
 	}
 	srv.Logf = log.Printf
 	f := &faults{}
-	br := &broker{oid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "Team.Payments", lifetime: 75 * time.Minute, mode: "ok"}
+	br := &broker{oid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "Team.Payments", lifetime: 75 * time.Minute, mode: "ok",
+		tok: map[string]string{}, exp: map[string]time.Time{}}
 	h := srv.Handler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /_e2e/broker/token", func(w http.ResponseWriter, r *http.Request) {
@@ -158,13 +159,14 @@ func main() {
 			return
 		}
 		now := time.Now()
-		if br.tok == "" || q.Get("force") == "1" || !now.Before(br.exp.Add(br.lie)) {
-			br.tok = is.Mint(entratest.Token{Tenant: Tenant, OID: br.oid, Audience: APIID, ClientApp: Forwarder,
+		c := q.Get("client")
+		if br.tok[c] == "" || q.Get("force") == "1" || !now.Before(br.exp[c].Add(br.lie)) {
+			br.tok[c] = is.Mint(entratest.Token{Tenant: Tenant, OID: br.oid, Audience: APIID, ClientApp: Forwarder,
 				Scope: "Telemetry.Write", Roles: []string{br.role}, Lifetime: br.lifetime})
-			br.exp = now.Add(br.lifetime)
+			br.exp[c] = now.Add(br.lifetime)
 		}
-		writeJSON(w, map[string]any{"status": "ok", "access_token": br.tok, "tenant_id": Tenant, "object_id": br.oid,
-			"expires_on": br.exp.Add(br.lie).Unix()})
+		writeJSON(w, map[string]any{"status": "ok", "access_token": br.tok[c], "tenant_id": Tenant, "object_id": br.oid,
+			"expires_on": br.exp[c].Add(br.lie).Unix()})
 	})
 	mux.HandleFunc("POST /_e2e/broker", func(w http.ResponseWriter, r *http.Request) {
 		br.mu.Lock()
@@ -175,13 +177,16 @@ func main() {
 				http.Error(w, "oid must be a lower-case GUID", http.StatusBadRequest)
 				return
 			}
-			br.oid, br.tok = v, ""
+			br.oid = v
+			clear(br.tok)
 		}
 		if v := q.Get("role"); v != "" {
-			br.role, br.tok = v, ""
+			br.role = v
+			clear(br.tok)
 		}
 		if v, err := strconv.Atoi(q.Get("lifetime_s")); err == nil && v > 0 {
-			br.lifetime, br.tok = time.Duration(v)*time.Second, ""
+			br.lifetime = time.Duration(v) * time.Second
+			clear(br.tok)
 		}
 		if v, err := strconv.Atoi(q.Get("lie_s")); err == nil && v >= 0 {
 			br.lie = time.Duration(v) * time.Second

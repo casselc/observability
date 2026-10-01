@@ -139,7 +139,8 @@ public class E2ETests
         (await e.Ingress.PostAsync("/_e2e/fault?kind=lose_answer&n=1", null)).EnsureSuccessStatusCode();
         Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 202))).StatusCode);
         var s1 = await e.Drained();
-        Assert.Equal(2, await e.IngressCount("ok") - ok0); // committed twice at the ingress
+        // Committed twice at the ingress (at least: the reporting forwarder commits there too).
+        Assert.True(await e.IngressCount("ok") - ok0 >= 2, "the lost answer's request was not resent");
         Assert.Equal(1, E2E.Get(s1, "committed_after_unknown") - E2E.Get(s0, "committed_after_unknown"));
         Assert.Equal(1, E2E.Get(s1, "committed") - E2E.Get(s0, "committed"));
         var fresh = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces").ToList();

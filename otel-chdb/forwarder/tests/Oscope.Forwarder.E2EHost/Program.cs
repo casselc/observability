@@ -31,7 +31,7 @@ var settings = new ForwarderSettings
     Queue = string.IsNullOrEmpty(queueJson) ? new ForwarderOptions() : JsonSerializer.Deserialize<ForwarderOptions>(queueJson, web)!,
     Pump = string.IsNullOrEmpty(pumpJson) ? new PumpOptions() : JsonSerializer.Deserialize<PumpOptions>(pumpJson, web)!,
 }.Validate();
-var fwd = ForwarderHost.Build(settings, new HarnessBroker(ingress), args);
+var fwd = ForwarderHost.Build(settings, new HarnessBroker(ingress, $"device-{settings.Local.Port}"), args);
 await fwd.App.StartAsync();
 Console.WriteLine($"forwarder listening http://127.0.0.1:{settings.Local.Port}");
 await fwd.App.WaitForShutdownAsync();
@@ -40,7 +40,7 @@ Console.WriteLine($"forwarder stopped: accepted={s.Accepted} committed={s.Commit
 return s.Balances ? 0 : 3;
 
 /// <summary>The harness's broker model over HTTP (ingress/cmd/ingress-e2e: /_e2e/broker/token).</summary>
-internal sealed class HarnessBroker(Uri ingress) : ITokenAcquirer
+internal sealed class HarnessBroker(Uri ingress, string device) : ITokenAcquirer
 {
     private readonly HttpClient _http = new() { BaseAddress = ingress, Timeout = TimeSpan.FromSeconds(10) };
     private readonly Lock _gate = new();
@@ -56,7 +56,7 @@ internal sealed class HarnessBroker(Uri ingress) : ITokenAcquirer
 
     public async ValueTask<TokenResult> AcquireSilentAsync(AccountKey? expected, bool forceRefresh, CancellationToken ct)
     {
-        var url = $"/_e2e/broker/token?force={(forceRefresh ? 1 : 0)}" + (expected is { } e ? $"&expected={e.ObjectId}" : "");
+        var url = $"/_e2e/broker/token?client={device}&force={(forceRefresh ? 1 : 0)}" + (expected is { } e ? $"&expected={e.ObjectId}" : "");
         JsonElement doc;
         try
         {

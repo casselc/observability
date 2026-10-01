@@ -1257,6 +1257,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/out"
           SEED=$(printf '0x%x' $((RANDOM * 32768 + RANDOM))) TRACES="$RUNNER_TEMP/bitemp-traces" otel-chdb/model/bitemp_model.sh | tee "$RUNNER_TEMP/out/bitemp-model.txt"
           cd otel-chdb/entities/bitemp && BITEMP_TRACES="$RUNNER_TEMP/bitemp-traces" go test -count=1 -run Model -v ./... | tail -3
+      - name: Traceability records (bitemporal catalog model, ci/trace/models.txt)
+        if: always()
+        run: python3 ci/trace/trace.py model --script bitemp_model --report "$RUNNER_TEMP/out/bitemp-model.txt"
       - name: parquetgo/modelcheck
         run: grep -Ev '^(#|$)' ci/test.env >> "$GITHUB_ENV" && set -a && . ci/test.env && set +a && LOG_DIR="$RUNNER_TEMP/out" ci/go-modules.sh test slow
       - uses: actions/upload-artifact@v7

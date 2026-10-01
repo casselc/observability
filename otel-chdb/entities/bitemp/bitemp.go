@@ -51,6 +51,9 @@ const (
 	Announce   Source = iota // an edge's announcement: evidence that a resource existed
 	Overseer                 // the central multicluster aggregator: the fallback
 	Controller               // the cluster's controller: the authority
+	// Steward: the departure process (O-G9, DECISIONS D38 items 11-17). Its
+	// only kind is Pseudonymise; it takes part in no precedence contest.
+	Steward
 )
 
 func (s Source) String() string {
@@ -61,6 +64,8 @@ func (s Source) String() string {
 		return "overseer"
 	case Controller:
 		return "controller"
+	case Steward:
+		return "steward"
 	}
 	return "?"
 }
@@ -72,6 +77,11 @@ const (
 	Assert  Kind = iota // the entity existed, as Version
 	Retract             // it did not exist
 	Unknown             // the source does not know (a gap)
+	// Pseudonymise (Steward only, one named entity): from now on, at every
+	// basis, every assertion of the entity shows Version (the pseudonym's
+	// content address) instead of its own. Not a lifecycle claim: resolution
+	// ignores it, Redact applies it (pseudonym.go).
+	Pseudonymise
 )
 
 // Event is one claim. ValidTo is exclusive (Inf while open). Seq orders
@@ -113,6 +123,9 @@ type Row struct {
 	Version   uint64
 	Source    Source
 	Uncertain bool
+	// Pseudonymised: Version is the entity's pseudonym (Redact), not the
+	// version the deciding event asserted.
+	Pseudonymised bool
 }
 
 // Policy holds the resolution's one parameter.
@@ -125,6 +138,9 @@ type Policy struct {
 }
 
 func auth(e *Event) bool { return e.Source != Announce }
+
+// lifecycle reports whether e takes part in resolution (a correction does not).
+func lifecycle(e *Event) bool { return e.Kind != Pseudonymise }
 
 func (p Policy) eff(e *Event) Time {
 	if e.Source == Controller {
@@ -169,7 +185,7 @@ func Resolve(events []Event, entity uint64, vt, st Time, p Policy) Row {
 	var ta, tn *Event
 	for i := range events {
 		e := &events[i]
-		if e.SystemFrom > st || !applies(e, entity) || vt < e.ValidFrom || vt >= e.ValidTo {
+		if !lifecycle(e) || e.SystemFrom > st || !applies(e, entity) || vt < e.ValidFrom || vt >= e.ValidTo {
 			continue
 		}
 		if auth(e) {
@@ -224,6 +240,9 @@ type Replayer struct {
 func (r *Replayer) Push(e Event) (bool, error) {
 	if r.done {
 		return false, nil
+	}
+	if !lifecycle(&e) { // a correction is applied by Redact, not replayed
+		return true, nil
 	}
 	if r.last != nil && !r.Policy.Higher(r.last, &e) {
 		return false, ErrOrder
@@ -314,7 +333,7 @@ func (r *Replayer) Finish() {
 func ResolveRange(events []Event, entity uint64, vtFrom, vtTo, st Time, p Policy, emit func(Row) bool) int {
 	evs := make([]Event, 0, len(events))
 	for _, e := range events {
-		if applies(&e, entity) && e.SystemFrom <= st {
+		if lifecycle(&e) && applies(&e, entity) && e.SystemFrom <= st {
 			evs = append(evs, e)
 		}
 	}

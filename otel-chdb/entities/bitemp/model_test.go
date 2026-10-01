@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/casselc/observability/otel-chdb/testgate/tracetag"
 )
 
 // Model-based test against ../../model/bitemporalCatalog.qnt: states of
@@ -17,7 +19,9 @@ import (
 // For every state: at every (entity, VT, ST <= now) the model's `view` equals
 // Resolve and the replay (Rows), and the current view built by Current from
 // the same events keeps exactly the model's `live` partition and answers as
-// it does.
+// it does. With O-G9's corrections (src "steward", kind "pseudonymise"): the
+// model's `rview` (the answer a reader gets, pseudonymised at every basis)
+// equals ResolveNamed and RowsNamed, and the current view answers it.
 //
 // The committed testdata/model_traces.json holds the final state of each of
 // 30 traces (seed 0x5eed). Fresh traces, every state:
@@ -56,6 +60,7 @@ type mState struct {
 	Events []mEvent
 	Live   []int // seqs
 	View   []mRes
+	RView  []mRes
 }
 
 // itf values: {"#bigint": "n"}, {"#set": [...]}, {"#map": [[k, v]...]}, {"#tup": [...]}, records.
@@ -103,13 +108,19 @@ func readITF(t *testing.T, path string) []mState {
 				for _, e := range v.(map[string]any)["#set"].([]any) {
 					st.Live = append(st.Live, itfEvent(e).Seq)
 				}
-			case strings.HasSuffix(k, "::view"):
+			case strings.HasSuffix(k, "::view"), strings.HasSuffix(k, "::rview"):
+				var out []mRes
 				for _, kv := range v.(map[string]any)["#map"].([]any) {
 					pair := kv.([]any)
 					tup := pair[0].(map[string]any)["#tup"].([]any)
 					r := pair[1].(map[string]any)
-					st.View = append(st.View, mRes{Ent: itfInt(tup[0]), V: itfInt(tup[1]), S: itfInt(tup[2]),
+					out = append(out, mRes{Ent: itfInt(tup[0]), V: itfInt(tup[1]), S: itfInt(tup[2]),
 						Kind: r["kind"].(string), A: itfInt(r["a"]), Src: r["src"].(string), Unc: r["unc"].(bool)})
+				}
+				if strings.HasSuffix(k, "::rview") {
+					st.RView = out
+				} else {
+					st.View = out
 				}
 			}
 		}
@@ -125,8 +136,8 @@ func toEvent(m mEvent) Event {
 	if m.Vt == modelINF {
 		e.ValidTo = Inf
 	}
-	e.Source = map[string]Source{"controller": Controller, "overseer": Overseer, "announce": Announce}[m.Src]
-	e.Kind = map[string]Kind{"assert": Assert, "retract": Retract, "unknown": Unknown}[m.Kind]
+	e.Source = map[string]Source{"controller": Controller, "overseer": Overseer, "announce": Announce, "steward": Steward}[m.Src]
+	e.Kind = map[string]Kind{"assert": Assert, "retract": Retract, "unknown": Unknown, "pseudonymise": Pseudonymise}[m.Kind]
 	return e
 }
 
@@ -161,6 +172,25 @@ func checkState(t *testing.T, s mState) (points int) {
 		}
 		points++
 	}
+	// O-G9: the pseudonymised answers, at every basis
+	if len(s.RView) != len(s.View) {
+		t.Fatalf("%s now %d: rview has %d points, view %d (traces from a model without O-G9?)", s.Trace, s.Now, len(s.RView), len(s.View))
+	}
+	named := map[[2]int][]Row{}
+	for _, m := range s.RView {
+		want := toRow(m)
+		if got := ResolveNamed(evs, uint64(m.Ent), Time(m.V), Time(m.S), p); !samePoint(got, want) {
+			t.Fatalf("%s now %d: ResolveNamed(%d, %d, %d) = %+v, model %+v\nevents %+v", s.Trace, s.Now, m.Ent, m.V, m.S, got, want, s.Events)
+		}
+		k := [2]int{m.Ent, m.S}
+		if _, ok := named[k]; !ok {
+			named[k] = RowsNamed(evs, uint64(m.Ent), 0, 5, Time(m.S), p)
+		}
+		if got := rowAt(named[k], Time(m.V)); !samePoint(got, want) {
+			t.Fatalf("%s now %d: RowsNamed(%d, %d, %d) = %+v, model %+v\nevents %+v", s.Trace, s.Now, m.Ent, m.V, m.S, got, want, s.Events)
+		}
+		points++
+	}
 	// the current partition
 	c := NewCurrent(p, 0)
 	for _, e := range evs {
@@ -178,12 +208,17 @@ func checkState(t *testing.T, s mState) (points int) {
 	for _, e := range c.all {
 		kept = append(kept, int(e.Seq))
 	}
+	for _, evs := range c.pseu {
+		for _, e := range evs {
+			kept = append(kept, int(e.Seq))
+		}
+	}
 	sort.Ints(kept)
 	if fmt.Sprint(kept) != fmt.Sprint(s.Live) {
 		t.Fatalf("%s now %d: current keeps %v, model's live %v\nevents %+v", s.Trace, s.Now, kept, s.Live, s.Events)
 	}
 	for ent := uint64(1); ent <= 2; ent++ {
-		if got, want := c.Get(ent), Resolve(evs, ent, Time(s.Now), Inf, p); !samePoint(got, want) {
+		if got, want := c.Get(ent), ResolveNamed(evs, ent, Time(s.Now), Inf, p); !samePoint(got, want) {
 			t.Fatalf("%s: current(%d) %+v, resolved %+v", s.Trace, ent, got, want)
 		}
 	}
@@ -191,6 +226,7 @@ func checkState(t *testing.T, s mState) (points int) {
 }
 
 func TestModelTraces(t *testing.T) {
+	tracetag.Covers(t, "MBT", "H-G8", "R-G9")
 	var states []mState
 	if dir := os.Getenv("BITEMP_TRACES"); dir != "" {
 		files, _ := filepath.Glob(filepath.Join(dir, "*.itf.json"))

@@ -43,3 +43,9 @@ nightly:model-open | model_open | partLifetime scenarios | ^runs +partLifetime_t
 nightly:model-open | model_open | fastPath designs | ^sim +fastPath\.qnt +(recommended|recommendedNoFastPath|recommendedNoWait|happyPath) +\S+ .*\(expect ok\)  | M | H-1 H-2
 nightly:model-open | model_open | consumer designs, long | ^sim +(s3InlineConsumer|s3InlineConsumerCompact)\.qnt +\S+ +\S+ +20000 x 100  | M | H-1 H-2
 nightly:model-open | model_open | consumer, wider instances | ^sim +openInstances\.qnt  | M | H-1 H-2
+# O-G9 (pseudonymise on departure; D38 items 11-17): model/bitemporalCatalog.qnt via bitemp_model.sh.
+nightly:model | bitemp_model | design safety (D32 and O-G9) | ^sim +design +safety  | M | H-G8 R-G9
+nightly:model | bitemp_model | DesignTest (departure, late signals, announce hidden) | ^runs +design +DesignTest  | MS | H-G8 R-G9 LS-G8
+nightly:model | bitemp_model | basisScopedBreaksTest | ^runs +basisScoped +basisScopedBreaksTest  | MS | H-G8 LS-G8
+nightly:model | bitemp_model | lastWinsBreaksTest | ^runs +lastWins +lastWinsBreaksTest  | MS | H-E8 R-G9
+nightly:model | bitemp_model | asAssertBreaksTest | ^runs +asAssert +asAssertBreaksTest  | MS | H-G8 UCA-G7

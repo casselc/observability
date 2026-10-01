@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks bitemporalCatalog.qnt (the entity catalog as bitemporal events, D32
-# proposed; ../entities/bitemp/): the design keeps its four invariants over
+# proposed; ../entities/bitemp/; pseudonymise on departure, D38 O-G9): the
+# design keeps its invariants (`safety`: the four of D32 and O-G9's six) over
 # random traces, each witness is reached, each mutant breaks the invariant it
 # is named for, and the scripted runs pass (the design's *DesignTest on
 # `design`, each mutant's *BreaksTest on the mutant). Exits non-zero otherwise.
@@ -39,10 +40,11 @@ runs() { # main match
 }
 
 check design safety ok
-for w in wAnnounceFills wOverseerTakesOver wControllerHolds wUnknownHidesAssert wAnnounceOverridden wCorrected wPruned; do
+for w in wAnnounceFills wOverseerTakesOver wControllerHolds wUnknownHidesAssert wAnnounceOverridden wCorrected wPruned \
+         wPseudonymised wOldBasisRedacted wLateNameHidden wDuplicate; do
   check design "not($w)" VIOLATED 5000
 done
-check strict safety ok 5000
+check strict d32Safety ok 5000                     # O-G9's properties do not depend on W: checked on design
 check strict "not(wOverseerTakesOver)" ok 5000     # strict precedence: the overseer never overrides the controller
 check noCeiling resolvesAsSpec VIOLATED 5000
 check forward resolvesAsSpec VIOLATED 5000
@@ -51,8 +53,14 @@ check unknownAsRetract unknownNeverAsserts VIOLATED 5000
 check ignoreST monotoneHistory VIOLATED 5000
 check pruneAny currentIsResolved VIOLATED 5000
 check pruneBySt currentIsResolved VIOLATED 5000
+# O-G9 (pseudonymise on departure): the weaker readings, each breaking the property it is named for
+check basisScoped pseudonymHidesName VIOLATED 5000
+check basisScoped noNameAtOrAfter ok 5000          # pure bitemporal keeps the weaker property only
+check lastWins pseudonymStable VIOLATED 5000
+check asAssert noNameAtOrAfter VIOLATED 5000
+check asAssert stateUnchanged VIOLATED 5000
 runs design DesignTest
-for m in noCeiling forward sourceBlind unknownAsRetract ignoreST pruneAny pruneBySt; do runs $m "${m}BreaksTest"; done
+for m in noCeiling forward sourceBlind unknownAsRetract ignoreST pruneAny pruneBySt basisScoped lastWins asAssert; do runs $m "${m}BreaksTest"; done
 
 if [ -n "${TRACES:-}" ]; then
   mkdir -p "$TRACES"

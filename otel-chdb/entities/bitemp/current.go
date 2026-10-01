@@ -20,11 +20,14 @@ type Current struct {
 	now  Time
 	ents map[uint64][]Event
 	all  []Event
+	// pseu: every correction (O-G9) by entity, never pruned: it applies at
+	// every valid time from the moment it is recorded
+	pseu map[uint64][]Event
 }
 
 // NewCurrent starts an empty view at now.
 func NewCurrent(p Policy, now Time) *Current {
-	return &Current{p: p, now: now, ents: map[uint64][]Event{}}
+	return &Current{p: p, now: now, ents: map[uint64][]Event{}, pseu: map[uint64][]Event{}}
 }
 
 // Now is the view's valid and system time.
@@ -32,6 +35,10 @@ func (c *Current) Now() Time { return c.now }
 
 // Add takes the next event (arrival order).
 func (c *Current) Add(e Event) {
+	if e.Kind == Pseudonymise {
+		c.pseu[e.Entity] = append(c.pseu[e.Entity], e)
+		return
+	}
 	if e.Entity == All {
 		c.all = c.prune(append(c.all, e), nil)
 		return
@@ -46,7 +53,7 @@ func (c *Current) Advance(now Time) {
 	}
 }
 
-// Get resolves entity at (now, now).
+// Get resolves entity at (now, now), pseudonymised (Redact).
 func (c *Current) Get(entity uint64) Row {
 	evs := c.prune(c.ents[entity], c.all)
 	if len(evs) == 0 {
@@ -56,7 +63,7 @@ func (c *Current) Get(entity uint64) Row {
 	}
 	all := make([]Event, 0, len(evs)+len(c.all))
 	all = append(append(all, evs...), c.all...)
-	return Resolve(all, entity, c.now, Inf, c.p)
+	return Redact(Resolve(all, entity, c.now, Inf, c.p), c.pseu[entity])
 }
 
 // Compact prunes every entity at now.
@@ -75,6 +82,9 @@ func (c *Current) Compact() {
 func (c *Current) Len() int {
 	n := len(c.all)
 	for _, evs := range c.ents {
+		n += len(evs)
+	}
+	for _, evs := range c.pseu {
 		n += len(evs)
 	}
 	return n

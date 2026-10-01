@@ -1208,7 +1208,8 @@ fn history_sim(mut draw: impl FnMut(u64) -> u64, m: HistMutation, stamp_early: b
     const H: u64 = HOUR_MS;
     let pubs = 2 + draw(2) as usize;
     let off: Vec<i64> = (0..pubs).map(|_| draw(2 * S + 1) as i64 - S as i64).collect();
-    let every = [0, 1_000, 60_000][draw(3) as usize];
+    // each publisher its own --wm-history-every (a rollout, two configs)
+    let every: Vec<u64> = (0..pubs).map(|_| [0, 1_000, 60_000][draw(3) as usize]).collect();
     let mut rt: u64 = 10 * H; // real time (ms)
     let mut ing: u64 = 0; // the truth (ns)
     let mut ing_log: Vec<(u64, u64)> = vec![(rt, 0)]; // (real time, truth from then on)
@@ -1249,7 +1250,7 @@ fn history_sim(mut draw: impl FnMut(u64) -> u64, m: HistMutation, stamp_early: b
                             let ct = x.3.1.max(x.1);
                             let t = if stamp_early { x.2 } else { x.4 };
                             let at = wmhistory::stamp(t, t, S, m);
-                            let h = wmhistory::advance(&x.3.2, HistStep { at_ms: at, ct_ns: ct, ..Default::default() }, every, m);
+                            let h = wmhistory::advance(&x.3.2, HistStep { at_ms: at, ct_ns: ct, ..Default::default() }, every[p], m);
                             doc = (doc.0 + 1, ct, h);
                             x.0 = 0;
                         }
@@ -1312,6 +1313,7 @@ fn prop_watermark_history_is_sound_and_stable(tc: TestCase) {
 #[test]
 fn watermark_history_mutants_are_caught() {
     let _trace = otap_s3pq::oscope_trace::covers("MU", &["H-2", "H-5", "R-S1"]);
+    let mut missed = Vec::new();
     for (name, m, early) in [("stampEarly", HistMutation::None, true), ("noSkew", HistMutation::NoSkew, false), ("noClamp", HistMutation::NoClamp, false)] {
         let caught = (1..=3_000u64).find(|seed| {
             let mut x = *seed * 0x9E37_79B9_7F4A_7C15;
@@ -1323,8 +1325,12 @@ fn watermark_history_mutants_are_caught() {
             };
             history_sim(draw, m, early).is_err()
         });
-        assert!(caught.is_some(), "{name} not caught in 3,000 seeds");
+        match caught {
+            Some(seed) => eprintln!("{name}: caught at seed {seed}"),
+            None => missed.push(name),
+        }
     }
+    assert!(missed.is_empty(), "not caught in 3,000 seeds: {missed:?}");
     // and the design is not "caught" by those seeds
     for seed in 1..=500u64 {
         let mut x = seed * 0x9E37_79B9_7F4A_7C15;

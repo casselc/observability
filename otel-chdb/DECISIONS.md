@@ -3021,7 +3021,7 @@ in the CAS'd document only (no objects): the document would grow without
 bound or forget. An hourly object written from a process's memory: lost on
 restart and racy across publishers (several `consume gc` may run).
 
-*Status (2026-10-01): built; the consumer's part is NOT VERIFIED (written, not compiled or run: free disk stayed below the 3 GB floor for a cargo build, and the branch could not be pushed for CI; to run: `cargo clean -p otap-s3pq && cargo clippy --all-targets -- -D warnings && cargo test --lib wmhistory watermark admit && cargo test --test hegel_props -- watermark_history && cargo test --test dst_consumer retirement`). The query service's part and the model are verified.* Consumer: `otap-rs/src/consumer/wmhistory.rs`
+*Status (2026-10-01): built and verified (consumer: `cargo test --bin consume`, `hegel_props`, `dst_consumer`, `ci/clippy.sh`; query service; model).* Consumer: `otap-rs/src/consumer/wmhistory.rs`
 (steps, the freeze, sealing, `as_of`, `first_above`), `watermark.rs`
 (`with_history`: the stamp read inside the CAS; `seal_history`),
 `consume gc --wm-history-every 60s | --no-wm-history`, metrics
@@ -3050,7 +3050,7 @@ mutant fails it), `a_seal_whose_answer_is_lost_or_unstored_is_retried_and_never_
 (`consumer/tests.rs`); the Hegel property
 `prop_watermark_history_is_sound_and_stable` and
 `watermark_history_mutants_are_caught` (the model's harness over the real
-`advance`/`as_of`; `tests/hegel_props.rs`); the retirement DST checks
+`advance`/`as_of`, each publisher with its own `--wm-history-every`; `tests/hegel_props.rs`). Two findings from running it: with one `every` for every publisher, `stampEarly` cannot be reached in the implementation (a value published without a step had a stamp below the recording threshold, which any later recorded step's stamp exceeds), so the harness draws `every` per publisher (a rollout with two configurations), where the mutant is caught; and the downsampling check already drops a stamp before the last step, so the clamp and that check are one rule, and the `NoClamp` mutant removes both (as the model's `noClamp`); the retirement DST checks
 `historySound` against central after every publication
 (`tests/dst/retire.rs`, witness "history recorded"); `consume admit`'s
 report from the history (`admit_recovers_quarantined_objects_once_and_gc_keeps_them`).

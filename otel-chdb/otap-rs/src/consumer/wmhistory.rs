@@ -52,7 +52,8 @@ pub enum HistMutation {
     StampEarly,
     /// The stamp is the bare clock, without the skew bound (`noSkew`).
     NoSkew,
-    /// The stamp is not raised to the last step's (`noClamp`).
+    /// A stamp before the last step's is neither raised to it nor dropped:
+    /// appended (`noClamp`).
     NoClamp,
 }
 
@@ -176,7 +177,11 @@ pub fn advance(prev: &History, mut step: HistStep, every_ms: u64, m: HistMutatio
     }
     match prev.open.last() {
         Some(l) if l.same_values(&step) => {}
-        Some(l) if prev.open.steps.last().is_some() && step.at_ms < l.at_ms.saturating_add(every_ms) => {}
+        // Within `every` of the last step: not recorded. This also drops a
+        // stamp before the last step, so the clamp and this check are one
+        // rule ("never before the last step"); the NoClamp mutant removes
+        // both (the model's `noClamp`: an earlier step appended).
+        Some(l) if prev.open.steps.last().is_some() && step.at_ms < l.at_ms.saturating_add(every_ms) && !(m == HistMutation::NoClamp && step.at_ms < l.at_ms) => {}
         _ => h.open.steps.push(step),
     }
     h

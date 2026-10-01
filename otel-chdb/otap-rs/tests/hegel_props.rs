@@ -1189,3 +1189,152 @@ fn prop_statistics_stay_small_with_huge_values(tc: TestCase) {
 }
 
 
+
+// ---- the watermark's history (D29 amendment 2026-10-01; model/wmHistory.qnt) --------------
+
+use consumer::wmhistory::{self, HOUR_MS, HistHour, HistMutation, HistStep, History};
+use std::collections::BTreeMap;
+
+/// The model's harness over the real `advance`, `without_sealed` and `as_of`:
+/// publishers with clocks within `skew` of real time, each run an observe
+/// (the truth now), a GET (the document, and the clock for the stamp) and a
+/// CAS (only if the document is unchanged); sealing writes each frozen hour
+/// once (create-only) and drops it; readers ask "as of t" for t up to now.
+/// Checks the model's `sound`, `monotone` and `answersHold`. `draw(n)` is
+/// in 0..n. `stamp_early`: the harness stamps at observation (the model's
+/// `stampEarly`, a mistake of the caller of `advance`).
+fn history_sim(mut draw: impl FnMut(u64) -> u64, m: HistMutation, stamp_early: bool) -> Result<(), String> {
+    const S: u64 = 2_000; // the skew bound (ms)
+    const H: u64 = HOUR_MS;
+    let pubs = 2 + draw(2) as usize;
+    let off: Vec<i64> = (0..pubs).map(|_| draw(2 * S + 1) as i64 - S as i64).collect();
+    let every = [0, 1_000, 60_000][draw(3) as usize];
+    let mut rt: u64 = 10 * H; // real time (ms)
+    let mut ing: u64 = 0; // the truth (ns)
+    let mut ing_log: Vec<(u64, u64)> = vec![(rt, 0)]; // (real time, truth from then on)
+    let mut doc = (0u64, 0u64, History::default()); // (version, ct, history)
+    let mut objects: BTreeMap<u64, HistHour> = BTreeMap::new();
+    // per publisher: phase (0 idle, 1 observed, 2 read), obs, t_obs, read doc, t_get
+    let mut ps: Vec<(u8, u64, u64, (u64, u64, History), u64)> = vec![(0, 0, 0, Default::default(), 0); pubs];
+    let mut answers: Vec<(u64, u64, bool)> = Vec::new();
+    let clk = |p: usize, rt: u64| (rt as i64 + off[p]).max(0) as u64;
+    let ing_at = |log: &[(u64, u64)], t: u64| log.iter().rev().find(|(t0, _)| *t0 <= t).map_or(0, |x| x.1);
+    let all_steps = |doc: &History, objects: &BTreeMap<u64, HistHour>| -> Vec<HistStep> {
+        let mut v: Vec<HistStep> = objects.values().flat_map(|h| h.steps.clone()).collect();
+        v.extend(doc.sealing.iter().flat_map(|h| h.steps.clone()));
+        v.extend(doc.open.steps.clone());
+        v
+    };
+    for step in 0..120 {
+        match draw(9) {
+            0 => rt += 1 + draw(H / 4),
+            1 => {
+                ing += 1 + draw(1_000);
+                ing_log.push((rt, ing));
+            }
+            2..=5 => {
+                let p = draw(pubs as u64) as usize;
+                let x = &mut ps[p];
+                match x.0 {
+                    0 => *x = (1, ing, clk(p, rt), x.3.clone(), 0),
+                    1 => {
+                        x.3 = doc.clone();
+                        x.4 = clk(p, rt);
+                        x.0 = 2;
+                    }
+                    _ => {
+                        if x.3.0 != doc.0 {
+                            x.0 = 1; // lost the race: GET again
+                        } else {
+                            let ct = x.3.1.max(x.1);
+                            let t = if stamp_early { x.2 } else { x.4 };
+                            let at = wmhistory::stamp(t, t, S, m);
+                            let h = wmhistory::advance(&x.3.2, HistStep { at_ms: at, ct_ns: ct, ..Default::default() }, every, m);
+                            doc = (doc.0 + 1, ct, h);
+                            x.0 = 0;
+                        }
+                    }
+                }
+            }
+            6 => {
+                // seal every frozen hour (create-only), then drop them (a second CAS)
+                let done: Vec<u64> = doc.2.sealing.iter().map(|h| h.hour_ms).collect();
+                for h in &doc.2.sealing {
+                    let _ = objects.entry(h.hour_ms).or_insert_with(|| h.clone());
+                }
+                if let Some(n) = wmhistory::without_sealed(&doc.2, &done) {
+                    doc = (doc.0 + 1, doc.1, n);
+                }
+            }
+            _ => {
+                let t = 10 * H + draw(rt - 10 * H + 1);
+                if let Some(a) = wmhistory::as_of(&doc.2, t, 1_000, |h| objects.get(&h).cloned()) {
+                    answers.push((t, a.step.ct_ns, a.final_));
+                }
+            }
+        }
+        // the properties, after every step
+        let steps = all_steps(&doc.2, &objects);
+        for s in &steps {
+            let truth = if s.at_ms >= rt { ing } else { ing_at(&ing_log, s.at_ms) };
+            if s.ct_ns > truth {
+                return Err(format!("step {step}: unsound: {s:?} claims {} by {}, true then: {truth}", s.ct_ns, s.at_ms));
+            }
+            if s.ct_ns > doc.1 {
+                return Err(format!("step {step}: {s:?} above the published {}", doc.1));
+            }
+        }
+        for a in &steps {
+            if let Some(b) = steps.iter().find(|b| a.at_ms < b.at_ms && a.ct_ns > b.ct_ns) {
+                return Err(format!("step {step}: not monotone: {a:?} then {b:?}"));
+            }
+        }
+        for (t, v, fin) in &answers {
+            let now = wmhistory::as_of(&doc.2, *t, 1_000, |h| objects.get(&h).cloned()).map(|a| a.step.ct_ns);
+            if (*fin && now != Some(*v)) || now.is_none_or(|n| n < *v) {
+                return Err(format!("step {step}: as of {t} was {v} (final {fin}), now {now:?}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The design: sound, monotone, final answers stable, provisional ones never
+/// falling, under any interleaving of publishers with skewed clocks.
+#[hegel::test]
+fn prop_watermark_history_is_sound_and_stable(tc: TestCase) {
+    let _trace = otap_s3pq::oscope_trace::covers("SM", &["H-2", "H-5", "R-S1"]);
+    let r = history_sim(|n| tc.draw(gs::integers::<u64>().max_value(n.saturating_sub(1))), HistMutation::None, false);
+    assert!(r.is_ok(), "{}", r.unwrap_err());
+}
+
+/// The model's mutants, against the same harness: each is caught.
+#[test]
+fn watermark_history_mutants_are_caught() {
+    let _trace = otap_s3pq::oscope_trace::covers("MU", &["H-2", "H-5", "R-S1"]);
+    for (name, m, early) in [("stampEarly", HistMutation::None, true), ("noSkew", HistMutation::NoSkew, false), ("noClamp", HistMutation::NoClamp, false)] {
+        let caught = (1..=3_000u64).find(|seed| {
+            let mut x = *seed * 0x9E37_79B9_7F4A_7C15;
+            let draw = |n: u64| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                if n == 0 { 0 } else { x % n }
+            };
+            history_sim(draw, m, early).is_err()
+        });
+        assert!(caught.is_some(), "{name} not caught in 3,000 seeds");
+    }
+    // and the design is not "caught" by those seeds
+    for seed in 1..=500u64 {
+        let mut x = seed * 0x9E37_79B9_7F4A_7C15;
+        let draw = |n: u64| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            if n == 0 { 0 } else { x % n }
+        };
+        let r = history_sim(draw, HistMutation::None, false);
+        assert!(r.is_ok(), "seed {seed}: {}", r.unwrap_err());
+    }
+}

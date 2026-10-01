@@ -2653,6 +2653,66 @@ deleting L0s after their L1, a sealer snapshot naming segments
 token policy to bound the dictionary on id-heavy bodies (owner decision:
 dropping all-hex or all-digit tokens would make id searches unindexable).
 
+**Amendment 2026-10-01: the per-day trace-id level, sharded by fingerprint
+prefix (owner-approved work; built).** The hourly segments make a trace
+lookup read, per hour of the window, a LIST, the hour's segment headers and
+one block: 720 of each for 30 days (research/bitemporal.md §6, "hash-prefix
+sharding of deeper index levels"; lake/DESIGN P2's daily maplet).
+
+*Design* ([FORMAT.md](FORMAT.md) §7.6). Once a day has ended
+(`merge_after_s` past midnight UTC, within `day_lookback_d`, 3), the
+indexer writes per (cluster, signal, day) **2^bits shards** (segments of
+level 2 with only a trace section: exactly the fingerprints whose top
+`bits` bits are the shard's prefix, row groups numbered across the day)
+and then **a manifest** listing the day's covered objects (each from the
+hourly segment that covers it) and its shards. Shards list no objects:
+otherwise every shard would repeat the day's object list (every object
+holds ids of every prefix). `bits` adapts: the smallest ≥ 2 (4 shards)
+keeping a shard ≤ 8 MiB, at most 8 (256). Shards first, manifest last (the
+commit point); content-addressed and create-only as every segment, so a
+re-run meets the same keys. A day is rebuilt when an object its hours'
+segments cover is in no manifest (a straggler committed in the day after
+the build) or a shard of the covering manifest does not verify (written
+beside, `-r{n}`). The reader (a trace id and no terms; terms stay hourly):
+per day, LIST, the best manifest (most objects), the id's shard header and
+one block; the shard must be the manifest's (`sources_hash`, `row_groups`,
+bits, prefix, place), else the next manifest; objects the manifest does not
+cover by key, size and ETag, and anything unreadable, go hourly. So the day
+level can only remove hourly reads, never coverage, and a lookup of a
+covered day costs one LIST, two cached headers and one block GET instead of
+24 LISTs, the hours' headers and 24 blocks. The plan's `index` report
+counts `day_segments`.
+
+*STPA.* The hazard is the index's own (H-2/H-5: an object ruled out that
+holds the trace, a trace view shown complete without it); the CAST lessons
+applied: create-only content addressing (rows 74/83/84: a lost answer is
+retried into the same key), a commit point written last, and the reader's
+check that a shard belongs to its manifest (a forged or mismatched one
+would map ordinals to the wrong objects).
+
+*Evidence* [P2C, MU]: `query/internal/lakeidx/day_test.go`:
+`TestDayLevelResolveIsASuperset` (rapid: generated lakes over up to four
+days, indexed as they arrive, then the day level; a trace lookup reads only
+day shards, `segments` 0, `scan` 0, and never misses a row group holding
+the id), `TestDayLevelMutantsCaught` (the shard from the low bits; a
+manifest trusted by key alone; a shard trusted without being its
+manifest's: each caught), `TestDayLevelReplacedObjectIsNotTrusted`,
+`TestDayLevelForgedShardIsRefused`, `TestDayLevelLayoutAndStragglers`
+(4 shards, an idle pass writes nothing, a straggler answered hourly until
+the next pass covers it in a second manifest),
+`TestDayLevelCorruptShardAndLostWrites` (lost requests and answers
+converge; a damaged shard falls back hourly, is rebuilt beside and used).
+The lake UI's "Find a trace" journey reads today's data, which no day level
+covers yet, so its plans and pictures do not change.
+
+*Limits / owner decisions:* (1) the build holds a day's fingerprints in
+memory (~8 bytes an entry: 100 M ids a day per cluster is ~800 MB): a
+streamed, per-shard build is the next step if days are that large
+(recommended: measure the deployed rate first); (2) index GC still does not
+exist (X14): day objects outlive their lanes like the hourly ones; (3) the
+lake UI e2e does not exercise the day level (its data is never a day old):
+a rig with back-dated objects would (not built).
+
 ### D28. Mosaic (vgplot + DuckDB-WASM) for the lake UI's analytical views, fed by the range reader (proposed)
 
 **Status:** **deferred by the owner** (2026-09-28): no Mosaic support for now.
@@ -2859,7 +2919,7 @@ are published but no reader narrows by them; `max_lateness` is still one
 fleet-wide value (X12).
 
 **Amendment 2026-10-01: the watermark's history (owner-approved work;
-proposed; being built).** Each document above holds only its running max,
+built: status at the end of the amendment).** Each document above holds only its running max,
 so nothing can say what was complete *as of* an earlier time T: a basis (D30)
 can only be minted at "latest", an audit cannot reconstruct which value a
 dashboard or rule could have seen at T, and `consume admit` (D35) can only
@@ -2960,6 +3020,49 @@ this small does not need an LSM. One create-only object per run (`{scope}/
 in the CAS'd document only (no objects): the document would grow without
 bound or forget. An hourly object written from a process's memory: lost on
 restart and racy across publishers (several `consume gc` may run).
+
+*Status (2026-10-01): built; the consumer's part is NOT VERIFIED (written, not compiled or run: free disk stayed below the 3 GB floor for a cargo build, and the branch could not be pushed for CI; to run: `cargo clean -p otap-s3pq && cargo clippy --all-targets -- -D warnings && cargo test --lib wmhistory watermark admit && cargo test --test hegel_props -- watermark_history && cargo test --test dst_consumer retirement`). The query service's part and the model are verified.* Consumer: `otap-rs/src/consumer/wmhistory.rs`
+(steps, the freeze, sealing, `as_of`, `first_above`), `watermark.rs`
+(`with_history`: the stamp read inside the CAS; `seal_history`),
+`consume gc --wm-history-every 60s | --no-wm-history`, metrics
+`consumer_watermark_history_{sealed_total,conflicts_total,pending,dropped}`,
+`consume admit`'s `last_below_ms`/`first_above_ms` per listed scope. Query
+service: `completeness.Reader.AsOf` (`history.go`), `POST /v1/basis`
+`as_of`, `watermark.history_lookback_h`. [FORMAT.md](FORMAT.md) §4.1.
+
+*Evidence.* Model first: `model/wmHistory.qnt` (`wmhistory_model.sh`,
+nightly `model`): the design safe at 20,000 × 40 (`sound`, `monotone`,
+`answersHold`, `historyBounded`), four witnesses reached, four mutants
+caught by simulation and by scripted runs. **The model found a flaw in the
+first draft of this design** (`stampEarly`): the draft stamped a step with
+the clock read after the run's checkpoint reads, but the CAS's running max
+can bring in a value another publisher observed *after* that time
+(published without a step, downsampled), so the step claimed it too early;
+the stamp is now read after the document's GET. Query service [P2C]:
+`TestAsOfProperty` (rapid, against a reference, hours sealed, frozen, open
+and looked back; the off-by-one mutants `mutStrict` and `mutNext` caught,
+CAST 34's lesson), `TestHistoryHoursCachedAndChecked`, `TestBasisAsOf`
+(the HTTP contract, refusals, an answer at an as-of basis reads exactly the
+rows received before it). Consumer: `wmhistory` unit tests;
+`the_watermark_history_is_sealed_hourly_and_answers_as_of`,
+`a_value_published_meanwhile_is_stamped_after_the_get` (the `stampEarly`
+mutant fails it), `a_seal_whose_answer_is_lost_or_unstored_is_retried_and_never_overwrites`
+(`consumer/tests.rs`); the Hegel property
+`prop_watermark_history_is_sound_and_stable` and
+`watermark_history_mutants_are_caught` (the model's harness over the real
+`advance`/`as_of`; `tests/hegel_props.rs`); the retirement DST checks
+`historySound` against central after every publication
+(`tests/dst/retire.rs`, witness "history recorded"); `consume admit`'s
+report from the history (`admit_recovers_quarantined_objects_once_and_gc_keeps_them`).
+
+*Owner decisions (2026-10-01; recommendations, not blocking):* (1)
+retention of the history objects: an S3 lifecycle rule on
+`{ctl}/watermark-history/` (recommended: basis retention + 7 days) vs.
+GC deleting them vs. keeping them; (2) the step resolution
+(`--wm-history-every`, 60 s recommended: ~15 KB per scope-hour) vs. every
+run (5 s: ~180 KB in the CAS'd document, rewritten every run); (3) whether
+`/v1/query` should take `basis: {"as_of": T}` directly (not built: a client
+mints with `POST /v1/basis` first). AMBIGUITY.md X26.
 
 ### D30. The basis: answers at a named custody time
 

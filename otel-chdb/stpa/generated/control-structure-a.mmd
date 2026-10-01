@@ -9,7 +9,7 @@ flowchart TB
   nfe59f7["Edge collectors<br/>agents, publishers, buffer; commit protocol per lane<br/><i>algorithm: 4 rules · process model: 4 variables</i>"]
   n8020ed["Consumer workers<br/>leases, time-bound inserts, count check and repair<br/><i>algorithm: 4 rules · process model: 8 variables</i>"]
   n72ab73["Central aggregator<br/>merges and versions; flags catalog gaps<br/><i>algorithm: 1 rule · process model: 2 variables</i>"]
-  nac2fd1["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots<br/><i>algorithm: 2 rules · process model: 4 variables</i>"]
+  nac2fd1["GC, audit, sealer<br/>delete old slots; late-copy audit; snapshots<br/><i>algorithm: 2 rules · process model: 5 variables</i>"]
   n21e324[("S3 lanes and control objects<br/>telemetry and entity objects; leases, checkpoints, tombstones, GC marks")]
   ndf7b55[("Telemetry producers<br/>workloads and agents sending OTLP to their edge")]
   ned00c7[("Central ClickHouse<br/>tables, rollups, indexes")]

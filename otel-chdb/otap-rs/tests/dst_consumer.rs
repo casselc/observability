@@ -252,7 +252,7 @@ fn retirement_seeds() {
         }
     }
     eprintln!("DST retirement: {n} seeds passed in {:.1} s; witnesses {seen:?}", t0.elapsed().as_secs_f64());
-    for w in ["a lane retired", "operator retired", "published past a retired lane", "reborn", "lost with its volume", "zombie landed", "adopted"] {
+    for w in ["a lane retired", "operator retired", "published past a retired lane", "reborn", "lost with its volume", "zombie landed", "adopted", "history recorded"] {
         assert!(seen.contains_key(w), "witness {w:?} never reached in {n} seeds: {seen:?}");
     }
     assert!(!seen.contains_key("quarantined"), "the design never quarantines");

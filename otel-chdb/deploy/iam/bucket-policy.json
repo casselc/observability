@@ -10,6 +10,14 @@
       "Condition": {"Null": {"s3:if-none-match": "true"}}
     },
     {
+      "Sid": "WatermarkHistoryIsCreateOnly",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::BUCKET/ROOT/_consumer/watermark-history/*",
+      "Condition": {"Null": {"s3:if-none-match": "true"}}
+    },
+    {
       "Sid": "LeasesAndCheckpointsAreCAS",
       "Effect": "Deny",
       "Principal": "*",

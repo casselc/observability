@@ -19,14 +19,17 @@
 //!           replicated central: [--ch URL1,URL2] [--sync-replica [--sync-timeout 5s] [--switch-hold <budget+slack+2s>]]
 //!           [--no-ddl] [--insert-setting k=v ...] [--metrics-addr HOST:PORT]
 //!   consume gc --s3 ... [--ctl PREFIX] --delay 115s --zombie 10m [--dry-run] [--every 5s --run-for 10m]
-//!           [--depth 3 --wm-skew 5s --wm-stale 5m [--wm-cluster-every 0s | --no-cluster-watermarks] | --no-watermark]
+//!           [--depth 3 --wm-skew 5s --wm-stale 5m [--wm-cluster-every 0s | --no-cluster-watermarks]
+//!            [--wm-history-every 60s | --no-wm-history] | --no-watermark]
+//!           (the history: {ctl}/watermark-history/{_fleet|cluster}/{YYYY-MM-DD}T{HH}.json, create-only, D29 amendment)
 //!   consume retire-lane --s3 ... [--ctl PREFIX] --lane CLUSTER/PRODUCER/SIGNAL --volume-deleted --evidence "…"
 //!           [--zombie 10m] [--dry-run]
 //!           (D35: a lane whose publisher died without a close; ../../FORMAT.md §3.1; refuses unless the volume is
 //!           attested deleted, the lane wrote nothing for --zombie, and the consumer has passed every slot it shows)
 //!   consume admit --s3 ... [--ctl PREFIX] --ch URL --db DB [--lane CLUSTER/PRODUCER/SIGNAL] [--dry-run]
 //!           (D35: quarantined objects into {table}_recovered, never the main tables; reports the event windows
-//!           and the published complete_through values they fall below)
+//!           and the published complete_through values they fall below, and from the history when each first
+//!           passed the rows)
 //!   consume watermark --s3 ... [--ctl PREFIX] [--every 5s --run-for 10m] [--depth 3 --wm-skew 5s --wm-stale 5m]
 //!           (complete_through alone: {ctl}/watermark.json and {ctl}/watermark/{cluster}.json, ../../FORMAT.md §3, D29)
 //!           [--ch URL --db DB [--audit-every 24h | off] <audit flags>] [--metrics-addr HOST:PORT]
@@ -166,6 +169,9 @@ struct Metrics {
     wm_err: u64,
     /// Per-cluster documents that failed to write (D29).
     wm_cluster_err: u64,
+    wm_hist_sealed: u64,
+    wm_hist_conflicts: u64,
+    wm_hist_pending: u64,
 }
 
 /// `complete_through` as metrics (../../FORMAT.md §3).
@@ -444,7 +450,14 @@ async fn main() {
                         w.hours_total,
                         t(w.received_from_ns),
                         t(w.received_to_ns),
-                        w.bases_now.iter().map(|b| format!("{} {}", b.scope, t(b.complete_through_ns))).collect::<Vec<_>>().join(", ")
+                        w.bases_now
+                            .iter()
+                            .map(|b| {
+                                let at = |x: Option<u64>| x.map_or("?".to_string(), |ms| t(ms.saturating_mul(1_000_000)));
+                                format!("{} {} (history: at or below them until {}, above from {})", b.scope, t(b.complete_through_ns), at(b.last_below_ms), at(b.first_above_ms))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     );
                 }
                 eprintln!("consume admit: {} admitted, {} already, {} gone from S3. {}", r.admitted, r.already, r.missing.len(), r.note);
@@ -474,6 +487,10 @@ async fn main() {
             }
             if let Some(d) = &st.wm {
                 wm_families(&mut p, d, st.wm_err, st.wm_cluster_err);
+                p.counter("consumer_watermark_history_sealed_total", "Watermark history hours sealed (create-only objects written or found equal).", &[], st.wm_hist_sealed as f64);
+                p.counter("consumer_watermark_history_conflicts_total", "Watermark history hours found stored with other content (kept, never rewritten): a bug or two publishers with different histories.", &[], st.wm_hist_conflicts as f64);
+                p.gauge("consumer_watermark_history_pending", "History hours frozen but not confirmed sealed at the last run (retried every run).", &[], st.wm_hist_pending as f64);
+                p.gauge("consumer_watermark_history_dropped", "Frozen history hours dropped unsealed (more than 48 pending): gaps in the history.", &[], d.history.dropped as f64);
             }
             metrics::publish(&prom, p.render());
         };
@@ -488,6 +505,8 @@ async fn main() {
                 stale_ms: opt_ms(&args, "--wm-stale", "5m"),
                 per_cluster: !flag(&args, "--no-cluster-watermarks"),
                 cluster_every_ms: opt_ms(&args, "--wm-cluster-every", "0s"),
+                history: !flag(&args, "--no-wm-history"),
+                history_every_ms: opt_ms(&args, "--wm-history-every", "60s"),
                 ..consumer::watermark::WmConfig::new(&root, &ctl)
             });
             let cfg = GcConfig {
@@ -499,7 +518,7 @@ async fn main() {
             };
             loop {
                 if let Some(wc) = &wm_cfg {
-                    let r = consumer::watermark::watermark_run(&*bucket, wc, consumer::wall_ms()).await;
+                    let r = consumer::watermark::watermark_run_at(&*bucket, wc, consumer::wall_ms(), &consumer::wall_ms).await;
                     let mut st = state.borrow_mut();
                     match r {
                         Ok(run) => {
@@ -508,6 +527,12 @@ async fn main() {
                                 eprintln!("watermark: {e}");
                             }
                             st.wm_cluster_err += run.errors.len() as u64;
+                            for e in run.hist_conflicts.iter().chain(&run.hist_pending) {
+                                eprintln!("watermark history: {e}");
+                            }
+                            st.wm_hist_sealed += run.hist_sealed as u64;
+                            st.wm_hist_conflicts += run.hist_conflicts.len() as u64;
+                            st.wm_hist_pending = run.hist_pending.len() as u64;
                             st.wm = Some(run.fleet);
                         }
                         Err(e) => {

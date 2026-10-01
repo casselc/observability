@@ -31,11 +31,13 @@ the **resource announcements** in the data object itself (§2.1).
 {ctl}/audit/{db}.json                                              horizon-audit state (D11)
 {ctl}/watermark.json                                               complete_through (§3, §4)
 {ctl}/watermark/{cluster}.json                                     one cluster's complete_through, per signal and per lane (§3, D29)
+{ctl}/watermark-history/{_fleet|cluster}/{YYYY-MM-DD}T{HH}.json    one sealed hour of a scope's complete_through history (§4.1)
 {ctl}/quarantine/{cluster}/{producer}/{signal}.json                a retired lane's quarantined objects (§3.1, D35)
 {ctl}/retired/{cluster}/{producer}/{signal}/{wall_ms}.json         an operator's retirement: the record (§3.1, D35)
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.delta.ndjson.gz          entity lanes
 {entities}/{cluster}/{epochMs}-{instance}/{seq:012d}.sync.{syncAtMs}.ndjson.gz
 {root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix             lake index segments (§7)
+{root}/{cluster}/_index/v1/{signal}/{day}/{M|S{pp}}-{h}.osix             the per-day trace-id level (§7.6)
 {root}/{cluster}/_index/v1/{signal}.progress.json                        the indexer's progress (§7.4)
 ```
 
@@ -638,8 +640,64 @@ and only once the pod has been gone longer than a request lifetime.
 | `workers/…` | each worker (plain PUT) | `{worker, beat, wall_ms, load, lanes}` |
 | `gc.json` | `consume gc` (CAS) | `{version, marks, deleted_below, retired}` (D12) |
 | `audit/{db}.json` | `consume horizon-audit` | reported copies (D11) |
-| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s, clusters: {cluster: ns}, signals: {signal: ns}, unlisted_signals_ns, retired_lanes}` (clusters, signals and unlisted since D29, `retired_lanes` since D35; a reader treats them as absent in older documents) |
-| `watermark/{cluster}.json` | `consume gc` (CAS) | `{format, version, cluster, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, signals: {signal: ns}, unlisted_signals_ns, lane_wm: {"{producer}/{signal}": ns}, holding, stale, stale_after_s, retired: {"{producer}/{signal}": R_ns}}` (D29; `retired` since D35, absent when empty) |
+| `watermark.json` | `consume gc` (CAS) | `{format, version, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, holding: [{lane, wm_ns, lag_s}], stale: [...], stale_after_s, clusters: {cluster: ns}, signals: {signal: ns}, unlisted_signals_ns, retired_lanes, history}` (clusters, signals and unlisted since D29, `retired_lanes` since D35, `history` since 2026-10-01, §4.1; a reader treats them as absent in older documents) |
+| `watermark/{cluster}.json` | `consume gc` (CAS) | `{format, version, cluster, complete_through_ns, computed_ns, wall_ms, list_cap_ns, lanes, signals: {signal: ns}, unlisted_signals_ns, lane_wm: {"{producer}/{signal}": ns}, holding, stale, stale_after_s, retired: {"{producer}/{signal}": R_ns}, history}` (D29; `retired` since D35, absent when empty; `history`, §4.1) |
+| `watermark-history/{scope}/{YYYY-MM-DD}T{HH}.json` | `consume gc` (create-only) | `{format, scope, hour_ms, carry, steps: [{at_ms, ct_ns, signals, unlisted_ns}]}`: one sealed hour of `_fleet`'s or a cluster's history, never rewritten (§4.1) |
+
+### 4.1 The watermark's history (D29 amendment 2026-10-01; `model/wmHistory.qnt`)
+
+Each watermark document's running max says what is complete *now*; its
+`history` says what was complete *then*. A **step** `{at_ms, ct_ns,
+signals, unlisted_ns}` holds the document's published values (the scope's
+`complete_through_ns`, per signal, and the unlisted value) and claims:
+**by wall time `at_ms`, every request of the scope with `received_at`
+below `ct_ns` (below `signals[s]` for signal `s`) was in central**, given
+the consumer processes' clocks are within `--wm-skew` of true time. Two
+clocks: `at_ms` is wall time, the values are custody time (§3, strictly
+below).
+
+- **The stamp.** `at_ms = max(clock() + skew_ms, the last step's at_ms)`,
+  `clock()` read inside the CAS after the document's GET: the values were
+  observed before it (this run's checkpoint reads before the GET; the
+  previous document's values before its PUT, which landed before the GET).
+  A stamp read earlier (the run's start) would let the running max carry a
+  value another publisher observed later under an earlier time (the
+  model's `stampEarly`).
+- **Steps**: at most one per `--wm-history-every` (60 s), only when a value
+  changed; the first step of an hour always. `history` holds the open hour
+  (`hour_ms`, `carry` = the last step before it, `steps`), and `sealing`:
+  hours **frozen** by the CAS that wrote the first step of a later hour (the
+  clamp keeps every later stamp out of them, and a CAS that lands late was
+  conditional on a document without the freeze). At most 48 hours wait in
+  `sealing`; beyond, the oldest is dropped (`dropped`: a gap, read as the
+  earlier step, which is lower, so still sound).
+- **Sealing**: after the CAS, each frozen hour is written `If-None-Match: *`
+  as `watermark-history/{scope}/{YYYY-MM-DD}T{HH}.json` (`scope`: `_fleet`
+  or the cluster, UTC hour of the steps), then removed from `sealing` by a
+  second CAS. The bytes are the frozen hour's, identical whoever writes
+  them: a 412 counts as sealed once read back equal (different bytes are
+  kept, counted as `consumer_watermark_history_conflicts_total`, and the
+  hour leaves `sealing`); a lost answer, or a 412 with nothing stored, leaves
+  the hour for the next run. An hour with no step has no object.
+- **Reading "as of T"** (T wall time, at most now): the step with the
+  largest `at_ms <= T` (a step counts from its own stamp), from T's hour
+  object, else the document's frozen or open hour, else earlier hours (a
+  reader looks back a bounded number of hours, 48 by default, and otherwise
+  answers "unknown"). The answer is **final** when T's hour is before the
+  document's open hour, **provisional** otherwise: a run whose CAS has not
+  landed may still add a step at or before T, so a provisional answer may
+  rise, never fall. Every value in the history was published, so it is at
+  or below the current one. Per scope, as `Reader.For` (§3, D29): per
+  cluster the highest of the fleet's step and the cluster's own (its value,
+  and its per-signal minimum over the scope's signals), then the minimum
+  over the clusters.
+- **Retention**: the objects are create-only and never deleted by the
+  consumer; an S3 lifecycle rule on `{ctl}/watermark-history/` expires them
+  (at least the basis retention, D30, plus the lookback). About 24 objects
+  a day per scope, ~15 KB each with 8 signals [E].
+- Readers: the query service (`POST /v1/basis` with `as_of`,
+  `query/internal/completeness/history.go`) and `consume admit` (§3.1: when
+  each listed value first passed the rows).
 
 ## 5. Versioning and compatibility
 
@@ -712,7 +770,7 @@ value changes (and, when D36 offloads it, its content hash).
 |---|---|---|
 | edge publisher (cluster C) | `PutObject` under `{root}/C/*`; `GetObject` and `ListBucket` there (resolve-by-HEAD) | delete anything; touch `{ctl}`, `{entities}` or another cluster |
 | entity controller (cluster C) | `PutObject` under `{entities}/C/*` | the same |
-| consumer, GC, sealer | read `{root}` and `{entities}`; write and delete `{ctl}`; delete lane slots (GC only); write tombstones into lanes | — |
+| consumer, GC, sealer | read `{root}` and `{entities}`; write and delete `{ctl}`; delete lane slots (GC only); write tombstones into lanes | overwrite `{ctl}/watermark-history/*` (create-only, `bucket-policy.json`) |
 | lake indexer (cluster C) | `GetObject`, `ListBucket` under `{root}/C/*`; `PutObject` under `{root}/C/_index/*` ([`deploy/iam/indexer.json`](deploy/iam/indexer.json)) | delete anything; write lanes, `{ctl}` or another cluster; an edge may not write `{root}/C/_*` (`edge-publisher.json`, 2026-09-28) |
 
 Announcements need no policy of their own: they are in the data objects, so
@@ -738,6 +796,8 @@ and nothing else (§6), and no lane walk takes them for a lane (`_` prefix,
 
 ```
 {root}/{cluster}/_index/v1/{signal}/{hour}/L{level}-{h}.osix     segments
+{root}/{cluster}/_index/v1/{signal}/{day}/S{pp}-{h}.osix          per-day trace-id shards (§7.6)
+{root}/{cluster}/_index/v1/{signal}/{day}/M-{h}.osix              per-day manifests (§7.6)
 {root}/{cluster}/_index/v1/{signal}.progress.json                the indexer's progress (a hint)
 ```
 
@@ -746,8 +806,10 @@ and nothing else (§6), and no lane walk takes them for a lane (`_` prefix,
 - **`{hour}`** (`YYYYMMDDTHH`, UTC) is the hour of the covered objects'
   LIST `LastModified`: the commit time, which a planner knows for every
   candidate object without a HEAD, and which a late object cannot move.
+- **`{day}`** (`YYYYMMDD`, UTC) is the day of the covered objects' hours.
 - **`{level}`** is 0 for a segment built from source objects and 1 for an
-  hour's merge. **`{h}`** is the first 128 bits of SHA-256 of the segment's
+  hour's merge (2 for the day level, whose keys name `M` or `S{pp}`
+  instead). **`{h}`** is the first 128 bits of SHA-256 of the segment's
   bytes (hex), so two indexers that build the same bytes meet at one key
   and the second `If-None-Match: *` PUT is a 412 that means "already there".
   A segment whose bytes fail verification is rebuilt beside it as
@@ -843,3 +905,41 @@ after the hour ends, if no single segment already covers the hour; a
 straggler L0 written later makes a new L1 at the next pass. The L0s stay (a
 reader prefers the segment covering more). Nothing deletes segments yet:
 index GC follows the lanes' GC by hour, not built (AMBIGUITY X14).
+
+### 7.6 The per-day trace-id level (D27 amendment 2026-10-01)
+
+Hourly segments make a trace lookup cost, per hour of the window, a LIST,
+the hour's segment headers and one block (720 of each for 30 days). Once a
+day has ended (`merge_after_s` after midnight UTC) the indexer writes, for
+the days at most `day_lookback_d` (3) old, per (cluster, signal, day):
+
+- **Shards** `S{pp}-{h}.osix`: 2^`bits` segments (level 2) with only a
+  trace section, holding exactly the fingerprints whose top `bits` bits
+  are `pp` (hex), each `(fp, row group)` with the row group's ordinal
+  across the whole day. A shard lists no objects; its header carries
+  `shard: {bits, prefix}` and its manifest's `sources_hash` and
+  `row_groups`. Every prefix has a shard, empty or not. `bits` is the
+  smallest of at least 2 (4 shards) whose shards hold at most
+  `day_shard_bytes` (8 MiB, at about 3 bytes an entry), at most 8.
+- **The manifest** `M-{h}.osix`: a segment (level 2) with no sections,
+  listing the day's covered objects (each from the hour segment that covers
+  it, §7.3; ordinals across the day, in key order) and `day: {bits,
+  shards: [{prefix, key, size}]}`.
+- **Order**: every shard first, the manifest last (it names shards that
+  exist; an interrupted build leaves unnamed shards, rebuilt to the same
+  keys). Content-addressed and create-only like every segment. A day is
+  rebuilt when its hour segments cover an object no manifest covers (a
+  straggler committed in the day after its build), or when a shard of the
+  covering manifest does not verify (written beside, `-r{n}`).
+
+A reader with a trace id and no terms: per day of the plan's objects, LIST
+the day, read the manifests' headers (cached), take the best (most
+objects, then key), read the shard of `FP(id)`'s top `bits` bits (header
+cached, then one block), and check that the shard is the manifest's (same
+`sources_hash`, `row_groups`, bits, prefix, place). The objects the manifest
+covers (same key, size and ETag) are answered from the shard (`hit` with
+row groups, or `none`); a shard that does not read or is not the
+manifest's is reported and the next manifest is tried; every object not
+answered so goes through §7.3 per hour. The plan's `index.day_segments`
+counts the shards read. Terms stay hourly.
+

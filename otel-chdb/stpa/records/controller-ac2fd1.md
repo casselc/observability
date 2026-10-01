@@ -17,6 +17,9 @@ process_model:
 - name: lake_snapshot
   meaning: The lake's latest snapshot and what it has sealed
   updated_by: [gc->lake/feedback/snapshots]
+- name: watermark_history
+  meaning: "Per scope (the fleet, each cluster), the published complete_through's steps: the open hour in the CAS'd watermark document, the hours frozen for sealing, and which sealed hours are stored create-only; a step's time is the clock read after the document's GET plus the skew bound (D29 amendment 2026-10-01)"
+  updated_by: [gc->s3/feedback/marks]
 control_algorithm:
 - name: delete an old slot
   when: a slot is below every reader's position marked at least the delay ago, its epoch has retired, and it is not quarantined

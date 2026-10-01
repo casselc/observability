@@ -130,7 +130,7 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <rect x="385" y="632" width="69" height="39" rx="5" class="f-tint"/>
     <rect x="458" y="632" width="69" height="39" rx="5" class="f-tint"/>
     <text x="391" y="656" font-size="12" class="f-ink">2 rules</text>
-    <text x="464" y="656" font-size="12" class="f-ink">4 variables</text>
+    <text x="464" y="656" font-size="12" class="f-ink">5 variables</text>
   </g>
   <g>
     <rect x="24" y="732" width="152" height="72" rx="8" stroke-width="1.25" class="f-tint s-edge"/>

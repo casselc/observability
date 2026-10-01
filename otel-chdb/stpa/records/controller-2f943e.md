@@ -15,6 +15,9 @@ process_model:
   meaning: The custody time an answer is at (D30)
   updated_by: [qs->clickhouse/feedback/rows]
   source: the request's basis, or the newest settled one
+- name: complete_through_history
+  meaning: "What was complete as of a past wall time T, per cluster and signal, and whether that answer is final (T's hour sealed) or provisional (D29 amendment 2026-10-01)"
+  source: the watermark documents' open and frozen hours and the sealed history hours the consumer writes create-only
 - name: source_coverage
   meaning: Which time range each source (central, the lake) covers, and whether it is healthy
   updated_by: [qs->clickhouse/feedback/rows, qs->lake/feedback/rows]

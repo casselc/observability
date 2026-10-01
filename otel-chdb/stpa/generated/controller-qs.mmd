@@ -14,20 +14,21 @@ flowchart TB
       v1["<b>grants</b>"]
       v2["<b>complete_through</b>"]
       v3["<b>basis</b>"]
-      v4["<b>source_coverage</b>"]
-      v5["<b>entities</b>"]
+      v4["<b>complete_through_history</b>"]
+      v5["<b>source_coverage</b>"]
+      v6["<b>entities</b>"]
     end
   end
   ned00c7[("Central ClickHouse")]
   r1 -->|SQL| ned00c7
   v2 fb1@<-.->|rows, status| ned00c7
   v3 fb2@<-.->|rows, status| ned00c7
-  v4 fb3@<-.->|rows, status| ned00c7
+  v5 fb3@<-.->|rows, status| ned00c7
   nb29392[("Lake snapshots")]
   r2 -->|plans, reads| nb29392
-  v4 fb4@<-.->|rows| nb29392
+  v5 fb4@<-.->|rows| nb29392
   nce1c77[("Entity catalog")]
   r3 -->|lookups| nce1c77
-  v5 fb5@<-.->|entities| nce1c77
+  v6 fb5@<-.->|entities| nce1c77
   classDef fb stroke:#888,marker-end:none
   class fb1,fb2,fb3,fb4,fb5 fb

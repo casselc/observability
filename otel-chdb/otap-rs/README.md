@@ -1520,6 +1520,9 @@ scripts: `scripts/consumer_*.sh`; compaction:
 {ctl}/quarantine/{cluster}/{producer}/{signal}.json  CAS'd a retired lane's quarantined objects (D35, ../FORMAT.md §3.1)
 {ctl}/watermark.json                    CAS'd complete_through (running max; consume gc / consume watermark), per cluster and signal too (D29)
 {ctl}/watermark/{cluster}.json          CAS'd one cluster's complete_through, per signal and per lane (D29; --wm-cluster-every, --no-cluster-watermarks)
+{ctl}/watermark-history/{_fleet|cluster}/{YYYY-MM-DD}T{HH}.json  create-only: one sealed hour of a scope's complete_through
+                                        steps, "by wall time at_ms, everything below ct_ns was in central" (D29 amendment
+                                        2026-10-01, ../FORMAT.md §4.1, src/consumer/wmhistory.rs; --wm-history-every 60s, --no-wm-history)
 {ctl}/workers/{worker}.json             heartbeat (plain PUT), for the fair share
 {ctl}/gc.json                           CAS'd GC marks: {wall_ms, every lane's positions and floor}, retired epochs
 ```

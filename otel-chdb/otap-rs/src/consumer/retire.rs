@@ -18,6 +18,7 @@
 //!   volume replaying what was committed before the close) is passed like
 //!   any copy.
 
+use super::wmhistory;
 use super::bucket::{Bucket, Cond, Put};
 use super::coord::join;
 use super::plan::Obj;
@@ -396,8 +397,8 @@ pub struct AdmitWindow {
     pub received_from_ns: u64,
     pub received_to_ns: u64,
     /// The published `complete_through` values above the lowest of those
-    /// received_at: the bases (D30) they fall below. Only the current
-    /// values: the consumer keeps no history of what it published.
+    /// received_at: the bases (D30) they fall below; each with, from the
+    /// history (D29 amendment 2026-10-01), when it first passed the rows.
     pub bases_now: Vec<AdmitBasis>,
 }
 
@@ -409,6 +410,16 @@ pub struct AdmitBasis {
     /// The watermark document's version (+1 per write) and wall time.
     pub version: u64,
     pub wall_ms: u64,
+    /// From the history (`wmhistory`): the last step whose value was at or
+    /// below the rows' lowest received_at, and the first above it (wall ms).
+    /// A basis of this scope minted before `last_below_ms` cannot be missing
+    /// the rows; one minted after `first_above_ms` is; between the two the
+    /// history's resolution (`--wm-history-every`) cannot say. `None`: the
+    /// history does not reach that far (or was off).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_below_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_above_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -506,27 +517,52 @@ pub async fn admit<B: Bucket + ?Sized, R: super::sql::Recover + ?Sized>(
             w.hours = (h0..=h1).take(48).map(|h| h * 3_600).collect();
         }
         let above = |v: u64| v > w.received_from_ns;
+        let x = w.received_from_ns;
         if let Some(f) = &fleet {
             if above(f.complete_through_ns) {
-                w.bases_now.push(AdmitBasis { scope: "fleet".into(), complete_through_ns: f.complete_through_ns, version: f.version, wall_ms: f.wall_ms });
+                let (last_below_ms, first_above_ms) = passed(b, ctl, wmhistory::FLEET, &f.history, x, None).await?;
+                w.bases_now.push(AdmitBasis {
+                    scope: "fleet".into(),
+                    complete_through_ns: f.complete_through_ns,
+                    version: f.version,
+                    wall_ms: f.wall_ms,
+                    last_below_ms,
+                    first_above_ms,
+                });
             }
         }
         if let Some(c) = get_doc::<_, super::watermark::ClusterWmDoc>(b, &super::watermark::cluster_wm_key(ctl, &cluster)).await? {
-            for (scope, v) in [(cluster.clone(), c.complete_through_ns), (format!("{cluster}/{signal}"), c.signals.get(&signal).copied().unwrap_or(0))] {
+            let sig = [signal.clone()];
+            for (scope, v, sigs) in [(cluster.clone(), c.complete_through_ns, None), (format!("{cluster}/{signal}"), c.signals.get(&signal).copied().unwrap_or(0), Some(&sig[..]))] {
                 if above(v) {
-                    w.bases_now.push(AdmitBasis { scope, complete_through_ns: v, version: c.version, wall_ms: c.wall_ms });
+                    let (last_below_ms, first_above_ms) = passed(b, ctl, &cluster, &c.history, x, sigs).await?;
+                    w.bases_now.push(AdmitBasis { scope, complete_through_ns: v, version: c.version, wall_ms: c.wall_ms, last_below_ms, first_above_ms });
                 }
             }
         }
         rep.windows.push(w);
     }
-    rep.note = "The consumer keeps no history of the complete_through values it published (each document holds its running max): \
-        every basis issued for these scopes at or above the rows' lowest received_at, from the first publication past it until now \
-        (the current values listed), reads without them. Alert windows over the listed event times were evaluated without these rows: \
+    rep.note = "Every basis issued for these scopes at or above the rows' lowest received_at reads without them: from the history \
+        (D29 amendment), each listed scope's value was at or below it until last_below_ms and above it from first_above_ms (wall ms; \
+        absent where the history does not reach), so bases minted between those times may or may not, and after first_above_ms do. Alert windows over the listed event times were evaluated without these rows: \
         re-check them by hand; nothing is re-evaluated automatically. The rows are only in the recovered tables, read only by a query \
         that asks for them (the query service's \"recovered\": true), never mixed into the main tables."
         .into();
     Ok(rep)
+}
+
+/// How many hours of history `consume admit` reads per scope (a fortnight).
+const ADMIT_HISTORY_HOURS: u64 = 24 * 14;
+
+/// From a scope's history: the last step at or below `x` (ns) and the first
+/// above it (wall ms), searching from wall time x (the history cannot pass x
+/// before it: its values are at most the LIST time).
+async fn passed<B: Bucket + ?Sized>(b: &B, ctl: &str, scope: &str, h: &wmhistory::History, x: u64, signals: Option<&[String]>) -> Result<(Option<u64>, Option<u64>), String> {
+    let from_ms = x / 1_000_000;
+    let to_ms = h.open.hour_ms.max(from_ms);
+    let objs = wmhistory::load_hours(b, ctl, scope, from_ms, to_ms, ADMIT_HISTORY_HOURS).await?;
+    let (below, above) = wmhistory::first_above(h, x, signals, from_ms, ADMIT_HISTORY_HOURS, |hh| objs.get(&hh).cloned());
+    Ok((below.map(|s| s.at_ms), above.map(|s| s.at_ms)))
 }
 
 async fn get_doc<B: Bucket + ?Sized, D: serde::de::DeserializeOwned>(b: &B, key: &str) -> Result<Option<D>, String> {

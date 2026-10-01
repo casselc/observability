@@ -50,6 +50,13 @@
 //! was committed after `t_list`, so its requests are above the cap. The
 //! cluster document names the retired lanes with their R (`retired`).
 //!
+//! **History (D29 amendment 2026-10-01, `wmhistory`).** Each document also
+//! holds its scope's open hour of steps (`history`): after the GET inside
+//! the CAS, the clock plus `skew_ms` stamps the values written; an hour is
+//! frozen by the CAS that first writes a step in a later hour, then sealed
+//! create-only as `{ctl}/watermark-history/{scope}/{YYYY-MM-DD}T{HH}.json`
+//! and dropped from the document by a second CAS.
+//!
 //! Every published value is floored by the coarser one (a lane's >= its
 //! signal's in its cluster >= its cluster's >= the fleet's): a coarser value
 //! is sound for every subset, and a sound value stays sound (ingested stays
@@ -59,6 +66,7 @@ use super::bucket::{Bucket, Cond, Put};
 use super::coord::{CkptDoc, Lane, Mutation, epoch_key, join};
 use super::sql::LaneKind;
 use super::worker::list_lane_parents;
+use super::wmhistory::{self, HistMutation, HistStep, History};
 use bytes::Bytes;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -82,11 +90,18 @@ pub struct WmConfig {
     /// A deliberate bug for the simulation (`Mutation::StaysRetired`: a
     /// retired lane is never put back); `None` in production.
     pub mutation: Mutation,
+    /// Keep the history (`wmhistory`; `--no-wm-history`: off, the documents
+    /// keep what they have).
+    pub history: bool,
+    /// At most one history step per this long (ms), and only on a change.
+    pub history_every_ms: u64,
+    /// The history's deliberate bugs (the model's mutants); `None` in production.
+    pub hist_mutation: HistMutation,
 }
 
 impl WmConfig {
     pub fn new(root: &str, ctl: &str) -> Self {
-        WmConfig { root: root.into(), ctl: ctl.into(), depth: 3, skew_ms: 5_000, stale_ms: 300_000, holding: 5, per_cluster: true, cluster_every_ms: 0, mutation: Mutation::None }
+        WmConfig { root: root.into(), ctl: ctl.into(), depth: 3, skew_ms: 5_000, stale_ms: 300_000, holding: 5, per_cluster: true, cluster_every_ms: 0, mutation: Mutation::None, history: true, history_every_ms: 60_000, hist_mutation: HistMutation::None }
     }
 }
 
@@ -128,6 +143,10 @@ pub struct WmDoc {
     /// Listed lanes that are retired (+inf in every minimum, D35).
     #[serde(default)]
     pub retired_lanes: usize,
+    /// The open hour of the fleet's history, and hours frozen for sealing
+    /// (`wmhistory`, D29 amendment 2026-10-01).
+    #[serde(default, skip_serializing_if = "History::is_empty")]
+    pub history: History,
 }
 
 /// `{ctl}/watermark/{cluster}.json` (D29).
@@ -160,6 +179,9 @@ pub struct ClusterWmDoc {
     /// its signal's value.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub retired: BTreeMap<String, u64>,
+    /// The open hour of the cluster's history, and hours frozen for sealing.
+    #[serde(default, skip_serializing_if = "History::is_empty")]
+    pub history: History,
 }
 
 pub fn wm_key(ctl: &str) -> String {
@@ -258,6 +280,7 @@ pub fn compute_doc(prev: &WmDoc, lanes: &BTreeMap<String, u64>, wall_ms: u64, cf
         signals: signals_max(&prev.signals, prev.unlisted_signals_ns, prev.complete_through_ns, per_signal(lanes.iter(), cap), ct),
         unlisted_signals_ns: prev.unlisted_signals_ns.max(ct).max(cap),
         retired_lanes: lanes.values().filter(|w| **w == RETIRED).count(),
+        history: prev.history.clone(),
     }
 }
 
@@ -308,6 +331,7 @@ pub fn compute_cluster(
             .keys()
             .filter_map(|l| retired.get(l).map(|r| (split_lane(l).1.to_string(), *r)))
             .collect(),
+        history: prev.history.clone(),
     }
 }
 
@@ -352,9 +376,13 @@ pub async fn lane_wms_retired<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig) -> Resu
 }
 
 /// A document written by CAS with a version.
-trait Versioned: Serialize + DeserializeOwned + Default {
+trait Versioned: Serialize + DeserializeOwned + Default + Clone {
     fn version(&self) -> u64;
     fn set_version(&mut self, v: u64);
+    fn history(&self) -> &History;
+    fn set_history(&mut self, h: History);
+    /// The values a history step records.
+    fn step(&self, at_ms: u64) -> HistStep;
 }
 impl Versioned for WmDoc {
     fn version(&self) -> u64 {
@@ -362,6 +390,15 @@ impl Versioned for WmDoc {
     }
     fn set_version(&mut self, v: u64) {
         self.version = v;
+    }
+    fn history(&self) -> &History {
+        &self.history
+    }
+    fn set_history(&mut self, h: History) {
+        self.history = h;
+    }
+    fn step(&self, at_ms: u64) -> HistStep {
+        HistStep { at_ms, ct_ns: self.complete_through_ns, signals: self.signals.clone(), unlisted_ns: self.unlisted_signals_ns }
     }
 }
 impl Versioned for ClusterWmDoc {
@@ -371,6 +408,60 @@ impl Versioned for ClusterWmDoc {
     fn set_version(&mut self, v: u64) {
         self.version = v;
     }
+    fn history(&self) -> &History {
+        &self.history
+    }
+    fn set_history(&mut self, h: History) {
+        self.history = h;
+    }
+    fn step(&self, at_ms: u64) -> HistStep {
+        HistStep { at_ms, ct_ns: self.complete_through_ns, signals: self.signals.clone(), unlisted_ns: self.unlisted_signals_ns }
+    }
+}
+
+/// `next` with the history step added: stamped with `clock()` read here,
+/// after the document's GET (`wmhistory::stamp`), so after everything the
+/// values depend on was observed.
+fn with_history<'a, D: Versioned>(
+    cfg: &'a WmConfig,
+    wall_ms: u64,
+    clock: &'a dyn Fn() -> u64,
+    next: impl Fn(&D) -> Option<D> + 'a,
+) -> impl Fn(&D) -> Option<D> + 'a {
+    move |prev: &D| {
+        let mut d = next(prev)?;
+        if cfg.history {
+            let at = wmhistory::stamp(clock(), wall_ms, cfg.skew_ms, cfg.hist_mutation);
+            d.set_history(wmhistory::advance(prev.history(), d.step(at), cfg.history_every_ms, cfg.hist_mutation));
+        }
+        Some(d)
+    }
+}
+
+/// Seals a document's frozen hours (create-only), then drops the sealed ones
+/// from it by CAS. Returns (hours sealed, conflicts, pending).
+async fn seal_history<B: Bucket + ?Sized, D: Versioned>(b: &B, cfg: &WmConfig, key: &str, scope: &str, doc: &D) -> (usize, Vec<String>, Vec<String>) {
+    if doc.history().sealing.is_empty() {
+        return (0, vec![], vec![]);
+    }
+    let s = wmhistory::seal(b, &cfg.ctl, scope, doc.history()).await;
+    let mut gone = s.done.clone();
+    gone.extend(&s.conflicts);
+    let conflicts = s.conflicts.iter().map(|h| format!("{}: stored with other content (kept)", wmhistory::hour_key(&cfg.ctl, scope, *h))).collect();
+    let mut pending = s.pending;
+    if !gone.is_empty() {
+        let unseal = |prev: &D| {
+            wmhistory::without_sealed(prev.history(), &gone).map(|h| {
+                let mut d = prev.clone();
+                d.set_history(h);
+                d
+            })
+        };
+        if let Err(e) = cas(b, key, unseal).await {
+            pending.push(e);
+        }
+    }
+    (s.done.len(), conflicts, pending)
 }
 
 /// Read-modify-write by CAS on the ETag: `next` gets the document there
@@ -408,14 +499,32 @@ pub struct WmRun {
     /// Per-cluster documents that could not be written (the fleet one was):
     /// their readers keep the previous value, which stays sound.
     pub errors: Vec<String>,
+    /// History hours sealed by this run (every scope).
+    pub hist_sealed: usize,
+    /// History hours found stored with other content (kept, never rewritten).
+    pub hist_conflicts: Vec<String>,
+    /// History hours left frozen for the next run (a lost answer, an error).
+    pub hist_pending: Vec<String>,
 }
 
 /// One run: compute and publish the fleet document, then each listed
-/// cluster's. `wall_ms` is read before the LIST.
+/// cluster's. `wall_ms` is read before the LIST; the history's stamps read
+/// `wall_ms` again (a clock that does not move during the run: tests).
 pub async fn watermark_run<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig, wall_ms: u64) -> Result<WmRun, String> {
+    watermark_run_at(b, cfg, wall_ms, &|| wall_ms).await
+}
+
+/// `watermark_run` with the clock the history's stamps read (`clock`, read
+/// after each document's GET; production: the wall clock).
+pub async fn watermark_run_at<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig, wall_ms: u64, clock: &dyn Fn() -> u64) -> Result<WmRun, String> {
     let (lanes, retired) = lane_wms_retired(b, cfg).await?;
-    let fleet = cas(b, &wm_key(&cfg.ctl), |prev: &WmDoc| Some(compute_doc(prev, &lanes, wall_ms, cfg))).await?;
+    let fkey = wm_key(&cfg.ctl);
+    let fleet = cas(b, &fkey, with_history(cfg, wall_ms, clock, |prev: &WmDoc| Some(compute_doc(prev, &lanes, wall_ms, cfg)))).await?;
     let mut run = WmRun { fleet, ..Default::default() };
+    let (n, c, p) = seal_history(b, cfg, &fkey, wmhistory::FLEET, &run.fleet).await;
+    run.hist_sealed += n;
+    run.hist_conflicts.extend(c);
+    run.hist_pending.extend(p);
     if !cfg.per_cluster {
         return Ok(run);
     }
@@ -437,8 +546,15 @@ pub async fn watermark_run<B: Bucket + ?Sized>(b: &B, cfg: &WmConfig, wall_ms: u
             let recent = prev.wall_ms > 0 && wall_ms < prev.wall_ms.saturating_add(cfg.cluster_every_ms);
             (!recent).then(|| compute_cluster(prev, c, &ls, &retired, floor, wall_ms, cfg))
         };
-        match cas(b, &cluster_wm_key(&cfg.ctl, c), next).await {
-            Ok(d) => run.clusters.push(d),
+        let ckey = cluster_wm_key(&cfg.ctl, c);
+        match cas(b, &ckey, with_history(cfg, wall_ms, clock, next)).await {
+            Ok(d) => {
+                let (n, cf, p) = seal_history(b, cfg, &ckey, c, &d).await;
+                run.hist_sealed += n;
+                run.hist_conflicts.extend(cf);
+                run.hist_pending.extend(p);
+                run.clusters.push(d);
+            }
             Err(e) => run.errors.push(e),
         }
     }

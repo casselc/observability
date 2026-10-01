@@ -474,6 +474,22 @@ pins one per refresh and sends it with every panel (the HyperDX adapter's
 basis groups, §8.3). Answer: `request_id`, `basis`, `basis_info`, and the
 watermark block. Audited like the other endpoints.
 
+**As of a past time** (D29 amendment 2026-10-01, FORMAT.md §4.1): with
+`"as_of": "2026-09-30T08:00:00Z"` (or Unix ns) the basis is what the
+watermark's history says was complete then, per cluster of the scope (the
+highest of the fleet's step and the cluster's own, per signal), not the
+current value. The answer adds `as_of`: `{at, complete_through,
+signals, by_cluster: [{cluster, complete_through_ns, step_at_ms, basis:
+cluster_signals|cluster|fleet, final}], final}`. **Final** means T's hour is
+sealed: no later publication can change the answer; otherwise it is
+provisional (it can only rise). The token is an ordinary basis (D30's
+checks; `issued_ns` is now), so an audit can re-run what was answerable at
+T, and an answer at it never changes. Refusals: `400 as_of_future`, `400
+bad_as_of`, `404 as_of_unknown` (no history step within
+`watermark.history_lookback_h`, 48, before T: before the history began or
+nothing was published then), `503 watermark_history_unreadable`, and D30's
+own (`410 basis_expired`).
+
 ### 2.4 The basis (D30)
 
 A basis is **a named custody time per cluster**: `{cluster: C}` (or `{"*":
@@ -1356,10 +1372,17 @@ progress document's per-epoch `next`; group the rest by the hour of their
 L0 segment per ≤ 256 objects (`-max-segment-objects`); write it
 `If-None-Match: *`; advance the progress; then merge each hour that ended
 more than 10 minutes ago (`-merge-after`) into one L1 when no single segment
-covers it. Metrics: `lakeidx_passes_total`, `lakeidx_segments_written_total`,
+covers it; then, for each day that ended more than that ago (within
+`-day-lookback`, 3 days), write the **per-day trace-id level** unless a
+manifest already covers the day: 2^bits shards by the fingerprint's top
+bits (at least 4, each ≤ `-day-shard-bytes`, 8 MiB) and a manifest naming
+them (FORMAT.md §7.6; `-no-days` turns it off). A trace lookup (no terms)
+then reads, per covered day, one LIST, the manifest's and the shard's
+cached headers and one block, instead of every hour's; objects no manifest
+covers go hourly (the plan's `index.day_segments` counts the shards read). Metrics: `lakeidx_passes_total`, `lakeidx_segments_written_total`,
 `lakeidx_objects_indexed_total`, `lakeidx_rows_indexed_total`,
 `lakeidx_source_bytes_read_total`, `lakeidx_segment_bytes_total`,
-`lakeidx_put_conflicts_total`, `lakeidx_errors_total`,
+`lakeidx_put_conflicts_total`, `lakeidx_errors_total`, `lakeidx_days_total`,
 `lakeidx_lag_seconds{cluster,signal}`, `lakeidx_last_pass_ok`.
 
 **Tokenizer.** Terms are what the lake UI's substring search sees:
@@ -1382,7 +1405,12 @@ body (20,000 cases [M]); a single flipped byte anywhere in a segment never
 narrows an answer; a restarted indexer converges under lost requests and
 lost answers with no duplicate keys; two concurrent indexers with objects
 arriving in between; hour merges; unindexable objects; a corrupt segment is
-refused, then rebuilt. Planner: filters narrow, unindexed objects scan, a
+refused, then rebuilt. The per-day level (`day_test.go`): a trace lookup
+over generated lakes spanning days reads only day shards and stays a
+superset (rapid); the reader's mutants (shard by low bits, a manifest
+trusted by key alone, a shard not its manifest's) are caught; a rewritten
+object, a forged manifest, a straggler, a damaged shard and lost writes.
+Planner: filters narrow, unindexed objects scan, a
 corrupt or unreadable segment scans and is reported, refusals, and a
 superset property over generated lakes. `LAKEIDX_MEASURE=1 go test -run
 Measure ./internal/lakeidx` prints sizes and build costs over the lake UI's

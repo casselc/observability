@@ -157,6 +157,11 @@ struct World {
     published: u64,
     /// Requests seen in central, and the published value when first seen.
     ingested: BTreeSet<u64>,
+    /// When each request was first seen in central (ms): the history's
+    /// steps (D29 amendment) are checked against it (`historySound`).
+    noticed: BTreeMap<u64, u64>,
+    /// The history steps of the fleet's and c1's documents seen so far.
+    hist_steps: Vec<(&'static str, crate::consumer::wmhistory::HistStep)>,
     mistake: bool,
     undrained_close: bool,
     out: Outcome,
@@ -406,6 +411,7 @@ impl World {
         for (id, r) in &self.reqs {
             if !self.ingested.contains(id) && self.c.count("otel_logs", &content(*id)) > 0 {
                 let _ = self.ingested.insert(*id);
+                let _ = self.noticed.insert(*id, self.clk.0.get());
                 if r.r_ns < self.published {
                     self.out.violations.push(format!(
                         "noLateBelow: q{id} (lane {}, received {}) ingested after {} was published",
@@ -427,6 +433,13 @@ impl World {
             let _ = self.out.witnesses.insert("published past a retired lane");
         }
         self.published = self.published.max(v);
+        for (scope, h) in std::iter::once(("fleet", &run.fleet.history)).chain(run.clusters.iter().filter(|d| d.cluster == "c1").map(|d| ("c1", &d.history))) {
+            for st in h.sealing.iter().chain(std::iter::once(&h.open)).flat_map(|x| x.steps.iter()) {
+                if !self.hist_steps.iter().any(|(s0, x)| *s0 == scope && x == st) {
+                    self.hist_steps.push((scope, st.clone()));
+                }
+            }
+        }
         self.check_sound().await;
     }
     async fn check_sound(&mut self) {
@@ -439,6 +452,24 @@ impl World {
                     r.lane, r.r_ns, self.published
                 ));
             }
+        }
+        // historySound: every history step's value was true by its stamp:
+        // each request below it was in central by then (lost or quarantined
+        // ones aside, as above; an operator's mistake voids it as it voids
+        // completeSound)
+        let mistake = self.mistake;
+        for (scope, st) in self.hist_steps.iter().filter(|_| !mistake) {
+            for (id, r) in &self.reqs {
+                if r.r_ns < st.ct_ns && !self.lost.contains(id) && !quar.contains(id) && self.noticed.get(id).is_none_or(|t| *t > st.at_ms) {
+                    self.out.violations.push(format!(
+                        "historySound: the {scope} history says {} by {} ms, but q{id} (lane {}, received {}) was in central only at {:?}",
+                        st.ct_ns, st.at_ms, r.lane, r.r_ns, self.noticed.get(id)
+                    ));
+                }
+            }
+        }
+        if !self.hist_steps.is_empty() {
+            let _ = self.out.witnesses.insert("history recorded");
         }
         if !quar.is_empty() && !self.mistake && !self.undrained_close {
             self.out.violations.push(format!("quarantineOnlyOnMistake: {quar:?} quarantined without a mistake"));
@@ -485,6 +516,8 @@ pub async fn run(seed: u64, k: Knobs) -> Outcome {
         lost: BTreeSet::new(),
         published: 0,
         ingested: BTreeSet::new(),
+        noticed: BTreeMap::new(),
+        hist_steps: Vec::new(),
         mistake: false,
         undrained_close: false,
         out: Outcome::default(),

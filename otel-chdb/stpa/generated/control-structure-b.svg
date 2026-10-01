@@ -102,7 +102,7 @@ svg{--bg:#ffffff;--edge:#6e7781;--tint:#eef1f4;--ink:#1f2328;--quiet:#59636e;--a
     <text x="35" y="504" font-size="12" font-weight="600" class="f-quiet">ALGORITHM</text>
     <text x="376" y="504" font-size="12" font-weight="600" class="f-quiet">PROCESS MODEL</text>
     <text x="35" y="520" font-size="12" class="f-ink">3 rules</text>
-    <text x="376" y="520" font-size="12" class="f-ink">5 variables</text>
+    <text x="376" y="520" font-size="12" class="f-ink">6 variables</text>
   </g>
   <g>
     <rect x="24" y="588" width="212" height="40" rx="8" stroke-width="1.25" class="f-tint s-edge"/>

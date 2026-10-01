@@ -2243,10 +2243,13 @@ async fn a_kept_volume_replayed_after_retire_lane_is_quarantined() {
 async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
     let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-48", "H-1", "UCA-6"]);
     let (b, c, clk) = setup();
-    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    // every run records a history step (D29 amendment): the report says when each value passed the rows
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, history_every_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
     let mut e = CustodyEdge::new("c1/p0", vec!["logs"], LowMode::Custody);
     let mut live = CustodyEdge::new("c1/p1", vec!["logs"], LowMode::Custody);
     assert!(e.put(&b, "logs", 0, "birth", proto::KIND_BEAT, 0, 0, false).await);
+    let t_below = clk.0.get();
+    let _ = super::watermark::watermark_run(&*b, &wcfg, t_below).await.unwrap();
     let r = clk.0.get() * 1_000_000 + 1_000;
     assert!(e.put(&b, "logs", 0, "close", proto::KIND_CLOSE, 0, r, false).await);
     let mut w = Worker::new(Config { quarantine_skew_ms: 0, ..cfg("w1") }, b.clone(), c.clone(), clk.clone());
@@ -2264,7 +2267,8 @@ async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
     e.epoch.get_mut(&("logs", 0)).unwrap().1 += 1;
     steps_with_beats(&mut w, &b, &clk, 20, &mut [(&mut live, "logs"), (&mut e, "logs")]).await;
     assert_eq!((w.stats.quarantined_objects, c.count("otel_logs", "q9")), (1, 0));
-    let _ = super::watermark::watermark_run(&*b, &wcfg, clk.0.get()).await.unwrap();
+    let t_above = clk.0.get();
+    let _ = super::watermark::watermark_run(&*b, &wcfg, t_above).await.unwrap();
     // a dry run reports and writes nothing
     let dry = super::retire::admit(&*b, &*c, CTL, Some("c1/p0/logs"), true, clk.0.get()).await.unwrap();
     assert_eq!((dry.admitted, c.admits.get(), dry.windows[0].rows), (0, 0, 7));
@@ -2276,7 +2280,11 @@ async fn admit_recovers_quarantined_objects_once_and_gc_keeps_them() {
     assert_eq!((win.received_from_ns, win.received_to_ns), (r - 1, r - 1));
     assert!(win.bases_now.iter().any(|x| x.scope == "c1" && x.complete_through_ns > r - 1), "{:?}", win.bases_now);
     assert!(win.bases_now.iter().any(|x| x.scope == "fleet") && win.bases_now.iter().any(|x| x.scope == "c1/logs"));
-    assert!(rep.note.contains("no history"));
+    // from the history: each scope was at or below the rows until the first run, above from the second
+    for x in &win.bases_now {
+        assert_eq!((x.last_below_ms, x.first_above_ms), (Some(t_below), Some(t_above)), "{x:?}");
+    }
+    assert!(rep.note.contains("last_below_ms"));
     assert_eq!(c.recovered.borrow().get(&("otel_logs_recovered".to_string(), "q9".to_string())), Some(&7));
     assert_eq!(c.count("otel_logs", "q9"), 0, "never the main table");
     let (q, _) = super::retire::read(&*b, CTL, "c1/p0/logs").await.unwrap().unwrap();
@@ -2529,4 +2537,113 @@ async fn the_worker_counts_what_it_did() {
     let j = w.stats_json();
     assert_eq!(j["objects_per_statement"].as_f64(), Some(w.stats.statement_objects as f64 / w.stats.statements as f64));
     assert_eq!(j["held"].as_array().map(Vec::len), Some(2));
+}
+
+// ---- the watermark's history (D29 amendment 2026-10-01, wmhistory, model/wmHistory.qnt) ----
+
+/// The fleet's history over two and a half hours of runs every 30 s: one
+/// step per `--wm-history-every`, each hour frozen by the first run in the
+/// next and sealed create-only under its UTC hour; "as of t" is at or below
+/// the value published at t (a step counts from its stamp) and within the
+/// resolution of it; final for a sealed hour, provisional in the open one.
+#[tokio::test(flavor = "current_thread")]
+async fn the_watermark_history_is_sealed_hourly_and_answers_as_of() {
+    let _trace = otap_s3pq::oscope_trace::covers("P2C", &["H-2", "H-5", "R-S1"]);
+    use super::wmhistory::{self, HOUR_MS};
+    let (b, _c, _clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let h0 = 400_000 * HOUR_MS;
+    let mut published = Vec::new();
+    let mut t = h0 + 1_000;
+    while t < h0 + 2 * HOUR_MS + HOUR_MS / 2 {
+        let run = super::watermark::watermark_run(&*b, &wcfg, t).await.unwrap();
+        assert!(run.hist_conflicts.is_empty() && run.hist_pending.is_empty(), "{run:?}");
+        published.push((t, run.fleet.complete_through_ns));
+        t += 30_000;
+    }
+    let fleet: super::watermark::WmDoc = serde_json::from_slice(&b.get(&super::watermark::wm_key(CTL)).await.unwrap().unwrap().0).unwrap();
+    let hist = &fleet.history;
+    assert_eq!((hist.open.hour_ms, hist.sealing.len()), (h0 + 2 * HOUR_MS, 0), "both earlier hours sealed and dropped");
+    let objs = wmhistory::load_hours(&*b, CTL, wmhistory::FLEET, h0, h0 + 2 * HOUR_MS, 10).await.unwrap();
+    assert_eq!(objs.keys().copied().collect::<Vec<_>>(), vec![h0, h0 + HOUR_MS]);
+    assert!(b.get(&format!("{CTL}/watermark-history/_fleet/{}.json", wmhistory::hour_name(h0))).await.unwrap().is_some());
+    // one step per minute at most: 30 s runs, ~60 steps an hour
+    assert!(objs[&h0].steps.len() <= 61 && objs[&h0].steps.len() >= 55, "{}", objs[&h0].steps.len());
+    assert_eq!(objs[&(h0 + HOUR_MS)].carry.as_ref(), objs[&h0].steps.last(), "an hour carries the previous one's last step");
+    for (i, (t, v)) in published.iter().enumerate() {
+        let a = wmhistory::as_of(hist, *t, 48, |h| objs.get(&h).cloned()).unwrap();
+        assert!(a.step.ct_ns <= *v && a.step.at_ms <= *t, "as of {t}: {:?} above the published {v}", a.step);
+        // within the resolution: the value published at least 60 s earlier
+        if let Some((_, older)) = published.iter().take(i + 1).rev().find(|(t2, _)| *t2 + 60_000 <= *t) {
+            assert!(a.step.ct_ns >= *older, "as of {t}: {} below the value published a minute before, {older}", a.step.ct_ns);
+        }
+        assert_eq!(a.final_, *t < h0 + 2 * HOUR_MS, "final exactly in the sealed hours");
+    }
+    assert!(wmhistory::as_of(hist, h0 + 999, 48, |h| objs.get(&h).cloned()).is_none(), "before the first step: unknown");
+    // a second seal of a sealed hour (a lost answer retried) finds the same bytes: done, nothing rewritten
+    let again = wmhistory::History { sealing: vec![objs[&h0].clone()], ..Default::default() };
+    let s = wmhistory::seal(&*b, CTL, wmhistory::FLEET, &again).await;
+    assert_eq!((s.done, s.conflicts.len(), s.pending.len()), (vec![h0], 0, 0));
+}
+
+/// A value another publisher wrote after this run started (after its LIST,
+/// before its GET) is stamped with the clock read after the GET, not the
+/// run's start (the model's `stampEarly`): the step never claims it earlier
+/// than it was published.
+#[tokio::test(flavor = "current_thread")]
+async fn a_value_published_meanwhile_is_stamped_after_the_get() {
+    let _trace = otap_s3pq::oscope_trace::covers("MU", &["H-2", "H-5", "R-S1"]);
+    use super::wmhistory::{HOUR_MS, HistMutation};
+    for (m, sound) in [(HistMutation::None, true), (HistMutation::StampEarly, false)] {
+        let (b, _c, _clk) = setup();
+        let t0 = 400_000 * HOUR_MS + 1_000;
+        let slow = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+        // publisher A at t0 records a step; at t2 it publishes a higher value without one (within --wm-history-every)
+        let _ = super::watermark::watermark_run(&*b, &slow, t0).await.unwrap();
+        let t2 = t0 + 10_000;
+        let a = super::watermark::watermark_run(&*b, &slow, t2).await.unwrap();
+        assert_eq!(a.fleet.history.open.steps.len(), 1);
+        // publisher B started at t1 < t2 (its LIST saw less), its GET after A's write
+        let t1 = t0 + 5_000;
+        let eager = super::watermark::WmConfig { history_every_ms: 0, hist_mutation: m, ..slow.clone() };
+        let r = super::watermark::watermark_run_at(&*b, &eager, t1, &|| t2 + 1).await.unwrap();
+        let last = r.fleet.history.open.steps.last().unwrap();
+        assert_eq!(last.ct_ns, a.fleet.complete_through_ns, "B republishes A's value (the running max)");
+        assert_eq!(last.at_ms >= t2, sound, "{m:?}: A's value, published at {t2}, stamped {}", last.at_ms);
+    }
+}
+
+/// Sealing is create-only and retried: a lost answer, or a 412 with nothing
+/// stored (a create that raced one that never completed), leaves the hour
+/// frozen for the next run; an hour stored with other content is kept, never
+/// rewritten, and counted.
+#[tokio::test(flavor = "current_thread")]
+async fn a_seal_whose_answer_is_lost_or_unstored_is_retried_and_never_overwrites() {
+    let _trace = otap_s3pq::oscope_trace::covers("P2C", &["CAST-74", "CAST-83", "H-2", "H-5"]);
+    use super::wmhistory::{self, HOUR_MS};
+    let (b, _c, _clk) = setup();
+    let wcfg = super::watermark::WmConfig { skew_ms: 0, ..super::watermark::WmConfig::new(ROOT, CTL) };
+    let h0 = 400_000 * HOUR_MS;
+    let key = |h| wmhistory::hour_key(CTL, wmhistory::FLEET, h);
+    let _ = super::watermark::watermark_run(&*b, &wcfg, h0 + 1_000).await.unwrap();
+    for (fault, what) in [(MemFaults { matching: "watermark-history".into(), drop_every: 1, ..Default::default() }, "lost"), (MemFaults { matching: "watermark-history".into(), create_conflict_unstored_every: 1, ..Default::default() }, "unstored 412")] {
+        *b.faults.borrow_mut() = fault;
+        let h = if what == "lost" { h0 + HOUR_MS } else { h0 + 2 * HOUR_MS };
+        let r = super::watermark::watermark_run(&*b, &wcfg, h + 1_000).await.unwrap();
+        assert_eq!((r.hist_sealed, r.hist_pending.len()), (0, 1), "{what}: {r:?}");
+        assert!(b.get(&key(h - HOUR_MS)).await.unwrap().is_none());
+        assert_eq!(r.fleet.history.sealing.iter().map(|x| x.hour_ms).collect::<Vec<_>>(), vec![h - HOUR_MS], "{what}: still frozen");
+        *b.faults.borrow_mut() = MemFaults::default();
+        let r = super::watermark::watermark_run(&*b, &wcfg, h + 2_000).await.unwrap();
+        assert_eq!((r.hist_sealed, r.hist_pending.len()), (1, 0), "{what}: sealed by the next run");
+        assert!(b.get(&key(h - HOUR_MS)).await.unwrap().is_some());
+    }
+    // an hour already stored with other content: kept, counted, dropped from the document
+    let h = h0 + 3 * HOUR_MS;
+    b.insert(&key(h - HOUR_MS), Bytes::from_static(b"{\"other\":1}"), BTreeMap::new());
+    let r = super::watermark::watermark_run(&*b, &wcfg, h + 1_000).await.unwrap();
+    assert_eq!((r.hist_sealed, r.hist_conflicts.len(), r.fleet.history.sealing.len()), (0, 1, 1));
+    let fleet: super::watermark::WmDoc = serde_json::from_slice(&b.get(&super::watermark::wm_key(CTL)).await.unwrap().unwrap().0).unwrap();
+    assert!(fleet.history.sealing.is_empty(), "dropped by the second CAS");
+    assert_eq!(&b.get(&key(h - HOUR_MS)).await.unwrap().unwrap().0[..], b"{\"other\":1}", "never rewritten");
 }

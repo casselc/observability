@@ -14,6 +14,7 @@ flowchart TB
       v2["<b>epochs</b>"]
       v3["<b>quarantined</b>"]
       v4["<b>lake_snapshot</b>"]
+      v5["<b>watermark_history</b>"]
     end
   end
   n21e324[("S3 lanes and control objects")]
@@ -22,8 +23,9 @@ flowchart TB
   v1 fb1@<-.->|checkpoints, marks| n21e324
   v2 fb2@<-.->|checkpoints, marks| n21e324
   v3 fb3@<-.->|checkpoints, marks| n21e324
+  v5 fb4@<-.->|checkpoints, marks| n21e324
   nb29392[("Lake snapshots")]
   r2 -->|commit| nb29392
-  v4 fb4@<-.->|snapshots| nb29392
+  v4 fb5@<-.->|snapshots| nb29392
   classDef fb stroke:#888,marker-end:none
-  class fb1,fb2,fb3,fb4 fb
+  class fb1,fb2,fb3,fb4,fb5 fb

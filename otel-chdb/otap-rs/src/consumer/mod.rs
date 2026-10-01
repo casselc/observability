@@ -57,6 +57,7 @@ pub mod plan;
 pub mod retire;
 pub mod sql;
 pub mod watermark;
+pub mod wmhistory;
 pub mod worker;
 
 /// `{ctl}/format.json`: the on-disk format this bucket is in (`../../FORMAT.md` §5).

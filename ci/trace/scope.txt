@@ -30,6 +30,10 @@ otel-chdb/otap-rs/tests/hegel_props.rs   ci:rust nightly:hegel
 otel-chdb/otap-rs/tests/offload.rs       ci:rust
 otel-chdb/otap-rs/tests/hegel_dst.rs     ci:rust   # the nightly runs only hegel_dst_fleet and hegel_dst_finds_mutants
 
+# .NET: the device forwarder (ci/forwarder.sh; records by ci/trace/dotnet_trx.py from the TRX)
+otel-chdb/forwarder/tests/Oscope.Forwarder.Tests/StressTests.cs   nightly:forwarder-stress
+otel-chdb/forwarder/tests/*            ci:forwarder
+
 # Node (ci.yml lakeui: npm test, with test/trace-reporter.js)
 otel-chdb/lakeui/mosaic/e2e/*        nightly:lakeui-mosaic-e2e   # Playwright, with test/pw-trace-reporter.js
 otel-chdb/lakeui/test/*                ci:lakeui

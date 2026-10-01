@@ -19,7 +19,7 @@ _spec = importlib.util.spec_from_file_location('oscope_trace_py', os.path.join(o
 tr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tr)
 
-CI_JOBS = 'go-vet,go-test,lakeui,lakeui-mosaic,rust'
+CI_JOBS = 'go-vet,go-test,lakeui,lakeui-mosaic,rust,forwarder'
 NIGHTLY_JOBS = 'conformance,dst,hegel,model,chdb'
 SHA = 'c0ffee'
 
@@ -211,6 +211,52 @@ class Model(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+_dspec = importlib.util.spec_from_file_location('oscope_dotnet_trx', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dotnet_trx.py'))
+dtrx = importlib.util.module_from_spec(_dspec)
+_dspec.loader.exec_module(dtrx)
+
+TRX = """<?xml version="1.0" encoding="utf-8"?>
+<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult testId="a" outcome="Passed" />
+    <UnitTestResult testId="b" outcome="Passed" />
+    <UnitTestResult testId="b2" outcome="Failed" />
+    <UnitTestResult testId="c" outcome="NotExecuted" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest id="a"><TestMethod className="N.T" name="Passes" /></UnitTest>
+    <UnitTest id="b"><TestMethod className="N.T" name="Theory" /></UnitTest>
+    <UnitTest id="b2"><TestMethod className="N.T" name="Theory" /></UnitTest>
+    <UnitTest id="c"><TestMethod className="N.T" name="Skipped" /></UnitTest>
+  </TestDefinitions>
+</TestRun>"""
+
+
+class DotnetTrx(unittest.TestCase):
+    def test_claims_join_the_trx_outcomes_and_an_unrun_claim_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            trx, claims, out = (os.path.join(d, n) for n in ('r.trx', 'c.jsonl', 'out.jsonl'))
+            with open(trx, 'w', encoding='utf-8') as f:
+                f.write(TRX)
+            with open(claims, 'w', encoding='utf-8') as f:
+                for func in ('Passes', 'Theory', 'Theory', 'Skipped', 'NeverRan'):
+                    f.write(json.dumps({'ids': ['H-E4'], 'technique': 'SM', 'class': 'N.T', 'func': func,
+                                        'file': 'otel-chdb/forwarder/tests/X.cs'}) + '\n')
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(dtrx.main(['--trx', trx, '--claims', claims, '--out', out]), 0)
+            recs = {r['func']: r for r in map(json.loads, open(out, encoding='utf-8'))}
+            self.assertEqual({k: r['outcome'] for k, r in recs.items()},
+                             {'Passes': 'passed', 'Theory': 'failed', 'Skipped': 'skipped', 'NeverRan': 'failed'})
+            self.assertEqual(recs['Passes']['lang'], 'dotnet')
+            self.assertFalse(os.path.exists(claims), 'the claims are consumed')
+
+    def test_csharp_tags_are_scanned_with_their_method(self):
+        tags = [t for t in tr.scan_tags() if t['kind'] == 'dotnet']
+        self.assertTrue(tags, 'no OscopeTrace.Covers tag found under otel-chdb/forwarder/tests')
+        for t in tags:
+            self.assertTrue(t['func'] and t['technique'] and t['ids'] and t['jobs'], t)
 
 
 class ExitCriteria(unittest.TestCase):

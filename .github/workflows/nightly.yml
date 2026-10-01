@@ -15,10 +15,13 @@ on:
           lakeui-e2e, lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak,
           rust-integration, replicated, dst, hegel, rust-mbt (or mbt_s3inline,
           mbt_s3inline_metrics, mbt_s3inline_consumer), model, model-open, kani, chdb,
-          upstream-patches, edge-dst, fuzz, mutants. A job that needs the build's binaries brings build.
+          upstream-patches, edge-dst, fuzz, mutants, forwarder-stress. A job that needs the build's binaries brings build.
         default: all
       soak_seconds:
         description: consumer soak duration (s)
+        default: "300"
+      stress_seconds:
+        description: forwarder stress duration (s), bounded by the job's timeout
         default: "300"
 
 # The group includes the job selection: GitHub keeps only the newest *pending* run of a group, so with
@@ -70,7 +73,7 @@ jobs:
           jobs = ["build", "conformance", "close_e2e", "query-integration", "query-kms-emulator",
                   "hdxadapter-integration", "hyperdx-fork", "lakeui-e2e", "lakeui-mosaic-e2e", "journeys", "alerts-integration",
                   "faults-soak", "rust-integration", "replicated", "dst", "hegel", "model", "model-open", "kani", "chdb",
-                  "upstream-patches", "edge-dst", "fuzz", "mutants"]
+                  "upstream-patches", "edge-dst", "fuzz", "mutants", "forwarder-stress"]
           mbt = ["mbt_s3inline", "mbt_s3inline_metrics", "mbt_s3inline_consumer"]
           # the jobs that download the build job's `bin` artifact
           uses_build = ["conformance", "close_e2e", "query-integration", "lakeui-e2e",
@@ -1544,6 +1547,53 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
+  # The device forwarder under stress (ci/forwarder.sh stress; D37, research/entra-ingress.md §10b):
+  # six tools through one forwarder process into the Go ingress harness while a chaos loop rotates
+  # the STPA faults (lost answers, unresolved commits, 429, 503, a slow ingress, tokens expiring in
+  # flight, the broker unavailable, another person signing in), for STRESS_SECONDS. Checked all
+  # along: the ledger (H-E4), the queue bound and the process's resident memory (R-E7), the tool's
+  # latency (H-E9); at the end, everything drains. The summary is the job's step summary.
+  forwarder-stress:
+    needs: plan
+    if: fromJSON(needs.plan.outputs.run)['forwarder-stress']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: otel-chdb/ingress/go.sum
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('otel-chdb/forwarder/**/*.csproj', 'otel-chdb/forwarder/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: stress
+        env:
+          STRESS_SECONDS: ${{ inputs.stress_seconds || '300' }}
+          OSCOPE_STRESS_OUT: ${{ runner.temp }}/forwarder/stress.json
+        run: ci/forwarder.sh stress
+      - name: Summary
+        if: ${{ !cancelled() }}
+        run: |
+          { echo '### Forwarder stress'; echo '```json'; cat "$RUNNER_TEMP/forwarder/stress.json" 2>/dev/null || echo '(no summary)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: forwarder-stress
+          path: ${{ runner.temp }}/forwarder
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-forwarder-stress
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
   # Coverage-guided fuzzing: every Go fuzz target (ci/fuzz.sh) and every
   # cargo-fuzz target of otap-rs (ci/cargo-fuzz.sh: slot keys, object
   # metadata, the offloader's JSON) for 60 s each. Per push go-test runs the Go
@@ -1808,7 +1858,7 @@ jobs:
     name: traceability (tagged tests ran and passed at this commit)
     needs: [plan, build, conformance, query-integration, query-kms-emulator, hdxadapter-integration, hyperdx-fork, lakeui-e2e,
             lakeui-mosaic-e2e, journeys, alerts-integration, faults-soak, rust-integration, replicated, dst, hegel, rust-mbt, model, model-open, kani,
-            chdb, upstream-patches, edge-dst, fuzz]
+            chdb, upstream-patches, edge-dst, fuzz, forwarder-stress]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10

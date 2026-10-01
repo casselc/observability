@@ -323,9 +323,61 @@ jobs:
   # technique, or a CAST row or required cell with no passing record that
   # ci/trace/known-gaps.txt does not list. Runs even when a test job failed, so the report
   # says which evidence is missing.
+  # The device forwarder (otel-chdb/forwarder, DECISIONS.md D37; ci/forwarder.sh): .NET 10 built
+  # with -warnaserror; the queue core's stateful model-based tests (CsCheck), the in-process fault
+  # tests through YARP, and end to end against the Go ingress harness (ingress/cmd/ingress-e2e).
+  # On Linux the forwarder runs under strace and must write no file (R-E7). Windows and macOS
+  # build the MSAL broker app and run the same tests; the broker itself needs a real tenant and
+  # an enrolled device (deploy/validation/entra-ingress.md, ENT-F*), which CI does not have.
+  forwarder:
+    name: forwarder (.NET, ${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: otel-chdb/ingress/go.sum
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('otel-chdb/forwarder/**/*.csproj', 'otel-chdb/forwarder/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: strace (for the no-disk check)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq strace
+      - name: build; unit, property, stateful and fault tests
+        run: ci/forwarder.sh test
+      - name: end to end against the Go ingress
+        id: e2e
+        run: ci/forwarder.sh e2e
+      - name: Traceability record (the forwarder under strace wrote no file, R-E7)
+        if: ${{ !cancelled() && runner.os == 'Linux' && steps.e2e.outcome != 'skipped' }}
+        run: python3 ci/trace/trace.py record --test "ci/forwarder.sh e2e no-disk" --technique IT --ids R-E7,SEC-E6 --outcome ${{ steps.e2e.outcome == 'success' && 'passed' || 'failed' }}
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: forwarder-logs-${{ runner.os }}
+          path: ${{ runner.temp }}/forwarder
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: trace-forwarder-${{ runner.os }}
+          path: ${{ github.workspace }}/_trace
+          if-no-files-found: warn
+
   traceability:
     name: traceability (tagged tests ran and passed at this commit)
-    needs: [go-vet, go-test, lakeui, lakeui-mosaic, rust]
+    needs: [go-vet, go-test, lakeui, lakeui-mosaic, rust, forwarder]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -339,7 +391,7 @@ jobs:
         run: python3 -m unittest -v ci/trace/trace_test.py
       - name: trace.py check
         run: |
-          python3 ci/trace/trace.py check --workflow ci --jobs go-vet,go-test,lakeui,lakeui-mosaic,rust \
+          python3 ci/trace/trace.py check --workflow ci --jobs go-vet,go-test,lakeui,lakeui-mosaic,rust,forwarder \
             --records "$RUNNER_TEMP/trace" --report "$RUNNER_TEMP/TRACEABILITY.md" --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()

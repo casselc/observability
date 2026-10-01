@@ -3945,8 +3945,8 @@ environment, with an account per production environment where possible and a clu
 (O-G2); one `devtools` cluster in dev unless prd tooling telemetry must stay in prd (O-G3); break-glass through
 PIM-for-groups with pre-granted groups, no expiring policies (O-G4); Cedar as the source of truth compiled
 with cedar-go, the Rust CLI added to CI later (O-G5); no signal tier (O-G6); presign sessions per cluster
-(O-G7); minimal Graph permissions and person attributes (O-G8). **Open:** O-G9 (person retention after
-departure; erasure at every basis).
+(O-G7); minimal Graph permissions and person attributes (O-G8). **O-G9** (2026-09-29): pseudonymise on
+departure (design below, proposed; sub-choices O-G9a..g open with recommendations).
 
 **Status:** **partly built** (2026-09-29). **Built and tested:** the query service's grants as tuples
 (`query/internal/auth`, `sqlscope/pairs.go`, the server, the planner, the catalog cache, the audit;
@@ -4017,7 +4017,72 @@ H-G3); OPA/Rego (no schema validation or analyzability of the same kind; a secon
 anyway); tuples in YAML (no validator, no independent oracle); namespace as a key tier (the edge cannot
 split a cluster's lanes by namespace without a writer per namespace; D1/D19).
 
-**Owner decision O-G9, 2026-09-29:** **pseudonymise on departure.** When a person leaves, their catalog record (D32 person entity) is replaced by a stable pseudonym as a bitemporal correction; telemetry stays, attribution to the named person does not (to design and build; not yet started).
+**Owner decision O-G9, 2026-09-29:** **pseudonymise on departure.** When a person leaves, their catalog record (D32 person entity) is replaced by a stable pseudonym as a bitemporal correction; telemetry stays, attribution to the named person does not.
+
+**O-G9 design (proposed, 2026-10-01; [research/grants.md §9.6](research/grants.md)).**
+
+11. **Where a person's identity is, and what happens to each.** (a) The D32 person events (name facts
+    from Graph, team membership, `seen` announcements): the name is replaced by the pseudonym; membership
+    and `seen` stay under the oid. (b) Telemetry rows: `user.id` = the Entra object id, stamped by the
+    ingress (D37), in central and the lake: **kept unchanged** (immutable, part of D11 content keys and D30
+    bases); the query service never resolves it to a name again. (c) Producer claims the ingress keeps as
+    `oscope.ingress.claimed.*` (`enduser.id`, `langfuse.user.id`) may hold an e-mail or a name a tool put
+    there: kept (immutable); open choice O-G9e. (d) Audit records: the caller's `sub` and the oids a
+    person lookup asked for, never a name; **kept** (L-G1: who could read what, when). (e) Entra: its own
+    soft delete (30 days) and hard delete, outside us.
+12. **The correction is an event, `pseudonymise(oid)`**, from a new source above the controller (the
+    *steward*: the departure process), over the **whole valid time** (every row of the person's was sent
+    before they left, so a correction "from departure on" would leave every one of them attributed), at
+    the system time the store took it in (never the signaller's clock, so arrival order is `system_from`
+    order, D32). It changes **no lifecycle state** (asserted, retracted, unknown, absent stay what they
+    were); it replaces the version (the name) of every assertion of that oid, in every tier, at every
+    valid time. It is an overlay, not a precedence contest: a later Graph delta that re-asserts the name
+    (delta lag, AMBIGUITY G5), a restored account, or a late announcement still resolves to the pseudonym.
+13. **At every basis, including bases issued before it.** A D30 basis is long-lived (alert ledgers, audit
+    records, dashboard URLs), so applying the correction only at bases at or after it would leave the
+    name to anyone holding an old one. Like erasure (§9.4), it is the one deliberate exception to D32's
+    "answers at an earlier system time never change": an old basis keeps its rows, intervals and states,
+    and only the name becomes the pseudonym; the answer says `pseudonymised` with the correction's system
+    time, so the change is visible. Model: `pseudonymHidesName` (no basis, earlier or later, resolves the
+    name once the correction is recorded) and `monotoneRedacted` (old answers change by the substitution
+    alone); the pure-bitemporal alternative is the mutant `basisScoped`, which keeps "no basis at or after
+    the correction names the person" and breaks the first.
+14. **A stable, keyed pseudonym:** `departed-` + base32(HMAC-SHA256(K, tid "/" oid)) truncated to 16
+    characters, K a per-environment key (KMS HMAC, as the basis signer, O-G9f). Computed once by the
+    signaller and **stored in the event**, so resolution never needs K; the **first** correction (lowest
+    `(system_from, seq)`) wins, so a duplicate or a retry, even under a rotated key, never changes a shown
+    pseudonym. Keyed so that someone who sees only pseudonyms (a dashboard grouped by name) cannot map a
+    list of oids from another system onto them; the oid itself stays in the rows (b).
+15. **The trigger.** Primary: an operator command from the offboarding ticket (`personctl pseudonymise
+    --tenant --oid --reason`): it reads first and stops when the oid is already pseudonymised, writes with
+    a deterministic dedup token so a retry of the same signal is one event, and never reads "no answer"
+    as "not applied" (CAST 50, 74): it re-reads, and a duplicate that lands anyway changes nothing
+    (`idempotent`, `pseudonymStable`). Automatic, proposed (not built): the person controller records
+    Graph `@removed` (deleted) as a lifecycle retract, and a sweep pseudonymises an oid deleted for longer
+    than a grace period (30 days, Entra's restore window, O-G9b). Disabling an account
+    (`accountEnabled = false`: leave, lock-out) is never a trigger by itself.
+16. **Irreversible** (O-G9c): no event un-pseudonymises. A wrong oid is the hazard this creates (an active
+    person's name lost: H-G2, minor, not a disclosure); the command prints the name it will hide and
+    refuses without `--reason`.
+17. **Who sees the pseudonym:** whoever may see the name (§9.3: `resolve_person` on a `(cluster,
+    namespace)` the oid was seen in, or the caller themselves); everyone else gets the bare oid, with the
+    same answer for an unknown oid and a forbidden one (no enumeration, SEC-G7; "departed" is itself a
+    person fact).
+
+**O-G9 owner choices still open (recommendation; proceeding with it):** O-G9a old bases: at every basis
+(**every**; alternative: only bases at or after, which keeps the name for old-basis holders); O-G9b trigger:
+the operator command, plus automatic after Graph deletion and a **30-day** grace; O-G9c irreversible
+(**yes**; alternative: a `reidentify` event by a second steward); O-G9d team membership history kept under
+the oid (**kept**; alternative: also corrected, against re-identification in very small teams); O-G9e producer
+claims that may carry names (**stop keeping them in clear at the ingress for new data**, hashed; old rows stay;
+not built); O-G9f the key in KMS per environment (**yes**); O-G9g the oid in rows (**kept**; alternative:
+query-time masking of `user.id`, designed only). None blocks the build.
+
+STPA (proposed for the coordinator, not in the catalogue): a controller *steward* with UCA "pseudonymise:
+not given or late (the name stays: H-G8); given for the wrong oid (H-G2); applied only at newer bases
+(H-G8, LS-G8); pseudonym changed by a later signal (H-E8: one person read as two)"; requirement "after a
+pseudonymise event is recorded, no answer at any basis carries the name; the pseudonym is stable; the
+correction changes no lifecycle state; duplicate and late signals change nothing" (refines R-G9).
 
 **Consequences / open.** Owner decisions O-G1..O-G9 (research/grants.md §10). STPA additions (L-G1,
 H-G1..H-G8, UCA-G1..G7, LS-G1..G8, SEC-G1..G8, TM-G1..G5, R-G1..R-G9) proposed for the coordinator;

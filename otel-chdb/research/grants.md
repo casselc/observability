@@ -510,10 +510,55 @@ retention governs it).
   audited with the oids resolved (as `llm_content`, R-L2).
 - Graph delta lag (minutes) means a renamed or departed person resolves to the old value until the next
   round (AMBIGUITY G5): acceptable for names; not used for access decisions.
-- A departed person's facts: removal from the team closes membership; the name remains until erasure
-  (the owner's retention policy decides when, O-G9).
+- A departed person's facts: removal from the team closes membership; the name is replaced by a stable
+  pseudonym at every basis once the departure is recorded (O-G9, §9.6).
 - The controller's credential can read the whole directory's selected attributes: it runs in the
   platform account, not per environment, and writes only its lane.
+
+### 9.6 Pseudonymise on departure (O-G9, owner decision 2026-09-29; design proposed 2026-10-01)
+
+"Telemetry stays; attribution to the named person does not." DECISIONS D38 items 11–17 state the
+decision; this section is the analysis behind it.
+
+**Where a person's identity is.**
+
+| Place | What identifies them | Mutable? | On departure |
+| --- | --- | --- | --- |
+| D32 person events | `name` facts (Graph), team membership, `seen` | append-only events | a `pseudonymise` event replaces the name in every answer; membership and `seen` stay under the oid (O-G9d) |
+| central and lake rows | `user.id` = oid (D37 stamp) | no (content keys, D11; bases, D30) | kept; never resolved to a name again |
+| central and lake rows | `oscope.ingress.claimed.*` (`enduser.id`, `langfuse.user.id`: often an e-mail) | no | kept; O-G9e: hash at the ingress for new data (not built) |
+| query-service audit | the caller's `sub`; the oids a lookup asked for | append-only | kept, no names in it (L-G1) |
+| Entra | everything | Entra's | soft delete (30 days), then hard delete: not ours |
+
+**What "pseudonymise" means for the catalog, decided.** The correction covers the person's whole valid
+time and is applied at every basis (D38 items 12–13). The two weaker readings are each a model mutant:
+correcting valid time from departure on leaves every row they sent attributed (they were all sent before
+departure); applying it only at bases at or after the correction (pure bitemporal, `basisScoped`) leaves the
+name to whoever holds an older basis. Treating the correction as an ordinary authority assertion of the
+pseudonym (`asAssert`) is the third: it turns an absent or departed person into a present one, and a later
+Graph delta that still carries the name (one round of lag, G5) wins it back.
+
+**Control structure.** A new controller, the *steward* (the departure process: an operator acting on the
+offboarding ticket; later a sweep over Graph deletions), writes the event into the person events table;
+the query service is the only reader that turns an oid into a name, and it applies the correction.
+Process model of the steward: "the oid left, and the restore window is over"; of the query service: "an
+oid with a recorded correction has no name". Feedback: the command reads back what is stored (the
+pseudonym, its system time); every answer says `pseudonymised`.
+
+| UCA (steward: pseudonymise) | Not given | Given | Wrong timing / order | Too long / short |
+| --- | --- | --- | --- | --- |
+| | the person left; the name stays (H-G8) | for the wrong oid: an active person loses their name, irreversibly (H-G2, minor); twice with different pseudonyms: one person read as two (H-E8) | inside the restore window (a restored account is nameless); after a later name fact, applied by precedence and lost to it (H-G8) | applied only at newer bases (H-G8, LS-G8) |
+
+**Signals, late and duplicate (CAST 50, 74).** A departure signal can be lost, retried, duplicated by two
+operators, or land after the signaller gave up. The design never infers "not applied" from "no answer":
+the event is deterministic (the same tenant and oid give the same pseudonym and the same dedup token), the
+store dates it on arrival, the first correction wins and the overlay ignores order against name facts. So
+whether the store holds one copy or three, early or late, every answer is the same (`idempotent`,
+`pseudonymStable`), and the command only has to re-read.
+
+**Residual.** The oid in the rows is personal data for anyone who can map it from another system (HR
+records, Entra sign-in logs before hard delete); that mapping is outside the query service (O-G9g).
+Very small teams: a membership history under the oid can re-identify a pseudonym (O-G9d).
 
 ## 10. Owner decisions
 
@@ -527,7 +572,14 @@ retention governs it).
 | O-G6 | Signal as a grant tier | not now |
 | O-G7 | Presign sessions per cluster (tags) vs. per-group roles | per cluster (fewer roles); per group only if IAM must bind to grants |
 | O-G8 | Person controller: Graph permissions and attributes kept (displayName, team) | minimal, as §9 |
-| O-G9 | Person retention after departure; erasure at every basis | the owner's privacy policy; yes |
+| O-G9 | Person retention after departure; erasure at every basis | **decided 2026-09-29: pseudonymise on departure** (§9.6, D38 items 11–17) |
+| O-G9a | The correction at bases issued before it | at every basis (the name changes to the pseudonym; the answer says so) |
+| O-G9b | Trigger | the operator command (built); automatic after Graph deletion plus a 30-day grace (designed) |
+| O-G9c | Reversible? | no |
+| O-G9d | Team membership history of a departed person | kept under the oid |
+| O-G9e | Producer claims (`oscope.ingress.claimed.*`) that may carry names | hash them at the ingress for new data; old rows stay |
+| O-G9f | The pseudonym key | per environment, KMS HMAC |
+| O-G9g | The oid in rows | kept (immutable); query-time masking designed only |
 
 ## 11. CI
 

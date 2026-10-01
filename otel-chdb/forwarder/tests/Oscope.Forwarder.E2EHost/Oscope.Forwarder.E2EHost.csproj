@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- A TEST host: the forwarder library with a token source that asks the Go harness
+       (ingress/cmd/ingress-e2e) instead of the platform broker. Never shipped (CAST 11):
+       the device binary is ../../src/Oscope.Forwarder.App, which has only the MSAL broker. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- A small resident footprint on a laptop: workstation, non-concurrent GC (the Web SDK
+         defaults to server GC, sized for a server's cores and memory). -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <AssemblyName>oscope-forwarder-e2e</AssemblyName>
+    <RootNamespace>Oscope.Forwarder.E2EHost</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Oscope.Forwarder/Oscope.Forwarder.csproj" />
+  </ItemGroup>
+</Project>

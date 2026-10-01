@@ -13,7 +13,8 @@ its outcome, at this commit. This script:
             (hazard x technique) cells of §3; fails on an ID defined twice with
             different meanings unless ci/trace/same-meaning.txt says they agree.
   scan      lists every tag in source: tracetag.Covers (Go), oscope_trace::covers
-            (Rust), covers(t, ...) (node:test), the model mapping
+            (Rust), covers(t, ...) (node:test), OscopeTrace.Covers (.NET, whose
+            records ci/trace/dotnet_trx.py writes from the TRX), the model mapping
             ci/trace/models.txt, and `trace.py record` steps in the workflows.
   record    appends one record (a CI step that is evidence, such as a lint).
   model     turns a Quint script's report into records, per ci/trace/models.txt.
@@ -335,11 +336,13 @@ def catalog(args):
 GO_TAG = re.compile(r'tracetag\.Covers\(\s*\w+\s*,((?:\s*"[^"]*"\s*,?)+)\)')
 RS_TAG = re.compile(r'oscope_trace::covers\(\s*"([^"]*)"\s*,\s*&\[([^\]]*)\]\s*\)')
 JS_TAG = re.compile(r"""\bcovers\(\s*t\s*,((?:\s*'[^']*'\s*,?)+)\)""")
+CS_TAG = re.compile(r'OscopeTrace\.Covers\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)')
 STEP_TAG = re.compile(r'trace\.py record\b(.*)$')
 # The helpers' own sources and fixtures are not tags.
 NOT_TAGS = {'otel-chdb/testgate/tracetag/tracetag.go', 'otel-chdb/testgate/tracetag/tracetag_test.go',
             'otel-chdb/otap-rs/src/oscope_trace.rs', 'otel-chdb/lakeui/test/trace.js',
-            'otel-chdb/lakeui/test/trace.test.js', 'otel-chdb/lakeui/test/fixtures/trace.fixture.js'}
+            'otel-chdb/lakeui/test/trace.test.js', 'otel-chdb/lakeui/test/fixtures/trace.fixture.js',
+            'otel-chdb/forwarder/tests/Oscope.Forwarder.Tests/OscopeTrace.cs'}
 
 
 def strs(s, q='"'):
@@ -461,6 +464,19 @@ def scan_tags():
             args = strs(m.group(1), "'")
             tags.append({'kind': 'node', 'file': r, 'line': text.count('\n', 0, m.start()) + 1, 'func': name,
                          'technique': args[0] if args else '', 'ids': args[1:], 'jobs': jobs_for(r, rules)})
+    cs_func = re.compile(r'^\s*public\s+(?:async\s+)?(?:Task|void)\s+(\w+)\s*\(', re.M)
+    for f in code_files(['otel-chdb/forwarder/tests/**/*.cs']):
+        r = rel(f)
+        if r in NOT_TAGS:
+            continue
+        text = '\n'.join(lines_of(f))
+        for m in CS_TAG.finditer(text):
+            ls = text.rfind('\n', 0, m.start()) + 1
+            if text[ls:m.start()].lstrip().startswith('//'):
+                continue
+            fn = enclosing(text, m.start(), cs_func)
+            tags.append({'kind': 'dotnet', 'file': r, 'line': text.count('\n', 0, m.start()) + 1, 'func': fn.group(1) if fn else '',
+                         'technique': m.group(1), 'ids': m.group(2).replace(',', ' ').split(), 'jobs': jobs_for(r, rules)})
     tags += load_models()
     tags += workflow_steps()
     for t in tags:

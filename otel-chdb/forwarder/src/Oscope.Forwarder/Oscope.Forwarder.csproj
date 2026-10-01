@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The forwarder's mechanism: the queue and retry core, the YARP pass-through, the local
+       endpoint. No MSAL here: the broker is the app's (../Oscope.Forwarder.App), so test
+       hosts never carry it. -->
+  <PropertyGroup>
+    <RootNamespace>Oscope.Forwarder</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Oscope.Forwarder.Tests" />
+  </ItemGroup>
+</Project>

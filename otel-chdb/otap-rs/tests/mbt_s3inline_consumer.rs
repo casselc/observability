@@ -1127,7 +1127,10 @@ impl ConsumerDriver {
             .position(|p| {
                 (p.worker, p.inc, p.kind, p.st) == (q.worker, q.inc, q.kind, q.st)
                     && match p.kind {
-                        CasKindM::CRenew | CasKindM::CTake => p.sent == q.lease.sent,
+                        CasKindM::CRenew => p.sent == q.lease.sent,
+                        // (two takes of one worker in one tick, on different
+                        // versions, differ by their epoch: CAST-73's lesson)
+                        CasKindM::CTake => p.sent == q.lease.sent && p.lease.as_ref().is_some_and(|d| d.epoch as i64 == q.lease.epoch),
                         CasKindM::CAdvance => p.base_version == q.base,
                     }
             })
@@ -1554,7 +1557,9 @@ fn s3inline_consumer_design_simulation() -> impl Driver {
 
 /// The design with no writer faults and no series lane: the steps go to
 /// the workers (checks, statements, verifies, takeovers, releases, GC).
-#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designQuiet", max_samples = 1000, max_steps = 80)]
+/// (600 traces: since the take's pending set joined each worker's state,
+/// CAST-83, 1000 of 80 steps exhaust quint's heap: nightly run 51.)
+#[quint_run(spec = "../model/s3InlineConsumer.qnt", main = "designQuiet", max_samples = 600, max_steps = 80)]
 fn s3inline_consumer_quiet_simulation() -> impl Driver {
     ConsumerDriver::default()
 }

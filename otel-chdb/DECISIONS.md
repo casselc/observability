@@ -723,7 +723,9 @@ on the version it replaced, so once that is gone it can only fail, and a
 stored take of ours means nobody took the lane since, so adoption cannot
 make two holders (the model's `oneHolder`). A take heard of after its own
 window ended (sent more than TTL − margin ago) is given back at once, a
-release CAS on it, instead of lapsing and idling the lane. What stays: a
+release CAS on it, instead of lapsing and idling the lane; a release with
+no known outcome keeps the take pending, so the next read-back gives it
+back again (`give_back`). What stays: a
 renewal that lands *after* the holder's window ended still costs the lane up
 to TTL + margin (the lapsed holder no longer tracks it), as does a take
 pending in a process that dies; and an ambiguous release must not be undone

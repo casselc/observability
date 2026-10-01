@@ -1144,8 +1144,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         if held.lapsed(self.clock.mono(), &t) {
             self.stats.take_late_released += 1;
             log(&self.cfg, &format!("lease {id}: our take's window is already over (epoch {}); giving it back", held.doc.epoch));
-            let rel = coord::release(&held.doc, self.clock.wall());
-            let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
+            self.give_back(id, &lane, held).await;
             return false;
         }
         // Fence the checkpoint: rewrite it under our lease epoch.
@@ -1163,10 +1162,25 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                 true
             }
             None => {
-                let rel = coord::release(&held.doc, self.clock.wall());
-                let _ = self.write_lease(&lane, &rel, Some(&held.etag)).await;
+                self.give_back(id, &lane, held).await;
                 false
             }
+        }
+    }
+
+    /// Releases `held`, a take of ours the store holds that we will not
+    /// work. If the release itself is not known to have applied (no answer
+    /// and our take still stored, or an unreadable read-back), the take is
+    /// kept pending, with no base: the next read-back that finds it stored
+    /// adopts it again and gives it back again. Forgotten here, the store
+    /// would name us holder of a lane we do not hold until it expired
+    /// (hegel nightly 51: the release of a take found after its window was
+    /// dropped).
+    async fn give_back(&mut self, id: &str, lane: &Lane, held: Held) {
+        let rel = coord::release(&held.doc, self.clock.wall());
+        if let Err(LeaseMiss::Unchanged | LeaseMiss::Other(None)) = self.write_lease(lane, &rel, Some(&held.etag)).await {
+            log(&self.cfg, &format!("lease {id}: giving our take back got no answer; it stays pending"));
+            let _ = self.take_unsure.insert(id.to_string(), (None, vec![Held { etag: String::new(), ..held }]));
         }
     }
 

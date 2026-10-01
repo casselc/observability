@@ -1677,9 +1677,12 @@ impl World {
         if let Some((lane, r)) = m.split_once(": the store names us holder (") {
             let key = format!("{}.json", join(&join(CTL, "lease"), lane));
             let stored = self.mem.objs.borrow().get(&key).map(|o| o.body.clone());
-            if let Some(cur) = stored {
+            // (only if the store still holds the very version the worker read:
+            // its read may have been answered just before a late landing)
+            let v = r.split_once(')').map_or(r, |x| x.0);
+            let seen = stored.as_ref().and_then(|b| serde_json::from_slice::<LeaseDoc>(b).ok()).is_some_and(|d| v == format!("epoch {}, beat {}", d.epoch, d.beat));
+            if let Some(cur) = stored.filter(|_| seen) {
                 if self.late_takes.borrow().contains(&(worker.to_string(), key.clone(), cur)) {
-                    let v = r.split_once(')').map_or(r, |x| x.0);
                     self.violation(format!("noLateTakeStall: {worker} left {lane} idle although the store holds its own take ({v}) that landed late"));
                 }
             }

@@ -676,6 +676,36 @@ async fn a_late_take_found_after_its_window_is_given_back() {
     assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 3), "take (1), release (2), take (3)");
 }
 
+/// The same, and the release itself gets no answer and is lost: the take
+/// stays pending (`give_back`), so the next step finds it stored again,
+/// gives it back again and takes the lane afresh. Forgotten, it named w1
+/// holder of a lane nobody worked until it expired (hegel nightly 51).
+#[tokio::test(flavor = "current_thread")]
+async fn a_late_take_whose_release_is_lost_is_given_back_again() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
+    clk.0.set(t0 + 8_500);
+    assert!(matches!(b.land_held(), Some(Put::Ok(_))));
+    // Every lease PUT of this step is lost: the release, and any take.
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, ..Default::default() };
+    let _ = w.step().await;
+    assert!(w.held_lanes().is_empty());
+    // (refresh_own_takes gave it back, then try_take's own read found it and gave it back again)
+    let r1 = w.stats.take_late_released;
+    assert!(r1 >= 1, "{:?}", w.stats);
+    let key = format!("{CTL}/lease/{lane}.json");
+    let (body, _) = b.get(&key).await.unwrap().unwrap();
+    let doc: super::coord::LeaseDoc = serde_json::from_slice(&body).unwrap();
+    assert_eq!((doc.owner.as_str(), doc.epoch), ("w1", 1), "still our late take");
+    *b.faults.borrow_mut() = MemFaults::default();
+    clk.0.set(t0 + 9_000);
+    let _ = w.step().await;
+    assert_eq!((w.stats.take_late_taken, w.stats.take_late_released), (r1 + 1, r1 + 1), "{:?}", w.stats);
+    assert_eq!(w.held_lanes(), vec![lane.to_string()], "given back, then taken afresh");
+    assert_eq!(c.count("otel_traces", "h0"), 5);
+}
+
 /// Another worker takes the lane between w1's unanswered take and its
 /// landing: the late take's CAS fails (the version it was conditional on is
 /// gone), w1's read-back sees another's lease and adopts nothing, and there

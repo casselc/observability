@@ -3874,10 +3874,10 @@ Quiver restart after a close quarantines nothing); `retire-lane` writes the
 checkpoint by CAS, so the lane's holder drops the lane once and retakes it
 after a lease TTL; `retire-lane` also tombstones every open epoch (a second
 defense beside the zombie wait); GC keeps every quarantined object (its
-evidence, admit's source), admitted or not; the consumer keeps no history
-of published values, so `admit` reports the current ones and says so
-(a history, e.g. one object per watermark version, would let it name the
-exact bases: not built); the edges' shutdown grace (45 s in `deploy/base`)
+evidence, admit's source), admitted or not; `admit` reports the current
+published values and, since the watermark's history (D29 amendment
+2026-10-01), when each first passed the rows (`last_below_ms`,
+`first_above_ms`); the edges' shutdown grace (45 s in `deploy/base`)
 is unchanged: a drain past it means no close, which is safe.
 
 **Problem.** D29's limit 4: a lane that stops advancing holds its

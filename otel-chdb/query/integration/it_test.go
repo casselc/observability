@@ -972,7 +972,9 @@ func TestIntegration(t *testing.T) {
 		if after := r.sql("SELECT count() FROM " + r.db + ".otel_logs"); after != before {
 			t.Fatalf("admit touched otel_logs: %s -> %s", before, after)
 		}
-		if !strings.Contains(out2, `"bases_now"`) || !strings.Contains(out2, "no history") {
+		// the values above the rows, each with when the watermark's history
+		// first showed it above them (D29 amendment 2026-10-01)
+		if !strings.Contains(out2, `"bases_now"`) || !strings.Contains(out2, `"first_above_ms"`) {
 			t.Fatalf("the report: %s", out2)
 		}
 		if out3, err := r.consumeOut(bin, "admit", "--lane", "qe/pub-1/logs", "--ch", r.ch, "--db", r.db); err != nil || !strings.Contains(out3, `"already": 1`) {

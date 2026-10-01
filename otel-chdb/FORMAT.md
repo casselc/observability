@@ -600,11 +600,11 @@ and only once the pod has been gone longer than a request lifetime.
   report per cluster and signal: the rows' event-time range and the hours it
   touches (the windows evaluated without them), their `received_at` range,
   and the **published values above it now** (fleet, cluster, cluster/signal,
-  with each document's version): the bases (D30) they fall below. The
-  consumer keeps **no history** of published values (each document holds
-  its running max), so the report says so: every basis at or above the
-  rows' lowest `received_at`, from the first publication past it until now,
-  reads without them. Nothing is re-evaluated automatically; the operator
+  with each document's version): the bases (D30) they fall below; and, from
+  the watermark's history (§4.1), for each, the last step at or below the
+  rows' lowest `received_at` (`last_below_ms`) and the first above it
+  (`first_above_ms`): bases minted before the first cannot lack the rows,
+  every basis minted after the second reads without them. Nothing is re-evaluated automatically; the operator
   re-checks the listed alert windows. The query service reads the
   recovered tables only for a request with `"recovered": true`, labelled
   `source: "recovered"` (`query/README.md` §2.1). **GC never deletes a

@@ -20,6 +20,8 @@ const T: Timing = Timing { ttl_ms: 9000, margin_ms: 1000, budget_ms: 3000, slack
 
 type W = Worker<MemBucket, MemCentral, FakeClock>;
 
+mod recovery;
+
 /// The original configuration: count-based fair share, a LIST every poll,
 /// no linger (the tests written before the fleet-scale features).
 fn cfg(name: &str) -> Config {
@@ -969,7 +971,7 @@ async fn randomized(seed: u64, zombie_ms: u64, scale: bool) -> u64 {
         // three minutes before midnight (UTC day 20,000)
         clk.0.set(20_000 * 86_400_000 - 180_000);
     }
-    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false, land_held_on_put: false, skip_first: 0 };
+    *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), ambiguous_every: 7, drop_every: 11, own_conflict_every: 13, hold: false, land_held_on_put: false, skip_first: 0, create_conflict_unstored_every: 0 };
     c.partial_every.set(5);
     c.lost_answer_every.set(7);
     c.late_every.set(11);

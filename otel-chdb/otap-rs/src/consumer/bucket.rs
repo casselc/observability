@@ -281,6 +281,11 @@ pub struct MemFaults {
     /// The first this-many matching PUTs pass untouched (counted from the
     /// installation of these faults).
     pub skip_first: u64,
+    /// Every n-th matching create-only PUT is answered 412 although nothing
+    /// is stored, then or after: a create that raced another create of the
+    /// key which never completed (S3's 409 ConditionalRequestConflict for
+    /// concurrent conditional writes, retried into a 412 by the client).
+    pub create_conflict_unstored_every: u64,
 }
 
 /// A PUT stuck on the way (`MemFaults::hold`): key, body, condition
@@ -371,6 +376,9 @@ impl Bucket for MemBucket {
                 self.held.borrow_mut().push((key.to_string(), body, c, meta.clone()));
             }
             return Put::Unknown("dropped (injected)".into());
+        }
+        if faulty && f.create_conflict_unstored_every > 0 && n % f.create_conflict_unstored_every == 0 && matches!(cond, Cond::Create) {
+            return Put::Conflict;
         }
         let cur = self.objs.borrow().get(key).map(|o| o.etag.clone());
         let ok = match cond {

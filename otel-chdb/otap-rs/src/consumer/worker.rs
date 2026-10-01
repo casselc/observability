@@ -528,6 +528,18 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
         self.held.get(lane).map(|l| &l.ckpt)
     }
 
+    /// What a held lane keeps between steps: the epochs it knows, those it
+    /// times (last seen), and the cached HEADs (epoch, slot), sorted.
+    pub fn lane_memory(&self, lane: &str) -> Option<(Vec<String>, Vec<String>, Vec<(String, u64)>)> {
+        self.held.get(lane).map(|l| {
+            let mut seen: Vec<String> = l.last_seen.keys().cloned().collect();
+            seen.sort();
+            let mut heads: Vec<(String, u64)> = l.heads.keys().cloned().collect();
+            heads.sort();
+            (l.known.iter().cloned().collect(), seen, heads)
+        })
+    }
+
     /// One poll. Returns whether any slot was consumed or any epoch closed.
     pub async fn step(&mut self) -> bool {
         self.stats.steps += 1;
@@ -2060,9 +2072,7 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
             match plan::verdict(o.rows, after.get(&o.content).copied().unwrap_or(0)) {
                 Verdict::Present => {
                     self.inserted(&o, ok);
-                    if o.payloads.refs > 0 {
-                        landed.push(o);
-                    }
+                    landed.push(o);
                 }
                 Verdict::Over(h) => {
                     self.stats.over_count += 1;

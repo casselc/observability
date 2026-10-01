@@ -1054,6 +1054,14 @@ pub struct MemCentral {
     /// Objects whose rows landed before their payload part (R-L9): what the
     /// `RowsBeforePayloads` mutant does, and what nothing else may.
     pub rows_before_payloads: Cell<u64>,
+    /// Every insert, announcement, payload and repair statement is answered
+    /// this long after the server ran it: the shared clock moves on by it
+    /// (a slow answer; 0: at once). The server's own fence is evaluated
+    /// before, at the time the statement arrived.
+    pub answer_delay_ms: Cell<u64>,
+    /// The next repair statements fail before writing; `Some(settled)`:
+    /// whether the error says nothing of it can land any more.
+    pub repair_err: Cell<Option<bool>>,
 }
 
 impl MemCentral {
@@ -1062,6 +1070,110 @@ impl MemCentral {
             0 => super::wall_ms(),
             w => w + self.skew_ms.get(),
         }
+    }
+
+    fn insert_now(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, guard: bool) -> Result<(), InsertErr> {
+        self.flush_late();
+        if objs.iter().any(|o| objs.first().is_some_and(|f| o.late != f.late)) {
+            self.mixed_statements.set(self.mixed_statements.get() + 1);
+        }
+        for o in objs {
+            *self.by_part.borrow_mut().entry((k.table.clone(), o.content.clone(), o.late)).or_default() += o.rows;
+        }
+        self.n.set(self.n.get() + 1);
+        let n = self.n.get();
+        if self.late_error_every.get() > 0 && n % self.late_error_every.get() == 0 && self.now() <= fence.wall_ms {
+            let at = self.now() + fence.budget_ms + self.slack_ms.get();
+            self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
+            let msg = "clickhouse 500 Internal Server Error: Code: 159. DB::Exception: Timeout exceeded: elapsed 28870.471 ms, maximum: 10000.000 ms. (TIMEOUT_EXCEEDED)".to_string();
+            return Err(InsertErr { settled: settles_at_once(&msg), answered: true, range: false, msg });
+        }
+        if self.late_every.get() > 0 && n % self.late_every.get() == 0 {
+            // No answer. It arrives late: if by its fence, it runs, and
+            // lands as late as it can: its whole budget plus the slack after.
+            let arrive = self.now() + self.late_by_ms.get();
+            if arrive <= fence.wall_ms {
+                let at = arrive + fence.budget_ms + self.slack_ms.get();
+                self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
+            }
+            return Err(InsertErr { msg: "injected: no answer (the statement is late)".into(), settled: false, answered: false, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            self.fenced.set(self.fenced.get() + 1);
+            return Ok(()); // the WHERE selects nothing
+        }
+        // The range assertion, as squashed: one bad object fails the statement before anything is written.
+        if guard && self.ranged(k) && objs.iter().any(|o| o.received_ns > 0 && self.recv_of(o).iter().any(|r| *r != o.received_ns)) {
+            return Err(InsertErr { msg: format!("clickhouse 500: {RANGE_GUARD}"), settled: true, answered: true, range: true });
+        }
+        let partial = self.partial_every.get() > 0 && n % self.partial_every.get() == 0;
+        for (i, o) in objs.iter().enumerate() {
+            if partial && i > 0 {
+                return Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, answered: true, range: false });
+            }
+            self.add(&k.table, o, o.rows);
+            self.applied.borrow_mut().push((k.table.clone(), o.content.clone()));
+        }
+        if self.lost_answer_every.get() > 0 && n % self.lost_answer_every.get() == 0 {
+            return Err(InsertErr { msg: "injected: the answer was lost".into(), settled: false, answered: false, range: false });
+        }
+        Ok(())
+    }
+
+    fn announce_now(&self, objs: &[&Obj], fence: Fence) -> Result<(), InsertErr> {
+        self.announce_n.set(self.announce_n.get() + 1);
+        if self.announce_fail_every.get() > 0 && self.announce_n.get() % self.announce_fail_every.get() == 0 {
+            return Err(InsertErr { msg: "injected: announcement refused".into(), settled: true, answered: true, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            // the loud fence (`FENCED`): an error, nothing written
+            self.fenced.set(self.fenced.get() + 1);
+            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
+        }
+        for o in objs {
+            *self.announced.borrow_mut().entry(o.key.clone()).or_default() += 1;
+        }
+        Ok(())
+    }
+
+    fn payloads_now(&self, objs: &[&Obj], fence: Fence) -> Result<(), InsertErr> {
+        self.payload_n.set(self.payload_n.get() + 1);
+        if self.payload_fail_every.get() > 0 && self.payload_n.get() % self.payload_fail_every.get() == 0 {
+            return Err(InsertErr { msg: "injected: payload statement refused".into(), settled: true, answered: true, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            self.fenced.set(self.fenced.get() + 1);
+            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
+        }
+        for o in objs {
+            *self.payloads_in.borrow_mut().entry(o.content.clone()).or_default() += 1;
+        }
+        Ok(())
+    }
+
+    fn repair_now(&self, k: &LaneKind, obj: &Obj, fence: Fence) -> Result<(), InsertErr> {
+        self.flush_late();
+        if let Some(settled) = self.repair_err.get() {
+            return Err(InsertErr { msg: "injected: the repair failed".into(), settled, answered: settled, range: false });
+        }
+        if self.now() > fence.wall_ms {
+            self.fenced.set(self.fenced.get() + 1);
+            return Ok(());
+        }
+        let have = self.count(&k.table, &obj.content);
+        if have < obj.rows {
+            self.add(&k.table, obj, obj.rows - have);
+        }
+        Ok(())
+    }
+
+    /// The answer to a statement arrives `answer_delay_ms` after it ran.
+    fn answered<T>(&self, r: T) -> T {
+        let d = self.answer_delay_ms.get();
+        if d > 0 && self.clock.get() > 0 {
+            self.clock.set(self.clock.get() + d);
+        }
+        r
     }
     pub fn count(&self, table: &str, content: &str) -> u64 {
         self.rows.borrow().get(&(table.to_string(), content.to_string())).copied().unwrap_or(0)
@@ -1153,82 +1265,15 @@ impl Central for MemCentral {
     }
 
     async fn insert(&self, k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str, guard: bool) -> Result<(), InsertErr> {
-        self.flush_late();
-        if objs.iter().any(|o| objs.first().is_some_and(|f| o.late != f.late)) {
-            self.mixed_statements.set(self.mixed_statements.get() + 1);
-        }
-        for o in objs {
-            *self.by_part.borrow_mut().entry((k.table.clone(), o.content.clone(), o.late)).or_default() += o.rows;
-        }
-        self.n.set(self.n.get() + 1);
-        let n = self.n.get();
-        if self.late_error_every.get() > 0 && n % self.late_error_every.get() == 0 && self.now() <= fence.wall_ms {
-            let at = self.now() + fence.budget_ms + self.slack_ms.get();
-            self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
-            let msg = "clickhouse 500 Internal Server Error: Code: 159. DB::Exception: Timeout exceeded: elapsed 28870.471 ms, maximum: 10000.000 ms. (TIMEOUT_EXCEEDED)".to_string();
-            return Err(InsertErr { settled: settles_at_once(&msg), answered: true, range: false, msg });
-        }
-        if self.late_every.get() > 0 && n % self.late_every.get() == 0 {
-            // No answer. It arrives late: if by its fence, it runs, and
-            // lands as late as it can: its whole budget plus the slack after.
-            let arrive = self.now() + self.late_by_ms.get();
-            if arrive <= fence.wall_ms {
-                let at = arrive + fence.budget_ms + self.slack_ms.get();
-                self.late.borrow_mut().push((at, k.table.clone(), objs.iter().map(|o| (*o).clone()).collect()));
-            }
-            return Err(InsertErr { msg: "injected: no answer (the statement is late)".into(), settled: false, answered: false, range: false });
-        }
-        if self.now() > fence.wall_ms {
-            self.fenced.set(self.fenced.get() + 1);
-            return Ok(()); // the WHERE selects nothing
-        }
-        // The range assertion, as squashed: one bad object fails the statement before anything is written.
-        if guard && self.ranged(k) && objs.iter().any(|o| o.received_ns > 0 && self.recv_of(o).iter().any(|r| *r != o.received_ns)) {
-            return Err(InsertErr { msg: format!("clickhouse 500: {RANGE_GUARD}"), settled: true, answered: true, range: true });
-        }
-        let partial = self.partial_every.get() > 0 && n % self.partial_every.get() == 0;
-        for (i, o) in objs.iter().enumerate() {
-            if partial && i > 0 {
-                return Err(InsertErr { msg: "injected: the statement died after its first part".into(), settled: true, answered: true, range: false });
-            }
-            self.add(&k.table, o, o.rows);
-            self.applied.borrow_mut().push((k.table.clone(), o.content.clone()));
-        }
-        if self.lost_answer_every.get() > 0 && n % self.lost_answer_every.get() == 0 {
-            return Err(InsertErr { msg: "injected: the answer was lost".into(), settled: false, answered: false, range: false });
-        }
-        Ok(())
+        self.answered(self.insert_now(k, objs, fence, guard))
     }
 
     async fn announce(&self, _k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), InsertErr> {
-        self.announce_n.set(self.announce_n.get() + 1);
-        if self.announce_fail_every.get() > 0 && self.announce_n.get() % self.announce_fail_every.get() == 0 {
-            return Err(InsertErr { msg: "injected: announcement refused".into(), settled: true, answered: true, range: false });
-        }
-        if self.now() > fence.wall_ms {
-            // the loud fence (`FENCED`): an error, nothing written
-            self.fenced.set(self.fenced.get() + 1);
-            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
-        }
-        for o in objs {
-            *self.announced.borrow_mut().entry(o.key.clone()).or_default() += 1;
-        }
-        Ok(())
+        self.answered(self.announce_now(objs, fence))
     }
 
     async fn payloads(&self, _k: &LaneKind, objs: &[&Obj], fence: Fence, _token: &str) -> Result<(), InsertErr> {
-        self.payload_n.set(self.payload_n.get() + 1);
-        if self.payload_fail_every.get() > 0 && self.payload_n.get() % self.payload_fail_every.get() == 0 {
-            return Err(InsertErr { msg: "injected: payload statement refused".into(), settled: true, answered: true, range: false });
-        }
-        if self.now() > fence.wall_ms {
-            self.fenced.set(self.fenced.get() + 1);
-            return Err(InsertErr { msg: format!("clickhouse 500: {FENCED}"), settled: true, answered: true, range: false });
-        }
-        for o in objs {
-            *self.payloads_in.borrow_mut().entry(o.content.clone()).or_default() += 1;
-        }
-        Ok(())
+        self.answered(self.payloads_now(objs, fence))
     }
 
     async fn dangling(&self, _k: &LaneKind, objs: &[&Obj]) -> Result<Vec<(String, u64)>, String> {
@@ -1241,16 +1286,7 @@ impl Central for MemCentral {
     }
 
     async fn repair(&self, k: &LaneKind, obj: &Obj, fence: Fence, _token: &str) -> Result<(), InsertErr> {
-        self.flush_late();
-        if self.now() > fence.wall_ms {
-            self.fenced.set(self.fenced.get() + 1);
-            return Ok(());
-        }
-        let have = self.count(&k.table, &obj.content);
-        if have < obj.rows {
-            self.add(&k.table, obj, obj.rows - have);
-        }
-        Ok(())
+        self.answered(self.repair_now(k, obj, fence))
     }
 }
 
@@ -1405,6 +1441,23 @@ mod tests {
             assert!(ok || wrong > 0, "the refused key would have read the wrong partitions");
         }
         ch.query(&format!("DROP DATABASE {db} SYNC"), &[]).await.unwrap();
+    }
+
+    /// A statement holding an object without received time asserts
+    /// nothing, whatever the guard flag (the worker's `guarded` asks for
+    /// `received_ns > 0` of every object too; with `>= 0` the flag changes
+    /// no statement: an equivalent mutant, run 54).
+    #[test]
+    fn a_statement_with_an_unstamped_object_asserts_nothing() {
+        let b = Rc::new(MemBucket::default());
+        let c = ClickHouseCentral::new("http://127.0.0.1:1", "db", b, "k", "s", 1000);
+        let tr = LaneKind::for_signal("traces").unwrap();
+        let mut a = obj("r/p/traces/E/1.parquet", "H1");
+        a.received_ns = 11;
+        let z = obj("r/p/traces/E/2.parquet", "H2");
+        let f = Fence { wall_ms: 1234, budget_ms: 3000 };
+        assert_eq!(c.insert_sql(&tr, &[&a, &z], f, true), c.insert_sql(&tr, &[&a, &z], f, false));
+        assert_ne!(c.insert_sql(&tr, &[&a], f, true), c.insert_sql(&tr, &[&a], f, false));
     }
 
     /// The generated statements parse on a real server (skipped when none is up).

@@ -24,8 +24,8 @@ nightly:model | consumer_model | designLate slowSafety | ^sim +s3InlineConsumer\
 nightly:model | consumer_model | lateLeaseBreaksTests | ^runs +lateLeaseLost +lateLease\(Lost\|Drop\)BreaksTest  | MS,MN,ML | CAST-74 H-2
 nightly:model | consumer_model | lateLeaseDesignTests | ^runs +(designLate|designSlow|designSlowQuiet) +lateLease\(Drop\)\?DesignTest  | MS,MN,ML | CAST-74 H-2
 # CAST-83: a lease take applied after the reader's check (TAKE_AMBIG, TAKE_REFRESH; model/s3InlineConsumer.qnt).
-nightly:model | consumer_model | lateTakeBreaksTests | ^runs +lateTakeLost +lateTake\(Lost\|Drop\)BreaksTest  | MS,MN,ML | H-2
-nightly:model | consumer_model | lateTakeDesignTests | ^runs +(designLate|designSlow|designSlowQuiet|designSlowShort) +lateTake\(Drop\|Race\|Release\)\?DesignTest  | MS,MN,ML | H-2
+nightly:model | consumer_model | lateTakeBreaksTests | ^runs +lateTakeLost +lateTake\(Lost\|Drop\)BreaksTest  | MS,MN,ML | CAST-83 H-2
+nightly:model | consumer_model | lateTakeDesignTests | ^runs +(designLate|designSlow|designSlowQuiet|designSlowShort) +lateTake\(Drop\|Race\|Release\)\?DesignTest  | MS,MN,ML | CAST-83 H-2
 # The open-ended model nightly (ci/model-open.sh). Design rows and scripted runs only: a random
 # mutant miss, and an Apalache run that reaches its time limit, are unknowns, not evidence.
 nightly:model-open | model_open | completenessDesign safety | ^sim +completeness\.qnt +completenessDesign +safety  | M | H-2 H-4 H-5 LS-6 LS-7 LS-8 CAST-21

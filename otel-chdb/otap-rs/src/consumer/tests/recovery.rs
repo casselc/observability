@@ -570,7 +570,7 @@ async fn a_lane_is_given_back_for_balance_only_after_its_minimum_hold() {
 /// the lane gone from the store stayed blocked forever.)
 #[tokio::test(flavor = "current_thread")]
 async fn a_pending_release_ends_once_our_take_is_no_longer_stored() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-85", "H-2"]);
     let lane = "c1/p1/traces";
     let key = format!("{CTL}/lease/{lane}.json");
     for gone in [false, true] {

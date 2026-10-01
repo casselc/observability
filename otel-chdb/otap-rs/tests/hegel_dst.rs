@@ -911,7 +911,7 @@ fn regression_a_late_renewal_is_adopted_not_dropped() {
 /// the fleet's log check). The design adopts it at its next step.
 #[test]
 fn regression_a_late_take_is_adopted_not_forgotten() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST,ML", &["CAST-83", "H-2"]);
     for (m, want_stall) in [(Mutation::None, false), (Mutation::LateTakeLost, true)] {
         let s = Setup {
             seed: 0,

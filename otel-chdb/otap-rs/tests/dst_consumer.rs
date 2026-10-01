@@ -162,7 +162,7 @@ fn a_late_checkpoint_that_compacted_an_epoch_does_not_reopen_it() {
 /// (`worker.rs` `giving_back`).
 #[test]
 fn a_take_given_back_is_not_held_while_its_release_may_land() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-85", "H-2"]);
     for seed in [5307618, 5307784, 5309558] {
         let o = sim::run(seed, wall0(seed), false, fleet);
         assert!(o.failure.is_none(), "seed {seed}: {:?}", o.failure);

@@ -600,7 +600,7 @@ async fn unanswered_take(m: Mutation) -> (W, Rc<MemCentral>, FakeClock, Rc<MemBu
 /// adopts it (`refresh_own_takes`, `coord::own_late_take`).
 #[tokio::test(flavor = "current_thread")]
 async fn a_lease_take_landing_late_is_adopted() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "H-2"]);
     let lane = "c1/p1/traces";
     for m in [Mutation::None, Mutation::LateTakeLost] {
         let (mut w, c, clk, b, t0) = unanswered_take(m).await;
@@ -636,7 +636,7 @@ async fn a_lease_take_landing_late_is_adopted() {
 /// up the lane, its own in the store.
 #[tokio::test(flavor = "current_thread")]
 async fn a_take_meeting_our_own_late_take_holds_the_lane() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "H-2"]);
     let lane = "c1/p1/traces";
     // "/lease/": it lands on the retry's own PUT; "/workers/": on the
     // heartbeat, before discovery lists the lease and try_take reads it.
@@ -663,7 +663,7 @@ async fn a_take_meeting_our_own_late_take_holds_the_lane() {
 /// given back at once (a release), and the lane is taken afresh.
 #[tokio::test(flavor = "current_thread")]
 async fn a_late_take_found_after_its_window_is_given_back() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "H-2"]);
     let lane = "c1/p1/traces";
     let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
     clk.0.set(t0 + 8_500);
@@ -684,7 +684,7 @@ async fn a_late_take_found_after_its_window_is_given_back() {
 /// w1 holder of a lane nobody worked until it expired (hegel nightly 51).
 #[tokio::test(flavor = "current_thread")]
 async fn a_late_take_whose_release_is_lost_is_given_back_again() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "CAST-84", "H-2"]);
     let lane = "c1/p1/traces";
     let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
     clk.0.set(t0 + 8_500);
@@ -717,7 +717,7 @@ async fn a_late_take_whose_release_is_lost_is_given_back_again() {
 /// only sent again, and the lane is taken afresh once it has applied.
 #[tokio::test(flavor = "current_thread")]
 async fn a_take_whose_release_may_still_land_is_not_held_again() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-85", "H-2"]);
     let lane = "c1/p1/traces";
     let key = format!("{CTL}/lease/{lane}.json");
     let (b, c, clk) = setup();
@@ -756,7 +756,7 @@ async fn a_take_whose_release_may_still_land_is_not_held_again() {
 /// is one holder: the batch goes in once.
 #[tokio::test(flavor = "current_thread")]
 async fn a_late_take_after_another_worker_took_the_lane_is_not_adopted() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "H-2"]);
     let lane = "c1/p1/traces";
     let (w1, c, clk, b, t0) = unanswered_take(Mutation::None).await;
     let mut ws = vec![w1, worker("w2", &b, &c, &clk)];
@@ -2346,7 +2346,7 @@ async fn a_second_spelling_of_a_slot_key_is_not_a_slot() {
 /// pending takes, or one that dropped them, survived run 52.)
 #[tokio::test(flavor = "current_thread")]
 async fn two_unanswered_takes_of_one_version_both_stay_pending() {
-    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-83", "H-2"]);
     let lane = "c1/p1/traces";
     let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
     *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };

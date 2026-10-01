@@ -2292,3 +2292,197 @@ async fn a_second_spelling_of_a_slot_key_is_not_a_slot() {
     assert_eq!((c.count("otel_traces", "slot2"), c.count("otel_traces", "ahead2")), (7, 0));
     assert_eq!(w.checkpoint("c1/p1/traces").unwrap().next("E1"), 3);
 }
+
+// ---- worker.rs under mutation testing (nightly `mutants`, set `worker`, run 52) ----------------
+
+/// Two takes of one free lane, both unanswered and stuck on the way: the
+/// retry carries the next beat above the pending one (`coord::take_after`
+/// over the takes pending on the same version), both stay pending, and
+/// when the first lands it is adopted. (Mutants: a retry that ignored the
+/// pending takes, or one that dropped them, survived run 52.)
+#[tokio::test(flavor = "current_thread")]
+async fn two_unanswered_takes_of_one_version_both_stay_pending() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (mut w, c, clk, b, t0) = unanswered_take(Mutation::None).await;
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };
+    clk.0.set(t0 + 100);
+    let _ = w.step().await;
+    let beats: Vec<u64> =
+        b.held.borrow().iter().map(|(_, body, ..)| serde_json::from_slice::<super::coord::LeaseDoc>(body).unwrap().beat).collect();
+    assert_eq!(beats, vec![0, 1], "the retry's beat is above the pending take's");
+    *b.faults.borrow_mut() = MemFaults::default();
+    assert!(matches!(b.land_held(), Some(Put::Ok(_))), "the first take lands");
+    assert!(matches!(b.land_held(), Some(Put::Conflict)), "the retry, on the same version, cannot");
+    clk.0.set(t0 + 200);
+    let _ = w.step().await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+    assert_eq!(w.stats.take_late_taken, 1, "{:?}", w.stats);
+    assert_eq!(c.count("otel_traces", "h0"), 5);
+}
+
+/// A renewal stuck on the way lands just before the holder's next renewal
+/// is taken: that renewal meets a 412, and its read-back shows the late
+/// one, which is adopted there (`LeaseMiss::Other` in `maintain`), not
+/// taken for a lost lane. (Run 52: deleting the `!` of `!late_lost`
+/// survived; the earlier tests reach only the read-back at maintain's start.)
+#[tokio::test(flavor = "current_thread")]
+async fn a_renewal_meeting_the_412_of_our_own_late_renewal_adopts_it() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (b, c, clk) = setup();
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 5).await;
+    let mut w = worker("w1", &b, &c, &clk);
+    let t0 = clk.0.get();
+    let _ = w.step().await;
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };
+    clk.0.set(t0 + 3_000);
+    let _ = w.step().await;
+    assert!(!b.held.borrow().is_empty());
+    // At the next renewal, the stuck ones land first (the oldest applies).
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), land_held_on_put: true, ..Default::default() };
+    clk.0.set(t0 + 3_500);
+    let _ = w.step().await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()]);
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lost_cas), (1, 0), "{:?}", w.stats);
+}
+
+/// A renewal stuck on the way while the next one is lost outright: the
+/// read-back at the second maintain shows the lease unchanged, and the
+/// first renewal must stay pending through it (`refresh_own_lease` keeps
+/// its doubt on an unchanged read). When it lands, it is adopted, and the
+/// lane is still held past the old window. (Run 52: the unchanged-read
+/// guard replaced by false survived.)
+#[tokio::test(flavor = "current_thread")]
+async fn a_pending_renewal_survives_an_unchanged_read_back() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let (b, c, clk) = setup();
+    let mut e = Edge::new("c1/p1", "traces");
+    e.commit(&b, "h0", 5).await;
+    let mut w = worker("w1", &b, &c, &clk);
+    let t0 = clk.0.get();
+    let _ = w.step().await;
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, hold: true, ..Default::default() };
+    clk.0.set(t0 + 3_000);
+    let _ = w.step().await;
+    let stuck = b.held.borrow().len();
+    assert!(stuck >= 1);
+    // The next renewal is lost (not stuck): the lease still reads unchanged.
+    *b.faults.borrow_mut() = MemFaults { matching: "/lease/".into(), drop_every: 1, ..Default::default() };
+    clk.0.set(t0 + 3_500);
+    let _ = w.step().await;
+    assert_eq!(b.held.borrow().len(), stuck, "nothing new stuck");
+    *b.faults.borrow_mut() = MemFaults::default();
+    assert!(matches!(b.land_held(), Some(Put::Ok(_))), "the first renewal lands, unheard");
+    b.held.borrow_mut().clear();
+    e.commit(&b, "h1", 5).await;
+    clk.0.set(t0 + 8_500);
+    let _ = w.step().await;
+    assert_eq!(w.held_lanes(), vec![lane.to_string()], "{:?}", w.stats);
+    assert_eq!((w.stats.lease_late_taken, w.stats.lanes_lapsed), (1, 0), "{:?}", w.stats);
+    assert_eq!(c.count("otel_traces", "h1"), 5);
+}
+
+/// Who counts as live, from the heartbeats under `{ctl}/workers/`: a peer
+/// whose heartbeat is new to us is live unless the store's LastModified
+/// says it is older than 3 × ttl (stale); one not changed for ttl + margin
+/// on our clock is not live any more; one older than 10 × ttl is deleted.
+/// Each bound is probed on both sides. (Run 52: every comparison and
+/// constant of these rules survived.)
+#[tokio::test(flavor = "current_thread")]
+async fn heartbeats_count_live_workers_and_delete_dead_ones() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let (b, c, clk) = setup();
+    let ttl = T.ttl_ms;
+    let now = clk.0.get();
+    let hb = |k: &str| format!("{CTL}/workers/{k}.json");
+    // (LastModified is the bucket's clock: set it back to age a heartbeat)
+    for (k, age) in [("fresh", 0), ("aged2", 2 * ttl), ("edge3", 3 * ttl), ("stale4", 3 * ttl + 1), ("aged5", 5 * ttl), ("edge10", 10 * ttl), ("dead11", 10 * ttl + 1)] {
+        b.clock.set(now - age);
+        b.insert(&hb(k), Bytes::from_static(b"{}"), BTreeMap::new());
+    }
+    b.clock.set(now);
+    let mut w = worker("w1", &b, &c, &clk);
+    let _ = w.step().await;
+    let live = |w: &W| w.stats_json()["live_workers"].as_u64().unwrap();
+    // (exactly 3 × ttl old is not stale yet; aged5 and stale4 are)
+    assert_eq!(live(&w), 4, "me + fresh, aged2 and edge3");
+    let keys = b.keys();
+    assert!(!keys.contains(&hb("dead11")), "older than 10 × ttl: deleted");
+    for k in ["fresh", "aged2", "edge3", "stale4", "aged5", "edge10"] {
+        assert!(keys.contains(&hb(k)), "{k} is kept");
+    }
+    // Our own heartbeat counts its beats.
+    let beat = |b: &MemBucket| serde_json::from_slice::<serde_json::Value>(&b.objs.borrow()[&hb("w1")].body).unwrap()["beat"].as_u64();
+    assert_eq!(beat(&b), Some(1));
+    // Nothing changes for ttl - margin + 500 = 8.5 s on our clock: still live.
+    clk.0.set(now + ttl - T.margin_ms + 500);
+    let _ = w.step().await;
+    assert_eq!(beat(&b), Some(2));
+    assert_eq!(live(&w), 3, "edge3 is stale now; fresh and aged2 are still live");
+    // ... and at exactly ttl + margin the unchanged ones are not.
+    clk.0.set(now + ttl + T.margin_ms);
+    let _ = w.step().await;
+    assert_eq!(live(&w), 1, "only me: every peer's heartbeat is ttl + margin old");
+}
+
+/// In load mode the other workers' heartbeats (their loads) are read at
+/// most every `loads_every_ms`, and in count mode not at all.
+#[tokio::test(flavor = "current_thread")]
+async fn peer_loads_are_read_on_their_schedule_in_load_mode_only() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let (b, c, clk) = setup();
+    let now = clk.0.get();
+    b.insert(&format!("{CTL}/workers/peer.json"), Bytes::from_static(b"{\"load\":1.0}"), BTreeMap::new());
+    let mut cf = scale_cfg("w1");
+    cf.balance.loads_every_ms = 1_000;
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    let mut reads = Vec::new();
+    for dt in [0, 500, 999, 1_000, 1_500, 2_000] {
+        clk.0.set(now + dt);
+        let _ = w.step().await;
+        reads.push(w.stats.load_reads);
+    }
+    assert_eq!(reads, vec![1, 1, 1, 2, 2, 3]);
+    let mut counted = worker("w2", &b, &c, &clk);
+    let _ = counted.step().await;
+    assert_eq!(counted.stats.load_reads, 0, "count mode reads no loads");
+}
+
+/// The worker's counters over one plain, deterministic run: two lanes
+/// with batches, copies, a dead epoch closed by a tombstone, renewals and
+/// idle backoff. Each counter must count what happened (the nightly
+/// mutation set changes `+= 1` to `-= 1` or `*= 1`; operators read these
+/// in the stats endpoint). The values are this run's, pinned.
+#[tokio::test(flavor = "current_thread")]
+async fn the_worker_counts_what_it_did() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let (b, c, clk) = setup();
+    let mut a = Edge::stamped("c1/p1", "traces", &clk);
+    let mut l = Edge::stamped("c1/p1", "logs", &clk);
+    for i in 0..3 {
+        a.commit(&b, &format!("t{i}"), 4).await;
+        l.commit(&b, &format!("l{i}"), 2).await;
+    }
+    a.commit(&b, "t0", 4).await; // a copy
+    a.new_epoch(); // E0001 is dead now, its head free: closed by a tombstone
+    a.commit(&b, "t9", 4).await;
+    let mut cf = scale_cfg("w1");
+    cf.balance.mode = BalanceMode::Count;
+    let mut w = Worker::new(cf, b.clone(), c.clone(), clk.clone());
+    for _ in 0..12 {
+        let _ = w.step().await;
+        clk.0.set(clk.0.get() + 1_000);
+    }
+    let s = serde_json::to_value(&w.stats).unwrap();
+    let got: BTreeMap<String, serde_json::Value> = s.as_object().unwrap().iter().filter(|(k, _)| k.as_str() != "visible_ms").map(|(k, v)| (k.clone(), v.clone())).collect();
+    let want: BTreeMap<String, serde_json::Value> = serde_json::from_str(include_str!("tests_stats.json")).unwrap();
+    assert_eq!(got, want);
+    assert_eq!(w.stats.visible_ms.len() as u64, w.stats.objects_inserted, "one visibility sample per object inserted");
+    assert!(w.stats.visible_ms.iter().all(|v| *v >= 0.0 && *v < 20_000.0), "{:?}", w.stats.visible_ms);
+    let j = w.stats_json();
+    assert_eq!(j["objects_per_statement"].as_f64(), Some(w.stats.statement_objects as f64 / w.stats.statements as f64));
+    assert_eq!(j["held"].as_array().map(Vec::len), Some(2));
+}

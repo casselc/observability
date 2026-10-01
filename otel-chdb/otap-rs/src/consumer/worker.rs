@@ -758,8 +758,8 @@ impl<B: Bucket, C: Central, K: Clock> Worker<B, C, K> {
                     // (what is stored instead: the caller may know it for one of its own)
                     d => return Err(LeaseMiss::Other(d.map(|d| (d, e)))),
                 },
-                // (a create: still no lease object, the version it was conditional on)
-                Ok(None) if etag.is_none() => return Err(LeaseMiss::Unchanged),
+                // (no lease object, or no answer: a take keeps itself pending
+                // on this as on `Unchanged`, try_take)
                 _ => return Err(LeaseMiss::Other(None)),
             },
         };

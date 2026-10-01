@@ -1260,11 +1260,21 @@ pub fn spawn_worker(w: &Rc<World>, i: usize, inc: u32) -> Slot {
     let mut wk = Worker::new(worker_cfg(&name, w.p.scale), b, c, clock);
     let sim = w.sim.clone();
     let p2 = proc.clone();
+    let w2 = w.clone();
     trace(format!("START {name}"));
     let handle = tokio::task::spawn_local(async move {
         loop {
             p2.gate().await;
             let _ = wk.step().await;
+            // Every counter only ever counts up from 0: one past 2^48 has
+            // wrapped (a decrement, the nightly mutation set's `+=` -> `-=`).
+            if let Some(m) = wk.stats_json().as_object() {
+                for (k, v) in m {
+                    if v.as_u64().is_some_and(|n| n > 1 << 48) {
+                        w2.violation(format!("{name}: stat {k} = {v} has wrapped"));
+                    }
+                }
+            }
             let poll = wk.cfg.poll_ms + sim.range(0, 100);
             let sleep = match wk.next_wake() {
                 Some(at) => poll.min(at.saturating_sub(1_000_000 + now_ms()).max(5)),

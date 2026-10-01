@@ -560,3 +560,49 @@ async fn a_lane_is_given_back_for_balance_only_after_its_minimum_hold() {
     }
     assert_eq!(released, vec![0, 0, 0, 0, 1, 1], "held 2 s (min_hold_ms) first: {:?}", w.stats);
 }
+
+/// A release with no answer stays pending only while our take is stored:
+/// once the store holds anything else, it can no longer land (it is
+/// conditional on the take's ETag) and is not sent again. If it applied
+/// unheard, the next step sends no release, only the take afresh; if the
+/// lease object is gone, the lane is taken afresh too. (Nightly 58:
+/// `refresh_own_takes`' `e == held.etag` guard replaced by true survived:
+/// the lane gone from the store stayed blocked forever.)
+#[tokio::test(flavor = "current_thread")]
+async fn a_pending_release_ends_once_our_take_is_no_longer_stored() {
+    let _trace = otap_s3pq::oscope_trace::covers("DST", &["H-2"]);
+    let lane = "c1/p1/traces";
+    let key = format!("{CTL}/lease/{lane}.json");
+    for gone in [false, true] {
+        let (b, c, clk) = setup();
+        let mut e = Edge::new("c1/p1", "traces");
+        e.commit(&b, "h0", 5).await;
+        let mut w = worker("w1", &b, &c, &clk);
+        // The heartbeat and the take pass; the three fence attempts and the
+        // release are stuck on the way.
+        *b.faults.borrow_mut() = MemFaults { matching: "/ctl/".into(), drop_every: 1, hold: true, skip_first: 2, ..Default::default() };
+        let t0 = clk.0.get();
+        let _ = w.step().await;
+        assert!(w.held_lanes().is_empty(), "the fence failed: given back");
+        let release = b.held.borrow_mut().drain(..).filter(|(k, ..)| *k == key).collect::<Vec<_>>();
+        assert_eq!(release.len(), 1);
+        *b.faults.borrow_mut() = MemFaults::default();
+        if gone {
+            let _ = b.delete(std::slice::from_ref(&key)).await;
+        } else {
+            b.held.borrow_mut().extend(release);
+            assert!(matches!(b.land_held(), Some(Put::Ok(_))), "the release applies, unheard");
+        }
+        let cas = b.counts.put_cas.get();
+        clk.0.set(t0 + 100);
+        let _ = w.step().await;
+        assert_eq!(w.held_lanes(), vec![lane.to_string()], "taken afresh (lease gone: {gone})");
+        if !gone {
+            assert_eq!(b.counts.put_cas.get() - cas, 2, "the take and the checkpoint fence; no release sent again");
+            assert_eq!(lease_of(&b, lane).epoch, 3, "take (1), release (2), take (3)");
+        }
+        clk.0.set(t0 + 200);
+        let _ = w.step().await;
+        assert_eq!(c.count("otel_traces", "h0"), 5);
+    }
+}

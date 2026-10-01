@@ -1254,6 +1254,14 @@ jobs:
       - name: Traceability records (retirement model, ci/trace/models.txt)
         if: always()
         run: python3 ci/trace/trace.py model --script retirement_model --report "$RUNNER_TEMP/out/retirement-model.txt"
+      - name: model/wmHistory.qnt (the watermark's history, D29 amendment 2026-10-01)
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/out"
+          SEED=$(printf '0x%x' $((RANDOM * 32768 + RANDOM))) otel-chdb/model/wmhistory_model.sh | tee "$RUNNER_TEMP/out/wmhistory-model.txt"
+      - name: Traceability records (watermark history model, ci/trace/models.txt)
+        if: always()
+        run: python3 ci/trace/trace.py model --script wmhistory_model --report "$RUNNER_TEMP/out/wmhistory-model.txt"
       - name: model/bitemporalCatalog.qnt (the catalog as bitemporal events, D32) and entities/bitemp against its traces
         run: |
           set -o pipefail

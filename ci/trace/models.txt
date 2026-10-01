@@ -49,3 +49,12 @@ nightly:model | bitemp_model | DesignTest (departure, late signals, announce hid
 nightly:model | bitemp_model | basisScopedBreaksTest | ^runs +basisScoped +basisScopedBreaksTest  | MS | H-G8 LS-G8
 nightly:model | bitemp_model | lastWinsBreaksTest | ^runs +lastWins +lastWinsBreaksTest  | MS | H-E8 R-G9
 nightly:model | bitemp_model | asAssertBreaksTest | ^runs +asAssert +asAssertBreaksTest  | MS | H-G8 UCA-G7
+
+# The watermark's history (D29 amendment 2026-10-01; model/wmHistory.qnt): a step stamped before the
+# document's GET, without the skew, unclamped, or an hour sealed from a read instead of a freeze.
+nightly:model | wmhistory_model | stampEarlyBreaksTest | ^runs +stampEarly +stampEarlyBreaksTest  | MS | H-2 H-5 R-S1
+nightly:model | wmhistory_model | noSkewBreaksTest | ^runs +noSkew +noSkewBreaksTest  | MS | CAST-26 H-2 H-5 R-S1
+nightly:model | wmhistory_model | noClampBreaksTest | ^runs +noClamp +noClampBreaksTest  | MS | H-2 H-5 R-S1
+nightly:model | wmhistory_model | sealFromReadBreaksTest | ^runs +sealFromRead +sealFromReadBreaksTest  | MS | CAST-74 H-2 H-5 R-S1
+nightly:model | wmhistory_model | historyDesignTests | ^runs +historyDesign +DesignTest  | MS | H-2 H-5 R-S1
+nightly:model | wmhistory_model | historyDesign safety | ^sim +historyDesign +safety  | M | H-2 H-5 R-S1

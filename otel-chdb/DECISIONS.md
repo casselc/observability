@@ -2858,6 +2858,109 @@ and scripted runs (`model/open_models.sh`) [Q].
 are published but no reader narrows by them; `max_lateness` is still one
 fleet-wide value (X12).
 
+**Amendment 2026-10-01: the watermark's history (owner-approved work;
+proposed; being built).** Each document above holds only its running max,
+so nothing can say what was complete *as of* an earlier time T: a basis (D30)
+can only be minted at "latest", an audit cannot reconstruct which value a
+dashboard or rule could have seen at T, and `consume admit` (D35) can only
+list the values published *now* above its rows ("the consumer keeps no
+history"). The history is append-only, hourly, create-only objects.
+
+*STPA first.* Hazards: **H-2/H-5** (an "as of T" value above what was in
+central at T presents an incomplete answer as complete, and an audit built
+on it reconstructs the wrong view), **H-4** (a rule or a re-check pinned to
+such a basis), and **H-8** only through its cost (nothing waits on it: a
+missing history is an "unknown", never a stall). The controller is GC's
+watermark publisher (`consume gc`, controller "GC, audit, sealer"), with a new
+process-model variable, `watermark_history` (the open hour's steps and the
+hours frozen for sealing, held in the CAS'd documents); the query service
+gets `complete_through_history` (the scope's value as of T, read from the
+hour objects, and whether that hour is sealed). The CAST lessons applied:
+create-only for anything a reader caches or an audit cites (D3; rows
+74/83/84: a write whose answer is lost may still land, so its content must
+be the same whoever lands it); **clocks** (rows 13, 26): a step's time is a
+*consumer* clock reading, so it is taken after everything the value depends
+on was observed (the document's read inside the CAS, which is after every
+checkpoint read and after the previous publisher's write) and pushed up by
+the clock-skew bound; **late writes**: a CAS that lands late carries an old
+stamp, so a step is only ever appended to the open hour, never to a sealed
+one, and an answer from an unsealed hour is marked provisional; **rows
+26/34 on boundaries**: two clocks (a step's `at_ms` is wall time, its values
+are custody time, `received_at < v`, strictly) and the reader's operator is
+`at_ms ≤ T` (a step counts at its own stamp), each pinned by a property
+with the off-by-one mutant.
+
+*Design.*
+
+1. **A step** is `{at_ms, ct_ns, signals: {signal: ns}, unlisted_ns}`: the
+   document's published values (fleet: its `complete_through` and per-signal
+   values; a cluster: the cluster's) and the time by which they held.
+   `at_ms = max(clock() + skew_ms, the previous step's at_ms)`, where clock()
+   is read inside the CAS after the document's GET. Claim (FORMAT.md §4.1):
+   *by wall time `at_ms`, every request of the scope with `received_at` below
+   `ct_ns` (and below each signal's value for that signal) was in central*,
+   given consumer clocks within `skew_ms` of true time. The previous
+   document's values were observed before its PUT, which landed before our
+   GET; ours before our GET; so the clock reading after the GET bounds both.
+2. **The open hour lives in the CAS'd document** (`history`: `hour_ms`,
+   `carry` = the last step of the previous hour, `steps`, and `sealing`): one
+   step per `--wm-history-every` (60 s default; a value change only), so ≤ 60
+   steps per hour (~15 KB with 8 signals [E]); a step's hour is
+   `at_ms / 3,600,000`. A run whose step falls in a later hour first
+   **freezes** the open hour: it moves into `sealing` in the same CAS, so no
+   later step can enter it (the clamp keeps every later stamp in the new hour,
+   and a CAS conditional on the frozen document's ETag cannot land under an
+   earlier one).
+3. **Sealing: create-only, after the freeze.** After the CAS, each frozen
+   hour is written to `{ctl}/watermark-history/{scope}/{YYYY-MM-DD}T{HH}.json`
+   (`scope` = `_fleet` or the cluster; UTC; `If-None-Match: *`), then removed
+   from `sealing` by a second CAS. The object's content is the frozen hour
+   (deterministic JSON), so every publisher that seals it writes the same
+   bytes: a 412 is "already sealed" (read back and compared; a difference is
+   counted, `consumer_watermark_history_conflicts_total`, and the stored one
+   is kept), a lost answer leaves the hour in `sealing` for the next run. An
+   hour with no step has no object. Per-cluster objects sit under the
+   cluster's own prefix (D18's ABAC unit, like `watermark/{cluster}.json`).
+4. **Reading "as of T"** (the query service, `consume admit`): the step with
+   the largest `at_ms ≤ T` (the values are monotone in `at_ms`): hour(T)'s
+   object, else the current document's `sealing`/open hour, else the previous
+   hours' objects, at most `lookback` hours back (48 h default; then
+   unknown). The answer is **final** when T's hour is sealed (an object, or
+   frozen in `sealing`), **provisional** otherwise (a run whose CAS has not
+   landed may still add a step at or before T: a provisional answer can
+   rise, never fall). Every value in the history was a published value, so
+   it is at or below the current one: a basis minted from it passes D30's
+   `basis_ahead` check by construction.
+5. **Per scope as of T** follows `Reader.For`: per cluster, the highest of
+   the fleet's step and the cluster's step (its value, and its per-signal
+   minimum over the scope's signals); then the minimum over the scope's
+   clusters. A cluster without history at T falls back to the fleet's; with
+   neither, the scope has no value as of T and the request is refused.
+6. **The query service:** `POST /v1/basis` takes `as_of` (RFC 3339 or ns,
+   at most now): it mints an ordinary basis (D30: same token, same checks,
+   `issued_ns` = now) whose bounds are the scope's values as of T, and
+   answers with an `as_of` block (T, per cluster the value, its step's
+   `at_ms` and source, `final`). Refusals: `as_of_future`,
+   `as_of_unknown` (no history covers T: 404), and D30's own
+   (`basis_expired` for a value older than retention).
+7. **`consume admit` (D35)** adds, per scope it lists, when the history first
+   shows a value above the rows' lowest `received_at` (`first_above_ms`) and
+   the last step below it (`last_below_ms`): bases minted before
+   `last_below_ms` cannot be missing the rows; between the two the history's
+   resolution cannot say.
+8. **Retention:** the hour objects are never rewritten and need no "latest"
+   pointer; they expire by an S3 lifecycle rule on
+   `{ctl}/watermark-history/` (≥ basis retention + lookback; deploy/README),
+   not by GC (owner decision: below). ~24 objects per scope per day.
+
+*Alternatives.* SlateDB (research/central-optional.md §7): one writer per
+database, a WAL and compaction for ~60 small appends an hour; a time index
+this small does not need an LSM. One create-only object per run (`{scope}/
+{wall_ms}.json`): ~17k objects/day per scope and a LIST per lookup. Steps
+in the CAS'd document only (no objects): the document would grow without
+bound or forget. An hourly object written from a process's memory: lost on
+restart and racy across publishers (several `consume gc` may run).
+
 ### D30. The basis: answers at a named custody time
 
 **Owner decisions, 2026-09-28:** the defaults are accepted (retention 90 days;

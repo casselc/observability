@@ -16,8 +16,9 @@ date the page was last updated, or the date it was read), [Q] model, [E] estimat
 - **A device-side forwarder, an authenticated ingress, and nothing trusted from the producer.**
   The tools send to a forwarder on `127.0.0.1` (their `LANGFUSE_BASE_URL`); the forwarder gets an
   Entra access token for the ingress API **through the platform broker** (WAM on Windows, the
-  Enterprise SSO plug-in / Platform SSO on macOS), keeps a bounded, encrypted buffer, and posts the
-  request with the token. The **ingress** (Go, `otel-chdb/ingress/`, prototype built and tested)
+  Enterprise SSO plug-in / Platform SSO on macOS) and proxies each request live to the ingress
+  with the token, passing the ingress's answer back unchanged (as built: D40 amended 2026-10-02,
+  §10b; the encrypted buffer proposed here was dropped by the owner, then the in-memory queue too). The **ingress** (Go, `otel-chdb/ingress/`, prototype built and tested)
   verifies the token, maps the identity to a tenant `(devtools, dev-<team>)` by operator policy
   only, **stamps** the tenant and the person's object id over whatever the producer claimed, and
   commits through the Go edge library with its own lanes, exactly as an in-cluster edge (D11
@@ -37,8 +38,9 @@ date the page was last updated, or the date it was read), [Q] model, [E] estimat
 - **Built and tested [M]:** token validation against a fake multi-tenant Entra issuer (20 refused
   token shapes), mapping, stamping, per-user caps and rates, gzip-bomb and size caps, retries as
   copies across replicas, 503 on an unresolved commit, the D35 drain-and-close, heartbeats.
-  **Built 2026-10-01:** the device forwarder (§10b: MSAL.NET + YARP, in memory only; tested in
-  CI on Linux, Windows and macOS with the broker faked, end to end against the Go ingress).
+  **Built 2026-10-01, reshaped 2026-10-02:** the device forwarder (§10b: MSAL.NET + YARP, a
+  streaming pass-through with no queue and no retry; tested in CI on Linux, Windows and macOS
+  with the broker faked, end to end against the Go ingress).
   **Not built:** the query-service pair grants. **Not verified:** anything against a real Entra
   tenant or a real device (runbook: `deploy/validation/entra-ingress.md`, ENT-F for the broker).
 
@@ -69,7 +71,7 @@ The system losses as they appear here:
 | H-E1 | Telemetry is committed under a tenant its sender is not entitled to write, or attributed to a person who did not send it | L-5, L-3 | H-3, H-6 |
 | H-E2 | A party that is not an authenticated member of the organisation, on the organisation's terms (device compliance, the right client), can write telemetry | L-5, L-6 | H-6 |
 | H-E3 | Device telemetry is readable beyond its owner's scope: in the device buffer (stolen or shared laptop), in transit, or at query time through a grant that over-reaches | L-4 | H-6 |
-| H-E4 | Telemetry the forwarder acknowledged to a tool is dropped without the drop being counted and visible | L-2, L-1 | H-1 |
+| H-E4 | A tool is told its telemetry was taken when it was not committed, or telemetry is dropped between the tool and the ingress without the drop being counted and visible | L-2, L-1 | H-1 |
 | H-E5 | One principal's volume or request rate exhausts the ingress, its lanes, central or the budget | L-6 | H-7 |
 | H-E6 | A retry or a replay is counted twice | L-3 | H-2 |
 | H-E7 | The ingress uses its own authority (its S3 credential, its lanes) for something the caller could not do itself (confused deputy) | L-5, L-4 | H-6 |
@@ -149,16 +151,22 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 | UCA-E10 | Query service: scope a reader | – | as a clusters × namespaces product, so devtools grants combine with Kubernetes grants (H-E3) | – | – |
 | UCA-E11 | Security: Conditional Access for the ingress API | device compliance not required (tokens from unmanaged devices, H-E2) | a policy that blocks the broker's refresh (H-E9) | changed without the runbook's re-check | – |
 
+Since the pass-through (D40 amended 2026-10-02) the forwarder has no buffer: UCA-E6 is "proxy a
+request" (with a token of another person than the one signed in when it is sent; re-cut or
+replayed bytes: neither can happen, the bytes stream once), UCA-E7 does not arise (nothing is
+held to delete), and UCA-E8's "data held forever" becomes "the tool told 503 for ever", which the
+tool's exporter bounds by dropping (counted in the tool, not in central).
+
 ### 1.5 Loss scenarios
 
 | ID | Scenario | UCA | Mitigation |
 |---|---|---|---|
 | LS-E1 | A developer in team A sets `k8s.namespace.name=prod-billing` in their tool's resource | E2 | every `k8s.*`, `user.id`, `enduser.*`, `oscope.*` resource key is removed and kept as `oscope.ingress.claimed.*`; the tenant comes from policy (tested: `TestAcceptedRequestIsStampedAndCommitted`) |
 | LS-E2 | Two developers share a Mac; B's tool posts to A's forwarder on `127.0.0.1` | E6 | the forwarder is per user and requires its own random local key (the tool's Langfuse keys), unique per user and readable only by that user; a request without it is refused (§4.3) |
-| LS-E3 | The forwarder re-batches its buffer on replay, the ingress replicas see different bytes | E3, E6 | the forwarder stores and resends each request's bytes unchanged; the ingress stamps deterministically; a copy has the same content key (tested: `TestRetryIsACopy`) |
+| LS-E3 | The forwarder re-batches its buffer on replay, the ingress replicas see different bytes | E3, E6 | **pass-through (D40, 2026-10-02):** the forwarder holds nothing and never replays; it streams each request's bytes unchanged (a property test hashes them at the ingress over generated bodies) and a retry is the tool's exporter's, of the bytes it serialised once; the ingress stamps deterministically, so a copy has the same content key (tested: `TestRetryIsACopy`; E2E `A_lost_answer_after_the_commit_is_502_to_the_tool_and_the_tools_retry_is_a_copy`). Not verified: that each real exporter resends identical bytes (ENT-7) |
 | LS-E4 | A laptop is lost with a week of prompts in the buffer | E7 | AES-GCM with a key in DPAPI / the login keychain, a 7-day TTL and a size cap by default, remote wipe; the buffer holds no token (the broker does) (§4.4) |
-| LS-E5 | A user signs out and another signs in; the old buffer is sent with the new token | E6 | entries are keyed by `(tid, oid)` at write; only entries whose key equals the current token's are ever sent; others are deleted and counted |
-| LS-E6 | The device goes non-compliant for a week (a missed OS update) | E6, E7 | CA refuses the token; the forwarder holds, shows it, and drops at TTL with a counter it sends once it can (H-E4 made visible, not prevented) |
+| LS-E5 | A user signs out and another signs in; the old buffer is sent with the new token | E6 | **pass-through (D40, 2026-10-02):** there is no buffer to send; each request goes out under the account signed in when it is sent. What remains: a request the tool produced before a switch and sends (or retries) after it goes under the new person; the window is the tool's own batch delay and retry horizon (seconds to a minute), not a buffer's age. The forwarder counts account changes on `/status` (TM-E1). Owner to confirm (AMBIGUITY E9) |
+| LS-E6 | The device goes non-compliant for a week (a missed OS update) | E6, E7 | CA refuses the token; the forwarder answers each tool request 503 `no_token` with `Retry-After` and counts it (`token_failures`, `local_refused.no_token` on `/status`); the tool's exporter retries and then drops, counted in the tool, not in central (H-E4 made visible on the device only) |
 | LS-E7 | A token for Microsoft Graph, obtained by the forwarder's client, is presented to the ingress | E1 | audience check (tested); the forwarder only ever asks for the ingress scope |
 | LS-E8 | An ingress replica is drained mid-request | E5 | draining refuses new requests (503) and waits for running ones before the close (tested: `TestDrainClosesLanes`, `TestDrainPastDeadlineWritesNoClose`) |
 | LS-E9 | A reader granted `devtools/dev-payments` and `prod-eu-1/search` also reads `prod-eu-1/dev-payments` and `devtools/search` | E10 | pair grants (§6.2); meanwhile the `dev-` prefix and a disjoint cluster name keep the extra pairs empty |
@@ -182,8 +190,8 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 
 | ID | Actor | What goes wrong | Hazards | Requirement |
 |---|---|---|---|---|
-| TM-E1 | **Developers** | they do not know data is being held (non-compliant device, signed out) or dropped, or they think the forwarder watches them beyond the tools they configured | H-E4, H-E9 | a status item (tray / menu bar): signed in as whom, sending or holding, buffer size, drops; a one-page notice of what is sent (only what the tools send to it) and what is stamped (their object id, not their name) |
-| TM-E2 | **Developers** | sign-in prompts interrupt work | H-E9 | silent acquisition through the broker first; an interactive prompt only from the status item, never on the tool's call; the forwarder answers the tool from the buffer at once (the tool never waits for Entra) |
+| TM-E1 | **Developers** | they do not know data is being held (non-compliant device, signed out) or dropped, or they think the forwarder watches them beyond the tools they configured | H-E4, H-E9 | a status item (tray / menu bar): signed in as whom, the ingress's answers by class, the forwarder's own refusals (`busy`, `no_token`), token failures, account changes (`GET /status`; since the pass-through nothing is held); a one-page notice of what is sent (only what the tools send to it) and what is stamped (their object id, not their name) |
+| TM-E2 | **Developers** | sign-in prompts interrupt work | H-E9 | silent acquisition through the broker first; an interactive prompt only from the status item, never on the tool's call; the forwarder never prompts and bounds the token wait (`tokenTimeout`, then 503 to the tool). Since the pass-through (D40, 2026-10-02) the tool's exporter waits for the ingress's answer, as any OTLP export does; exporters export in the background, off the tool's interactive path |
 | TM-E3 | **Managers** | they add a person to a team group for another reason and grant write into the team's namespace; they believe the namespace proves authorship | H-E1, H-E8 | app roles on the ingress API per team, assigned deliberately (not reusing mail groups); the views say "sent by (object id) through the device forwarder", not "written by" |
 | TM-E4 | **Security / privacy reviewers** | they approve "telemetry" without seeing that prompts and code leave the device; retention differs from the tools' own | H-E3 | the review packet names the content (D36 offload and `llm_content` right), the retention, the buffer TTL, the device controls, and the fact that Token Protection does not cover this API |
 | TM-E5 | **Operators** | they edit the namespace map or grants and a devtools name collides with a Kubernetes one; they read a gap in devtools data as an outage | H-E3, H-E8 | policy validated at start (prefix, GUIDs); pair grants (§6.2); devtools completeness shown separately: laptops are offline for days, so `complete_through` for cluster `devtools` means the ingress's custody, not the devices' (H-5, CAST 26) |
@@ -199,8 +207,8 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 | R-E3 | Identity and admission before the body; compressed, decoded and item caps; per-principal budgets | SEC-E9 | Nothing recorded |
 | R-E4 | Stamping is a pure function of (request bytes, attribution): no time, token id or replica in the bytes | UCA-E3, D11 | Nothing recorded |
 | R-E5 | 200 only after the edge's commit verdict; 503 with `Retry-After` when unresolved; the D35 close only with no handler running | UCA-E4, UCA-E5 | Nothing recorded |
-| R-E6 | The forwarder resends each request's bytes unchanged, only under the token of the person who produced it, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 | Nothing recorded |
-| R-E7 | The forwarder keeps no disk buffer: a small bounded in-memory queue only, nothing persisted on the device; every drop (queue full, a long outage, a crash, no token) is counted on the device and never blocks the tool (owner revision, D37) | UCA-E7, SEC-E6, H-E4 | Nothing recorded |
+| R-E6 | The forwarder passes each request's bytes unchanged and once (it never replays: retries are the tool's exporter's, of its own bytes), under the token of the account signed in when the request is sent, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 | Nothing recorded |
+| R-E7 | The forwarder keeps nothing on the device and holds no request beyond the one it is proxying: each request streams to the ingress under a size and a concurrency bound, its answer streams back, and a 200 to the tool is the ingress's commit, so nothing the forwarder acknowledged can be dropped by it (owner revision of D37; pass-through, D40 amended 2026-10-02) | UCA-E7, SEC-E6, H-E4 | Nothing recorded |
 | R-E8 | Query grants are explicit `(cluster, namespace)` pairs; a devtools namespace never equals a Kubernetes namespace until then | UCA-E10, CAST-36 | Grants as (role, cluster, namespace) tuples combined as a union (a4c5470, D38) |
 | R-E9 | Conditional Access for the ingress API requires a compliant device and allows only the forwarder and workload clients | UCA-E11, SEC-E1 | Nothing recorded |
 <!-- stpa:end requirements-entra -->
@@ -209,7 +217,7 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 
 | Row | Theme | Here |
 |---|---|---|
-| 1 | identity and time from the first durable custody | the ingress has no buffer: `received_at` is its edge's clock at custody, once; the forwarder never stamps a time into the bytes. A retry gets the retrying replica's `received_at`, within D11's 3-day horizon unless the device was offline longer: AMBIGUITY E8 |
+| 1 | identity and time from the first durable custody | the ingress has no buffer: `received_at` is its edge's clock at custody, once; the forwarder never stamps a time into the bytes and holds nothing. A retry (the tool's exporter's, since the pass-through) gets the retrying replica's `received_at`, within D11's 3-day horizon unless the exporter retries longer: AMBIGUITY E8 |
 | 2 | definite vs ambiguous outcomes | 200 = committed, 4xx = definite refusal, 503 = unknown: retry the same bytes (R-E5) [M] |
 | 3 | check only after the thing checked can no longer change | the close is written only after the gate is shut and handlers have returned [M] |
 | 4, 44, 47 | deletion needs the writers' view; "dead" by effects; multi-incarnation | the ingress uses the edge library's lanes unchanged (create-only slots, epochs per process), so its zombie PUTs follow the D35 rules already proved |
@@ -221,9 +229,9 @@ because the device is non-compliant, beyond the forwarder's own tray/menu status
 | 10 | anything that re-cuts must be deterministic | R-E4, R-E6; `TestRetryIsACopy` [M] |
 | 11 | local convenience must not ship | the ingress takes S3 credentials only from the SDK chain (IRSA/pod identity), no keys in its config; the forwarder's local Langfuse keys are generated per user, never shared |
 | 12, 28, 41, 43 | evidence provenance; tests actually run; skips are unknowns | `go test` run for this commit (§10); everything against real Entra is labelled NOT VERIFIED with the command to run |
-| 14, 39 | bounded retries | the edge's append is bounded (row 39) and hands back 503; the forwarder backs off with `Retry-After` and a cap |
+| 14, 39 | bounded retries | the edge's append is bounded (row 39) and hands back 503 with `Retry-After`; the forwarder does not retry (pass-through, D40 2026-10-02) and passes the 503 and its `Retry-After` to the tool, whose exporter bounds its own retries; the forwarder's one loop, the forced token refresh after a 401, is bounded to once per interval |
 | 15, 20 | ambiguous outcomes have three results | an unresolved commit may have landed: the retry is then a copy (same content key), handled by D11 |
-| 16, 42 | feedback complete by construction; loud fences | a 403 names the reason class; the forwarder's drop counters are sent, not inferred |
+| 16, 42 | feedback complete by construction; loud fences | a 403 names the reason class and reaches the tool unchanged; the forwarder's own answers are marked (`X-Oscope-Forwarder`) and counted on `/status` |
 | 21 | model with deployed parallelism | several ingress replicas, each its own producer id and lanes; the retry test uses two replicas on one store [M] |
 | 22, 38 | shared resources, one owner | per-principal buckets (not a shared team pool); tests use in-memory stores only |
 | 23 | lease discipline per statement | not applicable: the ingress writes only lane slots through the library |
@@ -314,10 +322,18 @@ run) generates a random public/secret pair and writes the tools' environment:
 `LANGFUSE_MEDIA_UPLOAD_ENABLED=false`. The forwarder accepts only requests with that Basic pair, no
 `Origin` header, a loopback `Host`, and an OTLP content type. The Langfuse keys thereby become a
 **local** secret between the tool and the forwarder; nothing Langfuse-shaped leaves the device.
-Paths: `/api/public/otel/v1/{traces,logs}` and `/v1/{traces,logs}`. The tool gets its answer when
-the request is in the buffer (fsync), never waiting for Entra or the network.
+Paths: `/api/public/otel/v1/{traces,logs}` and `/v1/{traces,logs}`. ~~The tool gets its answer when
+the request is in the buffer (fsync), never waiting for Entra or the network.~~ **As built (D40
+amended 2026-10-02):** the tool's request is proxied live and the tool gets the ingress's own
+answer; the forwarder's own answers (refusals above, `413`, `503 busy`, `503 no_token`, `502`/`504`
+when the ingress cannot be reached or does not answer) carry `X-Oscope-Forwarder: <reason>`.
 
 ### 4.4 The buffer, and its fate
+
+> **Superseded twice.** The owner dropped the disk buffer (D37, 2026-09-29: an in-memory queue),
+> then the queue (D40 amended 2026-10-02: a streaming pass-through; the tool's exporter owns
+> retries, back-off, timeouts and batching). Nothing below is built; it is kept as the analysis
+> that the STPA rows of §1 refer to.
 
 - **Format:** one file per request: the request's exact bytes (as received, re-encoded never),
   content type, the first-enqueue time, and the `(tid, oid)` of the account signed in at enqueue.
@@ -503,6 +519,10 @@ throughput. Command still to run: `deploy/validation/entra-ingress.md`.
 
 ## 10a. Forwarder build plan: verification first (owner, 2026-09-29)
 
+> **Superseded for the forwarder by the pass-through (D40 amended 2026-10-02, §10b):** with no queue,
+> the queue rows below (H-E4 ledger, CAST 26/34/44 clocks and ages, the Quint queue model) have
+> nothing left to test; what remains is the proxy contract, the local guards and the token.
+>
 > **Revised by the owner the same day (D37): no disk buffer.** The forwarder is a YARP pass-through with a
 > bounded in-memory queue; drops are counted and never block the tool; the telemetry is best-effort. In the
 > table below, H-E4 becomes "every drop is counted and visible, none silent", SEC-E6's buffer rows and the
@@ -545,52 +565,84 @@ committed or counted; sent only under the producer's own identity; deleted on si
 answered within a bound); (2) the simulation harness (fake time, fake file system, fake network, Coyote);
 (3) the forwarder, test-first; (4) the OS matrix in CI; (5) the runbook on real devices.
 
-## 10b. The forwarder as built (2026-10-01) and its stress plan
+## 10b. The forwarder as built: a streaming pass-through (2026-10-02) and its stress plan
 
-Built in [`forwarder/`](../forwarder/README.md) to the owner's revision of D37 (YARP, in memory
-only), verification first:
+> **History.** Built 2026-10-01 as a YARP pass-through with a bounded in-memory queue and retries
+> (a pure queue core checked against a reference model; the tool's 200 meant "held in memory").
+> **Owner decision, 2026-10-02:** "make the forwarder work like a real proxy and pass the
+> connection/results directly, leaving the higher level application responsible for http
+> behavior." The queue, the retry policy, the age clock, the drop ledger and the counters log
+> record were removed (DECISIONS.md D40, amendment "pass-through, 2026-10-02").
 
-- **The core** (`ForwarderCore`): the queue and retry policy as a pure state machine, called by
-  the I/O shell under one lock. Bounded in bytes and entries, in flight included; a request
-  beyond the bound is refused (503 + `Retry-After`), never buffered; an attempt carries the
-  accepted byte array itself (LS-E3); a lost answer, a timeout or a 5xx is **unknown** and a
-  later drop is counted apart as maybe-landed (CAST rows 50, 74, 83); 401 refreshes once at
-  once, then backs off; retries bounded by attempts and age (CAST 39); sent only under the
-  account the request was accepted under (R-E6, LS-E5); time is an age clock that only
-  advances (CAST 26, 34). The ledger `accepted = committed + dropped + held` is checked after
-  every step of the stateful tests against an independently written reference model
-  (CsCheck, swarm faults).
-- **The pass-through**: YARP's `IHttpForwarder` sends each attempt from a request context over
-  the entry's bytes, with a transform that drops every header and sets the bearer token (and
-  the MDM-configured namespace choice). A hand-written `HttpClient` call would have been as
-  short; YARP brings its forwarding client settings and error classification, at the cost of a
-  synthetic `HttpContext` per attempt (§8's concern about two acknowledgement meanings does not
-  arise: there is one path, queue then send).
-- **The tool's answer** is given at once from memory: 200 means *held, best effort*, not
-  committed (AMBIGUITY E11). This is what D37's "never blocks the tool" requires; a forwarder
-  that waited for the ingress's verdict would hold the tool for the edge's commit and for Entra.
-- **Not built:** the status item, the interactive sign-in UI, packaging and signing, the
-  config's signed-defaults check (§4.5). **Not verified** in CI: anything of the broker (ENT-F).
+Built in [`forwarder/`](../forwarder/README.md):
+
+- **The pass-through**: YARP's `IHttpForwarder` proxies each tool request live, on that request's
+  own `HttpContext`: the body streams up as the tool sends it, the ingress's status, headers and
+  body (with `Retry-After`) stream back unchanged. A 200 to the tool is the ingress's, so it means
+  committed (R-E5). Nothing is queued, retried or buffered beyond the streaming buffers
+  (Kestrel's 64 KiB request pipe, YARP's copy buffer); TCP pushes back on the tool when the
+  ingress is slow.
+- **What the forwarder still decides**: the local endpoint's guards (§4.3: loopback `Host`, no
+  `Origin`, the local key, OTLP content types and encodings, the paths); a header allow-list
+  (content type, encoding and length pass; every other client header is dropped, then the bearer
+  token and the configured `X-Oscope-Namespace` are set; the forwarding client propagates no trace
+  context, since the default would carry the tool's `traceparent` up in another form); a request
+  size bound (16 MiB, the ingress's: `413`) and a concurrency bound (16: `503 busy` +
+  `Retry-After` at once), which together bound memory; the token.
+- **Tokens** (`TokenGate`): the broker is asked per request (it caches). A 401 from the ingress is
+  passed to the tool and never replayed; it marks that token refused, and the next request that
+  would get it gets a forced refresh instead (single flight; at most once per
+  `forcedRefreshMinInterval`, CAST 39). No token (nobody signed in, the broker unavailable or slower
+  than `tokenTimeout`) is `503` + `Retry-After` with a text body saying why: not `401`, which
+  already means "wrong local key" at this endpoint and which OTLP exporters do not retry. Each
+  request goes out under the account signed in when it is sent (LS-E5 as changed, §1.5).
+- **Failures below HTTP**: no connection, a reset or a lost answer is YARP's `502`; no progress
+  within the activity timeout is `504`. Both are retryable for OTLP exporters and both mean
+  "unknown": the ingress may have committed, and the exporter's retry of the same bytes is then a
+  D11 copy (CAST rows 50, 74, 83).
+- **Visibility** (TM-E1): `GET /status` (with the local key): the account, account changes, the
+  ingress's answers by class, YARP's errors, the forwarder's refusals by reason, token failures,
+  forced refreshes, requests in flight. What the tool's exporter finally drops is counted in the
+  tool, not here and not in central (H-E4 as changed).
+- **Not built:** the status item, the interactive sign-in UI, packaging and signing, the config's
+  signed-defaults check (§4.5). **Not verified** in CI: anything of the broker (ENT-F).
+
+**Tests** (`ci.yml` `forwarder`, ubuntu, windows, macos): a CsCheck property over generated
+bodies (0–300 KB, every byte), content types and encodings, chunked or not, the ingress's status,
+`Retry-After` and body, and sets of hostile client headers: the ingress gets the tool's bytes
+(SHA-256), only allowed headers and the bearer of the token last issued; the tool gets the
+ingress's status, body, `Retry-After` and headers, unmarked; after a 401 the next request has a
+fresh token. Then, on real loopback sockets: streaming (the ingress reads the first part while
+the tool still holds the rest); a stalled ingress with small socket buffers on the path (what is
+held between tool and ingress stays under 2 MiB of a 16 MiB body: TCP holds the tool back) and
+the tool seeing the ingress's latency; the concurrency bound; 401 → one forced refresh, no
+replay; no refresh loop; no token → 503; a lost answer → 502, not replayed; an ingress that never
+answers → 504; a refused connection → 502; the local guards; end to end against the Go ingress.
 
 **Stress plan, correlated to the STPA and the CAST record** (nightly `forwarder-stress`,
-`jobs=forwarder-stress`, bounded by `stress_seconds` and a 30-minute job): six tools send
-through one forwarder process to the Go ingress harness (`ingress/cmd/ingress-e2e`: the real
-handler, a fake Entra, a broker model, an in-memory store) while a chaos loop rotates:
+`jobs=forwarder-stress`, bounded by `stress_seconds` and a 30-minute job): 24 senders (8 tools ×
+3 concurrent requests) through one forwarder process (concurrency bound 8) to the Go ingress
+harness (`ingress/cmd/ingress-e2e`: the real handler, a fake Entra, a broker model, an in-memory
+store, and an answers log: every request numbered, its answer's status, `Retry-After` and body
+hash, the request body's hash and header names) while a chaos loop rotates:
 
 | Fault injected | What it threatens | Checked |
 |---|---|---|
-| answers lost after the commit | H-E6, LS-E3; CAST 50, 74, 83 (a lost answer read as failure, or a re-cut retry) | ingress `ok` ≥ forwarder `committed`; `committed_after_unknown` counted; E2E: one content key |
-| the store loses PUTs (the edge answers 503 unresolved) | R-E5; CAST 15, 39 (unbounded or unclassified retries) | everything drains once healed; drops counted |
-| 429 and 503 before handling | H-E5; CAST 35, 39 | back-off honours `Retry-After` up to the cap; no hot loop |
-| a slow ingress (400 ms per request) | R-E7, H-E9; CAST 38 (a shared resource without a bound) | held bytes ≤ bound; the process's resident memory under a bound independent of bytes sent; every tool answered < 2 s |
-| tokens that expire in flight (the broker lies about expiry) | R-E6, H-E9, UCA-E8 | 401 → one forced refresh → committed; never a prompt |
-| the broker unavailable | H-E9, H-E4 | entries held then aged out and counted; the tool answered |
-| another person signs in | H-E1, LS-E5 | held entries dropped as `account_changed`, never sent under the new person |
-| six concurrent tools | CAST 21 (deployed parallelism), CAST 38 | the intake bound refuses (503 busy) instead of queuing reads |
+| answers lost after the commit | H-E6, LS-E3; CAST 50, 74, 83 | the tool gets a local `502` (unknown), one per lost answer; nothing replayed |
+| the store loses PUTs (the edge answers 503 unresolved) | R-E5; CAST 15, 39 | the ingress's `503` + `Retry-After` reaches the tool unchanged |
+| 429 and 503 before handling | H-E5; CAST 39 | passed through with `Retry-After`; the forwarder adds no retry |
+| a slow ingress (400 ms per request) | R-E7, H-E9; CAST 38 | resident memory under a bound independent of the bytes moved; requests in flight never over the bound |
+| tokens that expire in flight (the broker lies about expiry) | R-E6, UCA-E8 | the ingress's 401 passed through; later requests refreshed; never a prompt |
+| the broker unavailable | H-E9, TM-E2 | `503 no_token` at once, marked; nothing reaches the ingress |
+| another person signs in | H-E1, LS-E5 | later requests go under the new person |
+| 24 senders against a bound of 8 | CAST 21 (deployed parallelism), CAST 38 | `503 busy` at once, marked |
 
-Throughout: the ledger balances (H-E4). At the end, faults cleared: the forwarder drains to
-zero held. The summary (answers by status, drops by reason, latency percentiles, peak held
-bytes and resident memory, faults run) is the job's step summary.
+Throughout, every answer in the harness's log is matched by its number with what a tool got:
+the same status, `Retry-After` and body hash; the tool's own body hash at the ingress; no header
+of the tool's at the ingress; each answer to exactly one tool (nothing replayed); every answer
+without a number is marked as the forwarder's own; every 200 a tool got is an ingress commit.
+The run must move at least 4× the memory margin in bytes (large undecodable bodies, which the
+ingress reads whole and refuses). The summary is the job's step summary.
 
 ## 11. Owner decisions
 
@@ -598,9 +650,9 @@ bytes and resident memory, faults run) is the job's step summary.
 |---|---|---|
 | O-E1 | Ingress API registration single-tenant; guests? | single-tenant; guests refused (tenant allow-list = home tenant only) |
 | O-E2 | Forwarder language | MSAL.NET (§4.1); Node as fallback |
-| O-E3 | Buffer bounds and fate | 256 MiB, 7 days; delete on sign-out and switch; hold on non-compliance until TTL |
+| O-E3 | Buffer bounds and fate | 256 MiB, 7 days; delete on sign-out and switch; hold on non-compliance until TTL. **Superseded** (D37: no disk; D40 amended 2026-10-02: no queue) |
 | O-E4 | mTLS with Intune device certificates | later, in addition, once the PKI exists (theft resistance Token Protection does not give a custom API) |
 | O-E5 | What identifies the person in views | object id stamped; names resolved at read time for entitled readers; a "my sessions" filter from the caller's own token |
 | O-E6 | Pair grants in the query service (R-E8) | yes, before the first devtools reader is granted anything alongside a Kubernetes scope |
 | O-E7 | Team mapping by app role or group | app roles (no overage, deliberate assignment); groups allowed by object id |
-| O-E8 | A retry beyond the consumer's 3-day copy horizon (AMBIGUITY E8) | the forwarder records whether an entry has had an attempt with an unknown outcome (503, no answer); such an entry older than the horizon minus a day is still sent (loss is worse than a counted copy) and the horizon audit reports the duplicate; do not trust a device time to place it |
+| O-E8 | A retry beyond the consumer's 3-day copy horizon (AMBIGUITY E8) | the forwarder records whether an entry has had an attempt with an unknown outcome (503, no answer); such an entry older than the horizon minus a day is still sent (loss is worse than a counted copy) and the horizon audit reports the duplicate; do not trust a device time to place it. **Moot for the forwarder** since the pass-through (D40 amended 2026-10-02): it does not retry; the horizon question is the tool's exporter's retry horizon (AMBIGUITY E8) |

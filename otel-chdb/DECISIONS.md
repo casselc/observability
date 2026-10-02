@@ -4093,7 +4093,10 @@ of the gosim fork on the edge commit path is approved.
 **Status:** **proposed** (2026-09-29). Ingress prototype built and tested against a fake Entra
 issuer ([`ingress/`](ingress/README.md), `go test` passes); the device forwarder is built
 (2026-10-01, D40: [`forwarder/`](forwarder/README.md), CI on Linux, Windows and macOS with the
-broker faked, end to end against the ingress); nothing verified against a real tenant or device
+broker faked, end to end against the ingress) and **reshaped 2026-10-02 into a streaming
+pass-through** (D40's amendment: no queue, no retry; the tool's exporter owns HTTP behaviour, the
+owner's revision above of "a small bounded in-memory queue" is superseded, and the device keeps
+nothing at all); nothing verified against a real tenant or device
 ([deploy/validation/entra-ingress.md](deploy/validation/entra-ingress.md)). Research and STPA:
 [research/entra-ingress.md](research/entra-ingress.md).
 
@@ -4415,7 +4418,60 @@ as records with a uniqueness check (duplicates representable, then reported, ins
 controller internals inside the structure document (rejected by the owner's decomposition: a
 controller's view of its links belongs to the controller).
 
-### D40. The device forwarder as built: the tool's 200 means held in memory; a pure queue core; YARP for each attempt (proposed)
+### D40. The device forwarder as built: the tool's 200 means held in memory; a pure queue core; YARP for each attempt (proposed; **superseded 2026-10-02 by the pass-through amendment below**)
+
+> **Amendment "pass-through, 2026-10-02" (owner decision; built).** The owner: *"Let's just make
+> the forwarder work like a real proxy and pass the connection/results directly, leaving the
+> higher level application responsible for http behavior."*
+>
+> 1. **The in-memory-queue design below (items 1–3 and 6) is superseded.** The forwarder is a
+>    streaming reverse proxy (YARP's natural mode): each tool request is proxied live to the
+>    ingress on that request's own `HttpContext`; the ingress's status, headers and body
+>    (`Retry-After` included) stream back to the tool unchanged. **No queue, no retry, no
+>    buffering** beyond what streaming needs (Kestrel's 64 KiB request pipe, YARP's copy buffer;
+>    TCP pushes back on the tool). The tool's exporter owns retries, back-off, timeouts and
+>    batching. **A 200 to the tool now means the ingress committed** (R-E5).
+> 2. **The earlier owner decisions this entry asked for are moot**: what the tool's 200 means (it
+>    is the ingress's), 403 handling (the ingress's 403 reaches the tool), the queue bounds (there
+>    is no queue), crash loss (nothing is held, so a crash loses only the requests in flight,
+>    whose tools see the connection end and retry).
+> 3. **What the forwarder still does**: the local endpoint's guards (loopback `Host`, no `Origin`,
+>    the local key, OTLP content types and encodings, the paths); a header transform (only
+>    `Content-Type`, `Content-Encoding`, `Content-Length` pass, chunked framing is the client's;
+>    then the bearer token and the configured `X-Oscope-Namespace`; no trace context of the
+>    forwarder's own, which would otherwise carry the tool's `traceparent` up); MSAL with the
+>    broker behind `ITokenAcquirer`; a request-size bound (16 MiB, `413`) and a concurrency bound
+>    (16, `503` + `Retry-After` at once). Its own answers carry `X-Oscope-Forwarder: <reason>`.
+> 4. **Tokens without retrying.** A 401 from the ingress is passed to the tool and never replayed;
+>    the next request that would get the refused token gets a forced refresh instead (single
+>    flight, at most once per `forcedRefreshMinInterval`, default 10 s: CAST 39). No token
+>    (nobody signed in, the broker unavailable, or slower than `tokenTimeout`) is **`503` +
+>    `Retry-After`** with a text body saying why. Not `401`: at this endpoint a 401 already means
+>    "wrong local key", and OTLP exporters retry 429/502/503/504 but drop a 401's batch, while a
+>    missing sign-in is usually fixed within minutes from the status item.
+> 5. **Account switching is per request**: each request goes out under whoever is signed in when
+>    it is sent. R-E6 and LS-E5 change meaning: nothing is held across a switch, but a batch the
+>    tool produced before a switch and sends (or retries) after it goes under the new person; the
+>    window is the tool's batch delay and retry horizon, not a queue's age (AMBIGUITY E9).
+>    `/status` counts account changes.
+> 6. **Counters** (`GET /status`): the ingress's answers by status class, YARP's errors, the
+>    forwarder's refusals by reason, token failures, forced refreshes, account changes, requests
+>    in flight. The `oscope.forwarder.counters` log record is removed (it reported queue state).
+>    What the exporter finally drops is counted in the tool, not in central (H-E4 as reworded).
+> 7. **Removed**: `ForwarderCore`, the pump, `AgeClock`, the drop ledger (`dropped_*`,
+>    `account_changed`), `maxAge`/`maxAttempts`, the counters report, the queue's reference model
+>    and its model-based tests.
+>
+> **Tests** (`ci.yml` `forwarder` on ubuntu, windows, macos; `nightly.yml` `forwarder-stress`):
+> a CsCheck property over generated bodies, statuses, `Retry-After`, answer bodies and hostile
+> client headers (bytes hashed at the ingress; only allowed headers; the answer unchanged; a
+> fresh token after a 401); streaming, slow-ingress (the forwarder's heap does not grow with a
+> stalled 16 MiB body), concurrency, token, lost-answer, timeout and local-guard tests on real
+> loopback sockets; E2E against the Go ingress; the no-disk strace check; a stress run that
+> matches every ingress answer, by number, with what a tool got, under rotating faults, with the
+> forwarder's resident memory bounded. Research: research/entra-ingress.md §10b. Owner
+> decisions still open: AMBIGUITY E9 (LS-E5 per request) and E11 (a 401 the token caused costs
+> the tool one batch).
 
 **Context.** D37 as revised by the owner (2026-09-29): a YARP pass-through with a small bounded
 in-memory queue, no disk, drops counted, the tool never blocked; MSAL.NET with the broker. Built

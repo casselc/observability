@@ -191,7 +191,7 @@
 | H-E1 | Telemetry is committed under a tenant its sender is not entitled to write, or attributed to a person who did not send it | L-5, L-3 | H-3, H-6 |
 | H-E2 | A party that is not an authenticated member of the organisation, on the organisation's terms (device compliance, the right client), can write telemetry | L-5, L-6 | H-6 |
 | H-E3 | Device telemetry is readable beyond its owner's scope: in the device buffer (stolen or shared laptop), in transit, or at query time through a grant that over-reaches | L-4 | H-6 |
-| H-E4 | Telemetry the forwarder acknowledged to a tool is dropped without the drop being counted and visible | L-2, L-1 | H-1 |
+| H-E4 | A tool is told its telemetry was taken when it was not committed, or telemetry is dropped between the tool and the ingress without the drop being counted and visible | L-2, L-1 | H-1 |
 | H-E5 | One principal's volume or request rate exhausts the ingress, its lanes, central or the budget | L-6 | H-7 |
 | H-E6 | A retry or a replay is counted twice | L-3 | H-2 |
 | H-E7 | The ingress uses its own authority (its S3 credential, its lanes) for something the caller could not do itself (confused deputy) | L-5, L-4 | H-6 |
@@ -207,8 +207,8 @@
 | R-E3 | Identity and admission before the body; compressed, decoded and item caps; per-principal budgets | SEC-E9 | Nothing recorded |
 | R-E4 | Stamping is a pure function of (request bytes, attribution): no time, token id or replica in the bytes | UCA-E3, D11 | Nothing recorded |
 | R-E5 | 200 only after the edge's commit verdict; 503 with `Retry-After` when unresolved; the D35 close only with no handler running | UCA-E4, UCA-E5 | Nothing recorded |
-| R-E6 | The forwarder resends each request's bytes unchanged, only under the token of the person who produced it, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 | Nothing recorded |
-| R-E7 | The forwarder keeps no disk buffer: a small bounded in-memory queue only, nothing persisted on the device; every drop (queue full, a long outage, a crash, no token) is counted on the device and never blocks the tool (owner revision, D37) | UCA-E7, SEC-E6, H-E4 | Nothing recorded |
+| R-E6 | The forwarder passes each request's bytes unchanged and once (it never replays: retries are the tool's exporter's, of its own bytes), under the token of the account signed in when the request is sent, and never prompts on the tool's path | UCA-E6, UCA-E8, LS-E5 | Nothing recorded |
+| R-E7 | The forwarder keeps nothing on the device and holds no request beyond the one it is proxying: each request streams to the ingress under a size and a concurrency bound, its answer streams back, and a 200 to the tool is the ingress's commit, so nothing the forwarder acknowledged can be dropped by it (owner revision of D37; pass-through, D40 amended 2026-10-02) | UCA-E7, SEC-E6, H-E4 | Nothing recorded |
 | R-E8 | Query grants are explicit `(cluster, namespace)` pairs; a devtools namespace never equals a Kubernetes namespace until then | UCA-E10, CAST-36 | Grants as (role, cluster, namespace) tuples combined as a union (a4c5470, D38) |
 | R-E9 | Conditional Access for the ingress API requires a compliant device and allows only the forwarder and workload clients | UCA-E11, SEC-E1 | Nothing recorded |
 <!-- stpa:end requirements-entra -->

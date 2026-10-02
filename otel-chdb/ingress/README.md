@@ -63,5 +63,9 @@ go test ./...        # fake Entra issuer (entratest/), in-memory store; no netwo
 ```
 
 Everything is tested against the fake issuer only; nothing here has run against a real Entra
-tenant or device (the runbook above). Not built: the device forwarder, exported metrics (the
-outcome counters are in-process, `Server.Counts`), the query service's pair grants.
+tenant or device (the runbook above). Not built: exported metrics (the outcome counters are
+in-process, `Server.Counts`), the query service's pair grants. The device forwarder is
+[`../forwarder`](../forwarder/README.md) (a streaming pass-through, D40); its end-to-end and
+stress tests run against `cmd/ingress-e2e`, a TEST harness: this handler behind a fake Entra, a
+broker model, an in-memory store, fault injection, and a numbered answers log (status,
+`Retry-After`, body hashes, request header names) for checking a pass-through answer by answer.

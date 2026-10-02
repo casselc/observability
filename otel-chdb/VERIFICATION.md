@@ -514,7 +514,7 @@ re-run for this plan. The traceability job turns that into evidence per commit
 it verifies: `tracetag.Covers(t, "P2C", "CAST-26", "H-4", "R-S1")` (Go),
 `let _trace = otap_s3pq::oscope_trace::covers("DST", &["CAST-42", "LS-5"]);`
 (Rust), `covers(t, 'P2C', 'CAST-54')` (node:test),
-`OscopeTrace.Covers("SM", "H-E4 R-E7");` (.NET, the device forwarder; its records are
+`OscopeTrace.Covers("FI", "R-E7 CAST-38");` (.NET, the device forwarder; its records are
 written from the TRX by `ci/trace/dotnet_trx.py`); a Quint check is an entry
 in `ci/trace/models.txt`. Use the technique of the cell the test is evidence
 for (an example regression carries its cell's code, e.g. `ML` for

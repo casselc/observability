@@ -375,8 +375,10 @@ public class ProxyTests
     public async Task A_slow_ingress_holds_the_tool_back_by_TCP_and_the_tool_sees_its_latency()
     {
         OscopeTrace.Covers("FI", "R-E7 CAST-38 H-E9");
-        // Small socket buffers everywhere on the path, so what the path itself can hold is known
-        // (well under 2 MiB); a forwarder that buffered would take all 16 MiB from the tool.
+        // Small socket buffers on the path (the kernel still rounds them up: CI measured ~5 MB held
+        // in the kernel on Linux loopback). The forwarder's own claim is its managed memory: it
+        // must not grow with the body while the ingress is stalled. A forwarder that buffered
+        // would also take all 16 MiB from the tool.
         const int sock = 64 * 1024;
         await using var rig = await Rig.StartAsync(Rig.Fast with { MaxRequestBytes = 16 << 20 }, socketBuffer: sock);
         var body = Rig.Body(16 << 20, 9);
@@ -405,17 +407,20 @@ public class ProxyTests
         var content = new StreamContent(source, 16 * 1024);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/x-protobuf");
         var sw = Stopwatch.StartNew();
+        var heap0 = GC.GetTotalMemory(forceFullCollection: true);
         var send = rig.Tool.PostAsync("/v1/traces", content);
-        // Let the path fill: until the tool's writes stop advancing.
+        // Let the path fill: until the tool's writes stop advancing (two quiet samples in a row).
         long last = -1;
-        for (var i = 0; i < 100 && source.Taken != last; i++)
+        for (int i = 0, quiet = 0; i < 60 && quiet < 2; i++)
         {
+            await Task.Delay(500);
+            quiet = source.Taken == last ? quiet + 1 : 0;
             last = source.Taken;
-            await Task.Delay(200);
         }
+        var heapGrowth = GC.GetTotalMemory(forceFullCollection: true) - heap0;
         var held = source.Taken - Interlocked.Read(ref received);
         Assert.False(send.IsCompleted, "the tool was answered while the ingress had not read the body");
-        Assert.True(held < 2 << 20, $"between the tool and the stalled ingress {held} bytes were held: the forwarder buffered");
+        Assert.True(heapGrowth < 4 << 20, $"the managed heap grew {heapGrowth} bytes while {held} bytes were between the tool and the stalled ingress");
         Assert.True(source.Taken < body.Length / 2, $"the tool wrote {source.Taken} of {body.Length} bytes to a stalled ingress");
         await Task.Delay(500);
         release.SetResult();

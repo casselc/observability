@@ -46,3 +46,4 @@ CAST-76 | coordinator | control is the per-push kani type-check step in ci.yml (
 CAST-79 | coordinator | control is the per-push staticcheck job over test code (a CI step, not a tagged test)
 CAST-81 | coordinator | process mechanism (G): the mutants job's shard-count and judged-count checks
 CAST-82 | coordinator | control is the mutants nightly baseline gate (ci/mutants.py check), not a tagged test
+CAST-86 | coordinator | process lesson (G): grep a changed output contract's consumers; the fixed assertion is in the query-integration scale-down test

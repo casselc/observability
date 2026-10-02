@@ -1,11 +1,11 @@
 using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Oscope.Forwarder.Auth;
-using Oscope.Forwarder.Core;
 using Oscope.Forwarder.Http;
 using Yarp.ReverseProxy.Forwarder;
 
@@ -22,33 +22,38 @@ public sealed record ForwarderSettings
 
     public required LocalOptions Local { get; init; }
 
-    public ForwarderOptions Queue { get; init; } = new();
-
-    public PumpOptions Pump { get; init; } = new();
+    public ProxyOptions Proxy { get; init; } = new();
 
     public ForwarderSettings Validate()
     {
         ArgumentNullException.ThrowIfNull(Ingress);
-        var loopback = Ingress.IsLoopback;
-        if (Ingress.Scheme != Uri.UriSchemeHttps && !(Ingress.Scheme == Uri.UriSchemeHttp && loopback))
+        if (Ingress.Scheme != Uri.UriSchemeHttps && !(Ingress.Scheme == Uri.UriSchemeHttp && Ingress.IsLoopback))
             throw new ArgumentException("forwarder: the ingress URL must be https (http only on loopback, for tests)");
         Local.Validate();
-        Queue.Validate();
-        if (Pump.AttemptTimeout <= TimeSpan.Zero || Pump.TokenTimeout <= TimeSpan.Zero || Pump.DrainTimeout < TimeSpan.Zero)
-            throw new ArgumentException("forwarder: timeouts must be positive");
-        if (Pump.AttemptTimeout >= Queue.MaxAge)
-            throw new ArgumentException("forwarder: AttemptTimeout must be below MaxAge (else one attempt outlives its entry)");
+        Proxy.Validate();
         return this;
     }
 }
 
-/// <summary>A built forwarder: the web app, and its parts for status and tests.</summary>
-public sealed record ForwarderInstance(WebApplication App, Pump Pump, LocalEndpoint Local);
+/// <summary>A built forwarder: the web app and its endpoint (counters, tokens) for status and tests.</summary>
+public sealed record ForwarderInstance(WebApplication App, LocalEndpoint Local)
+{
+    /// <summary>The address Kestrel bound (after start), e.g. http://127.0.0.1:14318.</summary>
+    public Uri Address => new(App.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First());
+}
 
-/// <summary>Builds the forwarder's web host: Kestrel on loopback, the local endpoint, the pump.</summary>
+/// <summary>Builds the forwarder's web host: Kestrel on loopback, the local endpoint, YARP.</summary>
 public static class ForwarderHost
 {
-    /// <param name="configureWebHost">tests swap Kestrel for a TestServer here</param>
+    /// <summary>
+    /// Kestrel's request pipe per connection. Small, so a request held up by a slow ingress
+    /// holds little: Kestrel stops reading the tool's socket once this much is unread, and
+    /// TCP pushes back to the tool (the pass-through's memory bound, with the concurrency bound).
+    /// </summary>
+    public const long RequestBufferBytes = 64 * 1024;
+
+    /// <param name="configureWebHost">tests may change the web host here</param>
+    /// <param name="ingressClient">tests may pass their own; the default is <see cref="IngressProxy.CreateClient"/></param>
     public static ForwarderInstance Build(ForwarderSettings settings, ITokenAcquirer tokens, string[]? args = null,
         Action<IWebHostBuilder>? configureWebHost = null, HttpMessageInvoker? ingressClient = null, TimeProvider? time = null)
     {
@@ -61,30 +66,17 @@ public static class ForwarderHost
         b.WebHost.ConfigureKestrel(k =>
         {
             k.Listen(IPAddress.Loopback, settings.Local.Port);
-            k.Limits.MaxRequestBodySize = settings.Queue.MaxEntryBytes;
+            k.Limits.MaxRequestBodySize = settings.Proxy.MaxRequestBytes;
+            k.Limits.MaxRequestBufferSize = RequestBufferBytes;
             k.AddServerHeader = false;
         });
         configureWebHost?.Invoke(b.WebHost);
         b.Services.AddHttpForwarder();
         var app = b.Build();
-        var client = ingressClient ?? new HttpMessageInvoker(new SocketsHttpHandler
-        {
-            // YARP's guidance for a forwarding client: no redirects, no cookies, no decompression
-            // (the bytes are passed through, not read); the system proxy is honoured.
-            AllowAutoRedirect = false,
-            UseCookies = false,
-            AutomaticDecompression = DecompressionMethods.None,
-            ConnectTimeout = TimeSpan.FromSeconds(15),
-            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
-        });
-        var sender = new YarpIngressSender(app.Services.GetRequiredService<IHttpForwarder>(), client, settings.Ingress,
-            settings.Pump.AttemptTimeout, settings.Namespace);
-        var pump = new Pump(new ForwarderCore(settings.Queue), tokens, sender, time ?? TimeProvider.System, settings.Pump);
-        var local = new LocalEndpoint(pump, settings.Local);
+        var gate = new TokenGate(tokens, time ?? TimeProvider.System, settings.Proxy.TokenTimeout, settings.Proxy.ForcedRefreshMinInterval);
+        var local = new LocalEndpoint(settings.Local, settings.Proxy, gate, app.Services.GetRequiredService<IHttpForwarder>(),
+            ingressClient ?? IngressProxy.CreateClient(), settings.Ingress, settings.Namespace);
         local.Map(app);
-        var life = app.Services.GetRequiredService<IHostApplicationLifetime>();
-        life.ApplicationStarted.Register(pump.Start);
-        life.ApplicationStopping.Register(() => pump.StopAsync().GetAwaiter().GetResult());
-        return new ForwarderInstance(app, pump, local);
+        return new ForwarderInstance(app, local);
     }
 }

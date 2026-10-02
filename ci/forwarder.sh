@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# The device forwarder (otel-chdb/forwarder, DECISIONS.md D37): .NET build and tests, end to
-# end against the Go ingress, and the nightly stress run. Runs the same on a workstation with
+# The device forwarder (otel-chdb/forwarder, DECISIONS.md D37, D40 as amended 2026-10-02: a
+# streaming pass-through): .NET build and tests, end to end against the Go ingress, and the
+# nightly stress run. Runs the same on a workstation with
 # the .NET 10 SDK and Go.
 #
-#   ci/forwarder.sh test     build everything with -warnaserror; the unit, property, stateful
-#                            and in-process fault tests (not E2E, not Stress)
+#   ci/forwarder.sh test     build everything with -warnaserror; the property and in-process
+#                            proxy tests on real loopback sockets (not E2E, not Stress)
 #   ci/forwarder.sh e2e      the Go ingress harness (ingress/cmd/ingress-e2e: the real handler,
-#                            a fake Entra, an in-memory store) and two forwarder processes
-#                            (tests/Oscope.Forwarder.E2EHost); the E2E tests drive them over
-#                            HTTP. On Linux the first forwarder runs under strace and must
+#                            a fake Entra, an in-memory store, an answers log) and a forwarder
+#                            process (tests/Oscope.Forwarder.E2EHost); the E2E tests drive them
+#                            over HTTP. On Linux the forwarder runs under strace and must
 #                            create, write, rename or delete no file (R-E7: no disk)
 #   ci/forwarder.sh stress   the same stack (no strace), then the Stress tests for
-#                            STRESS_SECONDS (default 300): many tools, rotating faults, the
-#                            ledger, the memory bound and the tool's latency checked throughout
+#                            STRESS_SECONDS (default 300): many tools, rotating faults, every
+#                            ingress answer matched with what a tool got, the memory bound
 #
 # Env: OUT (default ${RUNNER_TEMP:-/tmp}/forwarder) for logs and TRX; OSCOPE_TRACE_OUT, when
 # set, receives one trace record per tagged test (ci/trace/dotnet_trx.py joins the claims
@@ -79,42 +80,35 @@ wait_for() { # wait_for FILE PATTERN SECONDS
   return 1
 }
 
-# start_stack STRACE(0|1): the harness and two forwarders; exports the E2E environment
+# start_stack STRACE(0|1): the harness and the forwarder; exports the E2E environment
 start_stack() {
   (cd "$root/otel-chdb/ingress" && go build -o "$out/ingress-e2e$exe" ./cmd/ingress-e2e)
-  "$out/ingress-e2e$exe" -listen 127.0.0.1:0 -requests_per_minute 1000000 >"$out/harness.out" 2>"$out/harness.log" &
+  "$out/ingress-e2e$exe" -listen 127.0.0.1:0 -requests_per_minute 1000000 -decoded_bytes_per_minute 1e12 \
+    >"$out/harness.out" 2>"$out/harness.log" &
   pids+=($!)
   wait_for "$out/harness.out" '^listening ' 30
   local addr
   addr=$(sed -n 's/^listening //p' "$out/harness.out" | head -1 | tr -d '\r')
   export OSCOPE_E2E_INGRESS="http://$addr"
-  export OSCOPE_E2E_MAX_QUEUE_BYTES=1048576
-  local queue='{"maxQueueBytes":1048576,"maxEntries":256,"maxEntryBytes":262144,"maxAttempts":40,"maxAge":"00:01:30","backoffBase":"00:00:00.0500000","backoffCap":"00:00:01","maxRetryAfter":"00:00:01","maxInFlight":2,"refusalRetryAfter":"00:00:01"}'
-  local pump='{"tokenTimeout":"00:00:05","attemptTimeout":"00:00:20","drainTimeout":"00:00:02","reportInterval":"00:00:00","accountRefresh":"00:00:00.2000000","maxIdle":"00:00:00.1000000"}'
-  local pump_reporting
-  pump_reporting=$(printf '%s' "$pump" | sed 's/"reportInterval":"00:00:00"/"reportInterval":"00:00:01"/')
+  # A small concurrency bound, so the stress run's 24 senders reach it; forced refreshes allowed
+  # every second, so the E2E token test does not depend on the order the tests run in.
+  local proxy='{"maxRequestBytes":16777216,"maxConcurrentRequests":8,"tokenTimeout":"00:00:05","activityTimeout":"00:00:30","refusalRetryAfter":"00:00:01","forcedRefreshMinInterval":"00:00:01"}'
   local -a run=(dotnet "$host_dll")
   if [ "$1" = 1 ]; then
     run=(strace -f -qq -o "$out/strace.txt" -e trace=open,openat,creat,mkdir,mkdirat,rename,renameat,renameat2,unlink,unlinkat,link,linkat,symlink,symlinkat,truncate "${run[@]}")
   fi
-  OSCOPE_E2E_PORT=14318 OSCOPE_E2E_QUEUE=$queue OSCOPE_E2E_PUMP=$pump "${run[@]}" >"$out/forwarder.out" 2>"$out/forwarder.log" &
+  OSCOPE_E2E_PORT=14318 OSCOPE_E2E_PROXY=$proxy "${run[@]}" >"$out/forwarder.out" 2>"$out/forwarder.log" &
   pids+=($!)
   export OSCOPE_E2E_FORWARDER_PID=$!
-  OSCOPE_E2E_PORT=14319 OSCOPE_E2E_QUEUE=$queue OSCOPE_E2E_PUMP=$pump_reporting dotnet "$host_dll" >"$out/forwarder-reporting.out" 2>"$out/forwarder-reporting.log" &
-  pids+=($!)
   wait_for "$out/forwarder.out" '^forwarder listening' 60
-  wait_for "$out/forwarder-reporting.out" '^forwarder listening' 60
-  export OSCOPE_E2E_FORWARDER=http://127.0.0.1:14318 OSCOPE_E2E_FORWARDER_REPORTING=http://127.0.0.1:14319
+  export OSCOPE_E2E_FORWARDER=http://127.0.0.1:14318
 }
 
-# After the forwarders stopped: each printed a balanced ledger; under strace, no file was written.
+# After the forwarder stopped: under strace, no file was written. (Nothing is held, so there
+# is no ledger to balance at exit: what is not answered 200 by the ingress is the tool's.)
 check_stack() {
-  local rc=0 f
-  for f in "$out/forwarder.out" "$out/forwarder-reporting.out"; do
-    if [ -z "$exe" ] && ! grep -q 'balances=True' "$f"; then
-      echo "::error::$f: the forwarder's ledger did not balance at exit (H-E4)"; cat "$f"; rc=1
-    fi
-  done
+  local rc=0
+  if [ -z "$exe" ]; then cat "$out/forwarder.out" || true; fi
   if [ -f "$out/strace.txt" ]; then
     "$py" - "$out/strace.txt" <<'EOF' || rc=1
 import re, sys

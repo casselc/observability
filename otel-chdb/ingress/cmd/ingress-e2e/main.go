@@ -18,18 +18,32 @@
 //	     delay        sleep D ms before handling (a slow ingress)
 //	     store_drop   the store loses the next N PUTs and HEADs (the edge answers 503: unresolved)
 //	POST /_e2e/fault?kind=clear                                   drop every pending fault
+//	GET  /_e2e/answers?since=N                                    every answer given after sequence N (below)
+//
+// Every request to the ingress gets a sequence number. Its answer carries
+// X-E2E-Seq and, when the body was read to the end before the answer,
+// X-E2E-Body-SHA256 (the request body's hash as the ingress received it); the
+// answers log keeps, per sequence number, the status, Retry-After, the hash of
+// the answer's body, the request body's hash and the request's header names, or
+// that the answer was lost. A pass-through in front of the ingress can then be
+// checked answer by answer: what the sender got is what the ingress gave.
 //
 // The first line on stdout is "listening <addr>".
 package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -98,6 +112,133 @@ type broker struct {
 	hits     int
 }
 
+// answer is one entry of the answers log.
+type answer struct {
+	Seq        int64    `json:"seq"`
+	Status     int      `json:"status"`
+	RetryAfter string   `json:"retry_after"`
+	RespSHA256 string   `json:"resp_sha256"`
+	ReqSHA256  string   `json:"req_sha256"` // empty when the body was not read to the end
+	ReqBytes   int64    `json:"req_bytes"`
+	Headers    []string `json:"headers"` // the request's header names, lower case, sorted
+	Lost       bool     `json:"lost"`
+}
+
+type answers struct {
+	mu   sync.Mutex
+	seq  int64
+	log  []answer
+	keep int
+}
+
+func (a *answers) next() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.seq++
+	return a.seq
+}
+
+func (a *answers) add(x answer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.log) >= a.keep {
+		a.log = a.log[len(a.log)-a.keep/2:]
+	}
+	a.log = append(a.log, x)
+}
+
+func (a *answers) since(n int64) []answer {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := []answer{}
+	for _, x := range a.log {
+		if x.Seq > n {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// hashReader hashes the request body as the handler reads it.
+type hashReader struct {
+	r   io.ReadCloser
+	h   hash.Hash
+	n   int64
+	eof bool
+}
+
+func (h *hashReader) Read(p []byte) (int, error) {
+	n, err := h.r.Read(p)
+	h.h.Write(p[:n])
+	h.n += int64(n)
+	if err == io.EOF {
+		h.eof = true
+	}
+	return n, err
+}
+
+func (h *hashReader) Close() error { return h.r.Close() }
+
+// recWriter stamps X-E2E-Seq (and the body hash, if read to the end) on the
+// answer and hashes the answer's body.
+type recWriter struct {
+	http.ResponseWriter
+	seq    int64
+	body   *hashReader
+	h      hash.Hash
+	status int
+}
+
+func (w *recWriter) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = code
+	w.Header().Set("X-E2E-Seq", strconv.FormatInt(w.seq, 10))
+	if w.body.eof {
+		w.Header().Set("X-E2E-Body-SHA256", hex.EncodeToString(w.body.h.Sum(nil)))
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *recWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	w.h.Write(b)
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *recWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *recWriter) record(r *http.Request, lost bool) answer {
+	a := answer{Seq: w.seq, Status: w.status, RetryAfter: w.Header().Get("Retry-After"), Lost: lost, ReqBytes: w.body.n}
+	if a.Status == 0 && !lost {
+		a.Status = http.StatusOK
+	}
+	if !lost {
+		a.RespSHA256 = hex.EncodeToString(w.h.Sum(nil))
+	}
+	if w.body.eof {
+		a.ReqSHA256 = hex.EncodeToString(w.body.h.Sum(nil))
+	}
+	for k := range r.Header {
+		a.Headers = append(a.Headers, strings.ToLower(k))
+	}
+	if r.Host != "" {
+		a.Headers = append(a.Headers, "host")
+	}
+	if r.ContentLength >= 0 && r.Header.Get("Content-Length") == "" && len(r.TransferEncoding) == 0 {
+		a.Headers = append(a.Headers, "content-length")
+	}
+	for range r.TransferEncoding {
+		a.Headers = append(a.Headers, "transfer-encoding")
+	}
+	slices.Sort(a.Headers)
+	a.Headers = slices.Compact(a.Headers)
+	return a
+}
+
 type commitJSON struct {
 	Key        string              `json:"key"`
 	Signal     string              `json:"signal"`
@@ -109,6 +250,7 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:0", "address (loopback only)")
 	leeway := flag.Int("leeway_s", 1, "token clock leeway (s); small, so short-lived tokens expire in tests")
 	rpm := flag.Float64("requests_per_minute", 120, "per-principal request rate")
+	bpm := flag.Float64("decoded_bytes_per_minute", 0, "per-principal decoded-byte rate (0: the ingress's default)")
 	flag.Parse()
 	host, _, err := net.SplitHostPort(*listen)
 	if err != nil || (host != "127.0.0.1" && host != "::1" && host != "localhost") {
@@ -135,12 +277,16 @@ func main() {
 	}}
 	lim := ingress.DefaultLimits()
 	lim.RequestsPerMinute = *rpm
+	if *bpm > 0 {
+		lim.DecodedBytesPerMinute = *bpm
+	}
 	srv, err := ingress.NewServer(v, pol, lim, e, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	srv.Logf = log.Printf
 	f := &faults{}
+	ans := &answers{keep: 400_000}
 	br := &broker{oid: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "Team.Payments", lifetime: 75 * time.Minute, mode: "ok",
 		tok: map[string]string{}, exp: map[string]time.Time{}}
 	h := srv.Handler()
@@ -263,6 +409,10 @@ func main() {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("GET /_e2e/counts", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, srv.Counts()) })
+	mux.HandleFunc("GET /_e2e/answers", func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+		writeJSON(w, ans.since(n))
+	})
 	mux.HandleFunc("POST /_e2e/fault", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		cnt, _ := strconv.Atoi(q.Get("n"))
@@ -295,20 +445,28 @@ func main() {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/", http.HandlerFunc(func(w0 http.ResponseWriter, r *http.Request) {
+		body := &hashReader{r: r.Body, h: sha256.New()}
+		r.Body = body
+		w := &recWriter{ResponseWriter: w0, seq: ans.next(), body: body, h: sha256.New()}
 		lose, code, ra, delay := f.take()
 		if delay > 0 {
 			time.Sleep(time.Duration(delay) * time.Millisecond)
 		}
 		if code != 0 {
+			// Read the body first, so the answer can say what arrived (a real ingress
+			// refuses some answers before the body; the pass-through check does not care).
+			_, _ = io.Copy(io.Discard, r.Body)
 			if ra > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(ra))
 			}
 			http.Error(w, "injected", code)
+			ans.add(w.record(r, false))
 			return
 		}
 		if !lose {
 			h.ServeHTTP(w, r)
+			ans.add(w.record(r, false))
 			return
 		}
 		// Handle the request for real (it commits), then lose the answer:
@@ -316,7 +474,8 @@ func main() {
 		rec := &discard{header: http.Header{}}
 		h.ServeHTTP(rec, r)
 		log.Printf("ingress-e2e: lost the answer %d to %s", rec.code, r.URL.Path)
-		if hj, ok := w.(http.Hijacker); ok {
+		ans.add(w.record(r, true))
+		if hj, ok := w0.(http.Hijacker); ok {
 			if c, _, err := hj.Hijack(); err == nil {
 				_ = c.Close()
 				return

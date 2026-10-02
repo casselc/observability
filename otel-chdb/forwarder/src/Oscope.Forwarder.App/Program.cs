@@ -3,10 +3,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Oscope.Forwarder;
 using Oscope.Forwarder.App;
-using Oscope.Forwarder.Core;
 using Oscope.Forwarder.Http;
 
-// oscope-forwarder: the device forwarder (DECISIONS.md D37, research/entra-ingress.md §4).
+// oscope-forwarder: the device forwarder (DECISIONS.md D37, D40 as amended 2026-10-02: a streaming
+// pass-through; research/entra-ingress.md §4, §10b).
 //   oscope-forwarder [--config <MDM config.json>] [--keys <per-user keys.json>]
 //   oscope-forwarder --init-keys [--keys <path>]   writes this user's random local key pair
 //                                                  and prints the tools' environment
@@ -49,8 +49,7 @@ var settings = new ForwarderSettings
     Ingress = cfg.Ingress,
     Namespace = cfg.Namespace,
     Local = new LocalOptions { Port = cfg.Port, PublicKey = k.PublicKey, SecretKey = k.SecretKey },
-    Queue = cfg.Queue ?? new ForwarderOptions(),
-    Pump = cfg.Pump ?? new PumpOptions(),
+    Proxy = cfg.Proxy ?? new ProxyOptions(),
 }.Validate();
 var fwd = ForwarderHost.Build(settings, new MsalBrokerTokenAcquirer(cfg.Entra), args);
 await fwd.App.RunAsync().ConfigureAwait(false);
@@ -61,7 +60,7 @@ T Load<T>(string path) =>
 
 /// <summary>The MDM-delivered configuration (research/entra-ingress.md §4.5).</summary>
 internal sealed record AppConfig(Uri Ingress, EntraOptions Entra, int Port = 14318, string? Namespace = null,
-    ForwarderOptions? Queue = null, PumpOptions? Pump = null);
+    ProxyOptions? Proxy = null);
 
 /// <summary>This user's local key pair (§4.3).</summary>
 internal sealed record LocalKeys(string PublicKey, string SecretKey);

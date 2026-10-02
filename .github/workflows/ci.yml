@@ -323,9 +323,10 @@ jobs:
   # technique, or a CAST row or required cell with no passing record that
   # ci/trace/known-gaps.txt does not list. Runs even when a test job failed, so the report
   # says which evidence is missing.
-  # The device forwarder (otel-chdb/forwarder, DECISIONS.md D37; ci/forwarder.sh): .NET 10 built
-  # with -warnaserror; the queue core's stateful model-based tests (CsCheck), the in-process fault
-  # tests through YARP, and end to end against the Go ingress harness (ingress/cmd/ingress-e2e).
+  # The device forwarder (otel-chdb/forwarder, DECISIONS.md D37, D40 as amended 2026-10-02: a
+  # streaming pass-through; ci/forwarder.sh): .NET 10 built with -warnaserror; the pass-through
+  # property (CsCheck) and the in-process proxy tests on real loopback sockets, and end to end
+  # against the Go ingress harness (ingress/cmd/ingress-e2e).
   # On Linux the forwarder runs under strace and must write no file (R-E7). Windows and macOS
   # build the MSAL broker app and run the same tests; the broker itself needs a real tenant and
   # an enrolled device (deploy/validation/entra-ingress.md, ENT-F*), which CI does not have.
@@ -354,7 +355,7 @@ jobs:
       - name: strace (for the no-disk check)
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq strace
-      - name: build; unit, property, stateful and fault tests
+      - name: build; property and proxy tests
         run: ci/forwarder.sh test
       - name: end to end against the Go ingress
         id: e2e

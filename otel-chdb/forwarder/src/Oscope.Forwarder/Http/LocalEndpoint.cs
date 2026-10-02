@@ -5,16 +5,18 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Net.Http.Headers;
-using Oscope.Forwarder.Core;
+using Oscope.Forwarder.Auth;
+using Yarp.ReverseProxy.Forwarder;
 
 namespace Oscope.Forwarder.Http;
 
 /// <summary>The local endpoint's settings (research/entra-ingress.md §4.3).</summary>
 public sealed record LocalOptions
 {
-    /// <summary>The loopback port: the tools' LANGFUSE_BASE_URL is http://127.0.0.1:{Port}.</summary>
+    /// <summary>The loopback port: the tools' LANGFUSE_BASE_URL is http://127.0.0.1:{Port}. 0: any free port (tests).</summary>
     public int Port { get; init; } = 14318;
 
     /// <summary>The per-user random pair the tools use as their Langfuse keys (LS-E2): a local secret only.</summary>
@@ -22,29 +24,40 @@ public sealed record LocalOptions
 
     public required string SecretKey { get; init; }
 
-    /// <summary>Requests being read at once; with the queue's bound this bounds memory (MaxQueueBytes + this × MaxEntryBytes).</summary>
-    public int MaxConcurrentIntake { get; init; } = 2;
-
     public LocalOptions Validate()
     {
-        if (Port is <= 0 or > 65535) throw new ArgumentException("local: Port out of range");
+        if (Port is < 0 or > 65535) throw new ArgumentException("local: Port out of range");
         if (string.IsNullOrEmpty(PublicKey) || string.IsNullOrEmpty(SecretKey) || SecretKey.Length < 16)
             throw new ArgumentException("local: PublicKey and a SecretKey of at least 16 characters are required (generated per user at install)");
-        if (MaxConcurrentIntake <= 0) throw new ArgumentException("local: MaxConcurrentIntake must be > 0");
         return this;
     }
 }
 
 /// <summary>
-/// What the tools talk to: OTLP/HTTP on loopback, Langfuse's paths and the standard
-/// ones. Refuses anything that is not this user's tool (LS-E2, SEC-E3): a wrong local key,
-/// an Origin header (a web page), a non-loopback Host (DNS rebinding), a content type a
-/// browser can send without a preflight. An accepted request is answered at once from
-/// memory (the tool never waits for Entra or the network: H-E9, TM-E2); a full queue is
-/// answered 503 with Retry-After (backpressure, never buffering beyond the bound: R-E7).
+/// What the tools talk to: OTLP/HTTP on loopback, Langfuse's paths and the standard ones,
+/// proxied live to the ingress (D40, pass-through amendment 2026-10-02). The forwarder's
+/// own decisions are only these:
+/// <list type="bullet">
+/// <item>refuse anything that is not this user's tool (LS-E2, SEC-E3): an Origin header (a
+/// web page), a non-loopback Host (DNS rebinding), a wrong local key, a content type or
+/// encoding a browser could send without a preflight, another path;</item>
+/// <item>refuse a body over the size bound (413) and a request over the concurrency bound
+/// (503 + Retry-After: bounded memory under a slow ingress);</item>
+/// <item>answer 503 + Retry-After when no token can be had (nobody signed in, the broker
+/// unavailable): never a prompt on the tool's path (H-E9, TM-E2);</item>
+/// <item>after a 401 from the ingress, have the next request's token refreshed
+/// (<see cref="TokenGate"/>), without replaying this one.</item>
+/// </list>
+/// Everything else is the ingress's answer, passed through: a 200 to the tool means the
+/// ingress committed (R-E5). Retries, back-off, timeouts and batching are the tool's
+/// exporter's. The forwarder's own answers carry <see cref="LocalHeader"/>, so a tool's log
+/// (and a test) can tell them from the ingress's.
 /// </summary>
 public sealed class LocalEndpoint
 {
+    /// <summary>Set on every answer the forwarder gives itself, with the reason.</summary>
+    public const string LocalHeader = "X-Oscope-Forwarder";
+
     public static readonly IReadOnlyDictionary<string, string> Paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         ["/v1/traces"] = "/v1/traces",
@@ -53,23 +66,51 @@ public sealed class LocalEndpoint
         ["/api/public/otel/v1/logs"] = "/v1/logs",
     };
 
-    private readonly Pump _pump;
-    private readonly LocalOptions _o;
+    private readonly ProxyOptions _p;
+    private readonly TokenGate _tokens;
+    private readonly IHttpForwarder _forwarder;
+    private readonly HttpMessageInvoker _client;
+    private readonly string _prefix;
+    private readonly string? _namespace;
+    private readonly ForwarderRequestConfig _config;
     private readonly byte[] _credential;
-    private readonly SemaphoreSlim _intake;
+    private readonly SemaphoreSlim _slots;
     private readonly ConcurrentDictionary<string, long> _refused = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _proxied = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _errors = new(StringComparer.Ordinal);
+    private int _inFlight;
 
-    public LocalEndpoint(Pump pump, LocalOptions options)
+    /// <param name="namespaceChoice">from the forwarder's configuration only (MDM), never from the tool; it chooses among the person's grants and never grants</param>
+    public LocalEndpoint(LocalOptions local, ProxyOptions proxy, TokenGate tokens, IHttpForwarder forwarder, HttpMessageInvoker client,
+        Uri ingress, string? namespaceChoice)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        _pump = pump;
-        _o = options.Validate();
-        _credential = Encoding.UTF8.GetBytes(options.PublicKey + ":" + options.SecretKey);
-        _intake = new SemaphoreSlim(options.MaxConcurrentIntake);
+        ArgumentNullException.ThrowIfNull(local);
+        ArgumentNullException.ThrowIfNull(proxy);
+        ArgumentNullException.ThrowIfNull(ingress);
+        local.Validate();
+        _p = proxy.Validate();
+        _tokens = tokens;
+        _forwarder = forwarder;
+        _client = client;
+        _prefix = ingress.GetLeftPart(UriPartial.Path).TrimEnd('/');
+        _namespace = namespaceChoice;
+        _config = new ForwarderRequestConfig { ActivityTimeout = proxy.ActivityTimeout };
+        _credential = Encoding.UTF8.GetBytes(local.PublicKey + ":" + local.SecretKey);
+        _slots = new SemaphoreSlim(proxy.MaxConcurrentRequests);
     }
 
-    /// <summary>Refusals at the local endpoint, by reason (none of them was acknowledged).</summary>
+    /// <summary>The forwarder's own refusals, by reason (none of them reached the ingress).</summary>
     public IReadOnlyDictionary<string, long> Refused => new Dictionary<string, long>(_refused);
+
+    /// <summary>The ingress's answers passed to the tools, by status class (2xx, 4xx, ...).</summary>
+    public IReadOnlyDictionary<string, long> Proxied => new Dictionary<string, long>(_proxied);
+
+    /// <summary>Requests YARP could not complete, by its error (the tool got 502/504 or a reset).</summary>
+    public IReadOnlyDictionary<string, long> ProxyErrors => new Dictionary<string, long>(_errors);
+
+    public int InFlight => Volatile.Read(ref _inFlight);
+
+    public TokenGate Tokens => _tokens;
 
     public void Map(IEndpointRouteBuilder app)
     {
@@ -78,13 +119,18 @@ public sealed class LocalEndpoint
         app.MapGet("/status", (RequestDelegate)StatusAsync);
     }
 
-    private Task Refuse(HttpContext ctx, int status, string reason, TimeSpan? retryAfter = null)
+    private static void Add(ConcurrentDictionary<string, long> d, string key) => d.AddOrUpdate(key, 1, (_, n) => n + 1);
+
+    private async Task Refuse(HttpContext ctx, int status, string reason, TimeSpan? retryAfter = null, string? detail = null)
     {
-        _refused.AddOrUpdate(reason, 1, (_, n) => n + 1);
-        ctx.Response.StatusCode = status;
+        Add(_refused, reason);
+        var resp = ctx.Response;
+        resp.StatusCode = status;
+        resp.Headers[LocalHeader] = reason;
         if (retryAfter is { } ra)
-            ctx.Response.Headers.RetryAfter = ((int)Math.Ceiling(ra.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
-        return Task.CompletedTask;
+            resp.Headers.RetryAfter = ((int)Math.Ceiling(ra.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+        resp.ContentType = "text/plain; charset=utf-8";
+        await resp.WriteAsync($"oscope-forwarder: {reason}{(detail is null ? "" : ": " + detail)}\n", ctx.RequestAborted).ConfigureAwait(false);
     }
 
     /// <summary>Loopback Host, no Origin, the local key: whatever else the request is.</summary>
@@ -102,16 +148,25 @@ public sealed class LocalEndpoint
         return CryptographicOperations.FixedTimeEquals(given, _credential) ? null : "auth";
     }
 
+    private Task RefuseGate(HttpContext ctx, string why)
+    {
+        if (why == "auth") ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"oscope-forwarder\"";
+        return Refuse(ctx, why == "auth" ? 401 : 403, why);
+    }
+
     internal async Task HandleAsync(HttpContext ctx)
     {
-        var why = Gate(ctx);
-        if (why is not null)
+        if (Gate(ctx) is { } why)
         {
-            if (why == "auth") ctx.Response.Headers.WWWAuthenticate = "Basic realm=\"oscope-forwarder\"";
-            await Refuse(ctx, why == "auth" ? 401 : 403, why).ConfigureAwait(false);
+            await RefuseGate(ctx, why).ConfigureAwait(false);
             return;
         }
         var r = ctx.Request;
+        if (!Paths.TryGetValue(r.Path.Value ?? "", out var upstreamPath))
+        {
+            await Refuse(ctx, 404, "path").ConfigureAwait(false);
+            return;
+        }
         if (!MediaTypeHeaderValue.TryParse(r.ContentType, out var mt) ||
             !(mt.MediaType.Equals("application/x-protobuf", StringComparison.OrdinalIgnoreCase) ||
               mt.MediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)))
@@ -119,112 +174,100 @@ public sealed class LocalEndpoint
             await Refuse(ctx, 415, "content_type").ConfigureAwait(false);
             return;
         }
-        var enc = r.Headers.ContentEncoding.ToString();
-        if (enc is not ("" or "identity" or "gzip"))
+        if (r.Headers.ContentEncoding.ToString() is not ("" or "identity" or "gzip"))
         {
             await Refuse(ctx, 415, "content_encoding").ConfigureAwait(false);
             return;
         }
-        var max = _pump.Options.MaxEntryBytes;
-        if (r.ContentLength > max)
+        if (r.ContentLength > _p.MaxRequestBytes)
         {
             await Refuse(ctx, 413, "too_large").ConfigureAwait(false);
             return;
         }
-        if (!await _intake.WaitAsync(TimeSpan.FromMilliseconds(250), ctx.RequestAborted).ConfigureAwait(false))
+        // A chunked body is cut at the same bound while it streams (Kestrel's limit).
+        if (ctx.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } size) size.MaxRequestBodySize = _p.MaxRequestBytes;
+        if (!_slots.Wait(0))
         {
-            await Refuse(ctx, 503, "busy", TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            await Refuse(ctx, 503, "busy", _p.RefusalRetryAfter).ConfigureAwait(false);
             return;
         }
-        byte[] body;
+        Interlocked.Increment(ref _inFlight);
         try
         {
-            body = await ReadBoundedAsync(r.Body, max, ctx.RequestAborted).ConfigureAwait(false);
-        }
-        catch (InvalidDataException)
-        {
-            await Refuse(ctx, 413, "too_large").ConfigureAwait(false);
-            return;
+            await ProxyAsync(ctx, upstreamPath).ConfigureAwait(false);
         }
         finally
         {
-            _intake.Release();
+            Interlocked.Decrement(ref _inFlight);
+            _slots.Release();
         }
-        if (!Paths.TryGetValue(r.Path.Value ?? "", out var upstreamPath))
+    }
+
+    private async Task ProxyAsync(HttpContext ctx, string upstreamPath)
+    {
+        var tok = await _tokens.GetAsync(ctx.RequestAborted).ConfigureAwait(false);
+        if (tok.Status != TokenStatus.Ok || tok.AccessToken is null)
         {
-            await Refuse(ctx, 404, "path").ConfigureAwait(false);
+            // 503, not 401: a 401 from this endpoint already means "wrong local key", and
+            // OTLP exporters retry a 503 (honouring Retry-After) but drop a 401's batch.
+            var what = tok.Status == TokenStatus.InteractionRequired
+                ? "nobody is signed in to the forwarder (or the sign-in needs you): sign in from the forwarder's status item"
+                : "the sign-in broker is unavailable; try again later";
+            await Refuse(ctx, 503, "no_token", _p.RefusalRetryAfter, what).ConfigureAwait(false);
             return;
         }
-        var a = _pump.Offer(new ForwardRequest(upstreamPath, mt.MediaType.ToString().ToLowerInvariant(),
-            enc is "" or "identity" ? null : enc, body));
-        if (!a.Accepted)
+        var err = await _forwarder.SendAsync(ctx, _prefix, _client, _config,
+            new IngressProxy.Transformer(upstreamPath, tok.AccessToken, _namespace), ctx.RequestAborted).ConfigureAwait(false);
+        var resp = ctx.Response;
+        if (err == ForwarderError.None || resp.HasStarted)
         {
-            var ra = _pump.Options.RefusalRetryAfter;
-            await (a.Reason switch
-            {
-                RefusalReason.TooLarge => Refuse(ctx, 413, "too_large"),
-                RefusalReason.NoAccount => Refuse(ctx, 503, "no_account", ra),
-                RefusalReason.ShuttingDown => Refuse(ctx, 503, "shutting_down", ra),
-                _ => Refuse(ctx, 503, "full", ra),
-            }).ConfigureAwait(false);
+            // The ingress's answer reached the tool (or began to): count it by class.
+            Add(_proxied, $"{resp.StatusCode / 100}xx");
+            if (resp.StatusCode == StatusCodes.Status401Unauthorized) _tokens.Rejected(tok.AccessToken);
+        }
+        if (err == ForwarderError.None) return;
+        Add(_errors, err.ToString().ToLowerInvariant());
+        if (resp.HasStarted) return; // the ingress's answer was cut: the tool sees the connection end
+        if (TooLarge(ctx.Features.Get<IForwarderErrorFeature>()?.Exception))
+        {
+            // A chunked body went over the bound while it streamed: the ingress got a
+            // truncated request (and aborted), the tool gets the reason.
+            await Refuse(ctx, 413, "too_large").ConfigureAwait(false);
             return;
         }
-        // OTLP/HTTP success: an empty Export*ServiceResponse in the request's encoding.
-        ctx.Response.StatusCode = 200;
-        if (mt.MediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase))
-        {
-            ctx.Response.ContentType = "application/json";
-            await ctx.Response.WriteAsync("{}", ctx.RequestAborted).ConfigureAwait(false);
-        }
-        else
-        {
-            ctx.Response.ContentType = "application/x-protobuf";
-        }
+        // YARP has set 502 (no answer: refused, reset, lost) or 504 (no progress within the
+        // activity timeout). Both are retryable for the tool, and both mean the outcome is
+        // unknown: the ingress may have committed (CAST rows 50, 74, 83); the tool's retry of
+        // the same bytes is then a copy the consumer skips (D11).
+        resp.Headers[LocalHeader] = err == ForwarderError.RequestTimedOut ? "ingress_timeout" : "ingress_error";
+    }
+
+    private static bool TooLarge(Exception? e)
+    {
+        for (var x = e; x is not null; x = x.InnerException)
+            if (x is BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge }) return true;
+        return false;
     }
 
     private async Task StatusAsync(HttpContext ctx)
     {
-        var why = Gate(ctx);
-        if (why is not null)
+        if (Gate(ctx) is { } why)
         {
-            await Refuse(ctx, why == "auth" ? 401 : 403, why).ConfigureAwait(false);
+            await RefuseGate(ctx, why).ConfigureAwait(false);
             return;
         }
-        var s = _pump.Snapshot();
         ctx.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(ctx.Response.Body, new
         {
-            account = _pump.CurrentAccount?.ObjectId,
-            accepted = s.Accepted,
-            committed = s.Committed,
-            committed_after_unknown = s.CommittedAfterUnknown,
-            attempts = s.Attempts,
-            unknown_outcomes = s.UnknownOutcomes,
-            held_entries = s.HeldEntries,
-            held_bytes = s.HeldBytes,
-            in_flight = s.InFlight,
-            oldest_age_s = s.OldestAge.TotalSeconds,
-            clock_regressions = s.ClockRegressions,
-            balances = s.Balances,
-            refused = s.Refused.ToDictionary(kv => kv.Key.ToString().ToLowerInvariant(), kv => kv.Value),
-            dropped = s.Dropped,
-            dropped_maybe_landed = s.DroppedMaybeLanded,
+            account = _tokens.CurrentAccount?.ObjectId,
+            account_changes = _tokens.AccountChanges,
+            in_flight = InFlight,
+            max_concurrent_requests = _p.MaxConcurrentRequests,
+            proxied = Proxied,
+            proxy_errors = ProxyErrors,
             local_refused = Refused,
-            token_failures = _pump.TokenFailures,
+            token_failures = _tokens.Failures,
+            forced_token_refreshes = _tokens.ForcedRefreshes,
         }, cancellationToken: ctx.RequestAborted).ConfigureAwait(false);
-    }
-
-    /// <summary>Reads at most <paramref name="max"/> bytes; more is <see cref="InvalidDataException"/>.</summary>
-    internal static async Task<byte[]> ReadBoundedAsync(Stream s, long max, CancellationToken ct)
-    {
-        using var ms = new MemoryStream();
-        var buf = new byte[64 * 1024];
-        while (true)
-        {
-            var n = await s.ReadAsync(buf, ct).ConfigureAwait(false);
-            if (n == 0) return ms.ToArray();
-            if (ms.Length + n > max) throw new InvalidDataException("body over the per-entry bound");
-            ms.Write(buf, 0, n);
-        }
     }
 }

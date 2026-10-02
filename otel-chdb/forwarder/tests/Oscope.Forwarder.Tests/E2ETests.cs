@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Oscope.Forwarder.Http;
 using Xunit;
 
 namespace Oscope.Forwarder.Tests;
@@ -19,6 +21,12 @@ public sealed class E2E : IDisposable
     public const string Alice = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     public const string Bob = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
+    /// <summary>Request headers the forwarder may pass to the ingress (the harness's answers log lists names).</summary>
+    public static readonly HashSet<string> AllowedAtIngress = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "host", "content-type", "content-length", "transfer-encoding", "content-encoding", "authorization", "x-oscope-namespace",
+    };
+
     public HttpClient Ingress { get; }
     public HttpClient Forwarder { get; }
 
@@ -28,9 +36,14 @@ public sealed class E2E : IDisposable
             : throw new InvalidOperationException($"{n} is not set: run through ci/forwarder.sh e2e");
         Ingress = new HttpClient { BaseAddress = new Uri(Need("OSCOPE_E2E_INGRESS")), Timeout = TimeSpan.FromSeconds(30) };
         Forwarder = new HttpClient { BaseAddress = new Uri(Need("OSCOPE_E2E_FORWARDER")), Timeout = TimeSpan.FromSeconds(30) };
+        Forwarder.DefaultRequestHeaders.Authorization = LocalKey();
+    }
+
+    public static AuthenticationHeaderValue LocalKey()
+    {
         var pk = Environment.GetEnvironmentVariable("OSCOPE_E2E_PK") ?? "pk-lf-local-e2e";
         var sk = Environment.GetEnvironmentVariable("OSCOPE_E2E_SK") ?? "sk-lf-local-e2e-0123456789";
-        Forwarder.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{pk}:{sk}")));
+        return new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{pk}:{sk}")));
     }
 
     public void Dispose()
@@ -39,20 +52,12 @@ public sealed class E2E : IDisposable
         Forwarder.Dispose();
     }
 
+    public Task Post(string url) => Ingress.PostAsync(url, null).ContinueWith(t => t.Result.EnsureSuccessStatusCode());
+
     public async Task Reset()
     {
-        (await Ingress.PostAsync("/_e2e/fault?kind=clear", null)).EnsureSuccessStatusCode();
-        (await Ingress.PostAsync($"/_e2e/broker?oid={Alice}&role=Team.Payments&lifetime_s=4500&lie_s=0&mode=ok", null)).EnsureSuccessStatusCode();
-        // The forwarder asks the broker which account is signed in every AccountRefresh.
-        var sw = Stopwatch.StartNew();
-        while (true)
-        {
-            var s = await Status();
-            if (s.GetProperty("account").ValueKind == JsonValueKind.String && s.GetProperty("account").GetString() == Alice
-                && s.GetProperty("held_entries").GetInt64() == 0) return;
-            if (sw.Elapsed > TimeSpan.FromSeconds(20)) throw new TimeoutException($"the forwarder never settled on {Alice}: {s}");
-            await Task.Delay(50);
-        }
+        await Post("/_e2e/fault?kind=clear");
+        await Post($"/_e2e/broker?oid={Alice}&role=Team.Payments&lifetime_s=4500&lie_s=0&mode=ok");
     }
 
     public async Task<byte[]> Sample(int seed, int spans = 0) =>
@@ -85,39 +90,50 @@ public sealed class E2E : IDisposable
                 : [])).ToList();
     }
 
-    /// <summary>Waits until the forwarder holds nothing; returns its status then.</summary>
-    public async Task<JsonElement> Drained(int seconds = 60)
+    /// <summary>One entry of the harness's answers log (ingress/cmd/ingress-e2e).</summary>
+    public sealed record Answer(long Seq, int Status, string RetryAfter, string RespSha256, string ReqSha256, long ReqBytes, string[]? Headers, bool Lost);
+
+    public async Task<List<Answer>> Answers(long since = 0)
     {
-        var sw = Stopwatch.StartNew();
-        while (true)
-        {
-            var s = await Status();
-            if (s.GetProperty("held_entries").GetInt64() == 0) return s;
-            if (sw.Elapsed > TimeSpan.FromSeconds(seconds)) throw new TimeoutException($"forwarder still holds entries: {s}");
-            await Task.Delay(50);
-        }
+        var web = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+        return (await Ingress.GetFromJsonAsync<List<Answer>>($"/_e2e/answers?since={since}", web))!;
     }
 
-    public static long Get(JsonElement s, string name) => s.GetProperty(name).GetInt64();
+    public async Task<long> LastSeq() => (await Answers()).Select(a => a.Seq).DefaultIfEmpty(0).Max();
+
+    public static string Sha(byte[] b) => Convert.ToHexStringLower(SHA256.HashData(b));
 
     public static long Sub(JsonElement s, string obj, string key) =>
         s.GetProperty(obj).TryGetProperty(key, out var v) ? v.GetInt64() : 0;
+
+    /// <summary>What the tool got, read whole: status, headers, body hash.</summary>
+    public sealed record Got(int Status, string? Seq, string? BodySha, string? RetryAfter, string? Local, string RespSha, string Text);
+
+    public static async Task<Got> Read(HttpResponseMessage r)
+    {
+        var body = await r.Content.ReadAsByteArrayAsync();
+        static string? H(HttpResponseMessage r, string n) => r.Headers.TryGetValues(n, out var v) ? string.Join(",", v) : null;
+        return new Got((int)r.StatusCode, H(r, "X-E2E-Seq"), H(r, "X-E2E-Body-SHA256"), H(r, "Retry-After"), H(r, LocalEndpoint.LocalHeader),
+            Sha(body), Encoding.UTF8.GetString(body));
+    }
 }
 
 [Trait("Category", "E2E")]
 public class E2ETests
 {
     [Fact]
-    public async Task Committed_under_the_person_of_the_token_never_the_tools_claims()
+    public async Task A_200_means_committed_under_the_person_of_the_token_never_the_tools_claims()
     {
-        OscopeTrace.Covers("IT", "R-E1 H-E1 SEC-E2 LS-E1 UCA-E2 R-E6");
+        OscopeTrace.Covers("IT", "R-E1 R-E5 H-E1 H-E4 SEC-E2 LS-E1 UCA-E2 UCA-E4 R-E6");
         using var e = new E2E();
         await e.Reset();
         var before = (await e.Commits()).Select(c => c.Key).ToHashSet();
         var body = await e.Sample(seed: 101, spans: 3);
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(body)).StatusCode);
-        var s = await e.Drained();
-        Assert.True(s.GetProperty("balances").GetBoolean());
+        var got = await E2E.Read(await e.Send(body));
+        Assert.Equal(200, got.Status);
+        Assert.Null(got.Local);
+        Assert.Equal(E2E.Sha(body), got.BodySha); // the ingress read exactly the tool's bytes
+        // No waiting: the 200 came from the ingress after the commit, so the commit is there now.
         var fresh = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces").ToList();
         var res = Assert.Single(fresh).Resources.First();
         Assert.Equal(E2E.Alice, res["user.id"]);
@@ -125,157 +141,139 @@ public class E2ETests
         Assert.Equal("devtools", res["k8s.cluster.name"]);
         Assert.Equal("mallory@example.com", res["oscope.ingress.claimed.user.id"]);
         Assert.Equal("prod-billing", res["oscope.ingress.claimed.k8s.namespace.name"]);
+        var a = (await e.Answers()).Single(x => x.Seq.ToString(System.Globalization.CultureInfo.InvariantCulture) == got.Seq);
+        Assert.All(a.Headers ?? [], h => Assert.Contains(h, E2E.AllowedAtIngress));
     }
 
     [Fact]
-    public async Task A_lost_answer_after_the_commit_is_resent_as_a_copy()
+    public async Task The_ingress_answer_reaches_the_tool_unchanged_status_Retry_After_and_body()
     {
-        OscopeTrace.Covers("IT", "CAST-50 H-E6 LS-E3 R-E4 R-E6 UCA-E3");
+        OscopeTrace.Covers("IT", "R-E5 UCA-E4 H-E5 CAST-39");
         using var e = new E2E();
         await e.Reset();
-        var s0 = await e.Status();
-        var before = (await e.Commits()).Select(c => c.Key).ToHashSet();
-        var ok0 = await e.IngressCount("ok");
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=lose_answer&n=1", null)).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 202))).StatusCode);
-        var s1 = await e.Drained();
-        // Committed twice at the ingress (at least: the reporting forwarder commits there too).
-        Assert.True(await e.IngressCount("ok") - ok0 >= 2, "the lost answer's request was not resent");
-        Assert.Equal(1, E2E.Get(s1, "committed_after_unknown") - E2E.Get(s0, "committed_after_unknown"));
-        Assert.Equal(1, E2E.Get(s1, "committed") - E2E.Get(s0, "committed"));
-        var fresh = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces").ToList();
-        Assert.NotEmpty(fresh);
-        Assert.Single(fresh.Select(c => c.ContentKey).Distinct()); // ...as one content key: a copy the consumer skips (D11)
+        await e.Post("/_e2e/fault?kind=status&code=429&n=1&retry_after=7");
+        var body = await e.Sample(seed: 151);
+        var got = await E2E.Read(await e.Send(body));
+        Assert.Equal(429, got.Status);
+        Assert.Equal("7", got.RetryAfter);
+        Assert.Equal("injected\n", got.Text);
+        Assert.Null(got.Local);
+        var a = (await e.Answers()).Single(x => x.Seq.ToString(System.Globalization.CultureInfo.InvariantCulture) == got.Seq);
+        Assert.Equal((429, "7", got.RespSha, E2E.Sha(body)), (a.Status, a.RetryAfter, a.RespSha256, a.ReqSha256));
     }
 
     [Fact]
-    public async Task An_unresolved_commit_is_retried_until_it_lands()
+    public async Task A_lost_answer_after_the_commit_is_502_to_the_tool_and_the_tools_retry_is_a_copy()
+    {
+        OscopeTrace.Covers("IT", "CAST-50 H-E6 LS-E3 R-E4 UCA-E3");
+        using var e = new E2E();
+        await e.Reset();
+        var before = (await e.Commits()).Select(c => c.Key).ToHashSet();
+        var ok0 = await e.IngressCount("ok");
+        await e.Post("/_e2e/fault?kind=lose_answer&n=1");
+        var body = await e.Sample(seed: 202);
+        var first = await E2E.Read(await e.Send(body));
+        Assert.Equal(502, first.Status); // unknown, and retryable: the exporter's to retry
+        Assert.Equal("ingress_error", first.Local);
+        Assert.Equal(1, await e.IngressCount("ok") - ok0); // it did commit, and the forwarder sent nothing more
+        var second = await E2E.Read(await e.Send(body)); // the tool's retry: the same bytes
+        Assert.Equal(200, second.Status);
+        Assert.Equal(2, await e.IngressCount("ok") - ok0);
+        var fresh = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces").ToList();
+        Assert.Equal(2, fresh.Count);
+        Assert.Single(fresh.Select(c => c.ContentKey).Distinct()); // one content key: a copy the consumer skips (D11)
+    }
+
+    [Fact]
+    public async Task An_unresolved_commit_is_the_ingress_503_with_its_Retry_After()
     {
         OscopeTrace.Covers("IT", "R-E5 H-E4 CAST-15 CAST-39");
         using var e = new E2E();
         await e.Reset();
-        var s0 = await e.Status();
-        var un0 = await e.IngressCount("unavailable");
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=store_drop&n=64", null)).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 303))).StatusCode);
-        var sw = Stopwatch.StartNew();
-        while (await e.IngressCount("unavailable") == un0)
-        {
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), "the ingress never answered 503");
-            await Task.Delay(50);
-        }
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=clear", null)).EnsureSuccessStatusCode();
-        var s1 = await e.Drained();
-        Assert.Equal(1, E2E.Get(s1, "committed") - E2E.Get(s0, "committed"));
-        Assert.True(E2E.Get(s1, "unknown_outcomes") > E2E.Get(s0, "unknown_outcomes"));
+        await e.Post("/_e2e/fault?kind=store_drop&n=64");
+        var body = await e.Sample(seed: 303);
+        var got = await E2E.Read(await e.Send(body));
+        Assert.Equal(503, got.Status);
+        Assert.Null(got.Local); // the ingress's own 503, not the forwarder's
+        Assert.NotNull(got.RetryAfter);
+        Assert.NotNull(got.Seq);
+        await e.Post("/_e2e/fault?kind=clear");
+        Assert.Equal(200, (await E2E.Read(await e.Send(body))).Status);
     }
 
     [Fact]
-    public async Task A_token_that_expires_in_flight_is_refreshed_without_the_tool_noticing()
+    public async Task A_token_that_expires_in_flight_is_a_401_once_and_the_next_request_gets_a_fresh_one()
     {
         OscopeTrace.Covers("IT", "R-E6 H-E9 UCA-E8 TM-E2");
         using var e = new E2E();
         await e.Reset();
         // The broker hands out a token that lives 1 s but claims to live an hour.
-        (await e.Ingress.PostAsync("/_e2e/broker?lifetime_s=1&lie_s=3600", null)).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 404))).StatusCode);
-        await e.Drained();
+        await e.Post("/_e2e/broker?lifetime_s=1&lie_s=3600");
+        Assert.Equal(200, (await E2E.Read(await e.Send(await e.Sample(seed: 404)))).Status);
         await Task.Delay(TimeSpan.FromSeconds(2.5)); // past its expiry and the ingress's 1 s leeway
         var s0 = await e.Status();
         var unauth0 = await e.IngressCount("unauthenticated");
-        var sw = Stopwatch.StartNew();
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 405))).StatusCode);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"the tool waited {sw.Elapsed}");
-        var s1 = await e.Drained();
-        Assert.Equal(1, E2E.Get(s1, "committed") - E2E.Get(s0, "committed"));
-        Assert.True(await e.IngressCount("unauthenticated") > unauth0, "the stale token was never presented");
-        Assert.Equal(0, E2E.Get(s1, "unknown_outcomes") - E2E.Get(s0, "unknown_outcomes"));
+        var r1 = await E2E.Read(await e.Send(await e.Sample(seed: 405)));
+        Assert.Equal(401, r1.Status); // the ingress's 401, passed through; not replayed
+        Assert.Null(r1.Local);
+        Assert.Equal(1, await e.IngressCount("unauthenticated") - unauth0);
+        var r2 = await E2E.Read(await e.Send(await e.Sample(seed: 406)));
+        Assert.Equal(200, r2.Status);
+        Assert.Equal(1, await e.IngressCount("unauthenticated") - unauth0);
+        var s1 = await e.Status();
+        Assert.Equal(1, s1.GetProperty("forced_token_refreshes").GetInt64() - s0.GetProperty("forced_token_refreshes").GetInt64());
     }
 
     [Fact]
-    public async Task Held_requests_are_dropped_not_sent_when_another_person_signs_in()
+    public async Task After_another_person_signs_in_the_next_request_goes_under_them()
     {
-        OscopeTrace.Covers("IT", "H-E1 R-E6 LS-E5 UCA-E6");
+        OscopeTrace.Covers("IT", "H-E1 R-E6 LS-E5 TM-E1");
         using var e = new E2E();
         await e.Reset();
-        var s0 = await e.Status();
         var before = (await e.Commits()).Select(c => c.Key).ToHashSet();
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=status&code=503&n=1000&retry_after=1", null)).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.OK, (await e.Send(await e.Sample(seed: 505))).StatusCode);
-        await Task.Delay(500);
-        (await e.Ingress.PostAsync($"/_e2e/broker?oid={E2E.Bob}", null)).EnsureSuccessStatusCode();
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=clear", null)).EnsureSuccessStatusCode();
-        var s1 = await e.Drained();
-        Assert.Equal(1, E2E.Sub(s1, "dropped_maybe_landed", "account_changed") + E2E.Sub(s1, "dropped", "account_changed")
-                        - E2E.Sub(s0, "dropped_maybe_landed", "account_changed") - E2E.Sub(s0, "dropped", "account_changed"));
-        var fresh = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces").ToList();
-        Assert.DoesNotContain(fresh, c => c.Resources.Any(r => r.GetValueOrDefault("user.id") == E2E.Bob));
-        Assert.Empty(fresh);
-    }
-
-    [Fact]
-    public async Task A_slow_ingress_never_blocks_the_tool_and_the_forwarder_holds_no_more_than_its_bound()
-    {
-        OscopeTrace.Covers("IT", "R-E7 H-E9 H-E4 CAST-38 TM-E2");
-        using var e = new E2E();
-        await e.Reset();
+        Assert.Equal(200, (await E2E.Read(await e.Send(await e.Sample(seed: 501)))).Status);
         var s0 = await e.Status();
-        var bound = long.Parse(Environment.GetEnvironmentVariable("OSCOPE_E2E_MAX_QUEUE_BYTES") ?? "1048576", System.Globalization.CultureInfo.InvariantCulture);
-        (await e.Ingress.PostAsync("/_e2e/fault?kind=delay&n=60&delay_ms=700", null)).EnsureSuccessStatusCode();
-        var body = await e.Sample(seed: 606, spans: 600);
-        int ok = 0, busy = 0;
-        var slowest = TimeSpan.Zero;
-        long maxHeld = 0;
-        for (var i = 0; i < 40; i++)
-        {
-            var b = await e.Sample(seed: 6000 + i, spans: 600);
-            var sw = Stopwatch.StartNew();
-            var r = await e.Send(b);
-            if (sw.Elapsed > slowest) slowest = sw.Elapsed;
-            if (r.StatusCode == HttpStatusCode.OK) ok++;
-            else
-            {
-                Assert.Equal(HttpStatusCode.ServiceUnavailable, r.StatusCode);
-                busy++;
-            }
-            maxHeld = Math.Max(maxHeld, E2E.Get(await e.Status(), "held_bytes"));
-        }
-        Assert.True(body.Length * 4 < bound, "the test's bodies are sized to fill the queue");
-        Assert.True(slowest < TimeSpan.FromSeconds(2), $"the tool waited {slowest}");
-        Assert.True(maxHeld <= bound, $"held {maxHeld} > {bound}");
-        Assert.True(busy > 0, $"the queue never filled ({ok} accepted)");
-        var s1 = await e.Drained(120);
-        Assert.Equal(ok, E2E.Get(s1, "accepted") - E2E.Get(s0, "accepted"));
-        Assert.Equal(ok, E2E.Get(s1, "committed") - E2E.Get(s0, "committed"));
-        Assert.True(s1.GetProperty("balances").GetBoolean());
+        await e.Post($"/_e2e/broker?oid={E2E.Bob}");
+        Assert.Equal(200, (await E2E.Read(await e.Send(await e.Sample(seed: 502)))).Status);
+        var s1 = await e.Status();
+        Assert.Equal(E2E.Bob, s1.GetProperty("account").GetString());
+        Assert.Equal(1, s1.GetProperty("account_changes").GetInt64() - s0.GetProperty("account_changes").GetInt64());
+        var users = (await e.Commits()).Where(c => !before.Contains(c.Key) && c.Signal == "traces")
+            .Select(c => c.Resources.First()["user.id"]).ToList();
+        Assert.Equal(new[] { E2E.Alice, E2E.Bob }, users.Order(StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
-    public async Task The_forwarders_counters_reach_the_persons_own_namespace()
+    public async Task With_nobody_signed_in_the_tool_gets_503_and_the_ingress_nothing()
     {
-        OscopeTrace.Covers("IT", "H-E4 TM-E1 R-E7");
+        OscopeTrace.Covers("IT", "H-E9 UCA-E8 TM-E2 TM-E1");
         using var e = new E2E();
         await e.Reset();
-        // A second forwarder process, reporting every second (the first reports never, so its
-        // counters stay exact for the other tests).
-        using var reporting = new HttpClient { BaseAddress = new Uri(Environment.GetEnvironmentVariable("OSCOPE_E2E_FORWARDER_REPORTING")
-            ?? throw new InvalidOperationException("OSCOPE_E2E_FORWARDER_REPORTING is not set")) };
-        reporting.DefaultRequestHeaders.Authorization = e.Forwarder.DefaultRequestHeaders.Authorization;
-        Assert.Equal(HttpStatusCode.OK, (await reporting.GetAsync("/status")).StatusCode);
+        await e.Post("/_e2e/broker?mode=interaction_required");
+        var seq0 = await e.LastSeq();
         var sw = Stopwatch.StartNew();
-        while (true)
-        {
-            var reports = (await e.Commits()).Where(c => c.Signal == "logs"
-                && c.Resources.Any(r => r.GetValueOrDefault("service.name") == "oscope-forwarder")).ToList();
-            if (reports.Count > 0)
-            {
-                var r = reports[0].Resources.First(r => r.GetValueOrDefault("service.name") == "oscope-forwarder");
-                Assert.Equal("dev-payments", r["k8s.namespace.name"]);
-                Assert.False(string.IsNullOrEmpty(r["user.id"]));
-                return;
-            }
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(30), "no counters report was committed");
-            await Task.Delay(250);
-        }
+        var got = await E2E.Read(await e.Send(await e.Sample(seed: 601)));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"the tool waited {sw.Elapsed}");
+        Assert.Equal(503, got.Status);
+        Assert.Equal("no_token", got.Local);
+        Assert.NotNull(got.RetryAfter);
+        Assert.Contains("sign in", got.Text, StringComparison.Ordinal);
+        Assert.Equal(seq0, await e.LastSeq()); // nothing reached the ingress
+        await e.Post("/_e2e/broker?mode=ok");
+    }
+
+    [Fact]
+    public async Task A_slow_ingress_is_seen_by_the_tool_as_latency_and_the_body_still_arrives_whole()
+    {
+        OscopeTrace.Covers("IT", "R-E7 H-E9 CAST-38");
+        using var e = new E2E();
+        await e.Reset();
+        await e.Post("/_e2e/fault?kind=delay&n=1&delay_ms=700");
+        var body = await e.Sample(seed: 606, spans: 600);
+        var sw = Stopwatch.StartNew();
+        var got = await E2E.Read(await e.Send(body));
+        Assert.True(sw.Elapsed >= TimeSpan.FromMilliseconds(650), $"the tool was answered in {sw.Elapsed}, before the ingress");
+        Assert.Equal(200, got.Status);
+        Assert.Equal(E2E.Sha(body), got.BodySha);
     }
 }

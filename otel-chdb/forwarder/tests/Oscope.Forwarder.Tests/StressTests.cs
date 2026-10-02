@@ -1,8 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
-using System.Net;
-using System.Text;
 using System.Text.Json;
 using Xunit;
 
@@ -10,23 +8,25 @@ namespace Oscope.Forwarder.Tests;
 
 /// <summary>
 /// The nightly stress run (ci/forwarder.sh stress; nightly job forwarder-stress), for a
-/// bounded time (OSCOPE_STRESS_SECONDS). Several tools send at once through one forwarder
-/// process to the Go ingress while a chaos loop rotates the faults of the STPA analysis;
-/// each fault is correlated with what it threatens (research/entra-ingress.md §10b):
+/// bounded time (OSCOPE_STRESS_SECONDS). Many tools send at once, several requests each,
+/// through one forwarder process (the pass-through, D40 as amended 2026-10-02) to the Go
+/// ingress, while a chaos loop rotates the faults of the STPA analysis
+/// (research/entra-ingress.md §10b):
 ///
-///   lost answers after commit         CAST 50/74/83, H-E6, LS-E3   (unknown, never failed; copies)
-///   unresolved commits (503)          R-E5, CAST 15, CAST 39       (bounded retries)
-///   429 from the ingress              H-E5, CAST 35                (back off, no hot loop)
-///   a slow ingress                    R-E7, H-E9, CAST 38          (bounded memory, the tool not blocked)
-///   tokens expiring mid-flight        R-E6, H-E9, UCA-E8           (refresh, never a prompt)
-///   the broker unavailable            H-E9, H-E4                   (held, then counted)
-///   another person signing in         H-E1, LS-E5                  (never sent under them)
+///   lost answers after commit       CAST 50, H-E6, LS-E3   502 to the tool, never replayed
+///   unresolved commits (503)        R-E5, CAST 15          the ingress's 503 + Retry-After, unchanged
+///   429 / 503 before handling       H-E5, CAST 39          passed through with Retry-After
+///   a slow ingress                  R-E7, CAST 38, H-E9    memory bounded; the tool sees the latency
+///   tokens expiring in flight       R-E6, UCA-E8           401 once, the next request refreshed
+///   the broker unavailable          H-E9, TM-E2            503 no_token at once, never a prompt
+///   another person signs in         H-E1, LS-E5            the next requests go under them
+///   more requests than the bound    CAST 21, CAST 38       503 busy at once
 ///
-/// Checked all along: the ledger balances (H-E4: accepted = committed + dropped + held),
-/// held bytes stay under the bound, the forwarder's resident memory stays under a bound
-/// that does not grow with the bytes sent, and no tool request waits more than 2 s. At
-/// the end, with the faults cleared: everything drains, and the ingress committed at
-/// least as many requests as the forwarder counted committed (a copy may add more).
+/// Every answer the ingress gave is matched, by its sequence number, with what a tool got:
+/// the same status, Retry-After and body, the tool's own request body hash at the ingress,
+/// no header of the tool's at the ingress, and each answer once (nothing replayed). Every
+/// answer without a sequence number is marked as the forwarder's own. The forwarder's
+/// resident memory stays under a bound that does not grow with the bytes moved.
 /// The summary goes to OSCOPE_STRESS_OUT (JSON) for the job's step summary.
 /// </summary>
 [Trait("Category", "Stress")]
@@ -34,71 +34,84 @@ public class StressTests
 {
     private sealed record Fault(string Name, string Ids, Func<E2E, Task> Start, Func<E2E, Task> Stop);
 
-    private static Task Post(E2E e, string url) => e.Ingress.PostAsync(url, null).ContinueWith(t => t.Result.EnsureSuccessStatusCode());
-
     private static readonly Fault[] Faults =
     [
-        new("lost answers", "CAST-50 H-E6 LS-E3", e => Post(e, "/_e2e/fault?kind=lose_answer&n=20"), e => Post(e, "/_e2e/fault?kind=clear")),
-        new("unresolved commits", "R-E5 CAST-15 CAST-39", e => Post(e, "/_e2e/fault?kind=store_drop&n=40"), e => Post(e, "/_e2e/fault?kind=clear")),
-        new("rate limited", "H-E5 CAST-35", e => Post(e, "/_e2e/fault?kind=status&code=429&n=30&retry_after=1"), e => Post(e, "/_e2e/fault?kind=clear")),
-        new("503 before handling", "R-E5 CAST-39", e => Post(e, "/_e2e/fault?kind=status&code=503&n=30&retry_after=2"), e => Post(e, "/_e2e/fault?kind=clear")),
-        new("slow ingress", "R-E7 H-E9 CAST-38", e => Post(e, "/_e2e/fault?kind=delay&n=200&delay_ms=400"), e => Post(e, "/_e2e/fault?kind=clear")),
-        new("token expiring in flight", "R-E6 H-E9 UCA-E8", e => Post(e, "/_e2e/broker?lifetime_s=2&lie_s=3600"), e => Post(e, "/_e2e/broker?lifetime_s=4500&lie_s=0")),
-        new("broker unavailable", "H-E9 H-E4", e => Post(e, "/_e2e/broker?mode=unavailable"), e => Post(e, "/_e2e/broker?mode=ok")),
-        new("another person signs in", "H-E1 LS-E5", e => Post(e, $"/_e2e/broker?oid={E2E.Bob}"), e => Post(e, $"/_e2e/broker?oid={E2E.Alice}")),
+        new("lost answers", "CAST-50 H-E6 LS-E3", e => e.Post("/_e2e/fault?kind=lose_answer&n=20"), e => e.Post("/_e2e/fault?kind=clear")),
+        new("unresolved commits", "R-E5 CAST-15 CAST-39", e => e.Post("/_e2e/fault?kind=store_drop&n=40"), e => e.Post("/_e2e/fault?kind=clear")),
+        new("rate limited", "H-E5 CAST-39", e => e.Post("/_e2e/fault?kind=status&code=429&n=30&retry_after=1"), e => e.Post("/_e2e/fault?kind=clear")),
+        new("503 before handling", "R-E5 CAST-39", e => e.Post("/_e2e/fault?kind=status&code=503&n=30&retry_after=2"), e => e.Post("/_e2e/fault?kind=clear")),
+        new("slow ingress", "R-E7 H-E9 CAST-38", e => e.Post("/_e2e/fault?kind=delay&n=200&delay_ms=400"), e => e.Post("/_e2e/fault?kind=clear")),
+        new("token expiring in flight", "R-E6 UCA-E8", e => e.Post("/_e2e/broker?lifetime_s=2&lie_s=3600"), e => e.Post("/_e2e/broker?lifetime_s=4500&lie_s=0")),
+        new("broker unavailable", "H-E9 TM-E2", e => e.Post("/_e2e/broker?mode=unavailable"), e => e.Post("/_e2e/broker?mode=ok")),
+        new("another person signs in", "H-E1 LS-E5", e => e.Post($"/_e2e/broker?oid={E2E.Bob}"), e => e.Post($"/_e2e/broker?oid={E2E.Alice}")),
     ];
 
+    private sealed record Sent(string ReqSha, E2E.Got Got, double Ms);
+
     [Fact]
-    public async Task Many_tools_through_rotating_faults_keep_the_ledger_the_bounds_and_the_tools_latency()
+    public async Task Many_tools_through_rotating_faults_get_the_ingress_answers_unchanged_in_bounded_memory()
     {
-        OscopeTrace.Covers("FI", "H-E4 H-E6 H-E9 H-E1 R-E5 R-E6 R-E7 LS-E3 LS-E5 CAST-38 CAST-39 CAST-50 CAST-21");
+        OscopeTrace.Covers("FI", "R-E5 R-E6 R-E7 H-E1 H-E5 H-E6 H-E9 LS-E3 LS-E5 UCA-E4 UCA-E8 CAST-21 CAST-38 CAST-39 CAST-50");
         using var e = new E2E();
         await e.Reset();
         var seconds = int.Parse(Environment.GetEnvironmentVariable("OSCOPE_STRESS_SECONDS") ?? "120", CultureInfo.InvariantCulture);
-        var bound = long.Parse(Environment.GetEnvironmentVariable("OSCOPE_E2E_MAX_QUEUE_BYTES") ?? "1048576", CultureInfo.InvariantCulture);
         var pid = int.Parse(Environment.GetEnvironmentVariable("OSCOPE_E2E_FORWARDER_PID") ?? "0", CultureInfo.InvariantCulture);
         var proc = pid > 0 ? Process.GetProcessById(pid) : null;
-        var s0 = await e.Status();
+        var maxConcurrent = (await e.Status()).GetProperty("max_concurrent_requests").GetInt32();
+        var seq0 = await e.LastSeq();
         var ok0 = await e.IngressCount("ok");
 
-        // Bodies prepared once (a few sizes), so the tools' own work does not dominate.
+        // Bodies prepared once: OTLP samples of a few sizes, and some large undecodable ones
+        // (the ingress reads them whole, then answers 400) so the run moves many bytes.
         var bodies = new List<byte[]>();
         for (var i = 0; i < 12; i++) bodies.Add(await e.Sample(seed: 900_000 + i, spans: i * 40));
+        foreach (var mib in new[] { 1, 2, 4 }) bodies.Add(Rig.Body(mib << 20, mib));
+        var shas = bodies.Select(E2E.Sha).ToArray();
+
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
-        var latencies = new ConcurrentBag<double>();
-        var answers = new ConcurrentDictionary<int, long>();
-        long sentBytes = 0;
-        var tools = Enumerable.Range(0, 6).Select(t => Task.Run(async () =>
+        var sent = new ConcurrentBag<Sent>();
+        var violations = new ConcurrentQueue<string>();
+        long resets = 0;
+        const int tools = 8, perTool = 3; // 24 senders against the forwarder's bound
+        var senders = Enumerable.Range(0, tools * perTool).Select(t => Task.Run(async () =>
         {
             var rnd = new Random(t);
-            using var c = new HttpClient { BaseAddress = e.Forwarder.BaseAddress, Timeout = TimeSpan.FromSeconds(30) };
-            c.DefaultRequestHeaders.Authorization = e.Forwarder.DefaultRequestHeaders.Authorization;
+            using var c = new HttpClient { BaseAddress = e.Forwarder.BaseAddress, Timeout = TimeSpan.FromSeconds(60) };
+            c.DefaultRequestHeaders.Authorization = E2E.LocalKey();
+            c.DefaultRequestHeaders.TryAddWithoutValidation("x-langfuse-sdk-name", "stress"); // must never reach the ingress
             while (!stop.IsCancellationRequested)
             {
-                var b = bodies[rnd.Next(bodies.Count)];
-                var content = new ByteArrayContent(b);
+                var k = rnd.Next(bodies.Count);
+                var content = new ByteArrayContent(bodies[k]);
                 content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-protobuf");
                 var sw = Stopwatch.StartNew();
-                using var r = await c.PostAsync("/v1/traces", content);
-                latencies.Add(sw.Elapsed.TotalMilliseconds);
-                answers.AddOrUpdate((int)r.StatusCode, 1, (_, n) => n + 1);
-                if (r.StatusCode == HttpStatusCode.OK) Interlocked.Add(ref sentBytes, b.Length);
-                else await Task.Delay(TimeSpan.FromMilliseconds(rnd.Next(50, 300))); // a client honouring the 503's hint, roughly
+                try
+                {
+                    using var r = await c.PostAsync(rnd.Next(2) == 0 ? "/v1/traces" : "/api/public/otel/v1/traces", content);
+                    var got = await E2E.Read(r);
+                    sent.Add(new Sent(shas[k], got, sw.Elapsed.TotalMilliseconds));
+                    if (got.Seq is null && got.Local is null) violations.Enqueue($"answer {got.Status} neither the ingress's nor marked as the forwarder's");
+                    if (got.BodySha is { } bs && bs != shas[k]) violations.Enqueue($"seq {got.Seq}: the ingress read other bytes than the tool sent");
+                    if (got.Status >= 400) await Task.Delay(TimeSpan.FromMilliseconds(rnd.Next(50, 300))); // a client backing off, roughly
+                }
+                catch (HttpRequestException)
+                {
+                    Interlocked.Increment(ref resets); // an ingress answer cut off mid-body: the connection ends
+                }
                 await Task.Delay(rnd.Next(0, 20));
             }
         })).ToList();
 
-        var faultsRun = new List<string>();
-        var maxHeld = 0L;
+        var faultsRun = new ConcurrentQueue<string>();
         long rss0 = 0, rssMax = 0;
-        var violations = new List<string>();
+        var maxInFlight = 0;
         var chaos = Task.Run(async () =>
         {
             var rnd = new Random(42);
             while (!stop.IsCancellationRequested)
             {
                 var f = Faults[rnd.Next(Faults.Length)];
-                faultsRun.Add(f.Name);
+                faultsRun.Enqueue(f.Name);
                 await f.Start(e);
                 try { await Task.Delay(TimeSpan.FromSeconds(rnd.Next(2, 6)), stop.Token); }
                 catch (OperationCanceledException) { }
@@ -112,9 +125,9 @@ public class StressTests
             while (!stop.IsCancellationRequested)
             {
                 var s = await e.Status();
-                maxHeld = Math.Max(maxHeld, E2E.Get(s, "held_bytes"));
-                if (!s.GetProperty("balances").GetBoolean()) violations.Add($"ledger: {s}");
-                if (E2E.Get(s, "held_bytes") > bound) violations.Add($"held {E2E.Get(s, "held_bytes")} > {bound}");
+                var inFlight = s.GetProperty("in_flight").GetInt32();
+                maxInFlight = Math.Max(maxInFlight, inFlight);
+                if (inFlight > maxConcurrent) violations.Enqueue($"in flight {inFlight} > {maxConcurrent}");
                 if (proc is not null)
                 {
                     proc.Refresh();
@@ -125,46 +138,85 @@ public class StressTests
                 catch (OperationCanceledException) { }
             }
         });
-        await Task.WhenAll(tools);
+        await Task.WhenAll(senders);
         await chaos;
         await sampler;
-        // Faults cleared, Alice signed in: everything drains.
-        await Post(e, "/_e2e/fault?kind=clear");
-        await Post(e, $"/_e2e/broker?oid={E2E.Alice}&lifetime_s=4500&lie_s=0&mode=ok");
-        var s1 = await e.Drained(180);
-        var ok1 = await e.IngressCount("ok");
+        await e.Reset();
 
-        var accepted = E2E.Get(s1, "accepted") - E2E.Get(s0, "accepted");
-        var committed = E2E.Get(s1, "committed") - E2E.Get(s0, "committed");
-        var lat = latencies.OrderBy(x => x).ToArray();
+        // Match every answer the ingress gave with what a tool got.
+        var answers = await e.Answers(seq0);
+        var bySeq = sent.Where(s => s.Got.Seq is not null).GroupBy(s => s.Got.Seq!).ToDictionary(g => g.Key, g => g.ToList());
+        long moved = 0, lost = 0, matched = 0;
+        foreach (var a in answers)
+        {
+            moved += a.ReqBytes;
+            foreach (var h in a.Headers ?? [])
+                if (!E2E.AllowedAtIngress.Contains(h)) violations.Enqueue($"seq {a.Seq}: header {h} reached the ingress");
+            if (a.Lost)
+            {
+                lost++;
+                if (bySeq.ContainsKey(a.Seq.ToString(CultureInfo.InvariantCulture))) violations.Enqueue($"seq {a.Seq}: a lost answer reached a tool");
+                continue;
+            }
+            if (!bySeq.TryGetValue(a.Seq.ToString(CultureInfo.InvariantCulture), out var tool))
+            {
+                // A sender cut off mid-answer (a reset) never read the sequence number.
+                continue;
+            }
+            if (tool.Count != 1) violations.Enqueue($"seq {a.Seq}: {tool.Count} tool answers for one ingress answer");
+            var t = tool[0];
+            matched++;
+            if (t.Got.Status != a.Status || (t.Got.RetryAfter ?? "") != a.RetryAfter || t.Got.RespSha != a.RespSha256)
+                violations.Enqueue($"seq {a.Seq}: the ingress answered {a.Status} ra={a.RetryAfter} {a.RespSha256[..8]}, the tool got {t.Got.Status} ra={t.Got.RetryAfter} {t.Got.RespSha[..8]}");
+            if (a.ReqSha256.Length > 0 && a.ReqSha256 != t.ReqSha) violations.Enqueue($"seq {a.Seq}: the ingress read other bytes than the tool sent");
+        }
+        var local = sent.Where(s => s.Got.Local is not null).GroupBy(s => s.Got.Local!).ToDictionary(g => g.Key, g => (long)g.Count());
+        // Nothing replayed, nothing invented: every request that reached the ingress is one
+        // ingress answer one tool got, one lost answer (a 502 to the tool), or one reset (an
+        // answer cut off on its way back); every answer a tool got from the ingress is in its log.
+        var unread = answers.Count(a => !a.Lost && !bySeq.ContainsKey(a.Seq.ToString(CultureInfo.InvariantCulture)));
+        if (unread != resets) violations.Enqueue($"{unread} ingress answers reached no tool, but {resets} tool requests were reset");
+        var given = answers.Select(a => a.Seq.ToString(CultureInfo.InvariantCulture)).ToHashSet();
+        foreach (var s in bySeq.Keys.Where(k => !given.Contains(k))) violations.Enqueue($"a tool got seq {s}, which the ingress never gave");
+        if (local.GetValueOrDefault("ingress_error") != lost)
+            violations.Enqueue($"{lost} answers were lost at the ingress, but the tools got {local.GetValueOrDefault("ingress_error")} local 502s");
+        var ok1 = await e.IngressCount("ok");
+        var tool200 = sent.Count(s => s.Got.Status == 200);
+        // A 200 means committed: every 200 a tool got is an ingress commit (a lost answer commits too).
+        if (tool200 > ok1 - ok0 || ok1 - ok0 > tool200 + lost)
+            violations.Enqueue($"the tools got {tool200} 200s; the ingress committed {ok1 - ok0} with {lost} answers lost");
+        if (sent.Any(s => s.Got.Local is null && s.Got.Seq is null)) violations.Enqueue("an unmarked answer");
+
+        var lat = sent.Select(s => s.Ms).Order().ToArray();
         double P(double q) => lat.Length == 0 ? 0 : lat[Math.Min(lat.Length - 1, (int)(q * lat.Length))];
-        // The memory bound: the queue and the bodies being read, plus a margin for the runtime's
-        // own growth; it does not depend on how many bytes went through.
-        var rssBound = rss0 + 4 * (bound + 4 * 262144) + (96L << 20);
+        // The memory bound: what the forwarder holds per request in flight is a few buffers of
+        // 64 KiB, so its resident memory is the runtime's own plus a margin; it must not depend
+        // on how many bytes went through, which is many times the margin.
+        const long margin = 128L << 20;
+        var rssBound = rss0 + margin;
         var summary = new Dictionary<string, object>
         {
-            ["seconds"] = seconds, ["requests"] = lat.Length, ["answers"] = answers.ToDictionary(kv => kv.Key.ToString(CultureInfo.InvariantCulture), kv => kv.Value),
-            ["accepted"] = accepted, ["committed"] = committed, ["ingress_ok"] = ok1 - ok0, ["sent_bytes"] = sentBytes,
-            ["dropped"] = JsonSerializer.Deserialize<object>(s1.GetProperty("dropped").GetRawText())!,
-            ["dropped_maybe_landed"] = JsonSerializer.Deserialize<object>(s1.GetProperty("dropped_maybe_landed").GetRawText())!,
-            ["committed_after_unknown"] = E2E.Get(s1, "committed_after_unknown") - E2E.Get(s0, "committed_after_unknown"),
-            ["max_held_bytes"] = maxHeld, ["queue_bound"] = bound, ["rss_start"] = rss0, ["rss_max"] = rssMax, ["rss_bound"] = rssBound,
+            ["seconds"] = seconds, ["senders"] = tools * perTool, ["max_concurrent_requests"] = maxConcurrent, ["max_in_flight"] = maxInFlight,
+            ["requests"] = sent.Count, ["resets"] = resets,
+            ["answers"] = sent.GroupBy(s => s.Got.Status).ToDictionary(g => g.Key.ToString(CultureInfo.InvariantCulture), g => g.Count()),
+            ["local_answers"] = local, ["ingress_answers"] = answers.Count, ["matched"] = matched, ["lost"] = lost,
+            ["ingress_ok"] = ok1 - ok0, ["tool_200"] = tool200, ["moved_bytes"] = moved,
+            ["rss_start"] = rss0, ["rss_max"] = rssMax, ["rss_bound"] = rssBound,
             ["latency_ms_p50"] = P(0.5), ["latency_ms_p99"] = P(0.99), ["latency_ms_max"] = lat.Length == 0 ? 0 : lat[^1],
             ["faults"] = faultsRun.GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count()),
             ["fault_ids"] = Faults.ToDictionary(f => f.Name, f => f.Ids),
-            ["violations"] = violations,
+            ["violations"] = violations.Take(50).ToList(), ["violation_count"] = violations.Count,
         };
         var json = JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true });
         if (Environment.GetEnvironmentVariable("OSCOPE_STRESS_OUT") is { Length: > 0 } outPath) await File.WriteAllTextAsync(outPath, json);
         Console.WriteLine(json);
 
         Assert.Empty(violations);
-        Assert.True(s1.GetProperty("balances").GetBoolean(), $"ledger at the end: {s1}");
-        Assert.True(committed > 0, "nothing committed");
-        Assert.True(ok1 - ok0 >= committed, $"the ingress committed {ok1 - ok0}, fewer than the forwarder's {committed}");
-        Assert.True(lat.Length > 0 && lat[^1] < 2000, $"a tool waited {lat[^1]} ms (H-E9)");
-        Assert.True(maxHeld <= bound);
-        if (proc is not null) Assert.True(rssMax <= rssBound, $"resident memory {rssMax} > {rssBound} after {sentBytes} bytes");
-        Assert.True(sentBytes > 4 * bound, $"the run moved only {sentBytes} bytes: too little to say memory is bounded");
+        Assert.True(tool200 > 0, "nothing committed");
+        Assert.True(local.GetValueOrDefault("busy") > 0, "the concurrency bound was never reached: the run did not test it");
+        Assert.True(maxInFlight <= maxConcurrent);
+        if (proc is not null) Assert.True(rssMax <= rssBound, $"resident memory {rssMax} > {rssBound} after {moved} bytes");
+        var need = Math.Min(4 * margin, seconds * (4L << 20));
+        Assert.True(moved >= need, $"the run moved only {moved} bytes (want {need}): too little to say memory is bounded");
     }
 }

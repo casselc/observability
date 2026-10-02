@@ -1555,12 +1555,14 @@ jobs:
           path: ${{ github.workspace }}/_trace
           if-no-files-found: warn
 
-  # The device forwarder under stress (ci/forwarder.sh stress; D37, research/entra-ingress.md §10b):
-  # six tools through one forwarder process into the Go ingress harness while a chaos loop rotates
-  # the STPA faults (lost answers, unresolved commits, 429, 503, a slow ingress, tokens expiring in
-  # flight, the broker unavailable, another person signing in), for STRESS_SECONDS. Checked all
-  # along: the ledger (H-E4), the queue bound and the process's resident memory (R-E7), the tool's
-  # latency (H-E9); at the end, everything drains. The summary is the job's step summary.
+  # The device forwarder under stress (ci/forwarder.sh stress; D37, D40 as amended 2026-10-02,
+  # research/entra-ingress.md §10b): 24 senders through one forwarder process (the pass-through)
+  # into the Go ingress harness while a chaos loop rotates the STPA faults (lost answers,
+  # unresolved commits, 429, 503, a slow ingress, tokens expiring in flight, the broker
+  # unavailable, another person signing in), for STRESS_SECONDS. Checked: every ingress answer
+  # matched with what a tool got (status, Retry-After, body, the request body's hash, no tool
+  # header at the ingress, nothing replayed), the concurrency bound, and the process's resident
+  # memory under a bound independent of the bytes moved (R-E7). The summary is the step summary.
   forwarder-stress:
     needs: plan
     if: fromJSON(needs.plan.outputs.run)['forwarder-stress']

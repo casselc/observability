@@ -1212,7 +1212,7 @@ jobs:
     needs: plan
     if: fromJSON(needs.plan.outputs.run).model
     runs-on: ubuntu-24.04
-    timeout-minutes: 150  # the consumer designs run ~100 min since the CAST-50 rows (nightly 41)
+    timeout-minutes: 180  # the consumer designs run ~100 min since the CAST-50 rows (nightly 41); nightly 60 took 130 of 150 min (consumer_model.sh 114) before wmhistory_model.sh was added
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
